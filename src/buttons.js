@@ -9,7 +9,7 @@ const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, money,
+  buildAuctionView, buildCollectionView, buildGaragesView, money,
 } = require('./ui');
 const { buildMainMenu, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -72,7 +72,8 @@ async function settle(interaction) {
   // (Details liegen ohnehin im Postfach).
   const auctionWins = await storage.settle(guildId, userId).catch(() => []);
   for (const w of auctionWins) {
-    lines.push(`🏬 **Zuschlag:** ${w.label} für ${money(symbol, w.price)} — Inhalt im Postfach.`);
+    lines.push(`🏬 **Zuschlag:** ${w.label} für ${money(symbol, w.price)} — noch verschlossen, ` +
+      'öffne sie im Auktionshaus unter „Meine Garagen".');
   }
 
   // Was draußen steht, kann über Nacht etwas abbekommen haben.
@@ -1006,6 +1007,26 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     await interaction.editReply(
       await buildCollectionView({ guildId: gid(interaction), userId: uid(interaction) }));
+  },
+
+  /** Verschlossene Garagen ansehen. */
+  async sgar(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(
+      await buildGaragesView({ guildId: gid(interaction), userId: uid(interaction) }));
+  },
+
+  /** Eine ersteigerte Garage öffnen und den Inhalt aufdecken. */
+  async sopen(interaction, [garageId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = await storage.openGarage(guildId, userId, Number(garageId));
+    await interaction.editReply(await buildGaragesView({ guildId, userId }));
+    const note = res.ok
+      ? `🔓 **${res.garage.label} geöffnet!**\n${storage.revealBody(res.contents, res.carResult, res.net)}`
+      : '❌ Diese Garage gibt es nicht mehr.';
+    await interaction.followUp({ content: note.slice(0, 1900), flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Fundstück(e) beim Hehler verkaufen ('all' = alles). */

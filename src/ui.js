@@ -1361,18 +1361,26 @@ async function buildAuctionView({ guildId, userId }) {
   storage.ensureRound(guildId, now);
 
   const embed = new EmbedBuilder().setTitle('🏬 Auktionshaus').setColor(0x8e44ad);
-  const collectionBtn = new ButtonBuilder()
-    .setCustomId(`scol|${userId}`).setLabel('Meine Sammlung').setEmoji('🔎')
-    .setStyle(ButtonStyle.Secondary);
+
+  // Untere Reihe: Sammlung, ggf. verschlossene Garagen, Hauptmenü.
+  const bottomRow = () => {
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`scol|${userId}`).setLabel('Meine Sammlung').setEmoji('🔎')
+        .setStyle(ButtonStyle.Secondary));
+    const garages = db.countGarages(guildId, userId);
+    if (garages > 0) {
+      row.addComponents(new ButtonBuilder()
+        .setCustomId(`sgar|${userId}`).setLabel(`Meine Garagen (${garages})`).setEmoji('🔓')
+        .setStyle(ButtonStyle.Primary));
+    }
+    return row.addComponents(homeButton(userId));
+  };
 
   const round = db.activeRound(guildId, now);
   if (!round) {
     embed.setDescription(
       'Gerade läuft keine Auktion. Die nächste Runde kommt bald – schau später wieder rein.');
-    return {
-      embeds: [embed],
-      components: [new ActionRowBuilder().addComponents(collectionBtn, homeButton(userId))],
-    };
+    return { embeds: [embed], components: [bottomRow()] };
   }
 
   const lots = db.listRoundLots(guildId, round.id);
@@ -1415,8 +1423,41 @@ async function buildAuctionView({ guildId, userId }) {
     });
   }
 
-  embed.setFooter({ text: `Runde mit ${round.size} Garagen · Fundstücke landen in deiner Sammlung` });
-  rows.push(new ActionRowBuilder().addComponents(collectionBtn, homeButton(userId)));
+  embed.setFooter({ text: `Runde mit ${round.size} Garagen · Ersteigertes landet verschlossen bei „Meine Garagen"` });
+  rows.push(bottomRow());
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Ersteigerte, noch verschlossene Garagen – hier öffnet der Spieler sie. */
+async function buildGaragesView({ guildId, userId }) {
+  const symbol = await getSymbol(guildId);
+  const garages = db.listGarages(guildId, userId);
+
+  const embed = new EmbedBuilder().setTitle('🔓 Meine Garagen').setColor(0x8e44ad);
+  const navRow = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`sauc|${userId}`).setLabel('Auktionshaus').setEmoji('🏬')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`scol|${userId}`).setLabel('Sammlung').setEmoji('🔎')
+      .setStyle(ButtonStyle.Secondary),
+    homeButton(userId));
+
+  if (!garages.length) {
+    embed.setDescription('Keine verschlossenen Garagen. Ersteigere eine im 🏬 Auktionshaus!');
+    return { embeds: [embed], components: [navRow] };
+  }
+
+  embed.setDescription(
+    'Ersteigert, aber noch **verschlossen** – was drin ist, weißt du erst beim Öffnen. Trau dich!\n\n' +
+    garages.map((g) => `📦 **${g.label}** — bezahlt ${money(symbol, g.price)} \`#${g.id}\``).join('\n'));
+  embed.setFooter({ text: `${garages.length} verschlossene ${garages.length === 1 ? 'Garage' : 'Garagen'}` });
+
+  const rows = [];
+  rows.push(new ActionRowBuilder().addComponents(...garages.slice(0, 5).map((g) =>
+    new ButtonBuilder()
+      .setCustomId(`sopen|${g.id}|${userId}`)
+      .setLabel(`${g.label} öffnen`.slice(0, 40)).setEmoji('🔓').setStyle(ButtonStyle.Success))));
+  rows.push(navRow);
 
   return { embeds: [embed], components: rows };
 }
@@ -1592,7 +1633,7 @@ module.exports = {
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView,
+  buildAuctionView, buildCollectionView, buildGaragesView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money,
 };

@@ -263,6 +263,20 @@ db.exec(`
     found_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_loot_user ON storage_loot (guild_id, user_id, found_at);
+
+  -- Ersteigerte, aber NOCH VERSCHLOSSENE Garagen. Der Inhalt bleibt versteckt,
+  -- bis der Spieler die Garage aktiv öffnet (dann wird contents aufgelöst).
+  CREATE TABLE IF NOT EXISTS storage_garages (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    label    TEXT    NOT NULL,
+    price    INTEGER NOT NULL,
+    contents TEXT    NOT NULL,
+    value    INTEGER NOT NULL,
+    won_at   INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_garages_user ON storage_garages (guild_id, user_id, won_at);
 `);
 
 // Vermieter nachrüsten ('' = Markt/NPC).
@@ -715,6 +729,19 @@ const stmt = {
   deleteRounds: db.prepare('DELETE FROM storage_rounds WHERE guild_id = ?'),
   deleteLots: db.prepare('DELETE FROM storage_lots WHERE guild_id = ?'),
   deleteLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ?'),
+
+  // --- Storage-Wars: verschlossene Garagen ---
+  addGarage: db.prepare(
+    `INSERT INTO storage_garages (guild_id, user_id, label, price, contents, value, won_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+  listGarages: db.prepare(
+    'SELECT * FROM storage_garages WHERE guild_id = ? AND user_id = ? ORDER BY won_at ASC'),
+  getGarage: db.prepare('SELECT * FROM storage_garages WHERE guild_id = ? AND id = ?'),
+  removeGarage: db.prepare(
+    'DELETE FROM storage_garages WHERE guild_id = ? AND user_id = ? AND id = ?'),
+  countGarages: db.prepare(
+    'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
+  deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
 };
 
 /** Führt fn in einer Transaktion aus; bei einem Fehler wird alles zurückgerollt. */
@@ -1281,8 +1308,37 @@ function clearStorage(guildId) {
     stmt.deleteLots.run(guildId);
     stmt.deleteRounds.run(guildId);
     stmt.deleteLoot.run(guildId);
+    stmt.deleteGarages.run(guildId);
     return true;
   });
+}
+
+// --- Verschlossene Garagen (contents als JSON) ---
+
+function addGarage(guildId, userId, label, price, contents, value) {
+  return parseGarage(
+    stmt.addGarage.get(guildId, userId, label, price, JSON.stringify(contents), value, Date.now()));
+}
+
+function parseGarage(row) {
+  return { ...row, contents: JSON.parse(row.contents) };
+}
+
+function listGarages(guildId, userId) {
+  return stmt.listGarages.all(guildId, userId).map(parseGarage);
+}
+
+function getGarage(guildId, garageId) {
+  const row = stmt.getGarage.get(guildId, garageId);
+  return row ? parseGarage(row) : null;
+}
+
+function removeGarage(guildId, userId, garageId) {
+  return stmt.removeGarage.run(guildId, userId, garageId).changes > 0;
+}
+
+function countGarages(guildId, userId) {
+  return stmt.countGarages.get(guildId, userId).n;
 }
 
 /**
@@ -1406,6 +1462,7 @@ module.exports = {
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,
   finishLot, dueLots, purgeOldLots,
   addLoot, listLoot, lootSummary, getLoot, removeLoot, clearLoot, clearStorage, grantCar,
+  addGarage, listGarages, getGarage, removeGarage, countGarages,
   listListings, allListingsOfKind, getListing, createListing, cancelListing,
   takeListing, restoreListing,
   getEmployment, setEmployment, clearEmployment, recordShift, shiftsToday, consumeNamed,

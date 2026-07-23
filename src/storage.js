@@ -267,35 +267,48 @@ async function resolveLot(guildId, lot) {
     return { lotId: lot.id, status: 'void', winner, label, error: true };
   }
 
-  // Inhalt auflösen: Objekte -> Sammlung, Bargeld/Auto -> ggf. Bargeld.
-  const c = lot.contents;
-  for (const o of c.objects || []) db.addLoot(guildId, winner, o.name, o.value, lot.id);
+  // NICHT sofort aufdecken: die verschlossene Garage wandert ins Inventar des
+  // Gewinners. Aufmachen tut er selbst (openGarage) – Storage-Wars-Moment.
+  db.addGarage(guildId, winner, label, price, lot.contents, lot.value);
+  db.finishLot(guildId, lot.id, 'sold');
+
+  db.createMessage({
+    guildId, userId: winner, type: 'info',
+    title: `Zuschlag: ${label} für ${price.toLocaleString('de-DE')}`,
+    body: 'Die Garage ist noch **verschlossen**. Öffne sie im Auktionshaus unter ' +
+      '„Meine Garagen", um zu sehen, was drin steckt!',
+    amount: price,
+  });
+
+  return { lotId: lot.id, status: 'sold', winner, label, price };
+}
+
+/**
+ * Öffnet eine ersteigerte, verschlossene Garage und deckt den Inhalt auf:
+ * Objekte wandern in die Sammlung, Bargeld/Auto werden materialisiert. Erst
+ * lokal entfernen, dann gutschreiben (§7) – ein zweiter Klick findet nichts
+ * mehr, also kein doppeltes Aufdecken.
+ */
+async function openGarage(guildId, userId, garageId) {
+  const garage = db.getGarage(guildId, garageId);
+  if (!garage || garage.user_id !== userId) return { ok: false, reason: 'not_found' };
+  if (!db.removeGarage(guildId, userId, garageId)) return { ok: false, reason: 'not_found' };
+
+  const c = garage.contents;
+  for (const o of c.objects || []) db.addLoot(guildId, userId, o.name, o.value, null);
 
   let cashFound = c.cash || 0;
   let carResult = null;
   if (c.car) {
-    carResult = await applyCarReward(guildId, winner, c.car);
+    carResult = await applyCarReward(guildId, userId, c.car);
     if (carResult.cashedOut) cashFound += carResult.value;
   }
   if (cashFound > 0) {
-    await changeCash(guildId, winner, cashFound, `Fund: ${label}`).catch(() => {});
+    await changeCash(guildId, userId, cashFound, `Fund: ${garage.label}`).catch(() => {});
   }
 
-  db.finishLot(guildId, lot.id, 'sold');
-
-  const net = lot.value - price;
-  db.createMessage({
-    guildId, userId: winner, type: 'info',
-    title: `Zuschlag: ${label} für ${price.toLocaleString('de-DE')}`,
-    body: revealBody(c, carResult, net),
-    amount: lot.value,
-    itemId: c.car ? c.car.itemId : null,
-  });
-
-  return {
-    lotId: lot.id, status: 'sold', winner, label, price,
-    value: lot.value, net, contents: c, carResult,
-  };
+  const net = garage.value - garage.price;
+  return { ok: true, garage, contents: c, cashFound, carResult, value: garage.value, price: garage.price, net };
 }
 
 /**
@@ -363,5 +376,5 @@ module.exports = {
   FOUND_CAR_CONDITION, CAR_PRICE_CAP, MIN,
   objectMean, eligibleCars, avgCarValue, expectedValue, startPrice,
   rollLot, generateLot, ensureRound, minBid, isLive, placeBid,
-  settle, resolveLot, applyCarReward, sellLoot,
+  settle, resolveLot, applyCarReward, openGarage, revealBody, sellLoot,
 };

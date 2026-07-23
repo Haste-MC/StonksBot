@@ -150,7 +150,7 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const broke = await storage.placeBid(G, 'PLEITE', lot.id, storage.minBid(db.getLot(G, lot.id)), at);
   check('Gebot ohne Deckung abgelehnt', !broke.ok && broke.reason === 'insufficient_funds', broke.reason);
 
-  console.log('--- Abrechnung: Zuschlag, Reveal, Sammlung ---');
+  console.log('--- Abrechnung: Zuschlag → verschlossene Garage (kein Reveal) ---');
   cleanup();
   balanceOf(U).cash = 1000000; balanceOf(U).bank = 0; balanceOf(U).total = 1000000;
   db.clearLoot(G, U);
@@ -166,19 +166,31 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const res = await storage.settle(G, U, b2 + 2 * L, { lotDuration: L, roundGap: 1e15 });
   check('Zuschlag an U gemeldet', res.length === 1 && res[0].winner === U, JSON.stringify(res).slice(0, 80));
   check('Los als verkauft markiert', db.getLot(G, lot2.id).status === 'sold');
-  check('Gebot abgebucht + Bargeldfund gutgeschrieben',
-    balanceOf(U).total === cashBefore - 1200 + 500, String(balanceOf(U).total - cashBefore));
-  const loot = db.listLoot(G, U);
-  check('zwei Fundstücke in der Sammlung', loot.length === 2, String(loot.length));
-  check('Sammlungswert = 2800', db.lootSummary(G, U).value === 2800, String(db.lootSummary(G, U).value));
-  check('Reveal-Nachricht im Postfach',
-    db.listMessages(G, U, 1).items.some((m) => m.title.includes('Zuschlag')));
+  check('nur das Gebot abgebucht (noch kein Fund)',
+    balanceOf(U).total === cashBefore - 1200, String(balanceOf(U).total - cashBefore));
+  check('Garage liegt verschlossen im Inventar', db.countGarages(G, U) === 1, String(db.countGarages(G, U)));
+  check('noch nichts in der Sammlung', db.listLoot(G, U).length === 0);
+  check('Postfach: Garage ist verschlossen',
+    db.listMessages(G, U, 1).items.some((m) => m.body.includes('verschlossen')));
 
   console.log('--- Abrechnung ist idempotent ---');
   const balAfter = balanceOf(U).total;
   await storage.settle(G, U, b2 + 3 * L, { lotDuration: L, roundGap: 1e15 });
   check('zweite Abrechnung bucht nichts', balanceOf(U).total === balAfter);
-  check('kein zweites Fundstück-Paar', db.listLoot(G, U).length === 2);
+  check('keine zweite Garage', db.countGarages(G, U) === 1);
+
+  console.log('--- Garage aktiv öffnen deckt auf ---');
+  const garage = db.listGarages(G, U)[0];
+  const beforeOpen = balanceOf(U).total;
+  const opened = await storage.openGarage(G, U, garage.id);
+  check('öffnen ok, Netto = 3300 − 1200', opened.ok && opened.net === 2100, JSON.stringify(opened).slice(0, 80));
+  check('Bargeldfund gutgeschrieben (+500)', balanceOf(U).total === beforeOpen + 500,
+    String(balanceOf(U).total - beforeOpen));
+  check('zwei Fundstücke in der Sammlung', db.listLoot(G, U).length === 2, String(db.listLoot(G, U).length));
+  check('Sammlungswert = 2800', db.lootSummary(G, U).value === 2800, String(db.lootSummary(G, U).value));
+  check('Garage nach dem Öffnen weg', db.countGarages(G, U) === 0);
+  const reopen = await storage.openGarage(G, U, garage.id);
+  check('zweites Öffnen findet nichts', !reopen.ok && reopen.reason === 'not_found');
 
   console.log('--- kein Bieter → unsold; zahlungsunfähig → void ---');
   cleanup();
