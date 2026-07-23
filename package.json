@@ -1,0 +1,38 @@
+{
+  "name": "unbelievaboat-shop-bot",
+  "version": "1.0.0",
+  "description": "Discord-Bot für das UnbelievaBoat-Economy: Shop, Kauf, Inventar & Guthaben.",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "deploy": "node src/deploy-commands.js",
+    "test": "node test/db.test.js && node test/market.test.js && node test/menu.test.js && node test/brands.test.js && node test/jobs.test.js && node test/shifts.test.js && node test/property.test.js && node test/landlord.test.js && node test/estate-market.test.js && node test/condition.test.js && node test/npc.test.js && node test/buyers.test.js && node test/tenants.test.js && node test/casino.test.js && node test/level.test.js && node test/storage.test.js",
+    "seed": "node src/seed-cars.js",
+    "images": "node scripts/fetch-images.js",
+    "audit": "node scripts/audit-images.js",
+    "seed:gear": "node src/seed-gear.js",
+    "seed:props": "node src/seed-properties.js",
+    "images:props": "node scripts/fetch-property-images.js",
+    "sync:images": "node scripts/sync-images.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "discord",
+    "discord.js",
+    "unbelievaboat",
+    "economy",
+    "shop"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.27.0",
+    "dotenv": "^17.4.2",
+    "unb-api": "^1.4.0"
+  },
+  "overrides": {
+    "axios": "^1.18.1"
+  }
+}

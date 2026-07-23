@@ -1,0 +1,8 @@
+node_modules/
+.env
+*.log
+.idea/
+.claude/
+
+# Lokale Shop-Datenbank (Artikel & Inventare)
+data/
