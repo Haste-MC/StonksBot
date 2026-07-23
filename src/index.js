@@ -3,8 +3,17 @@ const path = require('node:path');
 const { Client, Collection, GatewayIntentBits, MessageFlags } = require('discord.js');
 const { discordToken } = require('./config');
 const { buttons, modals, parseId } = require('./buttons');
+const nudges = require('./nudges');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+// Nachrichten mitlesen (für die !work-Nudges) nur, wenn das Feature an ist –
+// sonst würde der Bot das privilegierte Message-Content-Intent anfordern und
+// ohne Freischaltung im Developer Portal gar nicht erst starten.
+const intents = [GatewayIntentBits.Guilds];
+if (nudges.enabled) {
+  intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
+}
+
+const client = new Client({ intents });
 
 // Alle Commands aus src/commands laden.
 client.commands = new Collection();
@@ -20,7 +29,15 @@ for (const file of fs.readdirSync(commandsDir).filter((f) => f.endsWith('.js')))
 
 client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
+  if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
 });
+
+// Werbe-Nudges bei UnbelievaBoat-Einkommensbefehlen (nur wenn aktiviert).
+if (nudges.enabled) {
+  client.on('messageCreate', (message) => {
+    nudges.handleMessage(message).catch(() => {});
+  });
+}
 
 client.on('interactionCreate', async (interaction) => {
   if (interaction.isButton()) return handleButton(interaction);
