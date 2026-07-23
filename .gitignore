@@ -4,5 +4,6 @@ node_modules/
 .idea/
 .claude/
 
-# Lokale Shop-Datenbank (Artikel & Inventare)
-data/
+# Lokale Shop-Datenbank (Artikel & Inventare) – NUR das Top-Level-data,
+# NICHT src/data/ (Kataloge)! Führender Slash = Anker an die Repo-Wurzel.
+/data/
