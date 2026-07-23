@@ -46,9 +46,23 @@ const CAR_PRICE_CAP = 40000;
 
 const CASH_MEAN = (data.CASH_RANGE[0] + data.CASH_RANGE[1]) / 2;
 
-/** Mittlerer Wert eines einzelnen Fundobjekts (gleichverteilte Auswahl). */
+/** Mittlerer Basiswert eines Objekts (ohne Seltenheit/Zustand). */
 function objectMean() {
   return data.OBJECTS.reduce((s, o) => s + (o.range[0] + o.range[1]) / 2, 0) / data.OBJECTS.length;
+}
+
+/** Gewichteter Erwartungswert eines Multiplikators über eine Stufenliste. */
+function expectedMultiplier(list) {
+  const total = list.reduce((s, e) => s + e.weight, 0);
+  return list.reduce((s, e) => s + (e.weight / total) * e.mult, 0);
+}
+
+const expectedRarityMultiplier = () => expectedMultiplier(data.RARITIES);
+const expectedConditionMultiplier = () => expectedMultiplier(data.CONDITIONS);
+
+/** Erwarteter Wert EINES Objekts: Basiswert × E[Seltenheit] × E[Zustand]. */
+function expectedObjectValue() {
+  return objectMean() * expectedRarityMultiplier() * expectedConditionMultiplier();
 }
 
 /** Auffindbare Autos dieses Servers (unter dem Preisdeckel). */
@@ -69,7 +83,7 @@ function avgCarValue(guildId) {
  */
 function expectedValue(tier, carValue = 0) {
   const countMean = (tier.objectCount[0] + tier.objectCount[1]) / 2;
-  return countMean * objectMean() + tier.cashChance * CASH_MEAN + tier.carChance * carValue;
+  return countMean * expectedObjectValue() + tier.cashChance * CASH_MEAN + tier.carChance * carValue;
 }
 
 function startPrice(tier, carValue) {
@@ -84,6 +98,18 @@ function randInt([min, max], random) {
 }
 
 /**
+ * Würfelt EIN Fundobjekt: Basiswert × Seltenheit × Zustand. Seltenheit und
+ * Zustand werden mitgeführt (für Anzeige/Flex und späteren Verkaufswert).
+ */
+function rollObject(random = Math.random) {
+  const base = data.pick(data.OBJECTS, random);
+  const rarity = data.weighted(data.RARITIES, random);
+  const cond = data.weighted(data.CONDITIONS, random);
+  const value = Math.max(1, Math.round(data.between(base.range, random) * rarity.mult * cond.mult));
+  return { name: base.name, value, rarity: rarity.id, condition: cond.id };
+}
+
+/**
  * Würfelt EIN Los (ohne DB) – Inhalt, Wert, Startpreis, Flavor. Ausgelagert,
  * damit der Monte-Carlo-Test tausende Lose ohne DB-Schreibzugriffe prüfen kann.
  */
@@ -94,10 +120,7 @@ function rollLot(guildId, random = Math.random) {
 
   const k = randInt(tier.objectCount, random);
   const objects = [];
-  for (let i = 0; i < k; i++) {
-    const o = data.pick(data.OBJECTS, random);
-    objects.push({ name: o.name, value: Math.max(1, Math.round(data.between(o.range, random))) });
-  }
+  for (let i = 0; i < k; i++) objects.push(rollObject(random));
 
   const cash = random() < tier.cashChance
     ? Math.max(1, Math.round(data.between(data.CASH_RANGE, random))) : 0;
@@ -295,7 +318,9 @@ async function openGarage(guildId, userId, garageId) {
   if (!db.removeGarage(guildId, userId, garageId)) return { ok: false, reason: 'not_found' };
 
   const c = garage.contents;
-  for (const o of c.objects || []) db.addLoot(guildId, userId, o.name, o.value, null);
+  for (const o of c.objects || []) {
+    db.addLoot(guildId, userId, o.name, o.value, o.rarity, o.condition, null);
+  }
 
   let cashFound = c.cash || 0;
   let carResult = null;
@@ -331,7 +356,11 @@ function revealBody(contents, carResult, net) {
   const objs = contents.objects || [];
   if (objs.length) {
     lines.push('**Fundstücke** (in deiner Sammlung):');
-    lines.push(objs.map((o) => `• ${o.name}`).join('\n'));
+    lines.push(objs.map((o) => {
+      const r = data.rarityOf(o.rarity);
+      const c = data.conditionOf(o.condition);
+      return `• ${r.emoji} **${o.name}** — _${r.label}, ${c.label}_`;
+    }).join('\n'));
   }
   if (contents.cash > 0) lines.push(`💵 Bargeld gefunden: ${contents.cash.toLocaleString('de-DE')}`);
   if (carResult) {
@@ -374,7 +403,8 @@ async function sellLoot(guildId, userId, lootId = null) {
 module.exports = {
   HOUSE_MARGIN, LOT_DURATION_MS, ROUND_GAP_MS, ROUND_SIZE, BID_INCREMENT,
   FOUND_CAR_CONDITION, CAR_PRICE_CAP, MIN,
-  objectMean, eligibleCars, avgCarValue, expectedValue, startPrice,
-  rollLot, generateLot, ensureRound, minBid, isLive, placeBid,
+  objectMean, expectedMultiplier, expectedRarityMultiplier, expectedConditionMultiplier,
+  expectedObjectValue, eligibleCars, avgCarValue, expectedValue, startPrice,
+  rollObject, rollLot, generateLot, ensureRound, minBid, isLive, placeBid,
   settle, resolveLot, applyCarReward, openGarage, revealBody, sellLoot,
 };

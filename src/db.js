@@ -279,6 +279,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_garages_user ON storage_garages (guild_id, user_id, won_at);
 `);
 
+// Seltenheit & Zustand an Fundstücken nachrüsten (für Anzeige/Flex).
+const lootColumns = new Set(
+  db.prepare('PRAGMA table_info(storage_loot)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['rarity', "TEXT NOT NULL DEFAULT ''"],
+  ['condition', "TEXT NOT NULL DEFAULT ''"],
+]) {
+  if (!lootColumns.has(column)) db.exec(`ALTER TABLE storage_loot ADD COLUMN ${column} ${definition}`);
+}
+
 // Vermieter nachrüsten ('' = Markt/NPC).
 const rentalColumns = new Set(
   db.prepare('PRAGMA table_info(rentals)').all().map((c) => c.name));
@@ -715,8 +725,8 @@ const stmt = {
 
   // --- Storage-Wars: Fundstücke (Sammlung) ---
   addLoot: db.prepare(
-    `INSERT INTO storage_loot (guild_id, user_id, name, value, lot_id, found_at)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING *`),
+    `INSERT INTO storage_loot (guild_id, user_id, name, value, rarity, condition, lot_id, found_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
   listLoot: db.prepare(
     `SELECT * FROM storage_loot WHERE guild_id = ? AND user_id = ?
      ORDER BY value DESC, found_at DESC`),
@@ -1277,8 +1287,8 @@ function purgeOldLots(guildId, before) {
   return stmt.purgeOldLots.run(guildId, before).changes;
 }
 
-function addLoot(guildId, userId, name, value, lotId = null) {
-  return stmt.addLoot.get(guildId, userId, name, value, lotId, Date.now());
+function addLoot(guildId, userId, name, value, rarity = '', condition = '', lotId = null) {
+  return stmt.addLoot.get(guildId, userId, name, value, rarity, condition, lotId, Date.now());
 }
 
 function listLoot(guildId, userId) {

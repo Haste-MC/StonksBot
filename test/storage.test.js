@@ -9,8 +9,20 @@
  */
 const db = require('../src/db');
 const storage = require('../src/storage');
+const data = require('../src/data/storage');
 const cond = require('../src/condition');
 const unb = require('../src/unb');
+
+/** Deterministischer PRNG (mulberry32) – macht die Monte-Carlo-Läufe reproduzierbar. */
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
 
 const G = 'TESTGUILD_STORAGE';
 const U = 'SWUSER';
@@ -59,35 +71,73 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
 }
 
 (async () => {
-  console.log('--- KEIN GELDDRUCKER: E[Inhalt] ≤ Startpreis (Monte-Carlo) ---');
-  const N = 20000;
-  let sumV = 0, sumS = 0, jackpots = 0, busts = 0;
+  console.log('--- KEIN GELDDRUCKER: Startpreis ≥ E[Inhalt] (analytisch) ---');
+  // Der eigentliche Beweis ist analytisch: bei Heavy-Tail-Verteilungen ist der
+  // empirische Mittelwert zu wackelig. Wir zeigen, dass der Erwartungswert die
+  // Seltenheits- UND Zustands-Multiplikatoren korrekt enthält und der Startpreis
+  // darüber liegt (Hausvorteil).
+  const totR = data.RARITIES.reduce((s, r) => s + r.weight, 0);
+  const handRar = data.RARITIES.reduce((s, r) => s + (r.weight / totR) * r.mult, 0);
+  const totC = data.CONDITIONS.reduce((s, c) => s + c.weight, 0);
+  const handCond = data.CONDITIONS.reduce((s, c) => s + (c.weight / totC) * c.mult, 0);
+  check('E[Seltenheit] == Σ p·mult', Math.abs(storage.expectedRarityMultiplier() - handRar) < 1e-9);
+  check('E[Zustand] == Σ p·mult', Math.abs(storage.expectedConditionMultiplier() - handCond) < 1e-9);
+  check('E[Objekt] = Basis × E[Seltenheit] × E[Zustand]',
+    Math.abs(storage.expectedObjectValue() - storage.objectMean() * handRar * handCond) < 1e-6);
+
+  const carAvg = storage.avgCarValue(G);
+  const edgeOk = data.TIERS.every((t) => {
+    const e = storage.expectedValue(t, carAvg);
+    const s = storage.startPrice(t, carAvg);
+    return s >= e && s <= e * storage.HOUSE_MARGIN + 1;   // = round(E × Marge)
+  });
+  check('Startpreis ≥ E[Inhalt] für jede Stufe (Hausvorteil)', edgeOk);
+
+  console.log('--- Drop-Chancen: legendary 1 %, mythic 0,5 %, Tail respektlos selten ---');
+  const rng = mulberry32(1234567);
+  const N = 400000;
+  const counts = {};
   for (let i = 0; i < N; i++) {
-    const r = storage.rollLot(G);
+    const o = storage.rollObject(rng);
+    counts[o.rarity] = (counts[o.rarity] || 0) + 1;
+  }
+  const freq = (id) => (counts[id] || 0) / N;
+  console.log(`    common ${(freq('common') * 100).toFixed(1)}% · legendary ${(freq('legendary') * 100).toFixed(3)}% ` +
+    `· mythic ${(freq('mythic') * 100).toFixed(3)}% · godlike ${(freq('godlike') * 100).toFixed(4)}%`);
+  check('common ist mit Abstand am häufigsten', freq('common') > 0.55);
+  check('legendary ≈ 1 % (±0,3)', Math.abs(freq('legendary') - 0.01) < 0.003, String(freq('legendary')));
+  check('mythic ≈ 0,5 % (±0,2)', Math.abs(freq('mythic') - 0.005) < 0.002, String(freq('mythic')));
+  const order = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'godlike'];
+  check('Häufigkeit fällt mit der Seltenheit',
+    order.every((id, i) => i === 0 || (counts[id] || 0) <= (counts[order[i - 1]] || 0)),
+    order.map((id) => `${id}:${counts[id] || 0}`).join(' '));
+  check('alle Stufen ab Godlike jeweils < 0,1 %',
+    ['godlike', 'cosmic', 'primordial', 'celestial', 'eternal', 'ascended', 'transcendent', 'omnipotent', 'origin']
+      .every((id) => freq(id) < 0.001));
+
+  console.log('--- Wert- & Zustands-Multiplikatoren ---');
+  check('beschädigt = 0,4×', data.conditionOf('beschaedigt').mult === 0.4);
+  check('Sammlerzustand = 3×', data.conditionOf('sammlerzustand').mult === 3.0);
+  check('Seltenheits-Multiplikator steigt streng',
+    data.RARITIES.every((r, i) => i === 0 || r.mult > data.RARITIES[i - 1].mult));
+  check('15 Seltenheitsstufen', data.RARITIES.length === 15, String(data.RARITIES.length));
+
+  console.log('--- Faucet-Richtung empirisch (seeded) + Jackpots/Nieten ---');
+  const rng2 = mulberry32(424242);
+  let sumV = 0, sumS = 0, jackpots = 0, busts = 0;
+  const M = 20000;
+  for (let i = 0; i < M; i++) {
+    const r = storage.rollLot(G, rng2);
     sumV += r.value; sumS += r.startPrice;
     if (r.value > r.startPrice) jackpots++;
     if (r.value < 0.5 * r.startPrice) busts++;
   }
-  const meanV = sumV / N, meanS = sumS / N;
+  const meanV = sumV / M, meanS = sumS / M;
   console.log(`    Ø Inhalt ${Math.round(meanV)} · Ø Startpreis ${Math.round(meanS)} ` +
     `· RTP ${(meanV / meanS * 100).toFixed(1)} % · Jackpots ${jackpots} · Nieten ${busts}`);
-  check('Ø Inhalt ≤ Ø Startpreis (kein Faucet)', meanV <= meanS, `${meanV} vs ${meanS}`);
-  check('aber nicht zu geizig (Ø Inhalt ≥ 70 % Startpreis)', meanV >= 0.7 * meanS);
-  check('Jackpots kommen vor (Inhalt > Preis)', jackpots > 0);
-  check('Nieten kommen vor (Inhalt < halber Preis)', busts > 0);
-
-  console.log('--- Erwartungswert passt zum empirischen Mittel ---');
-  const data = require('../src/data/storage');
-  const carAvg = storage.avgCarValue(G);
-  const kleinTier = data.TIERS.find((t) => t.id === 'klein');
-  let sK = 0, nK = 0;
-  for (let i = 0; i < 30000; i++) {
-    const r = storage.rollLot(G);
-    if (r.tier === 'klein') { sK += r.value; nK++; }
-  }
-  const empirical = sK / nK, analytic = storage.expectedValue(kleinTier, carAvg);
-  check('E[V|klein] ≈ empirisch (±8 %)',
-    Math.abs(empirical - analytic) / analytic < 0.08, `${Math.round(empirical)} vs ${Math.round(analytic)}`);
+  check('Ø Inhalt ≤ Ø Startpreis (kein Faucet)', meanV <= meanS, `${Math.round(meanV)} vs ${Math.round(meanS)}`);
+  check('Jackpots kommen vor', jackpots > 0);
+  check('Nieten kommen vor', busts > 0);
 
   console.log('--- ensureRound: 4–7 Garagen, gestaffelt ---');
   cleanup();

@@ -1203,13 +1203,16 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     },
   );
 
-  // Storage-Wars-Sammlung, falls vorhanden.
+  // Storage-Wars-Sammlung, falls vorhanden (mit dem wertvollsten Stück als Flex).
   const collection = db.lootSummary(guildId, owner);
   if (collection.n > 0) {
+    const best = db.listLoot(guildId, owner)[0];
+    const bestR = best ? require('./data/storage').rarityOf(best.rarity) : null;
     embed.addFields({
       name: '🏺 Sammlung',
       value: `${collection.n} ${collection.n === 1 ? 'Fundstück' : 'Fundstücke'} · ` +
-        `Schätzwert ${money(symbol, collection.value)}`,
+        `Schätzwert ${money(symbol, collection.value)}` +
+        (best ? `\nTop: ${bestR.emoji} ${best.name} _(${bestR.label})_` : ''),
       inline: true,
     });
   }
@@ -1479,8 +1482,13 @@ async function buildCollectionView({ guildId, userId }) {
     return { embeds: [embed], components: [backRow] };
   }
 
-  embed.setDescription(loot.slice(0, 20)
-    .map((l) => `• **${l.name}** — ${money(symbol, l.value)} \`#${l.id}\``).join('\n'));
+  const sw = require('./data/storage');
+  embed.setDescription(loot.slice(0, 15).map((l) => {
+    const r = sw.rarityOf(l.rarity);
+    const c = sw.conditionOf(l.condition);
+    return `${r.emoji} **${l.name}** — ${money(symbol, l.value)} \`#${l.id}\`\n` +
+      `　_${r.label} · ${c.emoji} ${c.label}_`;
+  }).join('\n'));
   embed.addFields({ name: 'Gesamt-Schätzwert', value: `${money(symbol, summary.value)} (${summary.n} Stück)` });
   embed.setFooter({ text: 'Behalten zum Angeben – oder beim Hehler zu Bargeld machen.' });
 
