@@ -1043,17 +1043,22 @@ async function buildInboxView({ guildId, userId, page = 1 }) {
     };
   }
 
-  embed.setDescription(items.map((m) => {
+  const blocks = items.map((m) => {
     const style = MESSAGE_STYLE[m.type] ?? MESSAGE_STYLE.info;
     const unread = m.read_at ? '' : ' 🔵';
-    const lines = [`${style.emoji} **${m.title}**${unread}`];
+    const lines = [`${style.emoji} **${m.title}**${unread}  \`#${m.id}\``];
 
     if (m.amount) {
       lines.push(m.type === 'bill'
         ? `Forderung: ${money(symbol, m.amount)}`
         : `Betrag: ${money(symbol, m.amount)}`);
     }
-    if (m.body) lines.push(`> ${m.body.replace(/\n/g, '\n> ')}`);
+    // Lange Texte (z.B. Patchnotes) kürzen, damit die Beschreibung nicht
+    // über das Discord-Limit von 4096 Zeichen läuft.
+    if (m.body) {
+      const body = m.body.length > 900 ? `${m.body.slice(0, 900)}…` : m.body;
+      lines.push(`> ${body.replace(/\n/g, '\n> ')}`);
+    }
 
     if (m.expires_at) {
       const left = m.expires_at - Date.now();
@@ -1063,14 +1068,36 @@ async function buildInboxView({ guildId, userId, page = 1 }) {
         : `_Gültig noch ${hours} h_`);
     }
     return lines.join('\n');
-  }).join('\n\n'));
+  });
+
+  // Nur so viele Blöcke zeigen, wie ins Embed passen – der Rest bleibt über
+  // die Blätter-Buttons erreichbar.
+  const shown = [];
+  let used = 0;
+  for (const block of blocks) {
+    if (used + block.length + 2 > 3900) break;
+    shown.push(block);
+    used += block.length + 2;
+  }
+  if (shown.length < blocks.length) {
+    shown.push(`_… ${blocks.length - shown.length} weitere auf dieser Seite ausgeblendet._`);
+  }
+  embed.setDescription(shown.join('\n\n'));
 
   const unread = db.countUnread(guildId, userId);
   embed.setFooter({
     text: `${total} offen${unread ? ` · ${unread} ungelesen` : ''} · Seite ${p}/${totalPages}`,
   });
 
-  const rows = [navigationRow('inbox', p, totalPages, userId)];
+  // "Leeren" sitzt im freien Slot der Navigationszeile – spart eine Reihe.
+  const deletable = items.filter((m) => m.type !== 'bill');
+  const clearButton = db.countDeletable(guildId, userId) > 0
+    ? new ButtonBuilder()
+      .setCustomId(`mclear|${userId}`).setLabel('Leeren').setEmoji('🧹')
+      .setStyle(ButtonStyle.Danger)
+    : null;
+
+  const rows = [navigationRow('inbox', p, totalPages, userId, clearButton)];
 
   // Aktionen: Angebote annehmen/ablehnen, Rechnungen bezahlen.
   const actionable = items.filter((m) => m.type === 'offer' || m.type === 'bill');
@@ -1094,6 +1121,15 @@ async function buildInboxView({ guildId, userId, page = 1 }) {
           .setStyle(ButtonStyle.Danger),
       ));
     }
+  }
+
+  // Einzelne Nachrichten wegräumen (Rechnungen nicht – das sind Schulden).
+  if (deletable.length && rows.length < 5) {
+    rows.push(new ActionRowBuilder().addComponents(...deletable.slice(0, 5).map((m) =>
+      new ButtonBuilder()
+        .setCustomId(`mdel|${m.id}|${userId}`)
+        .setLabel(m.title.slice(0, 35)).setEmoji('🗑️')
+        .setStyle(ButtonStyle.Secondary))));
   }
 
   // Gelesen markieren, sobald das Postfach geöffnet wurde.

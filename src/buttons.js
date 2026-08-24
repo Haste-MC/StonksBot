@@ -9,7 +9,7 @@ const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, buildGaragesView, money,
+  buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView, money,
 } = require('./ui');
 const { buildMainMenu, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -22,6 +22,7 @@ const buyers = require('./buyers');
 const bills = require('./bills');
 const tenants = require('./tenants');
 const storage = require('./storage');
+const patchnotes = require('./patchnotes');
 
 /** Fehlermeldungen für Anzeigen privater Anbieter. */
 function npcFailure(result, symbol) {
@@ -271,7 +272,10 @@ const buttons = {
     const brand = rest.length > 1 ? rest.slice(0, -1).join('|') : null;
 
     // Vor dem Anzeigen abrechnen, damit Stellplätze und Mietstatus stimmen.
-    const notice = RENT_RELEVANT.has(entryId) ? await settle(interaction) : null;
+    const settled = RENT_RELEVANT.has(entryId) ? await settle(interaction) : null;
+    // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
+    const news = patchnotes.deliver(gid(interaction), uid(interaction));
+    const notice = [news, settled].filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1007,6 +1011,36 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     await interaction.editReply(
       await buildCollectionView({ guildId: gid(interaction), userId: uid(interaction) }));
+  },
+
+  /** Eine Nachricht wegräumen (Rechnungen sind geschützt). */
+  async mdel(interaction, [messageId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const ok = db.deleteMessage(guildId, userId, Number(messageId));
+    await interaction.editReply(await buildInboxView({ guildId, userId }));
+    if (!ok) {
+      await interaction.followUp({
+        content: '🧾 Rechnungen lassen sich nicht löschen – die musst du bezahlen.',
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+    }
+  },
+
+  /** Postfach leeren – alles außer offenen Rechnungen. */
+  async mclear(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const removed = db.clearMessages(guildId, userId);
+    const bills = db.listMessages(guildId, userId, 1).total;
+    await interaction.editReply(await buildInboxView({ guildId, userId }));
+    await interaction.followUp({
+      content: `🧹 ${removed} ${removed === 1 ? 'Nachricht' : 'Nachrichten'} gelöscht.` +
+        (bills > 0 ? ` ${bills} offene ${bills === 1 ? 'Rechnung bleibt' : 'Rechnungen bleiben'} bestehen.` : ''),
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Verschlossene Garagen ansehen. */

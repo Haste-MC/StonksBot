@@ -279,6 +279,13 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_garages_user ON storage_garages (guild_id, user_id, won_at);
 `);
 
+// Zuletzt gesehene Patchnotes-Version nachrüsten ('' = noch nie welche gesehen).
+const statsColumns = new Set(
+  db.prepare('PRAGMA table_info(player_stats)').all().map((c) => c.name));
+if (!statsColumns.has('seen_version')) {
+  db.exec("ALTER TABLE player_stats ADD COLUMN seen_version TEXT NOT NULL DEFAULT ''");
+}
+
 // Seltenheit & Zustand an Fundstücken nachrüsten (für Anzeige/Flex).
 const lootColumns = new Set(
   db.prepare('PRAGMA table_info(storage_loot)').all().map((c) => c.name));
@@ -512,6 +519,19 @@ const stmt = {
   expireMessages: db.prepare(
     `UPDATE messages SET resolved = 'expired'
      WHERE guild_id = ? AND resolved IS NULL AND expires_at IS NOT NULL AND expires_at <= ?`),
+  // Eine Nachricht wegräumen. Rechnungen sind ausgenommen: sie sind Schulden,
+  // die sich nicht per Klick wegwischen lassen dürfen (der Filter steckt
+  // bewusst im SQL, damit ihn kein Aufrufer vergessen kann).
+  deleteMessage: db.prepare(
+    `UPDATE messages SET resolved = 'deleted'
+     WHERE guild_id = ? AND user_id = ? AND id = ? AND resolved IS NULL AND type <> 'bill'`),
+  clearMessages: db.prepare(
+    `UPDATE messages SET resolved = 'deleted'
+     WHERE guild_id = ? AND user_id = ? AND resolved IS NULL AND type <> 'bill'`),
+  countDeletable: db.prepare(
+    `SELECT COUNT(*) AS n FROM messages
+     WHERE guild_id = ? AND user_id = ? AND resolved IS NULL AND type <> 'bill'`),
+
   // Offene Angebote zu einem Inserat – beim Verkauf hinfällig.
   cancelOffersFor: db.prepare(
     `UPDATE messages SET resolved = 'expired'
@@ -570,6 +590,7 @@ const stmt = {
      ORDER BY i.price DESC, i.id ASC`),
 
   getStreetWatch: db.prepare('SELECT * FROM street_watch WHERE guild_id = ? AND user_id = ?'),
+  clearStreetWatch: db.prepare('DELETE FROM street_watch WHERE guild_id = ? AND user_id = ?'),
   setStreetWatch: db.prepare(
     `INSERT INTO street_watch (guild_id, user_id, last_check) VALUES (?, ?, ?)
      ON CONFLICT (guild_id, user_id) DO UPDATE SET last_check = excluded.last_check`),
@@ -681,6 +702,9 @@ const stmt = {
   setTagline: db.prepare(
     `INSERT INTO player_stats (guild_id, user_id, tagline) VALUES (?, ?, ?)
      ON CONFLICT (guild_id, user_id) DO UPDATE SET tagline = excluded.tagline`),
+  setSeenVersion: db.prepare(
+    `INSERT INTO player_stats (guild_id, user_id, seen_version) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET seen_version = excluded.seen_version`),
   // Kaufwert aller eigenen Immobilien – fürs Profil/Networth, analog garageValue.
   totalPropertyValue: db.prepare(
     `SELECT COALESCE(SUM(i.price * inv.quantity), 0) AS value
@@ -973,6 +997,25 @@ function cancelOffersFor(guildId, listingId) {
   return stmt.cancelOffersFor.run(guildId, listingId).changes;
 }
 
+/**
+ * Räumt eine Nachricht weg. Rechnungen bleiben bestehen – Schulden lassen sich
+ * nicht wegklicken.
+ * @returns {boolean} true, wenn wirklich etwas entfernt wurde.
+ */
+function deleteMessage(guildId, userId, id) {
+  return stmt.deleteMessage.run(guildId, userId, id).changes > 0;
+}
+
+/** Leert das Postfach (außer Rechnungen). @returns Anzahl entfernter Nachrichten. */
+function clearMessages(guildId, userId) {
+  return stmt.clearMessages.run(guildId, userId).changes;
+}
+
+/** Wie viele Nachrichten sich überhaupt löschen lassen (ohne Rechnungen). */
+function countDeletable(guildId, userId) {
+  return stmt.countDeletable.get(guildId, userId).n;
+}
+
 /** Alle eigenen Inserate mit Prüfzeitpunkt. */
 function ownListings(guildId, sellerId) {
   return stmt.ownListings.all(guildId, sellerId);
@@ -1051,6 +1094,14 @@ function getStreetWatch(guildId, userId) {
 
 function setStreetWatch(guildId, userId, when = Date.now()) {
   stmt.setStreetWatch.run(guildId, userId, when);
+}
+
+/**
+ * Vergisst den Prüfzeitpunkt – der nächste Aufruf gilt wieder als "erstes Mal"
+ * und holt nichts rückwirkend nach. Gedacht für Tests und Resets.
+ */
+function clearStreetWatch(guildId, userId) {
+  return stmt.clearStreetWatch.run(guildId, userId).changes > 0;
 }
 
 /** Nimmt ein Auto aus dem Inventar (Zwangsverkauf). */
@@ -1213,7 +1264,15 @@ function addStats(guildId, userId, { xp = 0, income = 0, expense = 0 } = {}) {
 /** Statistik eines Users – nie null, fehlende Zeilen zählen als 0. */
 function getStats(guildId, userId) {
   return stmt.getStats.get(guildId, userId)
-    ?? { guild_id: guildId, user_id: userId, xp: 0, income_total: 0, expense_total: 0, tagline: '' };
+    ?? {
+      guild_id: guildId, user_id: userId, xp: 0, income_total: 0, expense_total: 0,
+      tagline: '', seen_version: '',
+    };
+}
+
+/** Merkt sich, welche Patchnotes-Version dieser Spieler schon gesehen hat. */
+function setSeenVersion(guildId, userId, version) {
+  stmt.setSeenVersion.run(guildId, userId, version);
 }
 
 /** Alle Spieler mit Statistik auf diesem Server – die Leaderboard-Teilnehmer. */
@@ -1467,7 +1526,8 @@ module.exports = {
   listItems, listBrands, getItem, createItem, deleteItem, updateItemImage, allItemsOfKind,
   listInventory, reservePurchase, releasePurchase,
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
-  addStats, getStats, listStats, setTagline,
+  addStats, getStats, listStats, setTagline, setSeenVersion,
+  deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,
   finishLot, dueLots, purgeOldLots,
@@ -1486,6 +1546,6 @@ module.exports = {
   createMessage, listMessages, countUnread, getMessage, resolveMessage,
   markMessagesRead, expireMessages, cancelOffersFor, ownListings, touchListing,
   getGame, setGame, updateGame, clearGame,
-  setCondition, carsByValue, getStreetWatch, setStreetWatch,
+  setCondition, carsByValue, getStreetWatch, setStreetWatch, clearStreetWatch,
   PAGE_SIZE, MAX_LISTINGS_PER_USER,
 };

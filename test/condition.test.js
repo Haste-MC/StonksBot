@@ -19,6 +19,9 @@ const check = (label, ok, extra = '') => {
 };
 const cleanup = () => {
   db.endRental(G, U); db.clearGrace(G, U);
+  // Ohne das würde ein Zeitstempel aus einem früheren (evtl. abgebrochenen)
+  // Lauf liegen bleiben und der "erster Lauf"-Test rückwirkend abrechnen.
+  db.clearStreetWatch(G, U);
   for (const k of ['car', 'gear', 'property']) {
     for (const i of db.allItemsOfKind(G, k)) db.deleteItem(G, i.id);
   }
