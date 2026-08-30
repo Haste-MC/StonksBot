@@ -3,7 +3,19 @@
  * überall ein Weg zurück existiert und die Discord-Limits eingehalten werden.
  * Aufruf: npm run test:menu
  */
-const { ENTRIES, buildMainMenu, buildEntryView } = require('../src/menu');
+const unb = require('../src/unb');
+
+// Guthaben mocken: die Ansichten fragen es ab, aber dieser Test prüft die
+// Darstellung – er darf nicht an einer API oder einem Token hängen
+// (ARCHITEKTUR §12: "npm test – kein Netz nötig").
+const wallet = { cash: 50000, bank: 50000, total: 100000 };
+unb.getBalance = async () => ({ ...wallet });
+unb.changeCash = async () => ({ ...wallet });
+unb.withdrawFromBank = async () => ({ ...wallet });
+
+const {
+  ENTRIES, GROUPS, entriesOfGroup, buildMainMenu, buildGroupView, buildEntryView,
+} = require('../src/menu');
 
 const G = process.env.DEV_GUILD_ID || '561491377502945288';
 const U = '498875863496916995';
@@ -38,15 +50,38 @@ function validate(name, view) {
 }
 
 (async () => {
-  console.log('--- Hauptmenü ---');
+  console.log('--- Hauptmenü (Kategorien) ---');
   const main = buildMainMenu({ userId: U });
   const m = validate('Hauptmenü', main);
-  check('ein Button pro Menüpunkt', m.buttons.length === ENTRIES.length,
-    `${m.buttons.length} vs ${ENTRIES.length}`);
-  check('jeder Menüpunkt wird beschrieben',
-    ENTRIES.every((e) => m.embed.description.includes(e.label)));
-  check('Button-IDs zeigen auf den jeweiligen Eintrag',
-    ENTRIES.every((e) => m.buttons.some((b) => b.custom_id === `menu|${e.id}|1|${U}`)));
+  check('ein Button pro Kategorie', m.buttons.length === GROUPS.length,
+    `${m.buttons.length} vs ${GROUPS.length}`);
+  check('jede Kategorie wird beschrieben',
+    GROUPS.every((g) => m.embed.description.includes(g.label)));
+  check('Button-IDs zeigen auf die Kategorie',
+    GROUPS.every((g) => m.buttons.some((b) => b.custom_id === `grp|${g.id}|${U}`)));
+
+  console.log('--- Jeder Menüpunkt hat eine Kategorie und ist erreichbar ---');
+  check('jeder Eintrag ist einer Kategorie zugeordnet',
+    ENTRIES.every((e) => GROUPS.some((g) => g.id === e.group)),
+    ENTRIES.filter((e) => !GROUPS.some((g) => g.id === e.group)).map((e) => e.id).join());
+  const reachable = new Set(GROUPS.flatMap((g) => entriesOfGroup(g.id, true).map((e) => e.id)));
+  check('kein Menüpunkt fällt hinten runter',
+    ENTRIES.every((e) => reachable.has(e.id)),
+    ENTRIES.filter((e) => !reachable.has(e.id)).map((e) => e.id).join());
+
+  console.log('--- Kategorie-Ansichten ---');
+  for (const group of GROUPS) {
+    const view = buildGroupView(group.id, { userId: U });
+    const v = validate(`${group.emoji} ${group.label}`, view);
+    check(`  ${group.label}: Weg zurück ins Hauptmenü`,
+      v.buttons.some((b) => b.custom_id === `home|${U}`));
+    check(`  ${group.label}: öffnet seine Menüpunkte`,
+      entriesOfGroup(group.id, false)
+        .every((e) => v.buttons.some((b) => b.custom_id === `menu|${e.id}|1|${U}`)));
+  }
+  const unknownGroup = buildGroupView('gibtsnicht', { userId: U });
+  check('unbekannte Kategorie landet im Hauptmenü',
+    unknownGroup.embeds[0].toJSON().title.includes('Hauptmenü'));
 
   console.log('\n--- Jeder Menüpunkt ---');
   for (const entry of ENTRIES) {
@@ -73,12 +108,14 @@ function validate(name, view) {
   const asUser = buildMainMenu({ userId: U, isAdmin: false });
   const asAdmin = buildMainMenu({ userId: U, isAdmin: true });
   const adminOnly = ENTRIES.filter((e) => e.adminOnly).length;
-  check('Admin sieht mindestens so viel wie ein Spieler',
+  check('Admin sieht mindestens so viele Kategorien wie ein Spieler',
     asAdmin.components.flatMap((r) => r.toJSON().components).length >=
     asUser.components.flatMap((r) => r.toJSON().components).length);
+  // Gefiltert wird jetzt INNERHALB der Kategorien.
+  const inGroups = (isAdmin) =>
+    GROUPS.reduce((n, g) => n + entriesOfGroup(g.id, isAdmin).length, 0);
   check(`Admin-Menüpunkte werden gefiltert (aktuell ${adminOnly})`,
-    asAdmin.components.flatMap((r) => r.toJSON().components).length -
-    asUser.components.flatMap((r) => r.toJSON().components).length === adminOnly);
+    inGroups(true) - inGroups(false) === adminOnly);
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);

@@ -11,7 +11,7 @@ const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView, money,
 } = require('./ui');
-const { buildMainMenu, buildEntryView } = require('./menu');
+const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
 const jobs = require('./jobs');
 const property = require('./property');
@@ -259,6 +259,14 @@ const buttons = {
   async home(interaction) {
     await interaction.update(
       buildMainMenu({ userId: interaction.user.id, isAdmin: isAdmin(interaction) }));
+  },
+
+  /** Eine Kategorie des Hauptmenüs öffnen (z.B. 🚗 Fahrzeuge). */
+  async grp(interaction, [groupId]) {
+    await interaction.update(buildGroupView(groupId, {
+      userId: interaction.user.id,
+      isAdmin: isAdmin(interaction),
+    }));
   },
 
   /**
