@@ -14,6 +14,7 @@ const casinoUi = require('./casinoUi');
  *   label       Beschriftung des Buttons (kurz halten)
  *   emoji       Icon des Buttons
  *   description Zeile in der Übersicht des Hauptmenüs
+ *   group       Kategorie im Hauptmenü (siehe GROUPS weiter unten)
  *   style       optional: 'primary' | 'secondary' | 'success' | 'danger'
  *   adminOnly   optional: nur für Mitglieder mit "Server verwalten"
  *   build(ctx)  baut die Ansicht; bekommt { guildId, userId, page }
@@ -24,6 +25,7 @@ const casinoUi = require('./casinoUi');
 const ENTRIES = [
   {
     id: 'new',
+    group: 'cars',
     label: 'Neuwagen',
     emoji: '✨',
     description: 'Autos direkt vom Händler kaufen',
@@ -32,6 +34,7 @@ const ENTRIES = [
   },
   {
     id: 'brands',
+    group: 'cars',
     label: 'Marken',
     emoji: '🏷️',
     description: 'Autos nach Hersteller filtern',
@@ -40,6 +43,7 @@ const ENTRIES = [
   },
   {
     id: 'used',
+    group: 'cars',
     label: 'Gebrauchtwagen',
     emoji: '🔧',
     description: 'Autos von anderen Spielern kaufen',
@@ -48,6 +52,7 @@ const ENTRIES = [
   },
   {
     id: 'property',
+    group: 'estate',
     label: 'Immobilien',
     emoji: '🏘️',
     description: 'Kaufen und mieten – vom Markt und von Spielern',
@@ -56,6 +61,7 @@ const ENTRIES = [
   },
   {
     id: 'estate',
+    group: 'estate',
     label: 'Mein Besitz',
     emoji: '🔑',
     description: 'Immobilien, Mietvertrag und freie Stellplätze',
@@ -64,6 +70,7 @@ const ENTRIES = [
   },
   {
     id: 'jobs',
+    group: 'work',
     label: 'Arbeitsamt',
     emoji: '💼',
     description: 'Täglich wechselnde Stellenangebote',
@@ -72,6 +79,7 @@ const ENTRIES = [
   },
   {
     id: 'gear',
+    group: 'work',
     label: 'Ausrüstung',
     emoji: '🧰',
     description: 'Werkzeug und Qualifikationen für Jobs',
@@ -80,6 +88,7 @@ const ENTRIES = [
   },
   {
     id: 'casino',
+    group: 'fun',
     label: 'Casino',
     emoji: '🎰',
     description: 'Coinflip, Slots, Blackjack und Roulette',
@@ -88,6 +97,7 @@ const ENTRIES = [
   },
   {
     id: 'inbox',
+    group: 'me',
     label: 'Postfach',
     emoji: '📬',
     description: 'Kaufangebote, Verkäufe und Rechnungen',
@@ -96,6 +106,7 @@ const ENTRIES = [
   },
   {
     id: 'garage',
+    group: 'cars',
     label: 'Meine Garage',
     emoji: '🅿️',
     description: 'Deine Autos und ihr Gesamtwert',
@@ -104,6 +115,7 @@ const ENTRIES = [
   },
   {
     id: 'listings',
+    group: 'cars',
     label: 'Meine Inserate',
     emoji: '📋',
     description: 'Was du im Gebrauchtmarkt anbietest',
@@ -112,6 +124,7 @@ const ENTRIES = [
   },
   {
     id: 'balance',
+    group: 'me',
     label: 'Guthaben',
     emoji: '💰',
     description: 'Bargeld, Bank und Vermögen',
@@ -120,6 +133,7 @@ const ENTRIES = [
   },
   {
     id: 'profil',
+    group: 'me',
     label: 'Profil',
     emoji: '👤',
     description: 'Dein Steckbrief zum Angeben',
@@ -128,6 +142,7 @@ const ENTRIES = [
   },
   {
     id: 'leaderboard',
+    group: 'me',
     label: 'Rangliste',
     emoji: '🏆',
     description: 'Level, Einnahmen, Ausgaben & Networth',
@@ -136,6 +151,7 @@ const ENTRIES = [
   },
   {
     id: 'auktion',
+    group: 'fun',
     label: 'Auktionshaus',
     emoji: '🏬',
     description: 'Garagen ersteigern – Storage Wars',
@@ -143,6 +159,36 @@ const ENTRIES = [
     build: (ctx) => ui.buildAuctionView(ctx),
   },
 ];
+
+/**
+ * ===========================================================================
+ *  KATEGORIEN
+ * ===========================================================================
+ *
+ * Das Hauptmenü zeigt nicht mehr alle 15 Menüpunkte auf einmal, sondern nur
+ * diese Kategorien – ein Klick führt in die jeweilige Unterauswahl.
+ *
+ * Warum: Bei 15 Knöpfen wurde das Hauptmenü unübersichtlich, und auf Fluxer
+ * (wo Menüs über Emoji-Reaktionen bedient werden) passten schlicht nicht alle
+ * hin – Auktionshaus und Inserate waren dort gar nicht erreichbar.
+ *
+ * Eine neue Kategorie = ein Eintrag hier; ein Menüpunkt landet über sein
+ * `group`-Feld automatisch darin.
+ */
+const GROUPS = [
+  { id: 'cars', label: 'Fahrzeuge', emoji: '🚗', description: 'Kaufen, verkaufen, deine Garage' },
+  { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
+  { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
+  { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino und Auktionshaus' },
+  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste' },
+];
+
+const groupById = new Map(GROUPS.map((g) => [g.id, g]));
+
+/** Alle Menüpunkte einer Kategorie, die dieser Nutzer sehen darf. */
+function entriesOfGroup(groupId, isAdmin = false) {
+  return visibleEntries(isAdmin).filter((e) => e.group === groupId);
+}
 
 const STYLES = {
   primary: ButtonStyle.Primary,
@@ -162,25 +208,63 @@ function visibleEntries(isAdmin) {
   return ENTRIES.filter((e) => !e.adminOnly || isAdmin);
 }
 
-/** Baut das Hauptmenü mit einem Button pro registriertem Menüpunkt. */
+/** Baut einen Knopf, der einen Menüpunkt öffnet. */
+function entryButton(entry, userId) {
+  return new ButtonBuilder()
+    .setCustomId(ui.ID.menu(entry.id, 1, userId))
+    .setLabel(entry.label).setEmoji(entry.emoji)
+    .setStyle(STYLES[entry.style] ?? ButtonStyle.Secondary);
+}
+
+/** Verteilt Knöpfe auf Zeilen zu je fünf (Discord-Grenze). */
+function rowsOf(buttons) {
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(...buttons.slice(i, i + 5)));
+  }
+  return rows;
+}
+
+/** Das Hauptmenü zeigt die Kategorien, nicht mehr jeden einzelnen Punkt. */
 function buildMainMenu({ userId, isAdmin = false }) {
-  const entries = visibleEntries(isAdmin);
+  const groups = GROUPS.filter((g) => entriesOfGroup(g.id, isAdmin).length > 0);
 
   const embed = new EmbedBuilder()
     .setTitle('🏠 Hauptmenü')
-    .setDescription(entries.map((e) => `${e.emoji} **${e.label}** — ${e.description}`).join('\n'))
-    .setFooter({ text: 'Wähle unten aus, wohin es gehen soll.' })
+    .setDescription(groups.map((g) => {
+      const inside = entriesOfGroup(g.id, isAdmin).map((e) => e.label).join(', ');
+      return `${g.emoji} **${g.label}** — ${g.description}\n_${inside}_`;
+    }).join('\n\n'))
+    .setFooter({ text: 'Wähle einen Bereich.' })
     .setColor(0x5865f2);
 
-  const rows = [];
-  for (let i = 0; i < entries.length; i += 5) {
-    rows.push(new ActionRowBuilder().addComponents(
-      ...entries.slice(i, i + 5).map((e) =>
-        new ButtonBuilder()
-          .setCustomId(ui.ID.menu(e.id, 1, userId))
-          .setLabel(e.label).setEmoji(e.emoji)
-          .setStyle(STYLES[e.style] ?? ButtonStyle.Secondary))));
-  }
+  const buttons = groups.map((g) =>
+    new ButtonBuilder()
+      .setCustomId(`grp|${g.id}|${userId}`)
+      .setLabel(g.label).setEmoji(g.emoji)
+      .setStyle(ButtonStyle.Primary));
+
+  return { embeds: [embed], components: rowsOf(buttons) };
+}
+
+/**
+ * Die Auswahl innerhalb einer Kategorie. Unbekannte IDs landen im Hauptmenü,
+ * damit alte Knöpfe nach einer Umbenennung nicht ins Leere laufen.
+ */
+function buildGroupView(groupId, { userId, isAdmin = false }) {
+  const group = groupById.get(groupId);
+  if (!group) return buildMainMenu({ userId, isAdmin });
+
+  const entries = entriesOfGroup(groupId, isAdmin);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${group.emoji} ${group.label}`)
+    .setDescription(entries.map((e) => `${e.emoji} **${e.label}** — ${e.description}`).join('\n'))
+    .setFooter({ text: 'Zurück geht es über 🏠 Hauptmenü.' })
+    .setColor(0x5865f2);
+
+  const rows = rowsOf(entries.map((e) => entryButton(e, userId)));
+  rows.push(new ActionRowBuilder().addComponents(ui.homeButton(userId)));
 
   return { embeds: [embed], components: rows };
 }
@@ -204,4 +288,7 @@ async function buildEntryView(id, ctx) {
   return entry.build(ctx);
 }
 
-module.exports = { ENTRIES, getEntry, visibleEntries, buildMainMenu, buildEntryView };
+module.exports = {
+  ENTRIES, GROUPS, getEntry, visibleEntries, entriesOfGroup,
+  buildMainMenu, buildGroupView, buildEntryView,
+};
