@@ -1,7 +1,7 @@
 const { EmbedBuilder } = require('discord.js');
 const db = require('../db');
 const ui = require('../ui');
-const { buildMainMenu, buildEntryView } = require('../menu');
+const { buildMainMenu, buildGroupView, buildEntryView, ENTRIES, GROUPS } = require('../menu');
 const income = require('../income');
 const jobs = require('../jobs');
 const level = require('../level');
@@ -40,28 +40,6 @@ const COMMANDS = [
     },
   },
   {
-    names: ['shop', 'autos', 'neuwagen'],
-    info: 'Neuwagen kaufen',
-    run: ({ guildId, userId, args }) =>
-      entry('new', { guildId, userId, page: Number(args[0]) || 1 }),
-  },
-  {
-    names: ['garage'],
-    info: 'Deine Autos',
-    run: ({ guildId, userId, args }) =>
-      entry('garage', { guildId, userId, page: Number(args[0]) || 1 }),
-  },
-  {
-    names: ['geld', 'balance', 'guthaben'],
-    info: 'Dein Kontostand',
-    run: ({ guildId, userId }) => entry('balance', { guildId, userId }),
-  },
-  {
-    names: ['profil', 'profile'],
-    info: 'Dein Steckbrief',
-    run: async ({ guildId, userId }) => ({ view: await ui.buildProfileView({ guildId, userId }) }),
-  },
-  {
     names: ['daily', 'täglich'],
     info: 'Täglicher Bonus',
     run: async ({ guildId, userId }) => {
@@ -93,11 +71,6 @@ const COMMANDS = [
     },
   },
   {
-    names: ['jobs', 'arbeitsamt'],
-    info: 'Stellenangebote',
-    run: ({ guildId, userId }) => entry('jobs', { guildId, userId }),
-  },
-  {
     names: ['kaufen', 'buy'],
     info: 'Auto kaufen: !kaufen <id>',
     run: async ({ guildId, userId, args, prefix }) => {
@@ -117,6 +90,61 @@ const COMMANDS = [
 /** Menüpunkt-Ansicht bauen (async, weil die Builder DB/Guthaben lesen). */
 async function entry(id, ctx) {
   return { view: await buildEntryView(id, ctx) };
+}
+
+/**
+ * Befehlsnamen für die Menüpunkte und Kategorien.
+ *
+ * Bewusst hier und nicht in der Menü-Registry: Die Registry teilen sich beide
+ * Branches, Textbefehle gibt es aber nur auf Fluxer. Fehlt ein Eintrag, wird
+ * einfach seine ID als Befehl benutzt – ein neuer Menüpunkt ist also sofort
+ * erreichbar, auch ohne Eintrag hier.
+ */
+const ENTRY_COMMANDS = {
+  new: ['shop', 'neuwagen'],
+  brands: ['marken'],
+  used: ['gebraucht', 'gebrauchtwagen'],
+  garage: ['garage'],
+  listings: ['inserate'],
+  property: ['markt', 'immobilienmarkt'],
+  estate: ['besitz', 'meinbesitz'],
+  jobs: ['jobs', 'arbeitsamt'],
+  gear: ['ausruestung', 'ausrüstung', 'gear'],
+  casino: ['casino'],
+  auktion: ['auktion', 'auktionshaus'],
+  inbox: ['postfach', 'nachrichten'],
+  balance: ['geld', 'guthaben', 'balance'],
+  profil: ['profil', 'profile'],
+  leaderboard: ['rangliste', 'leaderboard', 'top'],
+};
+
+const GROUP_COMMANDS = {
+  cars: ['fahrzeuge'],
+  estate: ['immobilien'],
+  work: ['arbeit'],
+  fun: ['zocken'],
+  me: ['ich'],
+};
+
+/** Erzeugt je einen Befehl pro Kategorie und pro Menüpunkt. */
+function generated() {
+  const groups = GROUPS.map((g) => ({
+    names: GROUP_COMMANDS[g.id] ?? [g.id],
+    info: `${g.emoji} ${g.description}`,
+    kind: 'group',
+    run: ({ userId }) => ({ view: buildGroupView(g.id, { userId }) }),
+  }));
+
+  const entries = ENTRIES.map((e) => ({
+    names: ENTRY_COMMANDS[e.id] ?? [e.id],
+    info: `${e.emoji} ${e.description}`,
+    kind: 'entry',
+    group: e.group,
+    run: ({ guildId, userId, args }) =>
+      entry(e.id, { guildId, userId, page: Number(args[0]) || 1 }),
+  }));
+
+  return [...groups, ...entries];
 }
 
 function workProblem(res, prefix, symbol) {
@@ -148,15 +176,33 @@ function buyProblem(res, symbol) {
   }
 }
 
+/**
+ * Alle Befehle: erst die handgeschriebenen Sonderfälle, dann die aus der
+ * Menü-Registry erzeugten. Die Reihenfolge entscheidet bei Namensgleichheit.
+ */
+const ALL = [...COMMANDS, ...generated()];
+
 /** Die Hilfe wird aus der Befehlsliste erzeugt – so veraltet sie nie. */
 function helpView(userId, prefix) {
-  const lines = COMMANDS.map((c) => `\`${prefix}${c.names[0]}\` — ${c.info}`);
+  const cmd = (c) => `\`${prefix}${c.names[0]}\``;
+
+  // Nach Kategorien sortiert, damit die Liste trotz vieler Befehle lesbar bleibt.
+  const sections = GROUPS.map((g) => {
+    const group = ALL.find((c) => c.kind === 'group' && GROUP_COMMANDS[g.id]?.includes(c.names[0]));
+    const inside = ALL.filter((c) => c.kind === 'entry' && c.group === g.id);
+    return `${g.emoji} **${g.label}** ${group ? cmd(group) : ''}\n` +
+      `　${inside.map(cmd).join(' · ')}`;
+  });
+
+  const basics = COMMANDS.map((c) => `${cmd(c)} — ${c.info}`);
+
   const embed = new EmbedBuilder()
     .setTitle('❓ Hilfe')
     .setColor(0x5865f2)
     .setDescription(
       'Ein kleines Wirtschaftsspiel: Autos, Immobilien, Jobs, Casino und Auktionen.\n\n' +
-      `**Befehle**\n${lines.join('\n')}`)
+      `**Grundlagen**\n${basics.join('\n')}\n\n` +
+      `**Bereiche**\n${sections.join('\n\n')}`)
     .setFooter({
       text: 'Menüs bedienst du mit den Reaktionen unter der Nachricht.',
     });
@@ -166,7 +212,7 @@ function helpView(userId, prefix) {
 /** Sucht den Befehl zu einem Namen. */
 function find(name) {
   const key = String(name || '').toLowerCase();
-  return COMMANDS.find((c) => c.names.includes(key)) ?? null;
+  return ALL.find((c) => c.names.includes(key)) ?? null;
 }
 
-module.exports = { COMMANDS, find, helpView };
+module.exports = { COMMANDS, ALL, generated, find, helpView };

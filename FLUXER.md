@@ -74,11 +74,22 @@ npm run start:fluxer
 
 ## Befehle
 
-`!hilfe` · `!menu` · `!shop [seite]` · `!garage` · `!geld` · `!profil` ·
-`!daily` · `!work` · `!jobs` · `!kaufen <id>`
+**Grundlagen:** `!hilfe` · `!menu` · `!daily` · `!work` · `!kaufen <id>`
 
-Die Liste in [`commands.js`](src/fluxer/commands.js) erzeugt die Hilfe automatisch – ein
-neuer Befehl taucht dort von selbst auf.
+**Bereiche** (Kategorie öffnet die Unterauswahl, die Einzelbefehle springen direkt hin):
+
+| Kategorie | Direktbefehle |
+|--|--|
+| 🚗 `!fahrzeuge` | `!shop` `!marken` `!gebraucht` `!garage` `!inserate` |
+| 🏘️ `!immobilien` | `!markt` `!besitz` |
+| 💼 `!arbeit` | `!jobs` `!ausruestung` |
+| 🎲 `!zocken` | `!casino` `!auktion` |
+| 👤 `!ich` | `!postfach` `!geld` `!profil` `!rangliste` |
+
+Die Befehle der Bereiche werden **aus der Menü-Registry erzeugt**
+([`commands.js`](src/fluxer/commands.js)): Ein neuer Menüpunkt in `menu.js` ist damit
+sofort per Befehl erreichbar und taucht automatisch in `!hilfe` auf. Nur der Wunschname
+wird in `ENTRY_COMMANDS` hinterlegt – fehlt er, gilt die Menü-ID.
 
 ## Was noch fehlt
 
