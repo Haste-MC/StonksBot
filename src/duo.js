@@ -14,6 +14,12 @@
  * Eine Seite darf die andere nicht mitreißen: Fehlt ein Token oder scheitert
  * ein Login, läuft der jeweils andere Bot trotzdem weiter.
  */
+// ZUERST die .env laden – vor jedem anderen require.
+// Mehrere Module (identity, wallet, unb) lesen process.env schon beim Laden.
+// Ohne diese Zeile stünden sie alle auf ihren Standardwerten, und der Start
+// bricht mit "WORLD_ID fehlt" und "kein Token" ab, obwohl alles in der .env steht.
+require('dotenv').config();
+
 const identity = require('./identity');
 
 identity.checkWorld();
