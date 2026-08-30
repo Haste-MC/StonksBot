@@ -93,6 +93,37 @@ FLUXER_TOKEN=…
 BOT_ADMINS=<deine-discord-id>
 ```
 
+## Bank: Geld vor Überfällen schützen
+
+UnbelievaBoats `!rob` nimmt nur **Bargeld** – wer sein Geld auf der Bank hat, ist
+sicher. Auf Discord erledigen das UnbelievaBoats eigene Befehle; Fluxer-Spieler
+hatten diese Möglichkeit nicht und konnten sich gegen einen Überfall aus Discord
+nicht wehren. Deshalb gibt es auf Fluxer:
+
+```
+!einzahlen <betrag|alles>    Bargeld auf die Bank (geschützt)
+!abheben  <betrag|alles>     von der Bank zurück ins Bargeld
+```
+
+[`banking.js`](src/banking.js) arbeitet über dieselbe Geldschnittstelle wie alles
+andere – also automatisch mit der richtigen Quelle (UnbelievaBoat bei verknüpften
+Konten, lokales Wallet bei den übrigen). Umbuchungen verändern das
+Gesamtvermögen nie; das prüft [`test/banking.test.js`](test/banking.test.js) unter
+anderem mit 200 zufälligen Buchungen.
+
+## Währungssymbol auf Fluxer
+
+Kommt das Symbol von UnbelievaBoat, ist es ein **Discord**-Emoji
+(`<:Rubine:1067…>`) – dessen ID kennt Fluxer nicht, dort stünde nur roher Text.
+Trage das Fluxer-Gegenstück ein:
+
+```env
+FLUXER_CURRENCY_SYMBOL=<:Rubine:DEINE-FLUXER-EMOJI-ID>
+```
+
+Ohne Eintrag wird auf den bloßen Namen zurückgefallen (lesbar statt kaputt).
+Übrige Discord-Emojis werden ebenfalls durch ihren Namen ersetzt.
+
 ## Grenzen
 - **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler
   werden abgefangen, aber die Trennung zweier Instanzen ist robuster.

@@ -1,5 +1,17 @@
 const db = require('../db');
 const identity = require('../identity');
+const currency = require('../currency');
+
+/**
+ * Das Währungs-Emoji für Fluxer.
+ *
+ * Bei eingerichtetem UnbelievaBoat liefert `currency.getSymbol()` ein
+ * **Discord**-Emoji (`<:Rubine:1067…>`). Dessen ID kennt Fluxer nicht – dort
+ * stünde nur roher Text. Über `FLUXER_CURRENCY_SYMBOL` lässt sich das
+ * entsprechende Fluxer-Emoji hinterlegen; ohne Angabe wird auf den bloßen
+ * Namen zurückgefallen, was zumindest lesbar ist.
+ */
+const FLUXER_CURRENCY = process.env.FLUXER_CURRENCY_SYMBOL || '';
 
 /**
  * ===========================================================================
@@ -143,12 +155,39 @@ function resolveMentions(text) {
 }
 
 /** Wendet die Namensauflösung auf alle Textfelder eines Embeds an. */
+/**
+ * Ersetzt Discord-Emojis durch etwas, das Fluxer darstellen kann.
+ *
+ * Zuerst gezielt das Währungssymbol (dafür gibt es ein Fluxer-Gegenstück),
+ * danach alle übrigen Custom-Emojis durch ihren Namen – so bleibt nirgends
+ * `<:name:123456>` stehen.
+ */
+function localizeEmoji(text) {
+  if (typeof text !== 'string' || !text.includes('<:')) return text;
+
+  let out = text;
+  const money = currency.peek(identity.world());
+  if (FLUXER_CURRENCY && money && money.startsWith('<')) {
+    out = out.split(money).join(FLUXER_CURRENCY);
+  }
+  return out.replace(/<a?:([^:]+):\d+>/g, (whole, name) => FLUXER_CURRENCY || name);
+}
+
+/** Macht einen Text auf Fluxer lesbar: Erwähnungen und Emojis auflösen. */
+function forFluxer(text) {
+  return localizeEmoji(resolveMentions(text));
+}
+
 function humanize(embed) {
   const out = { ...embed };
-  if (out.description) out.description = resolveMentions(out.description);
+  if (out.title) out.title = forFluxer(out.title);
+  if (out.description) out.description = forFluxer(out.description);
   if (Array.isArray(out.fields)) {
-    out.fields = out.fields.map((f) => ({ ...f, value: resolveMentions(f.value) }));
+    out.fields = out.fields.map((f) => ({
+      ...f, name: forFluxer(f.name), value: forFluxer(f.value),
+    }));
   }
+  if (out.footer?.text) out.footer = { ...out.footer, text: forFluxer(out.footer.text) };
   return out;
 }
 
@@ -203,5 +242,5 @@ function lookup(messageId, emoji) {
 module.exports = {
   NAV, PICKERS, MAX_REACTIONS,
   buttonsOf, mapReactions, legend, toMessage, remember, lookup, current,
-  resolveMentions, humanize,
+  resolveMentions, humanize, localizeEmoji, forFluxer,
 };

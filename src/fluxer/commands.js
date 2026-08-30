@@ -7,6 +7,7 @@ const jobs = require('../jobs');
 const level = require('../level');
 const patchnotes = require('../patchnotes');
 const accounts = require('../accounts');
+const banking = require('../banking');
 const identity = require('../identity');
 const { getSymbol } = require('../currency');
 const { buy } = require('../purchase');
@@ -69,6 +70,33 @@ const COMMANDS = [
           `Verdienst: **${money(symbol, res.amount)}** · Kontostand: ${money(symbol, res.balance.total)}\n` +
           `🏆 Level ${l.level}` +
           (res.broken ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.name}**` : ''),
+      };
+    },
+  },
+  {
+    names: ['einzahlen', 'deposit', 'dep'],
+    info: 'Geld auf die Bank bringen: !einzahlen <betrag|alles>',
+    run: async ({ guildId, userId, args }) => {
+      const symbol = await getSymbol(guildId);
+      const res = await banking.deposit(guildId, userId, args[0] ?? 'alles');
+      if (!res.ok) return { text: bankProblem(res, symbol, 'einzahlen') };
+      return {
+        text: `🏦 **${money(symbol, res.amount)}** eingezahlt – vor Überfällen sicher.\n` +
+          `Bar: ${money(symbol, res.balance.cash)} · Bank: ${money(symbol, res.balance.bank)}`,
+      };
+    },
+  },
+  {
+    names: ['abheben', 'withdraw', 'wd'],
+    info: 'Geld von der Bank holen: !abheben <betrag|alles>',
+    run: async ({ guildId, userId, args }) => {
+      const symbol = await getSymbol(guildId);
+      const res = await banking.withdraw(guildId, userId, args[0] ?? 'alles');
+      if (!res.ok) return { text: bankProblem(res, symbol, 'abheben') };
+      return {
+        text: `💵 **${money(symbol, res.amount)}** abgehoben.\n` +
+          `Bar: ${money(symbol, res.balance.cash)} · Bank: ${money(symbol, res.balance.bank)}\n` +
+          `_Bargeld kann geraubt werden – nur einlagern, was du brauchst._`,
       };
     },
   },
@@ -233,6 +261,20 @@ function workProblem(res, prefix, symbol) {
       return `🧰 Dir fehlt: **${res.missing.join(', ')}**`;
     default:
       return '❌ Das hat nicht geklappt.';
+  }
+}
+
+function bankProblem(res, symbol, was) {
+  switch (res.reason) {
+    case 'bad_amount':
+      return `❌ Wie viel? Beispiel: \`!${was} 5000\` oder \`!${was} alles\`.`;
+    case 'no_cash': return '👛 Du hast kein Bargeld dabei.';
+    case 'no_bank': return '🏦 Auf deiner Bank liegt nichts.';
+    case 'not_enough_cash':
+      return `💸 So viel Bargeld hast du nicht – nur ${money(symbol, res.have)}.`;
+    case 'not_enough_bank':
+      return `🏦 So viel liegt nicht auf der Bank – nur ${money(symbol, res.have)}.`;
+    default: return '❌ Das hat nicht geklappt.';
   }
 }
 
