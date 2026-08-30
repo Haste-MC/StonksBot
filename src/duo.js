@@ -21,7 +21,18 @@ console.log(`🌍 Welt: ${identity.world()}`);
 
 let started = 0;
 
-if (process.env.DISCORD_TOKEN) {
+/**
+ * Alle Variablen prüfen, die src/config.js verlangt.
+ *
+ * Wichtig: config.js beendet bei einer fehlenden Variablen den **ganzen
+ * Prozess** (process.exit) – das lässt sich nicht per try/catch abfangen und
+ * würde die Fluxer-Seite gleich mit umbringen. Deshalb hier vorher prüfen und
+ * die Discord-Seite im Zweifel einfach auslassen.
+ */
+const DISCORD_VARS = ['DISCORD_TOKEN', 'DISCORD_CLIENT_ID', 'UNB_TOKEN'];
+const missing = DISCORD_VARS.filter((name) => !process.env[name]);
+
+if (missing.length === 0) {
   try {
     require('./index');
     started++;
@@ -29,7 +40,7 @@ if (process.env.DISCORD_TOKEN) {
     console.error('❌ Discord-Bot konnte nicht starten:', err.message);
   }
 } else {
-  console.log('ℹ️  DISCORD_TOKEN fehlt – Discord-Seite bleibt aus.');
+  console.log(`ℹ️  Discord-Seite bleibt aus – es fehlt: ${missing.join(', ')}`);
 }
 
 if (process.env.FLUXER_TOKEN) {
