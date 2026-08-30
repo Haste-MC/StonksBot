@@ -8,6 +8,9 @@
  */
 process.env.RELAY_DISCORD_CHANNEL = 'DC_KANAL';
 process.env.RELAY_FLUXER_CHANNEL = 'FX_KANAL';
+process.env.RELAY_ALL = 'true';
+process.env.RELAY_EXCLUDE = 'admin, intern';
+process.env.RELAY_MAP = 'DC_SONDER:FX_ANDERS';
 
 const relay = require('../src/relay');
 
@@ -20,15 +23,33 @@ const check = (label, ok, extra = '') => {
 // Zwei gefälschte Clients, die mitschreiben, was gesendet wurde.
 const sentToFluxer = [];
 const sentToDiscord = [];
+// Beide Server mit gleichem Aufbau nachstellen – teils mit Verzierungen im
+// Namen, damit die Paarung darüber hinweg funktionieren muss.
+const chan = (id, name) => ({ id, name, isTextBased: () => true, isDM: () => false });
+const discordChannels = [
+  chan('DC_KANAL', '💰┃economy'), chan('DC_ALLGEMEIN', 'allgemein'),
+  chan('DC_ADMIN', 'admin'), chan('DC_NUR_HIER', 'nur-discord'),
+];
+const fluxerChannels = [
+  chan('FX_KANAL', 'economy'), chan('FX_ALLGEMEIN', '💬 Allgemein'),
+  chan('FX_ADMIN', 'admin'),
+];
+
 const discordClient = {
   user: { id: 'DISCORDBOT' },
   channels: {
-    async fetch() { return { async send(p) { sentToDiscord.push(p); } }; },
+    cache: new Map(discordChannels.map((c) => [c.id, c])),
+    async fetch(id) {
+      return { id, async send(p) { sentToDiscord.push({ id, ...p }); } };
+    },
   },
 };
 const fluxerClient = {
   user: { id: 'FLUXERBOT' },
-  channels: { async send(id, p) { sentToFluxer.push({ id, ...p }); } },
+  channels: {
+    values: () => fluxerChannels.values(),
+    async send(id, p) { sentToFluxer.push({ id, ...p }); },
+  },
 };
 
 const msg = (over = {}) => ({
@@ -109,6 +130,43 @@ const msg = (over = {}) => ({
   await relay.fromDiscord(withFile);
   check('Anhang-Verweis wird mitgeschickt',
     /https:\/\/x\/y\.png/.test(sentToFluxer[sentToFluxer.length - 1].content));
+
+  console.log('--- Alle Kanäle: Paarung über den Namen ---');
+  check('findet economy trotz Verzierung',
+    relay.counterpart('💰┃economy', 'fluxer')?.id === 'FX_KANAL');
+  check('findet Allgemein in beide Richtungen',
+    relay.counterpart('allgemein', 'fluxer')?.id === 'FX_ALLGEMEIN' &&
+    relay.counterpart('💬 Allgemein', 'discord')?.id === 'DC_ALLGEMEIN');
+  check('ohne Gegenstück kommt nichts zurück',
+    relay.counterpart('nur-discord', 'fluxer') === null);
+
+  const allgemein = msg({ channelId: 'DC_ALLGEMEIN', channel: { id: 'DC_ALLGEMEIN', name: 'allgemein' } });
+  check('Nachricht landet im gleichnamigen Kanal',
+    (await relay.fromDiscord(allgemein)) === true &&
+    sentToFluxer[sentToFluxer.length - 1].id === 'FX_ALLGEMEIN');
+
+  const zurueck = msg({
+    author: { id: 'FXUSER', displayName: 'Simon' },
+    channelId: 'FX_ALLGEMEIN', channel: { id: 'FX_ALLGEMEIN', name: '💬 Allgemein' },
+  });
+  check('und zurück in den passenden Discord-Kanal',
+    (await relay.fromFluxer(zurueck)) === true &&
+    sentToDiscord[sentToDiscord.length - 1].id === 'DC_ALLGEMEIN');
+
+  console.log('--- Ausnahmen ---');
+  const adminMsg = msg({ channelId: 'DC_ADMIN', channel: { id: 'DC_ADMIN', name: 'admin' } });
+  check('ausgeschlossener Kanal wird nicht gespiegelt',
+    (await relay.fromDiscord(adminMsg)) === false);
+
+  const einsam = msg({ channelId: 'DC_NUR_HIER', channel: { id: 'DC_NUR_HIER', name: 'nur-discord' } });
+  check('Kanal ohne Gegenstück wird übersprungen',
+    (await relay.fromDiscord(einsam)) === false);
+
+  console.log('--- Ausdrückliche Zuordnung hat Vorrang ---');
+  const sonder = msg({ channelId: 'DC_SONDER', channel: { id: 'DC_SONDER', name: 'egal' } });
+  check('geht an das eingetragene Ziel',
+    (await relay.fromDiscord(sonder)) === true &&
+    sentToFluxer[sentToFluxer.length - 1].id === 'FX_ANDERS');
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);

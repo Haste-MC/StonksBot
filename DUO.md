@@ -131,12 +131,23 @@ lassen, wenn dort etwas passiert. Man braucht einen Bot, der mitliest. Genau den
 gibt es hier: Im duo-Prozess sind beide Clients gleichzeitig offen, also spiegelt
 [`relay.js`](src/relay.js) direkt zwischen ihnen – **ohne Webhook**.
 
+**Variante A – ein Kanalpaar:**
 ```env
 RELAY_DISCORD_CHANNEL=<discord-kanal-id>
 RELAY_FLUXER_CHANNEL=<fluxer-kanal-id>
 ```
 
-Beide IDs nötig, sonst bleibt die Brücke aus. Auf Discord ist zusätzlich das
+**Variante B – der ganze Server:**
+```env
+RELAY_ALL=true
+RELAY_EXCLUDE=admin,intern          # bleibt privat
+RELAY_MAP=<dcId>:<fxId>             # Ausnahmen mit abweichendem Namen
+```
+
+Bei Variante B werden die Gegenstücke **über den Kanalnamen** gefunden – man muss
+also kein Paar von Hand eintragen. Verglichen wird nur nach Buchstaben und
+Ziffern, `💰┃economy` findet also `economy`. Kanäle ohne Gegenstück auf der
+anderen Seite werden einfach übersprungen. Auf Discord ist zusätzlich das
 **Message Content Intent** erforderlich (Developer Portal → Bot), sonst kommen
 die Nachrichten ohne Text an.
 
