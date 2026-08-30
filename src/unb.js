@@ -1,41 +1,60 @@
-const { Client } = require('unb-api');
-const { unbToken } = require('./config');
+const wallet = require('./wallet');
 
-// Ein einziger, geteilter Client für den ganzen Bot.
-// maxRetries: der Wrapper wartet bei 429 (Rate Limit) automatisch und wiederholt.
-const unb = new Client(unbToken, { maxRetries: 3 });
+/**
+ * ===========================================================================
+ *  GELD-SCHNITTSTELLE (Fluxer-Branch)
+ * ===========================================================================
+ *
+ * Auf `main` sprach dieses Modul mit der UnbelievaBoat-API. Auf Fluxer gibt es
+ * UnbelievaBoat nicht, deshalb liegt die Wirtschaft jetzt lokal in
+ * [wallet.js](./wallet.js).
+ *
+ * **Der Dateiname bleibt bewusst `unb.js`** und die Signaturen bleiben exakt
+ * gleich: So bleibt dieser Austausch auf EINE Datei beschränkt, und die 13
+ * Module, die Geld buchen (purchase, property, jobs, casinoPlay, storage,
+ * buyers, tenants, npc, bills …), laufen unverändert weiter. Das hält den
+ * Unterschied zu `main` klein und Merges konfliktfrei.
+ *
+ * Die späte Bindung (`const changeCash = (...a) => unb.changeCash(...a)`) in
+ * den Aufrufern funktioniert dadurch weiterhin – auch in den Tests, die diese
+ * Funktionen ersetzen (ARCHITEKTUR §8).
+ */
+
+const FALLBACK_SYMBOL = process.env.CURRENCY_SYMBOL || '🪙';
+
+/**
+ * Steht dort, wo früher der UnbelievaBoat-Client lag. `currency.js` fragt
+ * darüber das Währungssymbol ab – hier kommt es aus der Konfiguration,
+ * damit auch dieses Modul unverändert bleibt.
+ */
+const unb = {
+  async getGuild() {
+    return { currencySymbol: FALLBACK_SYMBOL };
+  },
+};
 
 /** Guthaben eines Users: { cash, bank, total }. */
 function getBalance(guildId, userId) {
-  return unb.getUserBalance(guildId, userId);
+  return wallet.getBalance(guildId, userId);
 }
 
 /**
  * Verändert das Bargeld eines Users (negativ = abziehen).
- * Der Grund taucht im UnbelievaBoat-Log auf.
+ * Der Grund landet im lokalen Transaktionslog (`wallet_log`).
  *
- * Jede echte Buchung vergibt Erfahrung (siehe src/level.js). Storno- und
- * Rückerstattungsbuchungen übergeben `{ xp: false }`, damit ein fehlgeschlagener
- * Kauf das Level nicht doppelt füttert. `require` erfolgt lazy, um einen
- * Ladezyklus (level → db) zu vermeiden; ein XP-Fehler darf den Geldfluss nie
- * stören, deshalb bewusst verschluckt.
+ * Jede echte Buchung vergibt Erfahrung; Storno-/Rückerstattungsbuchungen
+ * übergeben `{ xp: false }` und zählen nicht mit.
  */
 function changeCash(guildId, userId, amount, reason, opts = {}) {
-  const p = unb.editUserBalance(guildId, userId, { cash: amount }, reason);
-  if (opts.xp !== false) {
-    p.then(() => {
-      try { require('./level').award(guildId, userId, amount); } catch { /* egal */ }
-    }).catch(() => {});
-  }
-  return p;
+  return wallet.changeCash(guildId, userId, amount, reason, opts);
 }
 
 /**
- * Verschiebt Geld von der Bank aufs Bargeld – nötig, wenn jemand zwar
- * genug Vermögen hat, aber nicht genug flüssig ist.
+ * Verschiebt Geld von der Bank aufs Bargeld – nötig, wenn jemand zwar genug
+ * Vermögen hat, aber nicht genug flüssig ist.
  */
 function withdrawFromBank(guildId, userId, amount, reason) {
-  return unb.editUserBalance(guildId, userId, { cash: amount, bank: -amount }, reason);
+  return wallet.withdrawFromBank(guildId, userId, amount, reason);
 }
 
 module.exports = { unb, getBalance, changeCash, withdrawFromBank };

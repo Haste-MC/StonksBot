@@ -279,6 +279,56 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_garages_user ON storage_garages (guild_id, user_id, won_at);
 `);
 
+// Fluxer-Menüs: Welche Reaktion einer Nachricht löst welche Aktion aus.
+// Fluxer kennt keine Buttons, also merken wir uns die Zuordnung hier – dadurch
+// funktionieren offene Menüs auch nach einem Neustart weiter (wie die
+// zustandslosen Button-IDs im Discord-Original, ARCHITEKTUR §6).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fluxer_views (
+    message_id TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    channel_id TEXT NOT NULL DEFAULT '',
+    mapping    TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+
+// ---------------------------------------------------------------- WALLET
+// Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
+// deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
+// Bargeld und Bank getrennt –, damit src/unb.js ein reiner Austausch bleibt
+// und die gesamte Spiellogik unverändert weiterläuft.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallets (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    cash       INTEGER NOT NULL DEFAULT 0,
+    bank       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+
+  -- Ersetzt das UnbelievaBoat-Transaktionslog: jede Buchung mit Grund.
+  CREATE TABLE IF NOT EXISTS wallet_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    amount     INTEGER NOT NULL,
+    reason     TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_wallet_log ON wallet_log (guild_id, user_id, created_at);
+
+  -- Cooldowns für wiederkehrende Einkommensbefehle (!daily …).
+  CREATE TABLE IF NOT EXISTS income_claims (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    claimed_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, kind)
+  );
+`);
+
 // Zuletzt gesehene Patchnotes-Version nachrüsten ('' = noch nie welche gesehen).
 const statsColumns = new Set(
   db.prepare('PRAGMA table_info(player_stats)').all().map((c) => c.name));
@@ -760,6 +810,47 @@ const stmt = {
   getLoot: db.prepare('SELECT * FROM storage_loot WHERE guild_id = ? AND id = ?'),
   removeLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ? AND id = ?'),
   clearLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ?'),
+  // --- Fluxer-Menüzuordnung ---
+  saveFluxerView: db.prepare(
+    `INSERT INTO fluxer_views (message_id, user_id, channel_id, mapping, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (message_id) DO UPDATE SET
+       user_id = excluded.user_id, channel_id = excluded.channel_id,
+       mapping = excluded.mapping, updated_at = excluded.updated_at`),
+  getFluxerView: db.prepare('SELECT * FROM fluxer_views WHERE message_id = ?'),
+  purgeFluxerViews: db.prepare('DELETE FROM fluxer_views WHERE updated_at < ?'),
+
+  // --- Wallet (eigene Wirtschaft) ---
+  getWallet: db.prepare('SELECT * FROM wallets WHERE guild_id = ? AND user_id = ?'),
+  createWallet: db.prepare(
+    `INSERT INTO wallets (guild_id, user_id, cash, bank, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  // Eine einzige Anweisung = atomar. Zwischen ihr und dem nächsten await kann
+  // kein zweiter Klick dazwischenfunken (ARCHITEKTUR §7).
+  addCash: db.prepare(
+    'UPDATE wallets SET cash = cash + ? WHERE guild_id = ? AND user_id = ?'),
+  // Bank -> Bar in EINER Anweisung: die Summe kann dabei nicht verloren gehen.
+  moveToCash: db.prepare(
+    'UPDATE wallets SET cash = cash + ?, bank = bank - ? WHERE guild_id = ? AND user_id = ?'),
+  logWallet: db.prepare(
+    `INSERT INTO wallet_log (guild_id, user_id, amount, reason, created_at)
+     VALUES (?, ?, ?, ?, ?)`),
+  walletLog: db.prepare(
+    `SELECT * FROM wallet_log WHERE guild_id = ? AND user_id = ?
+     ORDER BY created_at DESC LIMIT ?`),
+  walletTop: db.prepare(
+    `SELECT user_id, cash + bank AS total FROM wallets
+     WHERE guild_id = ? ORDER BY total DESC LIMIT ?`),
+
+  // --- Einkommens-Cooldowns (!daily …) ---
+  getClaim: db.prepare(
+    'SELECT * FROM income_claims WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+  setClaim: db.prepare(
+    `INSERT INTO income_claims (guild_id, user_id, kind, claimed_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET claimed_at = excluded.claimed_at`),
+  clearClaim: db.prepare(
+    'DELETE FROM income_claims WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+
   deleteRounds: db.prepare('DELETE FROM storage_rounds WHERE guild_id = ?'),
   deleteLots: db.prepare('DELETE FROM storage_lots WHERE guild_id = ?'),
   deleteLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ?'),
@@ -1522,11 +1613,92 @@ function restoreListing(guildId, buyerId, listing) {
   });
 }
 
+// ------------------------------------------------------ Fluxer-Menüs
+
+/** Merkt sich, welche Reaktion dieser Nachricht welche Aktion auslöst. */
+function saveFluxerView(messageId, userId, mapping, channelId = '') {
+  stmt.saveFluxerView.run(
+    String(messageId), String(userId), String(channelId),
+    JSON.stringify(mapping), Date.now());
+}
+
+/** Die gemerkte Zuordnung einer Nachricht, oder null. */
+function getFluxerView(messageId) {
+  const row = stmt.getFluxerView.get(String(messageId));
+  if (!row) return null;
+  return { ...row, mapping: JSON.parse(row.mapping) };
+}
+
+/** Räumt alte Menüs weg (Standard: älter als 7 Tage). */
+function purgeFluxerViews(before = Date.now() - 7 * 24 * 60 * 60 * 1000) {
+  return stmt.purgeFluxerViews.run(before).changes;
+}
+
+// ------------------------------------------------------------------- Wallet
+
+/** Geldbeutel eines Spielers; legt ihn beim ersten Zugriff mit Startguthaben an. */
+function getWallet(guildId, userId, startCash = 0) {
+  let row = stmt.getWallet.get(guildId, userId);
+  if (!row) {
+    stmt.createWallet.run(guildId, userId, startCash, 0, Date.now());
+    row = stmt.getWallet.get(guildId, userId);
+    if (startCash) logWallet(guildId, userId, startCash, 'Startguthaben');
+  }
+  return row;
+}
+
+/** Existiert schon ein Geldbeutel? (ohne einen anzulegen) */
+function hasWallet(guildId, userId) {
+  return !!stmt.getWallet.get(guildId, userId);
+}
+
+/** Verändert das Bargeld – eine Anweisung, also atomar. */
+function addCash(guildId, userId, amount) {
+  return stmt.addCash.run(Math.round(amount), guildId, userId).changes > 0;
+}
+
+/** Schiebt Geld von der Bank aufs Bargeld (negativ = zurück auf die Bank). */
+function moveToCash(guildId, userId, amount) {
+  const value = Math.round(amount);
+  return stmt.moveToCash.run(value, value, guildId, userId).changes > 0;
+}
+
+function logWallet(guildId, userId, amount, reason = '') {
+  stmt.logWallet.run(guildId, userId, Math.round(amount), reason, Date.now());
+}
+
+function walletLog(guildId, userId, limit = 20) {
+  return stmt.walletLog.all(guildId, userId, limit);
+}
+
+/** Reichste Spieler (nur flüssiges Vermögen) – für die Rangliste. */
+function walletTop(guildId, limit = 50) {
+  return stmt.walletTop.all(guildId, limit);
+}
+
+// --------------------------------------------------- Einkommens-Cooldowns
+
+/** Zeitpunkt der letzten Auszahlung dieser Art, oder null. */
+function getClaim(guildId, userId, kind) {
+  return stmt.getClaim.get(guildId, userId, kind) ?? null;
+}
+
+function setClaim(guildId, userId, kind, when = Date.now()) {
+  stmt.setClaim.run(guildId, userId, kind, when);
+}
+
+function clearClaim(guildId, userId, kind) {
+  return stmt.clearClaim.run(guildId, userId, kind).changes > 0;
+}
+
 module.exports = {
   listItems, listBrands, getItem, createItem, deleteItem, updateItemImage, allItemsOfKind,
   listInventory, reservePurchase, releasePurchase,
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
   addStats, getStats, listStats, setTagline, setSeenVersion,
+  getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
+  saveFluxerView, getFluxerView, purgeFluxerViews,
+  getClaim, setClaim, clearClaim,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,
