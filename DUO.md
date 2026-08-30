@@ -124,6 +124,32 @@ FLUXER_CURRENCY_SYMBOL=<:Rubine:DEINE-FLUXER-EMOJI-ID>
 Ohne Eintrag wird auf den bloßen Namen zurückgefallen (lesbar statt kaputt).
 Übrige Discord-Emojis werden ebenfalls durch ihren Namen ersetzt.
 
+## Kanal-Brücke: gemeinsamer Chat über beide Plattformen
+
+Discord kennt keine **ausgehenden** Webhooks – man kann sich nicht benachrichtigen
+lassen, wenn dort etwas passiert. Man braucht einen Bot, der mitliest. Genau den
+gibt es hier: Im duo-Prozess sind beide Clients gleichzeitig offen, also spiegelt
+[`relay.js`](src/relay.js) direkt zwischen ihnen – **ohne Webhook**.
+
+```env
+RELAY_DISCORD_CHANNEL=<discord-kanal-id>
+RELAY_FLUXER_CHANNEL=<fluxer-kanal-id>
+```
+
+Beide IDs nötig, sonst bleibt die Brücke aus. Auf Discord ist zusätzlich das
+**Message Content Intent** erforderlich (Developer Portal → Bot), sonst kommen
+die Nachrichten ohne Text an.
+
+Gespiegelt wird **alles im Kanal**, in **beide Richtungen** – auch Bot-Ausgaben
+wie UnbelievaBoats Auszahlungen und Überfälle. Embeds werden in lesbaren Text
+umgewandelt, Anhänge als Verweis angehängt, überlange Nachrichten gekürzt.
+Erwähnungen lösen drüben bewusst **keinen Ping** aus.
+
+**Schleifenschutz:** Die eigenen Nachrichten des Bots werden nie gespiegelt.
+Ohne diese Regel würde jede weitergeleitete Nachricht drüben erneut weitergeleitet
+und beide Kanäle wären in Sekunden geflutet – [`test/relay.test.js`](test/relay.test.js)
+sichert das ab.
+
 ## Grenzen
 - **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler
   werden abgefangen, aber die Trennung zweier Instanzen ist robuster.

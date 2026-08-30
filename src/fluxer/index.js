@@ -6,6 +6,7 @@ const { createInteraction } = require('./interaction');
 const { buttons, modals, parseId } = require('../buttons');
 const db = require('../db');
 const identity = require('../identity');
+const relay = require('../relay');
 
 /**
  * ===========================================================================
@@ -39,6 +40,8 @@ const client = new Client();
 
 client.on(Events.Ready, () => {
   console.log(`✅ Fluxer-Bot bereit – Präfix "${config.prefix}"`);
+  relay.register('fluxer', client);
+  if (relay.enabled) console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');
   db.purgeFluxerViews();
 
   // Kataloge (Autos, Immobilien, Ausrüstung) liegen PRO SERVER in der
@@ -57,6 +60,11 @@ client.on(Events.Ready, () => {
 
 client.on(Events.MessageCreate, async (message) => {
   try {
+    // Erst spiegeln, dann verarbeiten: Auch Befehle anderer Spieler sollen
+    // drüben sichtbar sein. Eigene Nachrichten filtert die Brücke selbst.
+    relay.fromFluxer(message).catch((err) =>
+      console.error('Brücke Fluxer→Discord:', err.message));
+
     if (message.author?.bot) return;
 
     // Wartet gerade eine Frage auf Antwort? (Modal-Ersatz)

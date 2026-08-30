@@ -5,12 +5,14 @@ const { discordToken } = require('./config');
 const { buttons, modals, parseId } = require('./buttons');
 const nudges = require('./nudges');
 const bridge = require('./bridge');
+const relay = require('./relay');
 
-// Nachrichten mitlesen (für die !work-Nudges) nur, wenn das Feature an ist –
-// sonst würde der Bot das privilegierte Message-Content-Intent anfordern und
-// ohne Freischaltung im Developer Portal gar nicht erst starten.
+// Nachrichten mitlesen braucht das privilegierte Message-Content-Intent.
+// Nur anfordern, wenn eines der Features es wirklich benötigt – ohne
+// Freischaltung im Developer Portal würde der Bot sonst gar nicht starten.
+const needsMessages = nudges.enabled || relay.enabled;
 const intents = [GatewayIntentBits.Guilds];
-if (nudges.enabled) {
+if (needsMessages) {
   intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
 }
 
@@ -31,12 +33,16 @@ for (const file of fs.readdirSync(commandsDir).filter((f) => f.endsWith('.js')))
 client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
+  relay.register('discord', client);
+  if (relay.enabled) console.log('🔗 Kanal-Brücke: Discord-Seite bereit.');
 });
 
-// Werbe-Nudges bei UnbelievaBoat-Einkommensbefehlen (nur wenn aktiviert).
-if (nudges.enabled) {
+// Nachrichten im Kanal: Werbe-Nudges und die Brücke nach Fluxer.
+if (needsMessages) {
   client.on('messageCreate', (message) => {
-    nudges.handleMessage(message).catch(() => {});
+    if (nudges.enabled) nudges.handleMessage(message).catch(() => {});
+    relay.fromDiscord(message).catch((err) =>
+      console.error('Brücke Discord→Fluxer:', err.message));
   });
 }
 
