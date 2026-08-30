@@ -8,7 +8,9 @@
  *
  * Aufruf: npm run test:toplist
  */
-process.env.WORLD_ID = 'TESTWORLD_TOP';
+// Eigene Welt je Lauf: Sonst bleiben Wallets aus früheren Läufen liegen und
+// verfälschen die Rangliste (genau das ist hier schon einmal passiert).
+process.env.WORLD_ID = `TESTWORLD_TOP_${Date.now()}`;
 
 const db = require('../src/db');
 const unb = require('../src/unb');
