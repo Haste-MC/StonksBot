@@ -116,7 +116,7 @@ function format(message, { platform }) {
   const body = pieces.join('\n').trim();
   if (!body) return null;
 
-  const flag = platform === 'discord' ? '🔵 Discord' : '🟣 Fluxer';
+  const flag = platform === 'discord' ? '🔵 ' : '🟣 ';
   const clipped = body.length > MAX_LENGTH ? `${body.slice(0, MAX_LENGTH)}…` : body;
   return `${flag} **${author}:** ${clipped}`;
 }
