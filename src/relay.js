@@ -65,6 +65,11 @@ function register(platform, client) {
   clients[platform] = client;
 }
 
+/** Der angemeldete Discord-Client – etwa für Rollenabfragen von Fluxer aus. */
+function discordClient() {
+  return clients.discord;
+}
+
 /** Läuft die Brücke gerade in beide Richtungen? */
 function ready() {
   return Boolean(enabled && clients.discord && clients.fluxer);
@@ -210,6 +215,6 @@ async function fromFluxer(message) {
 
 module.exports = {
   enabled, DISCORD_CHANNEL, FLUXER_CHANNEL, MAX_LENGTH, RELAY_ALL, EXCLUDE, OVERRIDES,
-  register, ready, format, flattenEmbed, shouldRelay, fromDiscord, fromFluxer,
+  register, ready, discordClient, format, flattenEmbed, shouldRelay, fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
 };

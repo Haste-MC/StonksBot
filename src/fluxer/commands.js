@@ -8,6 +8,8 @@ const level = require('../level');
 const patchnotes = require('../patchnotes');
 const accounts = require('../accounts');
 const banking = require('../banking');
+const robbery = require('../robbery');
+const roleIncome = require('../roleIncome');
 const identity = require('../identity');
 const { getSymbol } = require('../currency');
 const { buy } = require('../purchase');
@@ -70,6 +72,56 @@ const COMMANDS = [
           `Verdienst: **${money(symbol, res.amount)}** · Kontostand: ${money(symbol, res.balance.total)}\n` +
           `🏆 Level ${l.level}` +
           (res.broken ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.name}**` : ''),
+      };
+    },
+  },
+  {
+    names: ['rob', 'ausrauben', 'überfall', 'ueberfall'],
+    info: 'Jemanden ausrauben: !rob <@spieler|id>',
+    run: async ({ guildId, userId, args, prefix }) => {
+      const symbol = await getSymbol(guildId);
+      const raw = String(args[0] ?? '').replace(/[<@!>]/g, '').trim();
+      if (!raw) return { text: `❓ Wen denn? Beispiel: \`${prefix}rob @spieler\`` };
+
+      // Auf das Konto übersetzen: Ein Fluxer-Ziel kann verknüpft sein.
+      const victim = identity.account('fluxer', raw) === `fx:${raw}` && /^\d{17,20}$/.test(raw)
+        ? raw : identity.account('fluxer', raw);
+
+      const res = await robbery.rob(guildId, userId, victim);
+      if (!res.ok) return { text: robProblem(res, symbol, prefix) };
+
+      return {
+        text: res.success
+          ? `🎭 **Erfolg!** Du hast **${money(symbol, res.amount)}** erbeutet.\n` +
+            `_Chance war ${Math.round(res.chance * 100)} %._`
+          : `🚨 **Erwischt!** Du zahlst **${money(symbol, res.penalty)}** Schmerzensgeld.\n` +
+            `_Chance war ${Math.round(res.chance * 100)} % – Bargeld auf der Bank ist sicher._`,
+      };
+    },
+  },
+  {
+    names: ['einkommen', 'income', 'collect'],
+    info: 'Rollen-Einkommen abholen',
+    run: async ({ guildId, userId }) => {
+      const symbol = await getSymbol(guildId);
+      const roles = await roleIncome.rolesOf(require('../relay').discordClient?.(), userId);
+      const res = await roleIncome.claim(guildId, userId, roles);
+
+      if (!res.ok) {
+        if (res.reason === 'disabled') return { text: 'ℹ️ Rollen-Einkommen ist nicht eingerichtet.' };
+        if (res.reason === 'no_roles') {
+          return {
+            text: '🎭 Du hast keine Rolle, die Einkommen bringt.\n' +
+              '_Fluxer-Spieler brauchen dafür ein verknüpftes Discord-Konto (`!link`)._',
+          };
+        }
+        return {
+          text: `⏳ Schon abgeholt. Nächstes Einkommen in **${income.formatRemaining(res.remainingMs)}**.`,
+        };
+      }
+      return {
+        text: `💼 **${money(symbol, res.amount)}** Rollen-Einkommen erhalten.\n` +
+          `Kontostand: ${money(symbol, res.balance.total)}`,
       };
     },
   },
@@ -261,6 +313,19 @@ function workProblem(res, prefix, symbol) {
       return `🧰 Dir fehlt: **${res.missing.join(', ')}**`;
     default:
       return '❌ Das hat nicht geklappt.';
+  }
+}
+
+function robProblem(res, symbol, prefix) {
+  switch (res.reason) {
+    case 'self': return '🙃 Dich selbst auszurauben bringt wenig.';
+    case 'cooldown':
+      return `⏳ Lass etwas Gras drüber wachsen – nächster Versuch in **${income.formatRemaining(res.remainingMs)}**.`;
+    case 'victim_broke':
+      return `🪹 Da ist nichts zu holen (unter ${money(symbol, res.needed)} Bargeld).`;
+    case 'no_cash':
+      return '👛 Ohne eigenes Bargeld kein Überfall – du könntest die Strafe nicht zahlen.';
+    default: return '❌ Der Überfall ging schief.';
   }
 }
 

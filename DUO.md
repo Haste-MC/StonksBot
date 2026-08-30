@@ -161,6 +161,42 @@ Ohne diese Regel würde jede weitergeleitete Nachricht drüben erneut weitergele
 und beide Kanäle wären in Sekunden geflutet – [`test/relay.test.js`](test/relay.test.js)
 sichert das ab.
 
+## Überfall und Rollen-Einkommen
+
+UnbelievaBoats Befehle lassen sich für Fluxer-Spieler **nicht auslösen**: Die API
+kennt keine Befehlsausführung, und eine gespiegelte Nachricht stammt vom Bot,
+nicht vom Spieler – UnbelievaBoat würde sie ignorieren oder auf das Konto des
+Bots anwenden. Deshalb sind beide Funktionen nachgebaut. Sie wirken über
+`changeCash` auf **dieselben** UnbelievaBoat-Konten und funktionieren damit auf
+beiden Plattformen gleich.
+
+```
+!rob <@spieler>       jemanden ausrauben
+!einkommen            Rollen-Einkommen abholen
+```
+
+**Überfall** ([`robbery.js`](src/robbery.js)): Nur **Bargeld** ist erbeutbar – wer
+einzahlt, ist sicher. Höchstens 30 % vom Bargeld des Opfers, Opfer unter 500
+sind geschützt, 2 h Cooldown. Die Erfolgschance sinkt, je größer die Beute im
+Verhältnis zum eigenen Bargeld ist. Bei Misserfolg zahlt der Räuber Schmerzensgeld
+**an das Opfer**.
+
+Zwei bewusste Entscheidungen, beide getestet:
+- **Reine Umverteilung.** Was der eine bekommt, verliert der andere – auf den
+  Cent, auch bei Misserfolg. Über 60 Überfälle bleibt die Summe exakt gleich.
+- **Keine Erfahrung.** Sonst könnten sich zwei Spieler gegenseitig ausrauben und
+  daraus endlos Erfahrung erzeugen.
+
+**Rollen-Einkommen** ([`roleIncome.js`](src/roleIncome.js)):
+```env
+INCOME_ROLES=<rollen-id>:500,<rollen-id>:1500
+INCOME_INTERVAL_HOURS=24
+```
+Die Rollen liest der **Discord**-Client – auch für Fluxer-Spieler, sofern ihr
+Konto verknüpft ist. Genau dafür ist der duo-Betrieb gut: Beide Clients laufen im
+selben Prozess. Ohne Verknüpfung gibt es keine Rollen und damit kein Einkommen –
+ein guter Anreiz für `!link`.
+
 ## Grenzen
 - **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler
   werden abgefangen, aber die Trennung zweier Instanzen ist robuster.
