@@ -87,4 +87,22 @@ async function deposit(guildId, userId, amount, reason = '') {
   return withdrawFromBank(guildId, userId, -Math.abs(Math.round(Number(amount) || 0)), reason);
 }
 
-module.exports = { START_CASH, getBalance, changeCash, withdrawFromBank, deposit, readBalance };
+/**
+ * Leert einen Geldbeutel vollständig und meldet, wie viel darin war.
+ *
+ * Gebraucht beim Verknüpfen: Das Zwischenguthaben eines Fluxer-Spielers wandert
+ * zu UnbelievaBoat. Erst hier abräumen, dann dort gutschreiben – so kann das
+ * Geld nicht doppelt existieren.
+ */
+function drain(guildId, accountId) {
+  const before = readBalance(guildId, accountId);
+  if (before.total === 0) return 0;
+  if (before.bank !== 0) db.moveToCash(guildId, accountId, before.bank);
+  db.addCash(guildId, accountId, -before.total);
+  db.logWallet(guildId, accountId, -before.total, 'Übertrag bei Kontoverknüpfung');
+  return before.total;
+}
+
+module.exports = {
+  START_CASH, getBalance, changeCash, withdrawFromBank, deposit, readBalance, drain,
+};

@@ -1,4 +1,5 @@
 const db = require('../db');
+const identity = require('../identity');
 
 /**
  * ===========================================================================
@@ -127,6 +128,31 @@ function legend(mapping) {
 }
 
 /**
+ * Ersetzt Konto-Erwähnungen durch Namen.
+ *
+ * Die Ansichten schreiben `<@konto>`. Das Konto ist eine Discord-ID – die kann
+ * Fluxer nicht auflösen und würde roh dastehen. Deshalb hier der gemerkte
+ * Anzeigename (siehe identity.remember).
+ */
+function resolveMentions(text) {
+  if (typeof text !== 'string' || !text.includes('<@')) return text;
+  return text.replace(/<@!?([^>]+)>/g, (whole, id) => {
+    const name = identity.nameOf(id);
+    return name ? `**${name}**` : whole;
+  });
+}
+
+/** Wendet die Namensauflösung auf alle Textfelder eines Embeds an. */
+function humanize(embed) {
+  const out = { ...embed };
+  if (out.description) out.description = resolveMentions(out.description);
+  if (Array.isArray(out.fields)) {
+    out.fields = out.fields.map((f) => ({ ...f, value: resolveMentions(f.value) }));
+  }
+  return out;
+}
+
+/**
  * Wandelt eine Ansicht in das um, was an Fluxer geschickt wird.
  * @returns {{embed: object, mapping: Array, reactions: string[]}}
  */
@@ -134,7 +160,7 @@ function toMessage(view) {
   const embedJson = view.embeds?.[0]
     ? (typeof view.embeds[0].toJSON === 'function' ? view.embeds[0].toJSON() : view.embeds[0])
     : {};
-  const embed = { ...embedJson };
+  const embed = humanize(embedJson);
   const mapping = mapReactions(view);
 
   const help = legend(mapping);
@@ -177,4 +203,5 @@ function lookup(messageId, emoji) {
 module.exports = {
   NAV, PICKERS, MAX_REACTIONS,
   buttonsOf, mapReactions, legend, toMessage, remember, lookup, current,
+  resolveMentions, humanize,
 };

@@ -28,6 +28,7 @@ const render = require('./render');
  */
 function createInteraction(ctx) {
   const { channel, userId, guildId } = ctx;
+  const mentionId = ctx.platformUserId ?? userId;
   let message = ctx.message ?? null;
 
   /** Schickt eine Ansicht in die Menü-Nachricht (oder legt sie neu an). */
@@ -94,7 +95,7 @@ function createInteraction(ctx) {
   async function notify(payload) {
     const content = typeof payload === 'string' ? payload : payload?.content;
     if (!content) return null;
-    return channel.send({ content: `<@${userId}> ${content}` }).catch(() => null);
+    return channel.send({ content: `<@${mentionId}> ${content}` }).catch(() => null);
   }
 
   return {

@@ -293,6 +293,28 @@ db.exec(`
   );
 `);
 
+// Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
+// denselben Fortschritt haben. Dafür wird jede Plattform-Identität auf EIN
+// kanonisches Konto abgebildet – siehe src/identity.js.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS account_links (
+    platform   TEXT NOT NULL,          -- 'discord' | 'fluxer'
+    user_id    TEXT NOT NULL,          -- ID auf dieser Plattform
+    account_id TEXT NOT NULL,          -- kanonisches Konto (= Discord-ID)
+    linked_at  INTEGER NOT NULL,
+    PRIMARY KEY (platform, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_links_account ON account_links (account_id);
+
+  -- Anzeigenamen je Konto. Auf Fluxer lassen sich Discord-Erwähnungen nicht
+  -- darstellen, deshalb wird dort stattdessen der Name gezeigt.
+  CREATE TABLE IF NOT EXISTS account_names (
+    account_id TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -819,6 +841,20 @@ const stmt = {
        mapping = excluded.mapping, updated_at = excluded.updated_at`),
   getFluxerView: db.prepare('SELECT * FROM fluxer_views WHERE message_id = ?'),
   purgeFluxerViews: db.prepare('DELETE FROM fluxer_views WHERE updated_at < ?'),
+
+  // --- Kontoverknüpfung ---
+  getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
+  setLink: db.prepare(
+    `INSERT INTO account_links (platform, user_id, account_id, linked_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (platform, user_id) DO UPDATE SET
+       account_id = excluded.account_id, linked_at = excluded.linked_at`),
+  deleteLink: db.prepare('DELETE FROM account_links WHERE platform = ? AND user_id = ?'),
+  linksOf: db.prepare('SELECT * FROM account_links WHERE account_id = ?'),
+  setAccountName: db.prepare(
+    `INSERT INTO account_names (account_id, name, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (account_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`),
+  getAccountName: db.prepare('SELECT name FROM account_names WHERE account_id = ?'),
 
   // --- Wallet (eigene Wirtschaft) ---
   getWallet: db.prepare('SELECT * FROM wallets WHERE guild_id = ? AND user_id = ?'),
@@ -1634,6 +1670,160 @@ function purgeFluxerViews(before = Date.now() - 7 * 24 * 60 * 60 * 1000) {
   return stmt.purgeFluxerViews.run(before).changes;
 }
 
+// ------------------------------------------------- Konten zusammenführen
+
+/**
+ * Führt den Spielstand eines Kontos in ein anderes über.
+ *
+ * Nötig, wenn ein Fluxer-Spieler erst losspielt und sich später mit seinem
+ * Discord-Konto verknüpft: Sein bisheriger Fortschritt darf nicht verfallen.
+ *
+ * Läuft komplett in EINER Transaktion – entweder alles wandert, oder nichts.
+ *
+ * Zwei Arten von Tabellen:
+ *  - **umhängen**: mehrere Zeilen je Spieler möglich (Inserate, Fundstücke …)
+ *    -> einfach die Besitzerspalte umschreiben.
+ *  - **eine Zeile je Spieler** (Anstellung, Mietvertrag, Frist …)
+ *    -> nur übernehmen, wenn das Zielkonto dort noch nichts hat.
+ *
+ * Geld ist bewusst NICHT dabei: Das erledigt der Aufrufer über die
+ * Geldschnittstelle, weil es je nach Konto bei UnbelievaBoat liegen kann.
+ *
+ * @returns {{moved: object}} was jeweils übernommen wurde
+ */
+function mergeAccounts(guildId, fromId, toId) {
+  if (String(fromId) === String(toId)) return { moved: {} };
+
+  return transaction(() => {
+    const moved = {};
+    const reassign = (sql, label) => {
+      const res = db.prepare(sql).run(String(toId), guildId, String(fromId));
+      if (res.changes) moved[label] = res.changes;
+    };
+
+    // --- Besitz: Mengen zusammenzählen, damit nichts überschrieben wird ---
+    const items = db.prepare(
+      'SELECT item_id, quantity, condition FROM inventory WHERE guild_id = ? AND user_id = ?'
+    ).all(guildId, String(fromId));
+    for (const row of items) {
+      const target = db.prepare(
+        'SELECT quantity FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?'
+      ).get(guildId, String(toId), row.item_id);
+      if (target) {
+        db.prepare(
+          `UPDATE inventory SET quantity = quantity + ?
+           WHERE guild_id = ? AND user_id = ? AND item_id = ?`
+        ).run(row.quantity, guildId, String(toId), row.item_id);
+      } else {
+        db.prepare(
+          `INSERT INTO inventory (guild_id, user_id, item_id, quantity, condition)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(guildId, String(toId), row.item_id, row.quantity, row.condition ?? 100);
+      }
+    }
+    if (items.length) {
+      db.prepare('DELETE FROM inventory WHERE guild_id = ? AND user_id = ?')
+        .run(guildId, String(fromId));
+      moved.inventory = items.length;
+    }
+
+    // --- Erfahrung und Statistik addieren ---
+    const stats = db.prepare(
+      'SELECT * FROM player_stats WHERE guild_id = ? AND user_id = ?'
+    ).get(guildId, String(fromId));
+    if (stats) {
+      db.prepare(
+        `INSERT INTO player_stats
+           (guild_id, user_id, xp, income_total, expense_total, tagline, seen_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (guild_id, user_id) DO UPDATE SET
+           xp = xp + excluded.xp,
+           income_total = income_total + excluded.income_total,
+           expense_total = expense_total + excluded.expense_total,
+           tagline = CASE WHEN tagline = '' THEN excluded.tagline ELSE tagline END`
+      ).run(guildId, String(toId), stats.xp, stats.income_total, stats.expense_total,
+        stats.tagline, stats.seen_version);
+      db.prepare('DELETE FROM player_stats WHERE guild_id = ? AND user_id = ?')
+        .run(guildId, String(fromId));
+      moved.stats = stats.xp;
+    }
+
+    // --- Mehrfach-Zeilen: einfach umhängen ---
+    reassign('UPDATE listings SET seller_id = ? WHERE guild_id = ? AND seller_id = ?', 'listings');
+    reassign('UPDATE rent_offers SET landlord_id = ? WHERE guild_id = ? AND landlord_id = ?', 'rentOffers');
+    reassign('UPDATE rentals SET landlord_id = ? WHERE guild_id = ? AND landlord_id = ?', 'tenants');
+    reassign('UPDATE messages SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'messages');
+    reassign('UPDATE storage_loot SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'loot');
+    reassign('UPDATE storage_garages SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'garages');
+    reassign('UPDATE storage_lots SET top_bidder = ? WHERE guild_id = ? AND top_bidder = ?', 'bids');
+    reassign('UPDATE wallet_log SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'walletLog');
+
+    // --- Eine Zeile je Spieler: nur übernehmen, wenn das Ziel noch leer ist ---
+    for (const [table, label] of [
+      ['employment', 'employment'], ['rentals', 'rental'], ['capacity_grace', 'grace'],
+      ['street_watch', 'streetWatch'], ['casino_games', 'casinoGame'],
+    ]) {
+      const has = db.prepare(
+        `SELECT 1 FROM ${table} WHERE guild_id = ? AND user_id = ?`
+      ).get(guildId, String(toId));
+      if (has) {
+        db.prepare(`DELETE FROM ${table} WHERE guild_id = ? AND user_id = ?`)
+          .run(guildId, String(fromId));
+      } else {
+        const res = db.prepare(
+          `UPDATE ${table} SET user_id = ? WHERE guild_id = ? AND user_id = ?`
+        ).run(String(toId), guildId, String(fromId));
+        if (res.changes) moved[label] = res.changes;
+      }
+    }
+
+    // Cooldowns (je Art eine Zeile): den späteren behalten, damit das
+    // Zusammenführen kein zusätzliches !daily verschenkt.
+    for (const claim of db.prepare(
+      'SELECT * FROM income_claims WHERE guild_id = ? AND user_id = ?'
+    ).all(guildId, String(fromId))) {
+      db.prepare(
+        `INSERT INTO income_claims (guild_id, user_id, kind, claimed_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET
+           claimed_at = MAX(claimed_at, excluded.claimed_at)`
+      ).run(guildId, String(toId), claim.kind, claim.claimed_at);
+    }
+    db.prepare('DELETE FROM income_claims WHERE guild_id = ? AND user_id = ?')
+      .run(guildId, String(fromId));
+
+    return { moved };
+  });
+}
+
+// ------------------------------------------------------ Kontoverknüpfung
+
+/** Die Verknüpfung einer Plattform-Identität, oder null. */
+function getLink(platform, userId) {
+  return stmt.getLink.get(platform, String(userId)) ?? null;
+}
+
+function setLink(platform, userId, accountId) {
+  stmt.setLink.run(platform, String(userId), String(accountId), Date.now());
+}
+
+function deleteLink(platform, userId) {
+  return stmt.deleteLink.run(platform, String(userId)).changes > 0;
+}
+
+/** Alle Plattform-Identitäten eines Kontos. */
+function linksOf(accountId) {
+  return stmt.linksOf.all(String(accountId));
+}
+
+/** Merkt sich den Anzeigenamen – für Plattformen, die fremde Erwähnungen nicht auflösen. */
+function setAccountName(accountId, name) {
+  stmt.setAccountName.run(String(accountId), String(name), Date.now());
+}
+
+function getAccountName(accountId) {
+  return stmt.getAccountName.get(String(accountId))?.name ?? null;
+}
+
 // ------------------------------------------------------------------- Wallet
 
 /** Geldbeutel eines Spielers; legt ihn beim ersten Zugriff mit Startguthaben an. */
@@ -1697,6 +1887,7 @@ module.exports = {
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
+  getLink, setLink, deleteLink, linksOf, setAccountName, getAccountName, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim,
   deleteMessage, clearMessages, countDeletable,

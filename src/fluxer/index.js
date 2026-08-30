@@ -5,6 +5,7 @@ const commands = require('./commands');
 const { createInteraction } = require('./interaction');
 const { buttons, modals, parseId } = require('../buttons');
 const db = require('../db');
+const identity = require('../identity');
 
 /**
  * ===========================================================================
@@ -68,23 +69,31 @@ client.on(Events.MessageCreate, async (message) => {
     const command = commands.find(name);
     if (!command) return;
 
+    // Auf Welt und Konto übersetzen – dadurch teilt sich ein verknüpfter
+    // Spieler seinen Fortschritt mit der Discord-Seite.
+    const platformUserId = message.author.id;
+    const accountId = identity.account('fluxer', platformUserId);
+    identity.remember(accountId, message.author.displayName ?? message.author.username);
+
     const ctx = {
-      guildId: guildOf(message),
-      userId: message.author.id,
+      guildId: identity.world(),
+      userId: accountId,
+      platformUserId,
       args,
       prefix: config.prefix,
+      isAdmin: require('../accounts').isAdmin(platformUserId),
     };
 
     const result = await command.run(ctx);
 
     if (result?.text) {
-      await message.channel.send({ content: `<@${ctx.userId}> ${result.text}` });
+      await message.channel.send({ content: `<@${platformUserId}> ${result.text}` });
     }
     if (result?.view) {
-      await present(message.channel, ctx.userId, result.view);
+      await present(message.channel, ctx.userId, result.view, platformUserId);
     }
     if (result?.note) {
-      await message.channel.send({ content: `<@${ctx.userId}> ${result.note}` });
+      await message.channel.send({ content: `<@${platformUserId}> ${result.note}` });
     }
   } catch (err) {
     console.error('Fehler bei einem Befehl:', err);
@@ -106,8 +115,10 @@ client.on(Events.MessageReactionAdd, async (payload) => {
     const hit = render.lookup(messageId, emoji);
     if (!hit) return debug('  -> keine bekannte Menü-Nachricht');
 
-    // Wie im Original: Das Menü gehört dem, der es geöffnet hat.
-    if (String(hit.userId) !== String(userId)) {
+    // Wie im Original: Das Menü gehört dem, der es geöffnet hat – verglichen
+    // wird auf Kontoebene, damit es auch nach einer Verknüpfung passt.
+    const accountId = identity.account('fluxer', userId);
+    if (String(hit.userId) !== String(accountId)) {
       return debug('  -> fremdes Menü, ignoriert');
     }
 
@@ -118,8 +129,9 @@ client.on(Events.MessageReactionAdd, async (payload) => {
     await dispatch(hit.customId, {
       channel: message.channel,
       message,
-      userId,
-      guildId: guildOf(message) ?? payload?.reaction?.guild?.id ?? null,
+      userId: accountId,
+      platformUserId: userId,
+      guildId: identity.world(),
     });
 
     // Reaktion zurücknehmen, damit derselbe Knopf erneut gedrückt werden kann.
@@ -164,9 +176,9 @@ function fieldNameOf(modal) {
 }
 
 /** Sendet eine Ansicht und merkt sich die Reaktions-Zuordnung. */
-async function present(channel, userId, view) {
+async function present(channel, userId, view, platformUserId = userId) {
   const interaction = createInteraction({
-    channel, message: null, userId, guildId: guildOf(channel),
+    channel, message: null, userId, platformUserId, guildId: identity.world(),
     prompt: prompt.ask,
   });
   return interaction.update(view);

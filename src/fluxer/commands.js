@@ -6,6 +6,8 @@ const income = require('../income');
 const jobs = require('../jobs');
 const level = require('../level');
 const patchnotes = require('../patchnotes');
+const accounts = require('../accounts');
+const identity = require('../identity');
 const { getSymbol } = require('../currency');
 const { buy } = require('../purchase');
 const { money } = require('../ui');
@@ -67,6 +69,77 @@ const COMMANDS = [
           `Verdienst: **${money(symbol, res.amount)}** · Kontostand: ${money(symbol, res.balance.total)}\n` +
           `🏆 Level ${l.level}` +
           (res.broken ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.name}**` : ''),
+      };
+    },
+  },
+  {
+    names: ['link', 'verknuepfen', 'verknüpfen'],
+    info: 'Discord-Konto verknüpfen: !link <discord-id>',
+    run: async ({ userId, platformUserId, args, prefix, isAdmin }) => {
+      // Admins dürfen fremde Konten reparieren: !link @jemand <discord-id>
+      const targetUser = isAdmin && args.length > 1
+        ? String(args[0]).replace(/[<@!>]/g, '') : platformUserId;
+      const discordId = isAdmin && args.length > 1 ? args[1] : args[0];
+
+      if (!discordId) {
+        const st = accounts.status('fluxer', platformUserId);
+        return {
+          text: st.linked
+            ? `🔗 Verknüpft mit Discord-Konto \`${st.account}\`.\n` +
+              `Aufheben mit \`${prefix}unlink\`.`
+            : '🔓 Noch nicht verknüpft. Dein Fortschritt liegt auf einem eigenen Konto.\n' +
+              `Mit \`${prefix}link <deine-discord-id>\` holst du dir deinen Discord-Spielstand ` +
+              'dazu – dein bisheriger Fortschritt wird dabei übernommen.',
+        };
+      }
+
+      const res = await accounts.link('fluxer', targetUser, discordId);
+      if (!res.ok) {
+        return {
+          text: res.reason === 'bad_id'
+            ? '❌ Das sieht nicht nach einer Discord-ID aus (17–20 Ziffern).'
+            : `ℹ️ Bereits mit \`${res.account}\` verknüpft.`,
+        };
+      }
+
+      const parts = Object.entries(res.moved)
+        .map(([k, v]) => `${k}: ${v}`).join(', ');
+      return {
+        text: `✅ Verknüpft mit Discord-Konto \`${res.account}\`.\n` +
+          (res.carried > 0
+            ? `💰 ${res.carried.toLocaleString('de-DE')} Guthaben übertragen.\n`
+            : res.carried < 0
+              ? `🔻 ${Math.abs(res.carried).toLocaleString('de-DE')} Schulden übernommen.\n`
+              : '') +
+          (parts ? `📦 Übernommen: ${parts}` : 'Es gab noch keinen Fortschritt zu übernehmen.'),
+      };
+    },
+  },
+  {
+    names: ['unlink', 'trennen'],
+    info: 'Verknüpfung aufheben',
+    run: ({ platformUserId, isAdmin, args }) => {
+      const target = isAdmin && args.length
+        ? String(args[0]).replace(/[<@!>]/g, '') : platformUserId;
+      const res = accounts.unlink('fluxer', target);
+      return {
+        text: res.ok
+          ? '🔓 Verknüpfung aufgehoben. Dein Fortschritt bleibt beim Discord-Konto.'
+          : 'ℹ️ Da war keine Verknüpfung.',
+      };
+    },
+  },
+  {
+    names: ['konto', 'account'],
+    info: 'Kontostatus und Verknüpfung',
+    run: ({ platformUserId, prefix }) => {
+      const st = accounts.status('fluxer', platformUserId);
+      const name = identity.nameOf(st.account);
+      return {
+        text: `👤 Konto: \`${st.account}\`${name ? ` (${name})` : ''}\n` +
+          `🔗 ${st.linked ? 'mit Discord verknüpft' : 'nicht verknüpft'}\n` +
+          `💰 Geldquelle: ${st.viaUnb ? 'UnbelievaBoat (Discord)' : 'lokales Wallet'}` +
+          (st.linked ? '' : `\n\n_Mit \`${prefix}link <discord-id>\` holst du deinen Discord-Spielstand._`),
       };
     },
   },

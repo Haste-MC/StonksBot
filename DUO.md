@@ -1,0 +1,103 @@
+# Duo-Version: Discord + Fluxer in einem Prozess
+
+Dieser Branch (`duo`) führt beide Versionen zusammen: **ein Prozess, eine
+Hosting-Instanz, ein Backup** – und **gemeinsamer Fortschritt** über beide
+Plattformen (Cross-Progression).
+
+```bash
+npm run start:duo
+```
+
+Fehlt eines der Tokens, startet die jeweils andere Seite trotzdem. Die
+Einzelstarts (`npm start`, `npm run start:fluxer`) funktionieren weiterhin.
+
+## Wie der gemeinsame Fortschritt funktioniert
+
+Die gesamte Spiellogik arbeitet mit `(guildId, userId)` und behandelt beides als
+undurchsichtige Zeichenketten. Genau das nutzt [`identity.js`](src/identity.js):
+An der **Außengrenze** werden die Plattform-IDs auf ein gemeinsames Paar übersetzt.
+
+```
+Discord (Server 561…, User 498…)  ┐
+                                   ├──►  (WELT, KONTO)
+Fluxer  (Server abc,   User xyz)  ┘
+```
+
+Dadurch bleibt die komplette Spiellogik **unverändert** – sie merkt nicht einmal,
+dass es zwei Plattformen gibt.
+
+| Begriff | Bedeutung |
+|--|--|
+| **Welt** | Alle Server teilen sich eine (`WORLD_ID`). |
+| **Konto** | Die Discord-User-ID. Fluxer-Spieler ohne Verknüpfung bekommen `fx:<id>`. |
+
+Übersetzt wird an genau zwei Stellen: [`bridge.js`](src/bridge.js) hüllt das
+Discord-Interaction ein, [`fluxer/index.js`](src/fluxer/index.js) übersetzt die
+Fluxer-Nachrichten.
+
+> ⚠️ **`WORLD_ID` muss auf deine bestehende Discord-Server-ID zeigen**, sonst
+> liegt der alte Spielstand unter einer anderen Welt und wirkt verschwunden
+> (er ist es nicht). Der Bot warnt beim Start, wenn die Variable fehlt.
+
+## Geld: UnbelievaBoat bleibt die Wahrheit
+
+Cross-Progression braucht **eine** Geldquelle. [`unb.js`](src/unb.js) entscheidet
+deshalb pro Konto:
+
+| Konto | Geld liegt bei |
+|--|--|
+| Discord-Konto (auch verknüpfte Fluxer-Spieler) | **UnbelievaBoat** – der echte Kontostand bleibt erhalten, `!bal` und `!work` stimmen weiter |
+| Fluxer-Spieler **ohne** Verknüpfung | lokales Wallet (Zwischenstand) |
+
+Beim Verknüpfen wandert der Zwischenstand einmalig zu UnbelievaBoat.
+
+## Konten verknüpfen
+
+Bewusst **ohne Bestätigungscode** – es braucht nur eine Plattform, weil nicht
+jeder noch Zugriff auf sein Discord-Konto hat.
+
+**Auf Fluxer:**
+```
+!link <deine-discord-id>     verknüpfen (Fortschritt wird übernommen)
+!konto                       Status anzeigen
+!unlink                      Verknüpfung aufheben
+```
+
+**Auf Discord:** `/konto` zeigt die eigene ID und die verknüpften Fluxer-Zugänge.
+
+**Admins** (IDs in `BOT_ADMINS`, kommagetrennt) können fremde Verknüpfungen
+korrigieren: `!link <fluxer-user> <discord-id>` bzw. `!unlink <fluxer-user>`.
+
+### Was beim Verknüpfen passiert
+Alles wandert in einer Transaktion hinüber: Besitz (Mengen werden addiert,
+Zustände bleiben), Level und Statistik (werden **addiert**, nicht überschrieben),
+Sammlung, Inserate, Mietverhältnisse, Postfach, Gebote.
+
+Zwei bewusste Entscheidungen:
+- **Erfahrung wird addiert**, nicht überschrieben – niemand verliert seinen Fortschritt.
+- **Schulden wandern mit.** Würde ein negativer Stand erlassen, entstünde Geld
+  aus dem Nichts (ARCHITEKTUR §3). Der Übertrag zählt umgekehrt **nicht** als
+  Einnahme, sonst gäbe es Erfahrung doppelt für dasselbe Geld.
+
+Beides ist in [`test/accounts.test.js`](test/accounts.test.js) abgesichert.
+
+## Konfiguration
+
+```env
+WORLD_ID=<deine-discord-server-id>   # WICHTIG: bewahrt den bestehenden Spielstand
+DISCORD_TOKEN=…
+DISCORD_CLIENT_ID=…
+UNB_TOKEN=…
+UNB_GUILD_ID=<deine-discord-server-id>
+FLUXER_TOKEN=…
+BOT_ADMINS=<deine-discord-id>
+```
+
+## Grenzen
+- **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler
+  werden abgefangen, aber die Trennung zweier Instanzen ist robuster.
+- **Verknüpfung ohne Prüfung:** Wer eine fremde Discord-ID einträgt, bekommt
+  Zugriff auf deren Spielstand. Bewusste Entscheidung für die Freundesgruppe;
+  ein Admin kann jede Verknüpfung aufheben.
+- **Erwähnungen:** Fluxer kann Discord-IDs nicht auflösen. In Ansichten wird
+  deshalb der gemerkte Anzeigename gezeigt.

@@ -4,6 +4,7 @@ const { Client, Collection, GatewayIntentBits, MessageFlags } = require('discord
 const { discordToken } = require('./config');
 const { buttons, modals, parseId } = require('./buttons');
 const nudges = require('./nudges');
+const bridge = require('./bridge');
 
 // Nachrichten mitlesen (für die !work-Nudges) nur, wenn das Feature an ist –
 // sonst würde der Bot das privilegierte Message-Content-Intent anfordern und
@@ -39,7 +40,11 @@ if (nudges.enabled) {
   });
 }
 
-client.on('interactionCreate', async (interaction) => {
+client.on('interactionCreate', async (rawInteraction) => {
+  // Ab hier arbeitet alles mit Welt und Konto statt mit Server und Discord-ID
+  // – das ist die Grundlage der Cross-Progression (siehe bridge.js).
+  const interaction = bridge.wrap(rawInteraction, 'discord');
+
   if (interaction.isButton()) return handleButton(interaction);
   if (interaction.isModalSubmit()) return handleModal(interaction);
   if (!interaction.isChatInputCommand()) return;

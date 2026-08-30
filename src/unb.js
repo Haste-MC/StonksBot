@@ -1,60 +1,88 @@
+const { Client } = require('unb-api');
 const wallet = require('./wallet');
+const identity = require('./identity');
 
 /**
  * ===========================================================================
- *  GELD-SCHNITTSTELLE (Fluxer-Branch)
+ *  GELD-SCHNITTSTELLE (duo-Branch: Discord + Fluxer)
  * ===========================================================================
  *
- * Auf `main` sprach dieses Modul mit der UnbelievaBoat-API. Auf Fluxer gibt es
- * UnbelievaBoat nicht, deshalb liegt die Wirtschaft jetzt lokal in
- * [wallet.js](./wallet.js).
+ * Der Bot läuft auf beiden Plattformen mit **gemeinsamem Fortschritt**. Geld
+ * kann aber nur EINE Wahrheit haben – und das bleibt **UnbelievaBoat**, damit
+ * der bestehende Discord-Kontostand erhalten bleibt und die dortigen Befehle
+ * (`!bal`, `!work` …) weiter stimmen.
  *
- * **Der Dateiname bleibt bewusst `unb.js`** und die Signaturen bleiben exakt
- * gleich: So bleibt dieser Austausch auf EINE Datei beschränkt, und die 13
- * Module, die Geld buchen (purchase, property, jobs, casinoPlay, storage,
- * buyers, tenants, npc, bills …), laufen unverändert weiter. Das hält den
- * Unterschied zu `main` klein und Merges konfliktfrei.
+ * Deshalb entscheidet dieses Modul pro Konto:
  *
- * Die späte Bindung (`const changeCash = (...a) => unb.changeCash(...a)`) in
- * den Aufrufern funktioniert dadurch weiterhin – auch in den Tests, die diese
- * Funktionen ersetzen (ARCHITEKTUR §8).
+ *   Konto ist ein Discord-Konto      -> UnbelievaBoat (echter Kontostand)
+ *   Fluxer-Spieler ohne Verknüpfung  -> lokales Wallet (eigener Zwischenstand)
+ *
+ * Sobald so jemand `!link` benutzt, wandert sein lokales Guthaben einmalig zu
+ * UnbelievaBoat (siehe accounts.js) und er ist danach vollständig integriert.
+ *
+ * Die Signaturen bleiben exakt wie bisher, damit die 13 geldbuchenden Module
+ * unverändert weiterlaufen (ARCHITEKTUR §2/§8).
  */
 
-const FALLBACK_SYMBOL = process.env.CURRENCY_SYMBOL || '🪙';
+const token = process.env.UNB_TOKEN || '';
+const unbClient = token ? new Client(token, { maxRetries: 3 }) : null;
 
 /**
- * Steht dort, wo früher der UnbelievaBoat-Client lag. `currency.js` fragt
- * darüber das Währungssymbol ab – hier kommt es aus der Konfiguration,
- * damit auch dieses Modul unverändert bleibt.
+ * Der Discord-Server, unter dem UnbelievaBoat die Konten führt.
+ *
+ * Wichtig: Die Spiellogik übergibt inzwischen die **Welt**, nicht mehr die
+ * echte Server-ID (siehe identity.js). UnbelievaBoat kennt aber nur seinen
+ * Discord-Server – deshalb hier die echte ID.
  */
+const UNB_GUILD =
+  process.env.UNB_GUILD_ID || process.env.DISCORD_GUILD_ID
+  || process.env.WORLD_ID || process.env.DEV_GUILD_ID || '';
+
+/** Läuft dieses Konto über UnbelievaBoat? */
+function viaUnb(accountId) {
+  return Boolean(unbClient) && UNB_GUILD && identity.isDiscordAccount(accountId);
+}
+
 const unb = {
-  async getGuild() {
-    return { currencySymbol: FALLBACK_SYMBOL };
+  async getGuild(guildId) {
+    if (unbClient && UNB_GUILD) return unbClient.getGuild(UNB_GUILD);
+    return { currencySymbol: process.env.CURRENCY_SYMBOL || '🪙' };
   },
 };
 
-/** Guthaben eines Users: { cash, bank, total }. */
-function getBalance(guildId, userId) {
-  return wallet.getBalance(guildId, userId);
+/** Guthaben eines Kontos: { cash, bank, total }. */
+async function getBalance(guildId, accountId) {
+  if (viaUnb(accountId)) return unbClient.getUserBalance(UNB_GUILD, accountId);
+  return wallet.getBalance(guildId, accountId);
 }
 
 /**
- * Verändert das Bargeld eines Users (negativ = abziehen).
- * Der Grund landet im lokalen Transaktionslog (`wallet_log`).
+ * Verändert das Bargeld (negativ = abziehen). Der Grund landet im Log der
+ * jeweiligen Quelle.
  *
  * Jede echte Buchung vergibt Erfahrung; Storno-/Rückerstattungsbuchungen
- * übergeben `{ xp: false }` und zählen nicht mit.
+ * übergeben `{ xp: false }` und zählen nicht mit (kein Doppelzählen).
  */
-function changeCash(guildId, userId, amount, reason, opts = {}) {
-  return wallet.changeCash(guildId, userId, amount, reason, opts);
+async function changeCash(guildId, accountId, amount, reason, opts = {}) {
+  if (!viaUnb(accountId)) {
+    // Das lokale Wallet vergibt die Erfahrung bereits selbst.
+    return wallet.changeCash(guildId, accountId, amount, reason, opts);
+  }
+
+  const balance = await unbClient.editUserBalance(
+    UNB_GUILD, accountId, { cash: amount }, reason);
+
+  if (opts.xp !== false) {
+    try { require('./level').award(guildId, accountId, amount); } catch { /* egal */ }
+  }
+  return balance;
 }
 
-/**
- * Verschiebt Geld von der Bank aufs Bargeld – nötig, wenn jemand zwar genug
- * Vermögen hat, aber nicht genug flüssig ist.
- */
-function withdrawFromBank(guildId, userId, amount, reason) {
-  return wallet.withdrawFromBank(guildId, userId, amount, reason);
+/** Verschiebt Geld von der Bank aufs Bargeld (negativ = zurück auf die Bank). */
+async function withdrawFromBank(guildId, accountId, amount, reason) {
+  if (!viaUnb(accountId)) return wallet.withdrawFromBank(guildId, accountId, amount, reason);
+  return unbClient.editUserBalance(
+    UNB_GUILD, accountId, { cash: amount, bank: -amount }, reason);
 }
 
-module.exports = { unb, getBalance, changeCash, withdrawFromBank };
+module.exports = { unb, getBalance, changeCash, withdrawFromBank, viaUnb, UNB_GUILD };
