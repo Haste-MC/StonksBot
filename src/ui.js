@@ -1544,6 +1544,56 @@ async function buildCollectionView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
+// -------------------------------------------------------- Geld-Rangliste
+
+/**
+ * Die reine Geld-Rangliste (`!top`) – wie man sie von UnbelievaBoat kennt.
+ *
+ * Nicht zu verwechseln mit buildLeaderboardView: Die zeigt Level, Einnahmen
+ * und Ausgaben aus unseren eigenen Daten. Hier geht es nur ums Geld, direkt
+ * von UnbelievaBoat gelesen und um die ungelinkten Fluxer-Spieler ergänzt.
+ */
+async function buildTopView({ guildId, userId, sort = 'total' }) {
+  const toplist = require('./toplist');
+  const symbol = await getSymbol(guildId);
+  const key = toplist.parseSort(sort);
+  const entries = await toplist.fetch({ sort: key, limit: 15 });
+
+  const titles = { total: 'Gesamtvermögen', cash: 'Bargeld', bank: 'Bank' };
+  const embed = new EmbedBuilder()
+    .setTitle(`💰 Reichste Spieler — ${titles[key]}`)
+    .setColor(0xf1c40f);
+
+  if (!entries.length) {
+    embed.setDescription('Noch keine Daten.');
+    return { embeds: [embed], components: [new ActionRowBuilder().addComponents(homeButton(userId))] };
+  }
+
+  const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] ?? `**#${rank}**`;
+  embed.setDescription(entries.map((e) => {
+    const you = e.userId === userId ? ' ⬅️ **du**' : '';
+    return `${medal(e.rank)} ${toplist.label(e.userId)}${you} — ${money(symbol, e[key])}`;
+  }).join('\n'));
+
+  const mine = entries.find((e) => e.userId === userId);
+  embed.setFooter({
+    text: mine
+      ? `Dein Platz: ${mine.rank} von ${entries.length}`
+      : 'Du bist (noch) nicht in den Top 15.',
+  });
+
+  // Umschalten zwischen den drei Sichten.
+  const row = new ActionRowBuilder().addComponents(
+    ...Object.entries(titles).map(([k, label]) =>
+      new ButtonBuilder()
+        .setCustomId(`top|${k}|${userId}`)
+        .setLabel(label)
+        .setStyle(k === key ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+    homeButton(userId));
+
+  return { embeds: [embed], components: [row] };
+}
+
 // ------------------------------------------------------------------- Detail
 
 async function buildDetailView({ guildId, mode, key, page, userId }) {
@@ -1677,7 +1727,7 @@ module.exports = {
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, buildGaragesView,
+  buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money,
 };

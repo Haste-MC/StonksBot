@@ -197,6 +197,28 @@ Konto verknüpft ist. Genau dafür ist der duo-Betrieb gut: Beide Clients laufen
 selben Prozess. Ohne Verknüpfung gibt es keine Rollen und damit kein Einkommen –
 ein guter Anreiz für `!link`.
 
+## Geld-Rangliste (!top)
+
+Hier liegt der Fall **anders als bei `!rob`**: Die Rangliste lässt sich über die
+API wirklich **lesen** (`getGuildLeaderboard`), sie wird also nicht nachgebaut,
+sondern geholt – ein Aufruf statt einer Abfrage je Spieler.
+
+```
+!top            nach Gesamtvermögen
+!top bar        nach Bargeld
+!top bank       nach Bankguthaben
+```
+
+Auf Discord zusätzlich als `/top`. Die Ansicht lässt sich per Knopf umschalten.
+
+Ergänzt wird die Liste um die **Fluxer-Spieler ohne Verknüpfung**: Deren Geld
+liegt im lokalen Wallet, UnbelievaBoat kennt sie nicht – ohne diese Ergänzung
+würden sie fehlen, obwohl sie mitspielen. Verknüpfte Konten stehen nur einmal
+drin.
+
+Nicht zu verwechseln mit `!rangliste`: Die zeigt Level, Einnahmen, Ausgaben und
+Gesamtvermögen aus unseren eigenen Daten. `!top` ist die reine Geldliste.
+
 ## Grenzen
 - **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler
   werden abgefangen, aber die Trennung zweier Instanzen ist robuster.

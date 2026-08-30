@@ -9,7 +9,8 @@ const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView, money,
+  buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
+  buildTopView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1049,6 +1050,14 @@ Object.assign(buttons, {
         (bills > 0 ? ` ${bills} offene ${bills === 1 ? 'Rechnung bleibt' : 'Rechnungen bleiben'} bestehen.` : ''),
       flags: MessageFlags.Ephemeral,
     }).catch(() => {});
+  },
+
+  /** Geld-Rangliste: zwischen Gesamt, Bargeld und Bank umschalten. */
+  async top(interaction, [sort]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildTopView({
+      guildId: gid(interaction), userId: uid(interaction), sort,
+    }));
   },
 
   /** Verschlossene Garagen ansehen. */

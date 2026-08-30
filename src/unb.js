@@ -85,4 +85,22 @@ async function withdrawFromBank(guildId, accountId, amount, reason) {
     UNB_GUILD, accountId, { cash: amount, bank: -amount }, reason);
 }
 
-module.exports = { unb, getBalance, changeCash, withdrawFromBank, viaUnb, UNB_GUILD };
+/**
+ * Die echte Geld-Rangliste von UnbelievaBoat.
+ *
+ * Anders als bei den Befehlen (`!work`, `!rob` …) gibt es hierfür einen
+ * Endpunkt – die Liste lässt sich also direkt lesen, statt sie nachzubauen.
+ * Ein Aufruf liefert alle Plätze; wir müssen nicht je Spieler abfragen.
+ *
+ * @returns {Promise<Array<{user_id,cash,bank,total,rank}>>} leer, wenn
+ *   UnbelievaBoat nicht eingerichtet ist.
+ */
+async function leaderboard({ sort = 'total', limit = 25 } = {}) {
+  if (!unbClient || !UNB_GUILD) return [];
+  const result = await unbClient.getGuildLeaderboard(UNB_GUILD, { sort, limit });
+  return Array.isArray(result) ? result : (result?.users ?? []);
+}
+
+module.exports = {
+  unb, getBalance, changeCash, withdrawFromBank, leaderboard, viaUnb, UNB_GUILD,
+};

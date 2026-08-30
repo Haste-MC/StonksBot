@@ -875,7 +875,7 @@ const stmt = {
     `SELECT * FROM wallet_log WHERE guild_id = ? AND user_id = ?
      ORDER BY created_at DESC LIMIT ?`),
   walletTop: db.prepare(
-    `SELECT user_id, cash + bank AS total FROM wallets
+    `SELECT user_id, cash, bank, cash + bank AS total FROM wallets
      WHERE guild_id = ? ORDER BY total DESC LIMIT ?`),
 
   // --- Einkommens-Cooldowns (!daily …) ---

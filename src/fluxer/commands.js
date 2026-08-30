@@ -76,6 +76,12 @@ const COMMANDS = [
     },
   },
   {
+    names: ['top', 'reich', 'reichste'],
+    info: 'Geld-Rangliste: !top [bar|bank]',
+    run: async ({ guildId, userId, args }) =>
+      ({ view: await ui.buildTopView({ guildId, userId, sort: args[0] }) }),
+  },
+  {
     names: ['rob', 'ausrauben', 'überfall', 'ueberfall'],
     info: 'Jemanden ausrauben: !rob <@spieler|id>',
     run: async ({ guildId, userId, args, prefix }) => {
