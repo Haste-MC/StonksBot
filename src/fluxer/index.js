@@ -39,6 +39,17 @@ const client = new Client();
 client.on(Events.Ready, () => {
   console.log(`✅ Fluxer-Bot bereit – Präfix "${config.prefix}"`);
   db.purgeFluxerViews();
+
+  // Kataloge (Autos, Immobilien, Ausrüstung) liegen PRO SERVER in der
+  // Datenbank. Damit man weiß, womit man sie befüllt, hier die IDs ausgeben.
+  try {
+    const guilds = [...(client.guilds?.values?.() ?? [])];
+    for (const g of guilds) {
+      const cars = db.allItemsOfKind(g.id, 'car').length;
+      console.log(`   Server "${g.name ?? g.id}" (${g.id}) – ${cars} Autos im Katalog` +
+        (cars === 0 ? `  ⚠️  noch leer:  npm run seed -- ${g.id}` : ''));
+    }
+  } catch { /* Serverliste noch nicht geladen – nicht schlimm */ }
 });
 
 // ------------------------------------------------------------ Textbefehle
@@ -86,27 +97,33 @@ client.on(Events.MessageCreate, async (message) => {
 client.on(Events.MessageReactionAdd, async (payload) => {
   try {
     const { emoji, userId, messageId } = normalize(payload);
-    if (!userId || !messageId) return;
-    if (userId === client.user?.id) return;          // eigene Reaktionen ignorieren
+    debug('Reaktion empfangen', { emoji, userId, messageId });
+    if (!userId || !messageId || !emoji) return;
+
+    // Der Bot setzt die Reaktionen selbst – diese Ereignisse ignorieren.
+    if (userId === client.user?.id) return;
 
     const hit = render.lookup(messageId, emoji);
-    if (!hit) return;                                 // keine unserer Menü-Nachrichten
+    if (!hit) return debug('  -> keine bekannte Menü-Nachricht');
 
     // Wie im Original: Das Menü gehört dem, der es geöffnet hat.
-    if (hit.userId !== userId) return;
+    if (String(hit.userId) !== String(userId)) {
+      return debug('  -> fremdes Menü, ignoriert');
+    }
 
-    const message = await fetchMessage(payload, messageId);
-    if (!message) return;
+    const message = await fetchMessage(payload);
+    if (!message) return debug('  -> Nachricht nicht abrufbar');
 
+    debug('  -> führe aus:', hit.customId);
     await dispatch(hit.customId, {
-      channel: message.channel ?? payload.channel,
+      channel: message.channel,
       message,
       userId,
-      guildId: guildOf(message) ?? guildOf(payload),
+      guildId: guildOf(message) ?? payload?.reaction?.guild?.id ?? null,
     });
 
     // Reaktion zurücknehmen, damit derselbe Knopf erneut gedrückt werden kann.
-    await message.removeReaction?.(emoji, userId).catch(() => {});
+    await message.removeReaction(emoji, userId).catch(() => {});
   } catch (err) {
     console.error('Fehler bei einer Reaktion:', err);
   }
@@ -160,20 +177,42 @@ function guildOf(obj) {
   return obj?.guildId ?? obj?.guild?.id ?? obj?.channel?.guildId ?? null;
 }
 
-/** Vereinheitlicht das Reaktions-Ereignis (Feldnamen je nach SDK-Version). */
+/**
+ * Vereinheitlicht das Reaktions-Ereignis. Das SDK liefert
+ * `{ reaction, user, messageId, channelId, emoji: { name }, userId }`.
+ */
 function normalize(payload) {
-  const emoji = payload?.emoji?.name ?? payload?.emoji ?? payload?.reaction?.emoji?.name;
-  const userId = payload?.userId ?? payload?.user?.id;
-  const messageId = payload?.messageId ?? payload?.message?.id ?? payload?.reaction?.message?.id;
-  return { emoji, userId, messageId };
+  const emoji = typeof payload?.emoji === 'string'
+    ? payload.emoji
+    : payload?.emoji?.name ?? payload?.reaction?.emojiIdentifier;
+  return {
+    emoji,
+    userId: payload?.userId ?? payload?.user?.id,
+    messageId: payload?.messageId ?? payload?.reaction?.messageId,
+  };
 }
 
-/** Holt die Nachricht, auf die reagiert wurde. */
-async function fetchMessage(payload, messageId) {
+/**
+ * Holt die Nachricht, auf die reagiert wurde.
+ *
+ * Das Reaktions-Ereignis liefert nur IDs (`messageId`, `channelId`) – die
+ * Nachricht selbst steckt nicht darin. Dafür bringt das `reaction`-Objekt eine
+ * eigene `fetchMessage()` mit; das ist der vorgesehene Weg.
+ */
+async function fetchMessage(payload) {
+  const reaction = payload?.reaction;
+  if (reaction?.fetchMessage) {
+    const msg = await reaction.fetchMessage().catch(() => null);
+    if (msg) return msg;
+  }
+  // Ausweichweg, falls das SDK die Nachricht doch mitschickt.
   if (payload?.message?.edit) return payload.message;
-  const channel = payload?.channel ?? payload?.reaction?.message?.channel;
-  if (!channel?.messages?.fetch) return payload?.message ?? null;
-  return channel.messages.fetch(messageId).catch(() => null);
+  return null;
+}
+
+/** Diagnose-Ausgaben, wenn FLUXER_DEBUG=true gesetzt ist. */
+function debug(...args) {
+  if (process.env.FLUXER_DEBUG === 'true') console.log('[fluxer]', ...args);
 }
 
 client.login(config.token);

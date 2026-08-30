@@ -104,6 +104,39 @@ function view(buttons) {
   check('unbekannte Nachricht liefert nichts', render.lookup('GIBTSNICHT', '🏠') === null);
   db.purgeFluxerViews(Date.now() + 1000);
 
+  console.log('--- Reaktionen sauber abgleichen (keine toten Symbole) ---');
+  // Wechselt die Ansicht, müssen die Reaktionen der alten verschwinden.
+  const msg2 = `MSG2_${Date.now()}`;
+  const viewA = render.toMessage(view([{ id: 'a|1' }, { id: 'b|2' }, { id: 'c|3' }]));
+  render.remember(msg2, U, viewA.mapping);
+  check('aktuelle Reaktionen sind abrufbar',
+    render.current(msg2).join(' ') === viewA.reactions.join(' '));
+  const viewB = render.toMessage(view([{ id: 'x|9' }]));
+  render.remember(msg2, U, viewB.mapping);
+  const stale = render.current(msg2);
+  check('nach dem Wechsel nur noch die neuen', stale.length === 1, stale.join(' '));
+  check('alte Aktion ist nicht mehr erreichbar', render.lookup(msg2, '3️⃣') === null);
+
+  console.log('--- Reaktions-Ereignis des echten SDK wird verstanden ---');
+  // Form laut @fluxerjs/core: { reaction, user, messageId, channelId, emoji:{name}, userId }
+  const payload = {
+    reaction: { messageId: msg2, channelId: 'c1' },
+    user: { id: U },
+    userId: U,
+    messageId: msg2,
+    channelId: 'c1',
+    emoji: { name: viewB.reactions[0] },
+  };
+  const parsed = {
+    emoji: payload.emoji?.name,
+    userId: payload.userId ?? payload.user?.id,
+    messageId: payload.messageId ?? payload.reaction?.messageId,
+  };
+  check('Emoji wird aus emoji.name gelesen', parsed.emoji === viewB.reactions[0]);
+  check('Klick findet die richtige Aktion',
+    render.lookup(parsed.messageId, parsed.emoji)?.customId === 'x|9');
+  db.purgeFluxerViews(Date.now() + 1000);
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

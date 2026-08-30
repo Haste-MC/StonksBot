@@ -34,28 +34,60 @@ function createInteraction(ctx) {
   async function show(view) {
     const { embed, mapping, reactions } = render.toMessage(view);
 
+    // Welche Reaktionen hängen aktuell dran? (aus der gemerkten Zuordnung)
+    const previous = message ? render.current(message.id) : [];
+    let fresh = false;
+
     if (message) {
       // Bevorzugt in derselben Nachricht bleiben – wie das Original, das das
       // Panel neu aufbaut. Klappt das nicht, wird neu gesendet.
       try {
         await message.edit({ embeds: [embed] });
-      } catch {
+      } catch (err) {
+        debug('edit fehlgeschlagen, sende neu:', err?.message);
         message = await channel.send({ embeds: [embed] });
+        fresh = true;
       }
     } else {
       message = await channel.send({ embeds: [embed] });
+      fresh = true;
     }
 
     render.remember(message.id, userId, mapping);
-    await syncReactions(message, reactions);
+    await syncReactions(message, reactions, fresh ? [] : previous);
     return message;
   }
 
-  /** Setzt die Reaktionen der Nachricht auf genau die benötigten. */
-  async function syncReactions(msg, wanted) {
-    for (const emoji of wanted) {
-      try { await msg.react(emoji); } catch { /* Reaktion nicht setzbar */ }
+  /**
+   * Bringt die Reaktionen auf den Stand der neuen Ansicht.
+   *
+   * Wichtig: Beim Wechsel der Ansicht müssen die Reaktionen der VORHERIGEN
+   * verschwinden – sonst kleben tote Symbole an der Nachricht, die nichts
+   * mehr auslösen. Es werden nur die Unterschiede angefasst, damit nicht bei
+   * jedem Klick ein Dutzend Anfragen anfällt.
+   */
+  async function syncReactions(msg, wanted, previous = []) {
+    const keep = new Set(wanted);
+
+    for (const emoji of previous) {
+      if (keep.has(emoji)) continue;
+      await msg.removeReactionEmoji?.(emoji).catch((err) => {
+        debug('konnte alte Reaktion nicht entfernen:', emoji, err?.message);
+      });
     }
+
+    for (const emoji of wanted) {
+      if (previous.includes(emoji)) continue;   // hängt schon dran
+      try {
+        await msg.react(emoji);
+      } catch (err) {
+        debug('Reaktion konnte nicht gesetzt werden:', emoji, err?.message);
+      }
+    }
+  }
+
+  function debug(...args) {
+    if (process.env.FLUXER_DEBUG === 'true') console.log('[fluxer]', ...args);
   }
 
   /** Meldung an den Spieler – auf Fluxer immer sichtbar im Kanal. */

@@ -159,6 +159,12 @@ function remember(messageId, userId, mapping) {
   db.saveFluxerView(messageId, userId, mapping);
 }
 
+/** Welche Reaktionen hängen laut Zuordnung gerade an dieser Nachricht? */
+function current(messageId) {
+  const view = db.getFluxerView(messageId);
+  return view ? view.mapping.map((m) => m.emoji) : [];
+}
+
 /** Findet die Aktion zu einer Reaktion, oder null. */
 function lookup(messageId, emoji) {
   const view = db.getFluxerView(messageId);
@@ -170,5 +176,5 @@ function lookup(messageId, emoji) {
 
 module.exports = {
   NAV, PICKERS, MAX_REACTIONS,
-  buttonsOf, mapReactions, legend, toMessage, remember, lookup,
+  buttonsOf, mapReactions, legend, toMessage, remember, lookup, current,
 };
