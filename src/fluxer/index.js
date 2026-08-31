@@ -40,6 +40,11 @@ const client = new Client();
 
 client.on(Events.Ready, () => {
   console.log(`✅ Fluxer-Bot bereit – Präfix "${config.prefix}"`);
+
+  // Das Währungssymbol einmal holen: Die Emoji-Übersetzung muss wissen, wie
+  // das Discord-Geldzeichen heißt – sonst bliebe es bis zur ersten
+  // Geldausgabe unübersetzt stehen.
+  require('../currency').getSymbol(identity.world()).catch(() => {});
   relay.register('fluxer', client);
   if (relay.enabled) console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');
   db.purgeFluxerViews();
@@ -94,14 +99,20 @@ client.on(Events.MessageCreate, async (message) => {
 
     const result = await command.run(ctx);
 
+    // Auch reine Textantworten müssen durch die Fluxer-Übersetzung: Sie
+    // enthalten fast immer das Währungssymbol, und das ist ein Discord-Emoji.
     if (result?.text) {
-      await message.channel.send({ content: `<@${platformUserId}> ${result.text}` });
+      await message.channel.send({
+        content: `<@${platformUserId}> ${render.forFluxer(result.text)}`,
+      });
     }
     if (result?.view) {
       await present(message.channel, ctx.userId, result.view, platformUserId);
     }
     if (result?.note) {
-      await message.channel.send({ content: `<@${platformUserId}> ${result.note}` });
+      await message.channel.send({
+        content: `<@${platformUserId}> ${render.forFluxer(result.note)}`,
+      });
     }
   } catch (err) {
     console.error('Fehler bei einem Befehl:', err);

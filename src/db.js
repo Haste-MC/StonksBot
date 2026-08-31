@@ -293,6 +293,22 @@ db.exec(`
   );
 `);
 
+// Webhooks der Kanal-Brücke: Damit eine gespiegelte Nachricht drüben mit
+// NAME UND AVATAR des Absenders erscheint, wird sie über einen Webhook
+// gesendet. Dessen Token gibt es nur EINMAL – beim Anlegen. Fluxer gibt ihn
+// beim späteren Abrufen nicht mehr heraus ("fetched webhooks cannot execute"),
+// also muss er hier liegen, sonst bräuchte jeder Neustart einen neuen Webhook.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS relay_webhooks (
+    platform   TEXT NOT NULL,          -- 'discord' | 'fluxer'
+    channel_id TEXT NOT NULL,
+    webhook_id TEXT NOT NULL,
+    token      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (platform, channel_id)
+  );
+`);
+
 // Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
 // denselben Fortschritt haben. Dafür wird jede Plattform-Identität auf EIN
 // kanonisches Konto abgebildet – siehe src/identity.js.
@@ -853,6 +869,19 @@ const stmt = {
        mapping = excluded.mapping, updated_at = excluded.updated_at`),
   getFluxerView: db.prepare('SELECT * FROM fluxer_views WHERE message_id = ?'),
   purgeFluxerViews: db.prepare('DELETE FROM fluxer_views WHERE updated_at < ?'),
+
+  // --- Brücken-Webhooks ---
+  setRelayWebhook: db.prepare(
+    `INSERT INTO relay_webhooks (platform, channel_id, webhook_id, token, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (platform, channel_id) DO UPDATE SET
+       webhook_id = excluded.webhook_id, token = excluded.token,
+       created_at = excluded.created_at`),
+  getRelayWebhook: db.prepare(
+    'SELECT * FROM relay_webhooks WHERE platform = ? AND channel_id = ?'),
+  deleteRelayWebhook: db.prepare(
+    'DELETE FROM relay_webhooks WHERE platform = ? AND channel_id = ?'),
+  allRelayWebhooks: db.prepare('SELECT * FROM relay_webhooks'),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -1817,6 +1846,27 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// ------------------------------------------------------ Brücken-Webhooks
+
+/** Merkt sich Webhook-ID und Token eines Brücken-Kanals. */
+function setRelayWebhook(platform, channelId, webhookId, token, when = Date.now()) {
+  stmt.setRelayWebhook.run(platform, channelId, webhookId, token, when);
+}
+
+function getRelayWebhook(platform, channelId) {
+  return stmt.getRelayWebhook.get(platform, channelId) ?? null;
+}
+
+/** Vergisst einen Webhook – etwa wenn er drüben gelöscht wurde. */
+function deleteRelayWebhook(platform, channelId) {
+  return stmt.deleteRelayWebhook.run(platform, channelId).changes > 0;
+}
+
+/** Alle gemerkten Webhooks – beim Start gebraucht, um eigene zu erkennen. */
+function allRelayWebhooks() {
+  return stmt.allRelayWebhooks.all();
+}
+
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
 }
@@ -1906,7 +1956,8 @@ module.exports = {
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
-  getLink, setLink, deleteLink, linksOf, setAccountName, getAccountName, mergeAccounts,
+  getLink, setLink, deleteLink, linksOf,
+  setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks, setAccountName, getAccountName, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim,
   deleteMessage, clearMessages, countDeletable,

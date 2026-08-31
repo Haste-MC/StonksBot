@@ -137,6 +137,54 @@ function view(buttons) {
     render.lookup(parsed.messageId, parsed.emoji)?.customId === 'x|9');
   db.purgeFluxerViews(Date.now() + 1000);
 
+  console.log('--- Währungssymbol: Discord-Emoji hat auf Fluxer nichts verloren ---');
+  // Das Symbol kommt von UnbelievaBoat und ist deshalb IMMER ein Discord-Emoji.
+  // Früher wurde es nur in Embeds übersetzt – in Textantworten und in der
+  // Brücke blieb `:Rubine:` stehen. Jetzt hängt alles an emoji.js.
+  const currency = require('../src/currency');
+  const identity = require('../src/identity');
+  const unbmod = require('../src/unb');
+  unbmod.unb.getGuild = async () => ({ currencySymbol: '<:Rubine:1067>' });
+  await currency.getSymbol(identity.world());
+  const emoji = require('../src/fluxer/emoji');
+
+  const raw = '🏠 Mieteinnahmen: <:Rubine:1067> 275 von deinen Mietobjekten.';
+  check('Währungsemoji wird ersetzt', emoji.toFluxer(raw).includes('🪙'), emoji.toFluxer(raw));
+  check('nichts Rohes bleibt übrig', !/<a?:[^:]+:\d+>/.test(emoji.toFluxer(raw)));
+  check('fremdes Emoji wird zum Namen',
+    emoji.toFluxer('<:check:456> fertig') === 'check fertig', emoji.toFluxer('<:check:456> fertig'));
+  check('auch animierte Emojis (früher übersehen)',
+    emoji.toFluxer('<a:tanz:99> los') === 'tanz los', emoji.toFluxer('<a:tanz:99> los'));
+  check('Text ohne Emoji bleibt unverändert',
+    emoji.toFluxer('einfach nur Text') === 'einfach nur Text');
+  check('Nicht-Text überlebt', emoji.toFluxer(undefined) === undefined);
+
+  check('forFluxer übersetzt auch Erwähnungen und Emojis zusammen',
+    !render.forFluxer(raw).includes('<:'), render.forFluxer(raw));
+  const embedded = render.toMessage({
+    embeds: [new EmbedBuilder().setTitle(`Kontostand <:Rubine:1067> 5`).setDescription(raw)],
+    components: [],
+  }).embed;
+  check('Embeds bleiben übersetzt', !`${embedded.title}${embedded.description}`.includes('<:'),
+    embedded.title);
+
+  console.log('--- Textantworten laufen durch dieselbe Übersetzung ---');
+  // Der eigentliche Fehler: followUp/reply gingen roh raus (Abrechnungen,
+  // Kaufbestätigungen, Fehlermeldungen).
+  const sent = [];
+  const fakeChannel = { id: 'c1', async send(payload) { sent.push(payload); return { id: 'm1' }; } };
+  const { createInteraction } = require('../src/fluxer/interaction');
+  const interaction = createInteraction({
+    channel: fakeChannel, message: null, userId: U, platformUserId: 'FX1', guildId: G,
+    prompt: async () => null,
+  });
+  await interaction.followUp({ content: raw });
+  await interaction.reply(`Gekauft für <:Rubine:1067> 900`);
+  check('followUp ist übersetzt', sent[0] && !sent[0].content.includes('<:'), sent[0]?.content);
+  check('reply ist übersetzt', sent[1] && sent[1].content.includes('🪙'), sent[1]?.content);
+  check('die Erwähnung bleibt erhalten (soll pingen)',
+    sent.every((m) => m.content.startsWith('<@FX1>')), sent[0]?.content);
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

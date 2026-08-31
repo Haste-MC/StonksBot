@@ -28,8 +28,11 @@ async function ask({ channel, userId, title = 'Eingabe', label = 'Wert', timeout
   // Eine ältere, noch offene Frage desselben Spielers verfällt.
   waiting.get(key)?.(null);
 
+  // Auch hier durch die Übersetzung: Feldbeschriftungen können das
+  // Währungssymbol enthalten (z.B. "Dein Gebot (mind. <:Rubine:…> 500)").
+  const render = require('./render');
   await channel.send({
-    content: `<@${userId}> **${title}** – ${label}?\n` +
+    content: `<@${userId}> **${render.forFluxer(title)}** – ${render.forFluxer(label)}?\n` +
       `_Antworte einfach mit deiner Eingabe (${Math.round(timeoutMs / 1000)} s Zeit)._`,
   }).catch(() => {});
 

@@ -91,11 +91,18 @@ function createInteraction(ctx) {
     if (process.env.FLUXER_DEBUG === 'true') console.log('[fluxer]', ...args);
   }
 
-  /** Meldung an den Spieler – auf Fluxer immer sichtbar im Kanal. */
+  /**
+   * Meldung an den Spieler – auf Fluxer immer sichtbar im Kanal.
+   *
+   * Durch `render.forFluxer`, weil hier dieselben Texte landen wie in den
+   * Embeds: Abrechnungen, Kaufbestätigungen, Fehlermeldungen – alle mit dem
+   * Discord-Währungsemoji drin.
+   */
   async function notify(payload) {
     const content = typeof payload === 'string' ? payload : payload?.content;
     if (!content) return null;
-    return channel.send({ content: `<@${mentionId}> ${content}` }).catch(() => null);
+    return channel.send({ content: `<@${mentionId}> ${render.forFluxer(content)}` })
+      .catch(() => null);
   }
 
   return {

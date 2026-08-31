@@ -1,17 +1,12 @@
 const db = require('../db');
 const identity = require('../identity');
-const currency = require('../currency');
 
 /**
- * Das Währungs-Emoji für Fluxer.
- *
- * Bei eingerichtetem UnbelievaBoat liefert `currency.getSymbol()` ein
- * **Discord**-Emoji (`<:Rubine:1067…>`). Dessen ID kennt Fluxer nicht – dort
- * stünde nur roher Text. Über `FLUXER_CURRENCY_SYMBOL` lässt sich das
- * entsprechende Fluxer-Emoji hinterlegen; ohne Angabe wird auf den bloßen
- * Namen zurückgefallen, was zumindest lesbar ist.
+ * Die Emoji-Übersetzung liegt in emoji.js – dieselbe Logik benutzen auch die
+ * Textantworten und die Kanal-Brücke, damit das Geldzeichen ÜBERALL stimmt
+ * und nicht nur in Embeds.
  */
-const FLUXER_CURRENCY = process.env.FLUXER_CURRENCY_SYMBOL || '';
+const emoji = require('./emoji');
 
 /**
  * ===========================================================================
@@ -155,23 +150,8 @@ function resolveMentions(text) {
 }
 
 /** Wendet die Namensauflösung auf alle Textfelder eines Embeds an. */
-/**
- * Ersetzt Discord-Emojis durch etwas, das Fluxer darstellen kann.
- *
- * Zuerst gezielt das Währungssymbol (dafür gibt es ein Fluxer-Gegenstück),
- * danach alle übrigen Custom-Emojis durch ihren Namen – so bleibt nirgends
- * `<:name:123456>` stehen.
- */
-function localizeEmoji(text) {
-  if (typeof text !== 'string' || !text.includes('<:')) return text;
-
-  let out = text;
-  const money = currency.peek(identity.world());
-  if (FLUXER_CURRENCY && money && money.startsWith('<')) {
-    out = out.split(money).join(FLUXER_CURRENCY);
-  }
-  return out.replace(/<a?:([^:]+):\d+>/g, (whole, name) => FLUXER_CURRENCY || name);
-}
+/** Ersetzt Discord-Emojis durch etwas, das Fluxer darstellen kann. */
+const localizeEmoji = (text) => emoji.toFluxer(text);
 
 /** Macht einen Text auf Fluxer lesbar: Erwähnungen und Emojis auflösen. */
 function forFluxer(text) {
