@@ -1600,7 +1600,13 @@ async function buildAuctionView({ guildId, userId }) {
     });
   }
 
-  embed.setFooter({ text: `Runde mit ${round.size} Garagen · Ersteigertes landet verschlossen bei „Meine Garagen"` });
+  // Erwartung geradebiegen: Der Startpreis liegt bewusst über dem, was
+  // üblicherweise drin liegt. Wer das weiß, fühlt sich vom Ergebnis nicht
+  // betrogen – und weiß, dass der Gewinn in den seltenen Funden steckt.
+  embed.setFooter({
+    text: `Runde mit ${round.size} Garagen · Die meisten liegen knapp unter dem Startpreis — ` +
+      'der Gewinn steckt in den seltenen Funden',
+  });
   rows.push(bottomRow());
 
   return { embeds: [embed], components: rows };

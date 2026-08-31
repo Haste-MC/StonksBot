@@ -27,8 +27,21 @@ const MIN = 60 * 1000;
  * ================================================================
  */
 
-/** Hausvorteil: der Startpreis liegt 15 % über dem Erwartungswert des Inhalts. */
-const HOUSE_MARGIN = 1.15;
+/** Hausvorteil: der Startpreis liegt über dem Erwartungswert des Inhalts. */
+const HOUSE_MARGIN = 1.10;
+
+/**
+ * Ab dieser Seltenheit fließt ein Fund NICHT mehr in den Startpreis ein.
+ *
+ * Godlike & Co. sind mit Absicht fast unerreichbar (< 1 : 2000). Trotzdem
+ * steckten sie im Erwartungswert – also im Preis JEDER Garage. Bezahlt hat man
+ * eine Lotterie, die man praktisch nie gewinnt. Der Jackpot bleibt drin, er
+ * wird nur nicht mehr eingepreist: geschenkter Bonus statt Dauerabgabe.
+ *
+ * Damit das kein Gelddrucker wird, muss der so verschenkte Anteil KLEINER sein
+ * als der Hausvorteil – genau das prüft test/storage.test.js.
+ */
+const UNPRICED_FROM = 'godlike';
 /** Wie lange eine einzelne Garage live ist. Tunbar über opts.lotDuration. */
 const LOT_DURATION_MS = 60 * MIN;
 /** Pause zwischen dem Ende einer Runde und dem Start der nächsten. */
@@ -44,11 +57,26 @@ const CAR_PRICE_CAP = 40000;
 
 // ------------------------------------------------------------- Erwartungswert
 
-const CASH_MEAN = (data.CASH_RANGE[0] + data.CASH_RANGE[1]) / 2;
+/** Bargeldspanne einer Stufe (mit Rückfall auf die allgemeine Spanne). */
+function cashRange(tier) {
+  return tier.cash ?? data.CASH_RANGE;
+}
 
-/** Mittlerer Basiswert eines Objekts (ohne Seltenheit/Zustand). */
+/** Erwartetes Bargeld einer Stufe. `cashChance` bleibt für Stufen ohne `cash`. */
+function expectedCash(tier) {
+  const [min, max] = cashRange(tier);
+  return (tier.cashChance ?? 1) * (min + max) / 2;
+}
+
+/**
+ * Mittlerer Basiswert eines Objekts (ohne Seltenheit/Zustand) – **gewichtet**,
+ * damit seltene Teuerstücke den Preis nicht tragen, den man in jeder Garage
+ * zahlt (siehe data/storage.js).
+ */
 function objectMean() {
-  return data.OBJECTS.reduce((s, o) => s + (o.range[0] + o.range[1]) / 2, 0) / data.OBJECTS.length;
+  const total = data.OBJECTS.reduce((s, o) => s + (o.weight ?? 1), 0);
+  return data.OBJECTS.reduce(
+    (s, o) => s + (o.weight ?? 1) * (o.range[0] + o.range[1]) / 2, 0) / total;
 }
 
 /** Gewichteter Erwartungswert eines Multiplikators über eine Stufenliste. */
@@ -60,8 +88,32 @@ function expectedMultiplier(list) {
 const expectedRarityMultiplier = () => expectedMultiplier(data.RARITIES);
 const expectedConditionMultiplier = () => expectedMultiplier(data.CONDITIONS);
 
-/** Erwarteter Wert EINES Objekts: Basiswert × E[Seltenheit] × E[Zustand]. */
+/**
+ * E[Seltenheit] für die **Preisbildung**: Stufen ab `UNPRICED_FROM` zählen nur
+ * mit dem Multiplikator der letzten eingepreisten Stufe. Der Rest ist Bonus
+ * (siehe UNPRICED_FROM). Liegt immer unter `expectedRarityMultiplier()`.
+ */
+function pricedRarityMultiplier() {
+  const cut = data.RARITIES.findIndex((r) => r.id === UNPRICED_FROM);
+  if (cut < 0) return expectedRarityMultiplier();
+  const total = data.RARITIES.reduce((s, r) => s + r.weight, 0);
+  const capped = data.RARITIES[cut - 1].mult;
+  return data.RARITIES.reduce(
+    (s, r, i) => s + (r.weight / total) * (i < cut ? r.mult : capped), 0);
+}
+
+/** Anteil des Erwartungswerts, der bewusst nicht eingepreist wird. */
+function unpricedShare() {
+  return 1 - pricedRarityMultiplier() / expectedRarityMultiplier();
+}
+
+/** Erwarteter Wert EINES Objekts – die Grundlage des Startpreises. */
 function expectedObjectValue() {
+  return objectMean() * pricedRarityMultiplier() * expectedConditionMultiplier();
+}
+
+/** Der **volle** Erwartungswert eines Objekts, Jackpot-Tail eingerechnet. */
+function expectedObjectValueFull() {
   return objectMean() * expectedRarityMultiplier() * expectedConditionMultiplier();
 }
 
@@ -83,7 +135,17 @@ function avgCarValue(guildId) {
  */
 function expectedValue(tier, carValue = 0) {
   const countMean = (tier.objectCount[0] + tier.objectCount[1]) / 2;
-  return countMean * expectedObjectValue() + tier.cashChance * CASH_MEAN + tier.carChance * carValue;
+  return countMean * expectedObjectValue() + expectedCash(tier) + tier.carChance * carValue;
+}
+
+/**
+ * Der **volle** Erwartungswert einer Stufe – inklusive des Jackpot-Tails, der
+ * nicht eingepreist wird. Nur so lässt sich beweisen, dass der Startpreis auch
+ * darüber liegt (kein Gelddrucker); der Test rechnet damit.
+ */
+function expectedValueFull(tier, carValue = 0) {
+  const countMean = (tier.objectCount[0] + tier.objectCount[1]) / 2;
+  return countMean * expectedObjectValueFull() + expectedCash(tier) + tier.carChance * carValue;
 }
 
 function startPrice(tier, carValue) {
@@ -102,7 +164,7 @@ function randInt([min, max], random) {
  * Zustand werden mitgeführt (für Anzeige/Flex und späteren Verkaufswert).
  */
 function rollObject(random = Math.random) {
-  const base = data.pick(data.OBJECTS, random);
+  const base = data.weighted(data.OBJECTS, random);
   const rarity = data.weighted(data.RARITIES, random);
   const cond = data.weighted(data.CONDITIONS, random);
   const value = Math.max(1, Math.round(data.between(base.range, random) * rarity.mult * cond.mult));
@@ -122,8 +184,8 @@ function rollLot(guildId, random = Math.random) {
   const objects = [];
   for (let i = 0; i < k; i++) objects.push(rollObject(random));
 
-  const cash = random() < tier.cashChance
-    ? Math.max(1, Math.round(data.between(data.CASH_RANGE, random))) : 0;
+  const cash = random() < (tier.cashChance ?? 1)
+    ? Math.max(1, Math.round(data.between(cashRange(tier), random))) : 0;
 
   let car = null;
   if (cars.length && random() < tier.carChance) {
@@ -403,8 +465,11 @@ async function sellLoot(guildId, userId, lootId = null) {
 module.exports = {
   HOUSE_MARGIN, LOT_DURATION_MS, ROUND_GAP_MS, ROUND_SIZE, BID_INCREMENT,
   FOUND_CAR_CONDITION, CAR_PRICE_CAP, MIN,
+  UNPRICED_FROM,
   objectMean, expectedMultiplier, expectedRarityMultiplier, expectedConditionMultiplier,
-  expectedObjectValue, eligibleCars, avgCarValue, expectedValue, startPrice,
+  pricedRarityMultiplier, unpricedShare, cashRange, expectedCash,
+  expectedObjectValue, expectedObjectValueFull, expectedValueFull,
+  eligibleCars, avgCarValue, expectedValue, startPrice,
   rollObject, rollLot, generateLot, ensureRound, minBid, isLive, placeBid,
   settle, resolveLot, applyCarReward, openGarage, revealBody, sellLoot,
 };
