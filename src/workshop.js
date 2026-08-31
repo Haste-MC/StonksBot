@@ -47,6 +47,13 @@ const withdrawFromBank = (...a) => unb.withdrawFromBank(...a);
  * Der Aufschlag steigt mit dem Ziel: die letzten Prozente sind – wie in echt –
  * die teuersten. Wer nur wieder fahrbar sein will, kommt günstig weg;
  * Neuwagenzustand ist Luxus.
+ *
+ * Die Aufschläge sind bewusst knapp über 1 gewählt: Das Teure an einer
+ * Reparatur ist der **Wertzuwachs selbst**, nicht die Marge. Bei einem Ziel
+ * von 100 % holt man einen Wagen aus dem Restwert (30 %) zurück auf den
+ * vollen – das sind bis zu 70 % des Neupreises, die die Rechnung tragen muss.
+ * Weiter senken lässt sich der Preis deshalb nicht, ohne die Regel oben zu
+ * brechen: Unterhalb des Zuwachses wäre die Werkstatt ein Gelddrucker.
  */
 const TIERS = [
   {
@@ -54,7 +61,7 @@ const TIERS = [
     label: 'Aufbereitung',
     emoji: '🧽',
     target: 55,
-    markup: 1.10,
+    markup: 1.04,
     blurb: 'Waschen, polieren, Diebstahlsicherung – das Gröbste raus.',
   },
   {
@@ -62,7 +69,7 @@ const TIERS = [
     label: 'Instandsetzung',
     emoji: '🔧',
     target: 80,
-    markup: 1.20,
+    markup: 1.07,
     blurb: 'Dellen, Lack und Technik: der Wagen ist wieder in gutem Zustand.',
   },
   {
@@ -70,14 +77,14 @@ const TIERS = [
     label: 'Restaurierung',
     emoji: '✨',
     target: condition.MAX,
-    markup: 1.35,
+    markup: 1.09,
     blurb: 'Volle Wiederherstellung ab Werk – teuer, aber wie neu.',
   },
 ];
 
 /** Werkstattpauschale: fällt zusätzlich zum Aufschlag an. */
-const FEE_RATIO = 0.01;
-const MIN_FEE = 250;
+const FEE_RATIO = 0.005;
+const MIN_FEE = 150;
 
 /** Grundgebühr für einen Auftrag – bei teuren Wagen arbeitet niemand billiger. */
 function fee(price) {

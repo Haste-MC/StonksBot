@@ -217,17 +217,23 @@ Spieler aus der Zustandsanzeige schon kennt:
 
 | Stufe | Ziel | Aufschlag |
 |--|--|--|
-| 🧽 Aufbereitung | 55 % (😐 Gebraucht) | ×1,10 |
-| 🔧 Instandsetzung | 80 % (🙂 Gut) | ×1,20 |
-| ✨ Restaurierung | 100 % (✨ Neuwertig) | ×1,35 |
+| 🧽 Aufbereitung | 55 % (😐 Gebraucht) | ×1,04 |
+| 🔧 Instandsetzung | 80 % (🙂 Gut) | ×1,07 |
+| ✨ Restaurierung | 100 % (✨ Neuwertig) | ×1,09 |
 
 Der Preis ist der **Wertzuwachs mal Aufschlag plus Werkstattpauschale**
-(1 % vom Neupreis, mindestens 250), **gedeckelt auf den Neupreis**. Der
+(0,5 % vom Neupreis, mindestens 150), **gedeckelt auf den Neupreis**. Der
 Aufschlag steigt mit dem Ziel: die letzten Prozente sind – wie in echt – die
 teuersten. Der Deckel ist nötig, weil ein Schrotthaufen nur noch 30 % wert ist:
 ohne ihn käme bei einer Restaurierung eine Rechnung über dem Neuwagenpreis
 heraus. Die Regel oben kann er nicht verletzen – der Zeitwert liegt immer unter
 dem Neupreis, der Zuwachs erst recht.
+
+**Warum die Rechnung trotzdem hoch aussieht.** Das Teure ist nicht die Marge,
+sondern der **Wertzuwachs selbst**: Ein Wagen im Restwert (30 %) auf 100 % zu
+bringen holt bis zu 70 % des Neupreises zurück, und so viel muss die Rechnung
+mindestens tragen. Die Aufschläge liegen deshalb nur noch knapp über 1 – viel
+weiter lässt sich der Preis nicht senken, ohne die Regel oben zu brechen.
 
 **Reparieren ist bewusst nie ein Geschäft.** Ohne den Aufschlag wäre die
 Werkstatt ein Gelddrucker (ARCHITEKTUR §3): Schrottwagen billig kaufen,
