@@ -98,7 +98,45 @@ function nameOf(accountId) {
   return db.getAccountName(accountId);
 }
 
+/**
+ * ===========================================================================
+ *  ANZEIGE – nie eine rohe ID
+ * ===========================================================================
+ *
+ * Die Ansichten schreiben Spieler als `<@konto>`. Für Discord-Konten ist das
+ * genau richtig: Discord macht daraus eine Erwähnung, und auf Fluxer wird sie
+ * durch den gemerkten Namen ersetzt (fluxer/render.js).
+ *
+ * Für **nicht verknüpfte Fluxer-Spieler** ist das Konto aber `fx:12345` – und
+ * daraus wird auf keiner Plattform eine Erwähnung. Auf Discord stand dann roh
+ * `<@fx:12345>` in der Rangliste. Deshalb gehen alle Ansichten über die beiden
+ * Helfer hier.
+ *
+ * Namen lernt der Bot von selbst: bei jeder Bedienung (bridge.js, fluxer/
+ * index.js), aus dem Verkehr in der Kanal-Brücke (relay.js) und einmalig beim
+ * Start für alle, die schon Geld oder Fortschritt haben (names.js).
+ */
+
+/** Letzte Stellen einer ID – unterscheidet zwei Unbekannte in einer Liste. */
+const shortId = (accountId) => String(accountId).replace(FLUXER_PREFIX, '').slice(-4);
+
+/** Reiner Anzeigename ohne Formatierung. */
+function display(accountId) {
+  return nameOf(accountId) ?? `Spieler #${shortId(accountId)}`;
+}
+
+/**
+ * Verweis auf einen Spieler in einer Ansicht: echte Erwähnung, wo sie
+ * funktioniert, sonst der Name. Eine rohe ID sieht nie jemand.
+ */
+function mention(accountId) {
+  if (isDiscordAccount(accountId)) return `<@${accountId}>`;
+  const name = nameOf(accountId);
+  return name ? `**${name}**` : `**Spieler #${shortId(accountId)}**`;
+}
+
 module.exports = {
   WORLD_ID, FLUXER_PREFIX,
-  world, account, isDiscordAccount, isLinked, remember, nameOf, checkWorld,
+  world, account, isDiscordAccount, isLinked, remember, nameOf, display, mention,
+  checkWorld,
 };

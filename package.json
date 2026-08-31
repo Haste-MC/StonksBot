@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "deploy": "node src/deploy-commands.js",
-    "test": "node test/db.test.js && node test/market.test.js && node test/menu.test.js && node test/brands.test.js && node test/jobs.test.js && node test/shifts.test.js && node test/property.test.js && node test/landlord.test.js && node test/estate-market.test.js && node test/condition.test.js && node test/npc.test.js && node test/buyers.test.js && node test/tenants.test.js && node test/casino.test.js && node test/level.test.js && node test/storage.test.js && node test/patchnotes.test.js && node test/wallet.test.js && node test/fluxer-render.test.js && node test/accounts.test.js && node test/banking.test.js && node test/relay.test.js && node test/robbery.test.js && node test/toplist.test.js && node test/workshop.test.js",
+    "test": "node test/db.test.js && node test/market.test.js && node test/menu.test.js && node test/brands.test.js && node test/jobs.test.js && node test/shifts.test.js && node test/property.test.js && node test/landlord.test.js && node test/estate-market.test.js && node test/condition.test.js && node test/npc.test.js && node test/buyers.test.js && node test/tenants.test.js && node test/casino.test.js && node test/level.test.js && node test/storage.test.js && node test/patchnotes.test.js && node test/wallet.test.js && node test/fluxer-render.test.js && node test/accounts.test.js && node test/banking.test.js && node test/relay.test.js && node test/robbery.test.js && node test/toplist.test.js && node test/workshop.test.js && node test/names.test.js",
     "seed": "node src/seed-cars.js",
     "images": "node scripts/fetch-images.js",
     "audit": "node scripts/audit-images.js",

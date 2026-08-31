@@ -1,6 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('./db');
 const { getSymbol, plainSymbol } = require('./currency');
+const identity = require('./identity');
 
 /**
  * Button-IDs sind bewusst zustandslos: alles zum Neuaufbau der Ansicht
@@ -937,7 +938,7 @@ async function buildGarageView({ guildId, userId, targetId = null, page = 1 }) {
       owner === userId
         ? 'Deine Garage ist leer. Ab ins Autohaus!\n' +
           '_Ausrüstung findest du unter 🧰, Immobilien unter 🔑 Mein Besitz._'
-        : `<@${owner}> hat noch kein Auto.`);
+        : `${identity.mention(owner)} hat noch kein Auto.`);
     return { embeds: [embed], components: [navigationRow('garage', 1, 1, userId)] };
   }
 
@@ -1287,7 +1288,7 @@ async function buildBalanceView({ guildId, userId, targetId = null }) {
 
   const embed = new EmbedBuilder()
     .setTitle('💰 Guthaben')
-    .setDescription(`<@${owner}>`)
+    .setDescription(identity.mention(owner))
     .addFields(
       { name: 'Bargeld', value: money(symbol, bal.cash), inline: true },
       { name: 'Bank', value: money(symbol, bal.bank), inline: true },
@@ -1339,7 +1340,7 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     .setTitle('👤 Profil')
     .setColor(0xf1c40f)
     .setDescription(
-      `<@${owner}>` + (stats.tagline ? `\n> _${stats.tagline}_` : ''));
+      identity.mention(owner) + (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
   embed.addFields(
     {
@@ -1577,7 +1578,11 @@ async function buildAuctionView({ guildId, userId }) {
       { name: bid ? 'Höchstgebot' : 'Startpreis', value: money(symbol, bid ?? live.start_price), inline: true },
       { name: 'Mindestgebot', value: money(symbol, storage.minBid(live)), inline: true },
     );
-    if (bid) embed.addFields({ name: 'Höchstbietender', value: `<@${live.top_bidder}>`, inline: true });
+    if (bid) {
+      embed.addFields({
+        name: 'Höchstbietender', value: identity.mention(live.top_bidder), inline: true,
+      });
+    }
 
     rows.push(new ActionRowBuilder().addComponents(
       new ButtonBuilder()

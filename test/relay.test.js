@@ -332,12 +332,82 @@ async function personaTests() {
     bridge.displayName({ author: { displayName: 'Discord Admin' } }));
   check('höchstens 80 Zeichen',
     bridge.displayName({ author: { displayName: 'x'.repeat(200) } }).length === 80);
+  check('"clyde" ebenso (auch das lehnt Discord ab)',
+    !/clyde/i.test(bridge.displayName({ author: { displayName: 'Clyde' } })),
+    bridge.displayName({ author: { displayName: 'Clyde' } }));
   check('@everyone verliert seinen Klammeraffen',
     bridge.displayName({ author: { displayName: '@everyone' } }) === 'everyone');
   check('ohne Namen ein Platzhalter',
     bridge.displayName({ author: {} }) === 'Jemand');
   check('Servername (member.displayName) hat Vorrang',
     bridge.displayName({ member: { displayName: 'Nick' }, author: { username: 'kevin' } }) === 'Nick');
+
+  console.log('--- Discord-Gesicht als Standard auf beiden Plattformen ---');
+  // Wer verknüpft ist, soll überall gleich aussehen: Name und Avatar kommen
+  // dann vom DISCORD-Konto, egal auf welcher Plattform er geschrieben hat.
+  const identity = require('../src/identity');
+  const accounts = require('../src/accounts');
+  bridge.faces.clear();
+
+  const DISCORD_ID = '498875863496916995';
+  accounts.unlink('fluxer', 'FXLINKED');
+  await accounts.link('fluxer', 'FXLINKED', DISCORD_ID);
+  check('Testkonto ist verknüpft',
+    identity.account('fluxer', 'FXLINKED') === DISCORD_ID,
+    identity.account('fluxer', 'FXLINKED'));
+
+  // Discord-Client, der das Konto auflösen kann.
+  bridge.register('discord', {
+    user: { id: 'DISCORDBOT' },
+    users: {
+      async fetch(id) {
+        if (id !== DISCORD_ID) throw new Error('unbekannt');
+        return {
+          id, displayName: 'KevinDC',
+          displayAvatarURL: () => 'https://cdn.discord/kevin-echt.png',
+        };
+      },
+    },
+    channels: {
+      cache: new Map([['DC_KANAL', dcChannel]]),
+      async fetch(id) { return id === 'DC_KANAL' ? dcChannel : { id, async send() {} }; },
+    },
+  });
+
+  const linked = await bridge.personaOf({
+    author: { id: 'FXLINKED', displayName: 'kev_fluxer', displayAvatarURL: () => 'https://cdn.fluxer/k.png' },
+  }, 'fluxer');
+  check('Name kommt vom Discord-Konto', linked.username === 'KevinDC', linked.username);
+  check('Avatar kommt vom Discord-Konto',
+    linked.avatarURL === 'https://cdn.discord/kevin-echt.png', linked.avatarURL);
+
+  const unlinked = await bridge.personaOf({
+    author: { id: 'FXFREMD', displayName: 'Nurfluxer', displayAvatarURL: () => 'https://cdn.fluxer/n.png' },
+  }, 'fluxer');
+  check('ohne Verknüpfung bleibt das Fluxer-Aussehen',
+    unlinked.username === 'Nurfluxer' && unlinked.avatarURL === 'https://cdn.fluxer/n.png',
+    JSON.stringify(unlinked));
+
+  const fromDiscordFace = await bridge.personaOf({
+    member: { displayName: 'Spitzname' },
+    author: { id: DISCORD_ID, displayName: 'KevinDC', displayAvatarURL: () => 'https://cdn.discord/kevin-echt.png' },
+  }, 'discord');
+  check('Discord-Nachrichten behalten ihren Servernamen',
+    fromDiscordFace.username === 'Spitzname', fromDiscordFace.username);
+
+  check('Gesicht wird gemerkt (kein Abruf je Nachricht)',
+    bridge.faces.has(DISCORD_ID));
+
+  // Ohne Discord-Client (Einzelbetrieb) darf nichts hängen bleiben.
+  bridge.faces.clear();
+  bridge.register('discord', { user: { id: 'DISCORDBOT' }, channels: { cache: new Map(), async fetch() { return { async send() {} }; } } });
+  const noClient = await bridge.personaOf({
+    author: { id: 'FXLINKED', displayName: 'kev_fluxer' },
+  }, 'fluxer');
+  check('ohne Discord-Client der Rückfall auf Fluxer',
+    noClient.username === 'kev_fluxer', noClient.username);
+  accounts.unlink('fluxer', 'FXLINKED');
+  bridge.faces.clear();
 
   console.log('--- Avatar-Auflösung ---');
   check('Funktion, die null liefert -> kein Avatar (nicht die Funktion selbst!)',

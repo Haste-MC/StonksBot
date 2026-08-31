@@ -26,6 +26,7 @@
 // Brücke Rohtext wie `:Rubine:`. Kein SDK-Import, nur Textumformung.
 const emoji = require('./fluxer/emoji');
 const db = require('./db');
+const identity = require('./identity');
 
 const DISCORD_CHANNEL = process.env.RELAY_DISCORD_CHANNEL || '';
 const FLUXER_CHANNEL = process.env.RELAY_FLUXER_CHANNEL || '';
@@ -114,6 +115,42 @@ const NAME_SUFFIX = process.env.RELAY_NAME_SUFFIX || '';
 const IGNORE_WEBHOOKS = ['true', '1', 'on'].includes(
   String(process.env.RELAY_IGNORE_WEBHOOKS || '').toLowerCase());
 
+/**
+ * Immer mit dem **Discord-Gesicht** auftreten.
+ *
+ * Ein Spieler ist über `!link` auf beiden Plattformen dasselbe Konto – nur
+ * heißt und aussieht er dort womöglich anders. Damit er in der Brücke überall
+ * gleich erscheint, wird für ein verknüpftes Konto Name und Avatar des
+ * **Discord**-Kontos verwendet, egal wo die Nachricht herkommt.
+ *
+ * Wer nicht verknüpft ist (`fx:…`), behält sein Fluxer-Aussehen – ein anderes
+ * gibt es für ihn ja nicht.
+ */
+const DISCORD_IDENTITY = !['false', '0', 'off'].includes(
+  String(process.env.RELAY_DISCORD_IDENTITY ?? '').toLowerCase());
+
+/**
+ * Ohne `!link` trotzdem das Discord-Gesicht: **Namensabgleich**.
+ *
+ * Verknüpfen ist für den Spielstand gedacht, nicht fürs Aussehen – niemanden
+ * dazu zwingen, nur damit die Brücke hübsch ist. Heißt jemand auf Fluxer so
+ * wie **genau ein** bekanntes Discord-Konto, wird dessen Gesicht benutzt.
+ *
+ * Zwei Sicherungen, damit daraus keine Verwechslung wird:
+ *  - Nur **eindeutige** Treffer zählen. Zwei „Kevin" auf Discord -> keiner.
+ *  - Es geht ausschließlich um die **Darstellung** in der Brücke. Konto, Geld
+ *    und Fortschritt hängen weiterhin allein an `!link`; ein Fehlgriff kostet
+ *    also höchstens ein falsches Profilbild an einer gespiegelten Nachricht.
+ */
+const MATCH_NAMES = !['false', '0', 'off'].includes(
+  String(process.env.RELAY_MATCH_NAMES ?? '').toLowerCase());
+
+/** Gemerkte Discord-Gesichter: Konto -> {username, avatarURL, at}. */
+const faces = new Map();
+
+/** So lange gilt ein gemerktes Gesicht (Namens-/Avatarwechsel schlagen später durch). */
+const FACE_TTL_MS = 15 * 60 * 1000;
+
 /** Webhook-Objekte je Kanal: "<plattform>:<kanal>" -> Webhook | null (= geht nicht). */
 const hooks = new Map();
 
@@ -132,6 +169,11 @@ function register(platform, client) {
 /** Der angemeldete Discord-Client – etwa für Rollenabfragen von Fluxer aus. */
 function discordClient() {
   return clients.discord;
+}
+
+/** Der angemeldete Fluxer-Client (oder null). */
+function fluxerClient() {
+  return clients.fluxer;
 }
 
 /** Läuft die Brücke gerade in beide Richtungen? */
@@ -220,9 +262,20 @@ function displayName(message) {
     ?? message.author?.username
     ?? 'Jemand';
 
-  const safe = String(raw).replace(/discord/gi, 'disc0rd')
-    .replace(/@(everyone|here)/gi, '$1').trim() || 'Jemand';
-  return `${safe}${NAME_SUFFIX}`.slice(0, 80);
+  return `${sanitizeName(raw)}${NAME_SUFFIX}`.slice(0, 80);
+}
+
+/**
+ * Entschärft einen Namen für die Webhook-Schnittstellen.
+ * Discord lehnt "discord" und "clyde" im Webhook-Namen ab – ein abgelehnter
+ * Name würde die ganze Nachricht verschlucken.
+ */
+function sanitizeName(raw) {
+  return String(raw ?? '')
+    .replace(/discord/gi, 'disc0rd')
+    .replace(/clyde/gi, 'clyd3')
+    .replace(/@(everyone|here)/gi, '$1')
+    .trim() || 'Jemand';
 }
 
 /**
@@ -248,6 +301,90 @@ function avatarOf(message) {
   }
 }
 
+/**
+ * Vergleichsform eines Anzeigenamens: ohne Akzente, ohne Zierrat, klein.
+ * „Kevin!" und „kévin" sind damit dieselbe Person.
+ */
+function nameKey(name) {
+  return String(name ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Sucht das Discord-Konto zu einem Anzeigenamen.
+ * Nur ein **eindeutiger** Treffer zählt (siehe MATCH_NAMES).
+ *
+ * @returns {string|null} Konto-ID
+ */
+function accountByName(name) {
+  const key = nameKey(name);
+  if (!key) return null;
+
+  const hits = new Set();
+  for (const row of db.allAccountNames()) {
+    if (!identity.isDiscordAccount(row.account_id)) continue;   // fx:… scheidet aus
+    if (nameKey(row.name) === key) hits.add(row.account_id);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
+/**
+ * Das Discord-Gesicht eines Kontos – oder null, wenn es keins gibt bzw. der
+ * Discord-Client gerade nicht da ist (Einzelbetrieb, Neustart, Ausfall).
+ */
+async function discordFace(accountId, now = Date.now()) {
+  const cached = faces.get(accountId);
+  if (cached && now - cached.at < FACE_TTL_MS) return cached.face;
+
+  const client = clients.discord;
+  if (!client?.users?.fetch) return null;
+
+  try {
+    const user = await client.users.fetch(accountId);
+    const face = user && {
+      username: sanitizeName(user.displayName ?? user.globalName ?? user.username),
+      avatarURL: typeof user.displayAvatarURL === 'function'
+        ? user.displayAvatarURL({ size: 128 }) : null,
+    };
+    faces.set(accountId, { face: face ?? null, at: now });
+    return face ?? null;
+  } catch {
+    // Konto gelöscht, nie auf dem Server gewesen, API zickt: nicht schlimm.
+    faces.set(accountId, { face: null, at: now });
+    return null;
+  }
+}
+
+/**
+ * Wie der Absender drüben aussehen soll.
+ * Bevorzugt das Discord-Konto, sonst die Plattform-Identität der Nachricht.
+ */
+async function personaOf(message, sourcePlatform) {
+  const fallback = { username: displayName(message), avatarURL: avatarOf(message) };
+  const authorId = message.author?.id;
+
+  if (!DISCORD_IDENTITY || !authorId) return fallback;
+
+  // Eine Discord-Nachricht bringt ihr Gesicht schon mit; der Servername
+  // (Spitzname) ist dabei sogar besser als der globale Name.
+  if (sourcePlatform === 'discord') return fallback;
+
+  const linked = identity.account(sourcePlatform, String(authorId));
+
+  // Verknüpft? Dann ist das Konto die Discord-ID. Sonst über den Namen suchen.
+  const accountId = identity.isDiscordAccount(linked)
+    ? linked
+    : (MATCH_NAMES ? accountByName(fallback.username) : null);
+  if (!accountId) return fallback;
+
+  const face = await discordFace(accountId);
+  if (!face) return fallback;
+  return { username: `${face.username}${NAME_SUFFIX}`.slice(0, 80), avatarURL: face.avatarURL };
+}
+
 /** Kann dieser Webhook senden? (Ohne Token geht nur Verwalten, nicht Ausführen.) */
 const canExecute = (hook) => Boolean(hook && typeof hook.send === 'function' && hook.token !== null);
 
@@ -264,19 +401,35 @@ async function webhookFor(platform, channelId) {
   if (!client) return null;
 
   let hook = null;
+  let reason = '';
+
   try {
-    hook = await fromStore(platform, channelId, client)
-      ?? await fromChannel(platform, channelId, client);
+    hook = await fromStore(platform, channelId, client);
+    if (!hook) {
+      const channel = await resolveChannel(platform, channelId, client).catch(() => null);
+      if (!channel) reason = 'Kanal nicht gefunden (ist der Bot dort drin?)';
+      else if (typeof channel.createWebhook !== 'function') {
+        reason = 'dieser Kanaltyp kennt keine Webhooks';
+      } else {
+        hook = await fromChannel(platform, channel);
+      }
+    }
   } catch (err) {
-    console.warn(`Brücke: kein Webhook in ${platform}/${channelId} (${err.message}) – ` +
-      'spiegele in Textform. Fehlt das Recht "Webhooks verwalten"?');
-    hook = null;
+    reason = `${err.message} – fehlt dem Bot das Recht "Webhooks verwalten"?`;
   }
 
   if (hook) {
     ownWebhookIds.add(String(hook.id));
     db.setRelayWebhook(platform, channelId, String(hook.id), hook.token ?? '');
+    console.log(`🔗 Brücke: spiegele nach ${platform}/${channelId} als Absender ` +
+      `(Webhook ${hook.id}).`);
+  } else {
+    // Einmal je Kanal, denn das Ergebnis wird gemerkt – kein Log-Spam.
+    console.warn(`⚠️  Brücke: kein Webhook für ${platform}/${channelId}` +
+      `${reason ? ` – ${reason}` : ''}. Spiegele dort in Textform ` +
+      '(Name als Präfix, kein Avatar).');
   }
+
   hooks.set(key, hook);
   return hook;
 }
@@ -305,10 +458,7 @@ async function fromStore(platform, channelId, client) {
 }
 
 /** Vorhandenen Brücken-Webhook im Kanal finden oder einen neuen anlegen. */
-async function fromChannel(platform, channelId, client) {
-  const channel = await resolveChannel(platform, channelId, client);
-  if (!channel?.createWebhook) return null;
-
+async function fromChannel(platform, channel) {
   const existing = await channel.fetchWebhooks?.().catch(() => null);
   const mine = [...(existing?.values?.() ?? existing ?? [])]
     .find((w) => w?.name === WEBHOOK_NAME && canExecute(w));
@@ -327,20 +477,41 @@ async function resolveChannel(platform, channelId, client) {
 }
 
 /**
+ * Sagt beim Start, was den Spieler drüben erwartet.
+ *
+ * Der Webhook entsteht erst bei der ersten Nachricht in einem Kanal (vorher
+ * wüssten wir gar nicht, welche Kanäle gebraucht werden). Damit man nicht
+ * rätselt, warum die Spiegelung noch wie früher aussieht, steht die Betriebsart
+ * einmal im Log – und beim ersten Versand je Kanal eine Zeile mit dem Ergebnis.
+ */
+function announce() {
+  if (!WEBHOOKS) {
+    console.log('🔗 Brücke: Textform (RELAY_WEBHOOKS=false).');
+    return;
+  }
+  console.log('🔗 Brücke: spiegelt mit Name und Avatar des Absenders. ' +
+    'Der Webhook je Kanal entsteht bei der ersten Nachricht – dafür braucht ' +
+    'der Bot auf BEIDEN Seiten das Recht "Webhooks verwalten".');
+}
+
+/**
  * Spiegelt als Persona. `false` heißt "hat nicht geklappt" – dann übernimmt
  * der Aufrufer mit der Textform.
  */
-async function sendAsPersona(platform, channelId, message, text) {
+async function sendAsPersona(platform, channelId, message, text, sourcePlatform) {
   if (!WEBHOOKS) return false;
   const hook = await webhookFor(platform, channelId);
   if (!hook) return false;
 
+  const source = sourcePlatform ?? (platform === 'discord' ? 'fluxer' : 'discord');
+  const face = await personaOf(message, source);
+
   const payload = {
     content: text,
-    username: displayName(message),
+    username: face.username,
     // Die Plattformen schreiben das Feld unterschiedlich – beide mitgeben.
-    avatarURL: avatarOf(message) ?? undefined,
-    avatarUrl: avatarOf(message) ?? undefined,
+    avatarURL: face.avatarURL ?? undefined,
+    avatarUrl: face.avatarURL ?? undefined,
     allowedMentions: { parse: [] },
   };
 
@@ -438,13 +609,36 @@ function shouldRelay(message, platform) {
   return destination(message, platform) !== null;
 }
 
+/**
+ * Merkt sich, wie ein Discord-Nutzer heißt.
+ *
+ * Genau davon lebt der Namensabgleich: Wer im gespiegelten Kanal schreibt,
+ * ist danach bekannt – ganz ohne `!link` und ohne die Mitglieder-Liste
+ * abzufragen (die bräuchte ein privilegiertes Intent).
+ */
+function learnFace(message, platform = 'discord') {
+  const id = message.author?.id;
+  const name = message.member?.displayName
+    ?? message.author?.displayName
+    ?? message.author?.globalName
+    ?? message.author?.username;
+  if (!id || !name || message.author?.bot) return;
+
+  // Unter dem KONTO merken: Für Discord ist das die ID selbst, für Fluxer
+  // entweder das verknüpfte Discord-Konto oder `fx:…`. So findet jede Ansicht
+  // den Namen – auch die Rangliste, in der sonst eine rohe ID stünde.
+  identity.remember(identity.account(platform, String(id)), name);
+}
+
 /** Discord → Fluxer. */
 async function fromDiscord(message) {
   if (!ready() || isOwn(message, 'discord') || ignored(message)) return false;
+  learnFace(message);
+
   const target = destination(message, 'discord');
   if (!target || !body(message)) return false;
   const asPersona = await sendAsPersona(
-    'fluxer', target, message, emoji.toFluxer(body(message) ?? ''));
+    'fluxer', target, message, emoji.toFluxer(body(message) ?? ''), 'discord');
   if (asPersona) return true;
 
   const text = format(message, { platform: 'discord' });
@@ -456,10 +650,12 @@ async function fromDiscord(message) {
 /** Fluxer → Discord. */
 async function fromFluxer(message) {
   if (!ready() || isOwn(message, 'fluxer') || ignored(message)) return false;
+  learnFace(message, 'fluxer');
+
   const target = destination(message, 'fluxer');
   if (!target || !body(message)) return false;
   const asPersona = await sendAsPersona(
-    'discord', target, message, emoji.toDiscord(body(message) ?? ''));
+    'discord', target, message, emoji.toDiscord(body(message) ?? ''), 'fluxer');
   if (asPersona) return true;
 
   const text = format(message, { platform: 'fluxer' });
@@ -472,8 +668,11 @@ async function fromFluxer(message) {
 
 module.exports = {
   enabled, DISCORD_CHANNEL, FLUXER_CHANNEL, MAX_LENGTH, RELAY_ALL, EXCLUDE, OVERRIDES,
-  WEBHOOKS, WEBHOOK_NAME, NAME_SUFFIX, IGNORE_WEBHOOKS,
-  register, ready, discordClient, format, flattenEmbed, shouldRelay, fromDiscord, fromFluxer,
+  WEBHOOKS, WEBHOOK_NAME, NAME_SUFFIX, IGNORE_WEBHOOKS, DISCORD_IDENTITY, MATCH_NAMES,
+  register, ready, announce, discordClient, fluxerClient, format, flattenEmbed, shouldRelay,
+  fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
-  body, displayName, avatarOf, ignored, webhookFor, sendAsPersona, ownWebhookIds, hooks,
+  body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
+  nameKey, accountByName, learnFace,
+  webhookFor, sendAsPersona, ownWebhookIds, hooks,
 };

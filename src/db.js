@@ -896,6 +896,7 @@ const stmt = {
     `INSERT INTO account_names (account_id, name, updated_at) VALUES (?, ?, ?)
      ON CONFLICT (account_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`),
   getAccountName: db.prepare('SELECT name FROM account_names WHERE account_id = ?'),
+  allAccountNames: db.prepare('SELECT account_id, name FROM account_names'),
 
   // --- Wallet (eigene Wirtschaft) ---
   getWallet: db.prepare('SELECT * FROM wallets WHERE guild_id = ? AND user_id = ?'),
@@ -1893,6 +1894,15 @@ function getAccountName(accountId) {
   return stmt.getAccountName.get(String(accountId))?.name ?? null;
 }
 
+/**
+ * Alle gemerkten Anzeigenamen. Die Tabelle hat eine Zeile je Konto und ist
+ * damit winzig – der Abgleich (Groß-/Kleinschreibung, Sonderzeichen) passiert
+ * bewusst in JavaScript, weil SQLite kein Unicode-Casefolding kann.
+ */
+function allAccountNames() {
+  return stmt.allAccountNames.all();
+}
+
 // ------------------------------------------------------------------- Wallet
 
 /** Geldbeutel eines Spielers; legt ihn beim ersten Zugriff mit Startguthaben an. */
@@ -1957,7 +1967,8 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
-  setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks, setAccountName, getAccountName, mergeAccounts,
+  setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
+  setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim,
   deleteMessage, clearMessages, countDeletable,

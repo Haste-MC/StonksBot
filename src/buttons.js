@@ -18,6 +18,7 @@ const jobs = require('./jobs');
 const property = require('./property');
 const street = require('./street');
 const condition = require('./condition');
+const identity = require('./identity');
 const workshop = require('./workshop');
 const npc = require('./npc');
 const buyers = require('./buyers');
@@ -484,7 +485,8 @@ const buttons = {
       .setTitle('🔑 Gekauft!')
       .setDescription(
         `**${result.listing.name}** gehört jetzt dir.\n` +
-        `<@${result.listing.seller_id}> hat ${money(symbol, result.price)} erhalten.`)
+        `${identity.mention(result.listing.seller_id)} hat ` +
+        `${money(symbol, result.price)} erhalten.`)
       .addFields({ name: 'Neues Bargeld', value: money(symbol, result.newBalance.cash) })
       .setColor(0x16a085);
     if (result.listing.image_url) embed.setThumbnail(result.listing.image_url);
@@ -703,7 +705,8 @@ const buttons = {
       .setTitle('✅ Gebrauchtwagen gekauft!')
       .setDescription(
         `**${result.listing.name}** steht jetzt in deiner Garage.\n` +
-        `<@${result.listing.seller_id}> hat ${money(symbol, result.price)} erhalten.`)
+        `${identity.mention(result.listing.seller_id)} hat ` +
+        `${money(symbol, result.price)} erhalten.`)
       .addFields({ name: 'Neues Bargeld', value: money(symbol, result.newBalance.cash) })
       .setColor(0x2ecc71);
 

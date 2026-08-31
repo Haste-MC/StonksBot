@@ -46,7 +46,19 @@ client.on(Events.Ready, () => {
   // Geldausgabe unübersetzt stehen.
   require('../currency').getSymbol(identity.world()).catch(() => {});
   relay.register('fluxer', client);
-  if (relay.enabled) console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');
+  if (relay.enabled) {
+    console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');
+    relay.announce();
+  }
+
+  // Fehlende Anzeigenamen nachtragen, damit nirgends eine rohe ID steht.
+  // Verzögert, damit beide Seiten angemeldet sind; Fehler sind egal.
+  setTimeout(() => {
+    require('../names').warm({
+      discord: relay.discordClient(), fluxer: relay.fluxerClient(),
+    }).catch(() => {});
+  }, 5000).unref();
+
   db.purgeFluxerViews();
 
   // Kataloge (Autos, Immobilien, Ausrüstung) liegen PRO SERVER in der

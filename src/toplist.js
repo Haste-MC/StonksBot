@@ -70,12 +70,16 @@ async function fetch({ sort = 'total', limit = 15 } = {}) {
   return entries.slice(0, limit).map((e, i) => ({ ...e, rank: i + 1 }));
 }
 
-/** Anzeigename eines Kontos: gemerkter Name, sonst eine Erwähnung. */
+/**
+ * Anzeigename eines Kontos.
+ *
+ * Ein gemerkter Name gewinnt – auch bei Discord-Konten, denn in der Rangliste
+ * liest sich „**Kevin**" besser als eine Erwähnung, die auf Fluxer ohnehin
+ * ersetzt würde. Sonst übernimmt identity.mention (nie eine rohe ID).
+ */
 function label(userId) {
   const name = identity.nameOf(userId);
-  if (name) return `**${name}**`;
-  // Auf Fluxer wird die Erwähnung später durch den Namen ersetzt (render.js).
-  return identity.isDiscordAccount(userId) ? `<@${userId}>` : '_unbekannt_';
+  return name ? `**${name}**` : identity.mention(userId);
 }
 
 module.exports = { SORTS, parseSort, fetch, label };

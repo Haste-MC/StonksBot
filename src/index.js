@@ -34,7 +34,19 @@ client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
   relay.register('discord', client);
-  if (relay.enabled) console.log('🔗 Kanal-Brücke: Discord-Seite bereit.');
+  if (relay.enabled) {
+    console.log('🔗 Kanal-Brücke: Discord-Seite bereit.');
+    relay.announce();
+  }
+
+  // Fehlende Anzeigenamen nachtragen, damit nirgends eine rohe ID steht.
+  // Verzögert, damit beide Seiten angemeldet sind; Fehler sind egal.
+  setTimeout(() => {
+    require('./names').warm({
+      discord: relay.discordClient(), fluxer: relay.fluxerClient(),
+    }).catch(() => {});
+  }, 5000).unref();
+
 });
 
 // Nachrichten im Kanal: Werbe-Nudges und die Brücke nach Fluxer.
