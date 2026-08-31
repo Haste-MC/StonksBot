@@ -47,9 +47,44 @@ function currencyName() {
   return symbol ? currency.plainSymbol(symbol) : null;
 }
 
+/**
+ * Bringt den Eintrag aus `FLUXER_CURRENCY_SYMBOL` in die Form, die Fluxer im
+ * Nachrichtentext versteht: `<:Name:ID>` (animiert `<a:Name:ID>`).
+ *
+ * Nachsichtig, weil man aus der Oberfläche je nach Weg etwas anderes
+ * herauskopiert – all das wird akzeptiert:
+ *
+ *   <:Rubine:154…>   fertig
+ *   a:Rubine:154…    Reaktions-Schreibweise (auch mit führendem :)
+ *   154…             nur die ID  -> Name wird ergänzt
+ *   🪙               ein normales Emoji bleibt, wie es ist
+ *
+ * Ohne Ergänzung stünde bei einer nackten ID einfach die Zahl im Chat.
+ */
+function normalizeSymbol(raw, fallbackName) {
+  const text = String(raw ?? '').trim();
+  if (!text) return '';
+
+  // Schon vollständig.
+  if (/^<a?:[^:\s]+:\d+>$/.test(text)) return text;
+
+  // "name:id" / "a:name:id" / ":name:id"
+  const parts = /^(a:)?:?([^:\s]+):(\d{5,25})>?$/.exec(text);
+  if (parts) return `<${parts[1] ? 'a:' : ':'}${parts[2]}:${parts[3]}>`;
+
+  // Nur die ID – der Name ist bloß Beiwerk, gerendert wird über die ID.
+  if (/^\d{5,25}$/.test(text)) {
+    const name = (fallbackName || 'currency').replace(/[^\w]/g, '') || 'currency';
+    return `<:${name}:${text}>`;
+  }
+
+  // Unicode-Emoji oder sonstiger Text: unverändert übernehmen.
+  return text;
+}
+
 /** Was auf Fluxer für Geld steht. */
 function fluxerCurrency() {
-  return FLUXER_CURRENCY || COIN;
+  return normalizeSymbol(FLUXER_CURRENCY, currencyName()) || COIN;
 }
 
 /**
@@ -85,5 +120,5 @@ function toDiscord(text) {
 
 module.exports = {
   FLUXER_CURRENCY, COIN, CUSTOM,
-  discordCurrency, currencyName, fluxerCurrency, toFluxer, toDiscord,
+  discordCurrency, currencyName, normalizeSymbol, fluxerCurrency, toFluxer, toDiscord,
 };

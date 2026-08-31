@@ -168,6 +168,26 @@ function view(buttons) {
   check('Embeds bleiben übersetzt', !`${embedded.title}${embedded.description}`.includes('<:'),
     embedded.title);
 
+  console.log('--- FLUXER_CURRENCY_SYMBOL darf man schlampig eintragen ---');
+  // Fluxer rendert im Text `<:Name:ID>`. Wer nur die ID aus der Oberfläche
+  // kopiert, hätte sonst die nackte Zahl im Chat stehen.
+  const ID = '1543693306263769088';
+  check('nackte ID wird ergänzt',
+    emoji.normalizeSymbol(ID, 'Rubine') === `<:Rubine:${ID}>`,
+    emoji.normalizeSymbol(ID, 'Rubine'));
+  check('vollständige Angabe bleibt',
+    emoji.normalizeSymbol(`<:Rubine:${ID}>`) === `<:Rubine:${ID}>`);
+  check('Reaktions-Schreibweise wird umgebaut',
+    emoji.normalizeSymbol(`Rubine:${ID}`) === `<:Rubine:${ID}>`);
+  check('mit führendem Doppelpunkt ebenso',
+    emoji.normalizeSymbol(`:Rubine:${ID}`) === `<:Rubine:${ID}>`);
+  check('animiert bleibt animiert',
+    emoji.normalizeSymbol(`a:Tanz:${ID}`) === `<a:Tanz:${ID}>`);
+  check('normales Emoji bleibt unangetastet', emoji.normalizeSymbol('🪙') === '🪙');
+  check('leer bleibt leer', emoji.normalizeSymbol('') === '' && emoji.normalizeSymbol(null) === '');
+  check('ohne Name springt ein Ersatzname ein',
+    /^<:\w+:\d+>$/.test(emoji.normalizeSymbol(ID)), emoji.normalizeSymbol(ID));
+
   console.log('--- Textantworten laufen durch dieselbe Übersetzung ---');
   // Der eigentliche Fehler: followUp/reply gingen roh raus (Abrechnungen,
   // Kaufbestätigungen, Fehlermeldungen).
