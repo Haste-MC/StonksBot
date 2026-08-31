@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.4.0',
+    date: '2026-08-31',
+    title: 'Werkstatt: kaputte Autos wieder aufbauen',
+    lines: [
+      '🛠️ **Werkstatt:** `/werkstatt` (oder `!werkstatt`) bringt beschädigte Autos wieder auf Stand – bisher war ein Kratzer für immer.',
+      '🧽 **Drei Stufen:** Aufbereitung (55 %), Instandsetzung (80 %) und volle Restaurierung (100 %). Den Preis siehst du vorher.',
+      '💸 **Kein Geschäft:** Eine Reparatur kostet immer mehr, als sie an Zeitwert zurückbringt – du kaufst Erhalt, keinen Gewinn.',
+      '🅿️ **Kurzer Weg:** Steht etwas Beschädigtes in deiner Garage, führt dort jetzt ein Knopf direkt in die Werkstatt.',
+    ],
+  },
+  {
     version: '1.3.0',
     date: '2026-08-24',
     title: 'Storage Wars, Level & Profile',

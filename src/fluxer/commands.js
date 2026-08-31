@@ -264,6 +264,7 @@ const ENTRY_COMMANDS = {
   brands: ['marken'],
   used: ['gebraucht', 'gebrauchtwagen'],
   garage: ['garage'],
+  werkstatt: ['werkstatt', 'reparieren', 'repair'],
   listings: ['inserate'],
   property: ['markt', 'immobilienmarkt'],
   estate: ['besitz', 'meinbesitz'],

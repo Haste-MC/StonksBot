@@ -114,6 +114,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildGarageView(ctx),
   },
   {
+    id: 'werkstatt',
+    group: 'cars',
+    label: 'Werkstatt',
+    emoji: '🛠️',
+    description: 'Beschädigte Autos reparieren lassen',
+    style: 'primary',
+    build: (ctx) => ui.buildWorkshopView(ctx),
+  },
+  {
     id: 'listings',
     group: 'cars',
     label: 'Meine Inserate',

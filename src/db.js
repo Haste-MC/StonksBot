@@ -715,6 +715,18 @@ const stmt = {
   countInventory: db.prepare(
     `SELECT COUNT(*) AS n FROM inventory inv JOIN items i ON i.id = inv.item_id
      WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0 AND i.kind = 'car'`),
+  // Werkstatt: nur Autos unter Neuzustand, die schlimmsten zuerst –
+  // dort ist der Handlungsbedarf am größten.
+  listDamaged: db.prepare(
+    `SELECT i.*, inv.quantity, inv.condition
+     FROM inventory inv JOIN items i ON i.id = inv.item_id
+     WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0
+       AND i.kind = 'car' AND inv.condition < 100
+     ORDER BY inv.condition ASC, i.price DESC LIMIT ? OFFSET ?`),
+  countDamaged: db.prepare(
+    `SELECT COUNT(*) AS n FROM inventory inv JOIN items i ON i.id = inv.item_id
+     WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0
+       AND i.kind = 'car' AND inv.condition < 100`),
   getOwned: db.prepare(
     `SELECT i.*, inv.quantity, inv.condition
      FROM inventory inv JOIN items i ON i.id = inv.item_id
@@ -1333,6 +1345,13 @@ function listInventory(guildId, userId, page = 1) {
  * aufgerufen, damit ein Fehlschlag lokal (und damit zuverlässig) rückgängig
  * gemacht werden kann.
  */
+/** Beschädigte Autos eines Spielers (Zustand < 100), schlimmste zuerst. */
+function listDamaged(guildId, userId, page = 1) {
+  const total = stmt.countDamaged.get(guildId, userId).n;
+  const items = stmt.listDamaged.all(guildId, userId, PAGE_SIZE, (page - 1) * PAGE_SIZE);
+  return { items, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)), page };
+}
+
 function reservePurchase(guildId, userId, itemId, quantity) {
   return transaction(() => {
     const item = stmt.getItem.get(guildId, itemId);
@@ -1883,7 +1902,7 @@ function clearClaim(guildId, userId, kind) {
 
 module.exports = {
   listItems, listBrands, getItem, createItem, deleteItem, updateItemImage, allItemsOfKind,
-  listInventory, reservePurchase, releasePurchase,
+  listInventory, listDamaged, reservePurchase, releasePurchase,
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,

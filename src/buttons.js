@@ -10,7 +10,7 @@ const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
-  buildTopView, money,
+  buildTopView, buildRepairView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -18,6 +18,7 @@ const jobs = require('./jobs');
 const property = require('./property');
 const street = require('./street');
 const condition = require('./condition');
+const workshop = require('./workshop');
 const npc = require('./npc');
 const buyers = require('./buyers');
 const bills = require('./bills');
@@ -148,7 +149,9 @@ async function settle(interaction) {
 }
 
 /** Menüpunkte, bei denen Miete und Stellplätze relevant sind. */
-const RENT_RELEVANT = new Set(['property', 'estate', 'garage', 'new', 'used', 'inbox', 'listings', 'auktion']);
+const RENT_RELEVANT = new Set([
+  'property', 'estate', 'garage', 'werkstatt', 'new', 'used', 'inbox', 'listings', 'auktion',
+]);
 
 /** Baut die offene Menü-Nachricht neu, damit Änderungen sofort sichtbar sind. */
 async function refresh(interaction, entryId) {
@@ -1093,7 +1096,60 @@ Object.assign(buttons, {
       : (res.reason === 'empty' ? 'Nichts zu verkaufen.' : '❌ Konnte nicht verkauft werden.');
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
+
+  /** Werkstatt: Kostenvoranschlag für ein Auto öffnen. */
+  async wdet(interaction, [itemId, page]) {
+    await interaction.update(await buildRepairView({
+      guildId: gid(interaction), userId: uid(interaction),
+      key: Number(itemId), page: Number(page) || 1,
+    }));
+  },
+
+  /**
+   * Reparatur beauftragen. Das Panel zeigt danach den neuen Zustand, das
+   * Ergebnis kommt als kurze private Meldung dazu.
+   */
+  async wfix(interaction, [itemId, tierId, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await workshop.repair(guildId, userId, Number(itemId), tierId);
+
+    await interaction.editReply(await buildRepairView({
+      guildId, userId, key: Number(itemId), page: Number(page) || 1,
+    }));
+
+    const note = res.ok
+      ? `${res.quote.tier.emoji} **${res.item.name}** ist fertig — ` +
+        `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.quote.to)}.\n` +
+        `Rechnung: ${money(symbol, res.cost)} · Zeitwert jetzt ${money(symbol, res.quote.after)}` +
+        (res.movedFromBank > 0
+          ? `\n_${money(symbol, res.movedFromBank)} von der Bank geholt._` : '') +
+        `\nNeues Bargeld: ${money(symbol, res.newBalance.cash)}`
+      : workshopFailure(res, symbol);
+
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
 });
+
+/** Fehlermeldungen der Werkstatt. */
+function workshopFailure(result, symbol) {
+  switch (result.reason) {
+    case 'not_owned':
+      return '❌ Dieses Auto steht nicht (mehr) in deiner Garage.';
+    case 'not_a_car':
+      return '🔧 Die Werkstatt nimmt nur Autos an.';
+    case 'already_good':
+      return 'ℹ️ Dafür ist dein Wagen schon zu gut — such dir eine höhere Stufe.';
+    case 'insufficient_funds':
+      return `💸 Zu wenig Geld. Der Auftrag kostet ${money(symbol, result.needed)}, ` +
+        `du hast ${money(symbol, result.have)}.`;
+    default:
+      return '❌ Der Auftrag ist schiefgegangen.';
+  }
+}
 
 // -------------------------------------------------------- Modal-Handler
 
@@ -1125,4 +1181,6 @@ const modals = {
   },
 };
 
-module.exports = { buttons, modals, parseId, failureText, shiftResult, settle };
+module.exports = {
+  buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
+};

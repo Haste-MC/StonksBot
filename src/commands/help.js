@@ -33,6 +33,11 @@ module.exports = {
           value: '✨ **Neuwagen** · 🔧 **Gebrauchtwagen** · 🏘️ **Immobilien** (kaufen & mieten) · 🧰 **Ausrüstung**',
         },
         {
+          name: '🛠️ Werkstatt',
+          value: '`/werkstatt` – was auf der Straße stand, kommt zerkratzt zurück. ' +
+            'Die Werkstatt bringt es wieder auf Vordermann: Aufbereitung, Instandsetzung oder volle Restaurierung.',
+        },
+        {
           name: '🏬 Storage Wars',
           value: '`/auktion` – verschlossene **Garagen ersteigern** und Wertobjekte finden. ' +
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',

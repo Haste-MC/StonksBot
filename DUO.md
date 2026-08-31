@@ -197,6 +197,59 @@ Konto verknüpft ist. Genau dafür ist der duo-Betrieb gut: Beide Clients laufen
 selben Prozess. Ohne Verknüpfung gibt es keine Rollen und damit kein Einkommen –
 ein guter Anreiz für `!link`.
 
+## Werkstatt: beschädigte Autos wieder aufbauen
+
+Autos, die draußen stehen, verlieren über Nacht Zustand – und damit Wert
+([`street.js`](src/street.js)). Bisher war das eine **Einbahnstraße**: einmal
+zerkratzt, für immer zerkratzt. Die Werkstatt dreht das um, gegen Geld.
+
+```
+!werkstatt          beschädigte Autos auflisten (auch !reparieren)
+!werkstatt <seite>  weiterblättern
+```
+
+Auf Discord zusätzlich als `/werkstatt` (mit `auto:<id>` direkt zum
+Kostenvoranschlag). Aus der Garage führt ein Knopf direkt hinüber, sobald dort
+etwas Beschädigtes steht.
+
+Man wählt ein **Ziel**, keinen Betrag – die Stufen sind dieselben, die der
+Spieler aus der Zustandsanzeige schon kennt:
+
+| Stufe | Ziel | Aufschlag |
+|--|--|--|
+| 🧽 Aufbereitung | 55 % (😐 Gebraucht) | ×1,10 |
+| 🔧 Instandsetzung | 80 % (🙂 Gut) | ×1,20 |
+| ✨ Restaurierung | 100 % (✨ Neuwertig) | ×1,35 |
+
+Der Preis ist der **Wertzuwachs mal Aufschlag plus Werkstattpauschale**
+(1 % vom Neupreis, mindestens 250), **gedeckelt auf den Neupreis**. Der
+Aufschlag steigt mit dem Ziel: die letzten Prozente sind – wie in echt – die
+teuersten. Der Deckel ist nötig, weil ein Schrotthaufen nur noch 30 % wert ist:
+ohne ihn käme bei einer Restaurierung eine Rechnung über dem Neuwagenpreis
+heraus. Die Regel oben kann er nicht verletzen – der Zeitwert liegt immer unter
+dem Neupreis, der Zuwachs erst recht.
+
+**Reparieren ist bewusst nie ein Geschäft.** Ohne den Aufschlag wäre die
+Werkstatt ein Gelddrucker (ARCHITEKTUR §3): Schrottwagen billig kaufen,
+reparieren, zum Zeitwert verkaufen, Gewinn. Weil die Rechnung immer über dem
+Wertzuwachs liegt, kauft man Erhalt, Prestige und einen höheren
+Wiederverkaufspreis – aber nie Gewinn. Über 15 000 zufällige Kombinationen aus
+Preis, Zustand und Stufe prüft
+[`test/workshop.test.js`](test/workshop.test.js), dass die Kosten den Zuwachs
+nie unterschreiten – dazu jede Kombination für Autos bis 6 000 einzeln, weil
+dort die Pauschale und der Deckel am schwersten wiegen.
+
+Zwei weitere bewusste Entscheidungen, ebenfalls getestet:
+- **Erst der Zustand, dann das Geld.** Der neue Zustand wird gesetzt, *bevor*
+  die erste `await`-Buchung läuft – ein zweiter schneller Klick findet den
+  Wagen schon repariert vor und wird abgewiesen (ARCHITEKTUR §7). Scheitert
+  danach die Geldbuchung, wird der alte Zustand zurückgeschrieben.
+- **Bank zählt mit.** Reicht das Bargeld nicht, wird der fehlende Teil von der
+  Bank geholt – wie beim Autokauf.
+
+[`workshop.js`](src/workshop.js) bucht über dieselbe Geldschnittstelle wie
+alles andere und funktioniert damit auf beiden Plattformen gleich.
+
 ## Geld-Rangliste (!top)
 
 Hier liegt der Fall **anders als bei `!rob`**: Die Rangliste lässt sich über die

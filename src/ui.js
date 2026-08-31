@@ -971,7 +971,145 @@ async function buildGarageView({ guildId, userId, targetId = null, page = 1 }) {
   const best = items.reduce((a, b) => (b.price > a.price ? b : a));
   if (best.image_url) embed.setThumbnail(best.image_url);
 
-  return { embeds: [embed], components: [navigationRow('garage', p, totalPages, userId)] };
+  // Kurzer Weg in die Werkstatt – aber nur, wenn es dort etwas zu tun gibt
+  // und es die eigene Garage ist.
+  const damaged = owner === userId ? db.listDamaged(guildId, owner, 1).total : 0;
+  const toWorkshop = damaged > 0
+    ? new ButtonBuilder()
+      .setCustomId(ID.menu('werkstatt', 1, userId))
+      .setLabel(`Werkstatt (${damaged})`).setEmoji('🛠️')
+      .setStyle(ButtonStyle.Primary)
+    : null;
+
+  return {
+    embeds: [embed],
+    components: [navigationRow('garage', p, totalPages, userId, toWorkshop)],
+  };
+}
+
+// ------------------------------------------------------------------ Werkstatt
+
+/**
+ * Die Werkstatt zeigt nur, was Arbeit braucht: Autos unter Neuzustand, die
+ * schlimmsten zuerst. Der Preis der vollen Restaurierung steht gleich dabei –
+ * so sieht man ohne Klick, ob sich der Weg lohnt.
+ */
+async function buildWorkshopView({ guildId, userId, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const cond = require('./condition');
+  const workshop = require('./workshop');
+
+  const { items, total, totalPages, page: p } =
+    fetchPage((n) => db.listDamaged(guildId, userId, n), page);
+
+  const embed = new EmbedBuilder().setTitle('🛠️ Werkstatt').setColor(0xe67e22);
+
+  if (total === 0) {
+    embed.setDescription(
+      'Alles in Schuss — kein Wagen in deiner Garage hat einen Kratzer.\n\n' +
+      '_Hier landen Autos, die auf der Straße etwas abbekommen haben. ' +
+      'Eine Garage schützt davor, die Werkstatt repariert danach._');
+    return { embeds: [embed], components: [navigationRow('werkstatt', 1, 1, userId)] };
+  }
+
+  embed.setDescription(items.map((i) => {
+    const c = i.condition ?? 100;
+    const full = workshop.quote(i.price, c, 'resto');
+    return `${i.emoji ? `${i.emoji} ` : ''}**${i.name}**  \`ID ${i.id}\`\n` +
+      `${cond.bar(c)} ${cond.labelDetailed(c)}\n` +
+      `Wert ${money(symbol, full.before)} _(neu ${money(symbol, i.price)})_ · ` +
+      `komplett ab ${money(symbol, full.cost)}`;
+  }).join('\n\n'));
+
+  embed.setFooter({
+    text: `${total} ${total === 1 ? 'Wagen braucht' : 'Wagen brauchen'} Arbeit · ` +
+      '🛠️ öffnet den Kostenvoranschlag',
+  });
+
+  const picks = new ActionRowBuilder().addComponents(...items.map((i) =>
+    new ButtonBuilder()
+      .setCustomId(`wdet|${i.id}|${p}|${userId}`)
+      .setLabel(i.name.slice(0, 40)).setEmoji('🛠️')
+      .setStyle(ButtonStyle.Secondary)));
+
+  return {
+    embeds: [embed],
+    components: [picks, navigationRow('werkstatt', p, totalPages, userId)],
+  };
+}
+
+/**
+ * Kostenvoranschlag für ein Auto: alle Stufen mit Preis und Wert danach.
+ *
+ * Hier darf es genau sein (Prozente, Neupreis, Wertzuwachs) – es ist der
+ * eigene Wagen, und ohne die Zahlen wäre der Preis nicht nachvollziehbar.
+ */
+async function buildRepairView({ guildId, userId, key, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const cond = require('./condition');
+  const workshop = require('./workshop');
+
+  const backRow = (extra = []) => new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(ID.menu('werkstatt', page, userId))
+      .setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary),
+    ...extra,
+    homeButton(userId),
+  );
+
+  const car = db.getOwned(guildId, userId, Number(key));
+
+  if (!car || car.kind !== 'car') {
+    return {
+      embeds: [new EmbedBuilder()
+        .setTitle('❌ Kein Auftrag')
+        .setDescription('Dieses Auto steht nicht (mehr) in deiner Garage.')
+        .setColor(0xe74c3c)],
+      components: [backRow()],
+    };
+  }
+
+  const c = car.condition ?? 100;
+  const embed = new EmbedBuilder()
+    .setTitle(`🛠️ ${car.emoji ? `${car.emoji} ` : ''}${car.name}`)
+    .setDescription(`${cond.bar(c)} ${cond.labelDetailed(c)}`)
+    .setColor(cond.level(c).color)
+    .addFields(
+      { name: 'Zeitwert', value: money(symbol, cond.currentValue(car.price, c)), inline: true },
+      { name: 'Neupreis', value: money(symbol, car.price), inline: true },
+    );
+
+  for (const q of workshop.quotes(car.price, c)) {
+    embed.addFields({
+      name: `${q.tier.emoji} ${q.tier.label} → ${cond.label(q.to)} (${q.to} %)`,
+      value: q.possible
+        ? `**${money(symbol, q.cost)}** · Wert danach ${money(symbol, q.after)} ` +
+          `_(+${money(symbol, q.gain)})_\n_${q.tier.blurb}_`
+        : '_Dafür ist dein Wagen schon zu gut._',
+    });
+  }
+
+  embed.setFooter({
+    text: 'Eine Reparatur kostet immer mehr, als sie an Wert zurückbringt — ' +
+      'du kaufst Erhalt, kein Geschäft.',
+  });
+
+  if (car.image_url) embed.setThumbnail(car.image_url);
+
+  const offers = workshop.quotes(car.price, c).filter((q) => q.possible);
+  const rows = [];
+  if (offers.length) {
+    rows.push(new ActionRowBuilder().addComponents(...offers.map((q) =>
+      new ButtonBuilder()
+        .setCustomId(`wfix|${car.id}|${q.tier.id}|${page}|${userId}`)
+        .setLabel(`${q.tier.label} · ${q.cost.toLocaleString('de-DE')}`)
+        .setEmoji(q.tier.emoji)
+        .setStyle(q.tier.id === 'resto' ? ButtonStyle.Success : ButtonStyle.Primary))));
+  }
+  rows.push(backRow());
+
+  return { embeds: [embed], components: rows };
 }
 
 // ------------------------------------------------------------ Eigene Inserate
@@ -1725,7 +1863,8 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildGarageView, buildListingsView, buildBalanceView,
+  buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
+  buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
