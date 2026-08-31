@@ -104,6 +104,40 @@ const freshGuild = () => `WALLET_T${Date.now()}_${n++}`;
   check('Betrag liegt in der Spanne',
     d1.amount >= income.DAILY.base && d1.amount <= income.DAILY.base + income.DAILY.bonus,
     String(d1.amount));
+  check('Spanne ist 200–2000',
+    income.DAILY.base === 200 && income.DAILY.base + income.DAILY.bonus === 2000,
+    `${income.DAILY.base}–${income.DAILY.base + income.DAILY.bonus}`);
+
+  // Beide Enden der Spanne müssen erreichbar sein – ein Off-by-one im
+  // Zufallsanteil fällt sonst nie auf.
+  const low = await income.daily(freshGuild(), D, Date.now(), () => 0);
+  const high = await income.daily(freshGuild(), D, Date.now(), () => 0.9999999);
+  check('Minimum ist genau 200', low.amount === 200, String(low.amount));
+  check('Maximum ist genau 2000', high.amount === 2000, String(high.amount));
+
+  console.log('--- Sprüche zum Tagesbonus ---');
+  const lines = income.lines;
+  check('genug Auswahl', lines.LINES.length >= 40, String(lines.LINES.length));
+  check('jede Zeile hat genau einen Platzhalter',
+    lines.LINES.every((l) => l.split('{betrag}').length === 2),
+    lines.LINES.filter((l) => l.split('{betrag}').length !== 2)[0]);
+  check('keine Dubletten', new Set(lines.LINES).size === lines.LINES.length);
+  check('keine Zeile ist zu lang (Fluxer/Discord)',
+    lines.LINES.every((l) => l.length <= 200),
+    lines.LINES.find((l) => l.length > 200));
+  check('jede Zeile fängt mit einem Emoji an',
+    lines.LINES.every((l) => /^[^\x00-\x7F]/.test(l)),
+    lines.LINES.find((l) => /^[\x00-\x7F]/.test(l)));
+
+  check('Auszahlung liefert einen Spruch',
+    typeof d1.flavor === 'string' && lines.LINES.includes(d1.flavor), String(d1.flavor));
+  const rendered = lines.format(d1.flavor, '🪙 1.234');
+  check('Betrag wird eingesetzt', rendered.includes('🪙 1.234') && !rendered.includes('{betrag}'),
+    rendered);
+  check('gleicher Zufall -> gleicher Spruch',
+    lines.pick(() => 0.42) === lines.pick(() => 0.42));
+  check('alle Zeilen sind erreichbar',
+    new Set(Array.from({ length: 2000 }, () => lines.pick())).size === lines.LINES.length);
   const cashAfter = (await wallet.getBalance(G5, D)).cash;
   check('Geld ist angekommen', cashAfter === wallet.START_CASH + d1.amount);
 

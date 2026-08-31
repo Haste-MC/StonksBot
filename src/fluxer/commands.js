@@ -46,7 +46,7 @@ const COMMANDS = [
   },
   {
     names: ['daily', 'täglich'],
-    info: 'Täglicher Bonus',
+    info: 'Täglicher Bonus (200–2000)',
     run: async ({ guildId, userId }) => {
       const symbol = await getSymbol(guildId);
       const res = await income.daily(guildId, userId);
@@ -54,8 +54,8 @@ const COMMANDS = [
         return { text: `⏳ Schon abgeholt. Neuer Bonus in **${income.formatRemaining(res.remainingMs)}**.` };
       }
       return {
-        text: `💰 **+${money(symbol, res.amount)}** Tagesbonus!\n` +
-          `Neuer Kontostand: ${money(symbol, res.balance.total)}`,
+        text: `${income.lines.format(res.flavor, money(symbol, res.amount))}\n` +
+          `💰 Kontostand: ${money(symbol, res.balance.total)}`,
       };
     },
   },

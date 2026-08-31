@@ -27,6 +27,7 @@ module.exports = [
       '💸 **Kein Geschäft:** Eine Reparatur kostet immer mehr, als sie an Zeitwert zurückbringt – du kaufst Erhalt, keinen Gewinn.',
       '🅿️ **Kurzer Weg:** Steht etwas Beschädigtes in deiner Garage, führt dort jetzt ein Knopf direkt in die Werkstatt.',
       '🏬 **Auktionshaus fairer:** Die typische Garage war 38 % ihres Startpreises wert – jetzt 77 %. In jeder Garage liegt Bargeld, teure Fundstücke sind seltener statt gleichverteilt.',
+      '🎲 **`!daily` erzählt jetzt was:** Rund 60 Sprüche, woher das Geld kam – von dummem Glück bis eklig. Der Betrag schwankt neu zwischen 200 und 2000.',
       '🎰 **Kein Lotterie-Aufschlag mehr:** Die absurd seltenen Stufen (ab Godlike) kosten dich nichts mehr im Startpreis – sie bleiben als Bonus drin. Hausvorteil 15 % → 10 %.',
     ],
   },
