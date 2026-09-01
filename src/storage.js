@@ -43,9 +43,9 @@ const HOUSE_MARGIN = 1.10;
  */
 const UNPRICED_FROM = 'godlike';
 /** Wie lange eine einzelne Garage live ist. Tunbar über opts.lotDuration. */
-const LOT_DURATION_MS = 60 * MIN;
+const LOT_DURATION_MS = 20 * MIN;
 /** Pause zwischen dem Ende einer Runde und dem Start der nächsten. */
-const ROUND_GAP_MS = 30 * MIN;
+const ROUND_GAP_MS = 0;
 /** Wie viele Garagen eine Runde hat. */
 const ROUND_SIZE = [4, 7];
 /** Mindest-Erhöhungsschritt beim Überbieten. */
