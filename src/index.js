@@ -5,6 +5,7 @@ const { discordToken } = require('./config');
 const { buttons, modals, parseId } = require('./buttons');
 const nudges = require('./nudges');
 const bridge = require('./bridge');
+const identity = require('./identity');
 const relay = require('./relay');
 
 // Nachrichten mitlesen braucht das privilegierte Message-Content-Intent.
@@ -33,6 +34,11 @@ for (const file of fs.readdirSync(commandsDir).filter((f) => f.endsWith('.js')))
 client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
+
+  // Börsenticker: Kurse bewegen sich auch, wenn niemand zusieht (der einzige
+  // Taktgeber im Bot – warum, steht in wallstreet.js).
+  require('./wallstreet').startTicker(identity.world());
+
   relay.register('discord', client);
   if (relay.enabled) {
     console.log('🔗 Kanal-Brücke: Discord-Seite bereit.');

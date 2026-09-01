@@ -18,6 +18,20 @@
  */
 module.exports = [
   {
+    version: '1.5.0',
+    date: '2026-09-01',
+    title: 'Wallstreet',
+    lines: [
+      '📈 **Börse:** 25 Werte in drei Klassen – 16 Aktien, 3 Fonds, 6 Coins. `/boerse` oder 📈 im Menü.',
+      '⏱️ **Kurse ändern sich alle 30 Minuten** – auch wenn niemand zusieht. Mit gemeinsamen Markttrends, ruhigen und hektischen Phasen.',
+      '🛒 **Viele Kaufwege:** Stückzahlen, feste Beträge („für 10.000"), eigene Eingabe. Verkaufen in 25/50/100 %.',
+      '💼 **Depot:** `/depot` zeigt Bestand, Einstandskurs und Gewinn je Position.',
+      '📰 **Schlagzeilen** erklären große Bewegungen – vorhersagen können sie nichts.',
+      '💀 **Insolvenz:** Fällt ein Wert zu tief, werden die Halter ausgezahlt und der Wert startet neu.',
+      '⚖️ **Fair, nicht großzügig:** Kurse sind reiner Zufall ohne Drift, dazu 1 % Gebühr je Auftrag. Keine Strategie hat einen Vorteil.',
+    ],
+  },
+  {
     version: '1.4.0',
     date: '2026-08-31',
     title: 'Werkstatt: kaputte Autos wieder aufbauen',

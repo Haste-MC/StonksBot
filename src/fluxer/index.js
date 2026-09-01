@@ -45,6 +45,11 @@ client.on(Events.Ready, () => {
   // das Discord-Geldzeichen heißt – sonst bliebe es bis zur ersten
   // Geldausgabe unübersetzt stehen.
   require('../currency').getSymbol(identity.world()).catch(() => {});
+
+  // Börsenticker: Kurse bewegen sich auch, wenn niemand zusieht (der einzige
+  // Taktgeber im Bot – warum, steht in wallstreet.js).
+  require('../wallstreet').startTicker(identity.world());
+
   relay.register('fluxer', client);
   if (relay.enabled) {
     console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');

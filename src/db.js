@@ -293,6 +293,73 @@ db.exec(`
   );
 `);
 
+// Börse: Kurse, Depots und Schlagzeilen.
+//
+// Die Kurse gehören der WELT, nicht dem Spieler – alle sehen dieselben. Sie
+// werden faul fortgeschrieben (siehe wallstreet.js): Beim Öffnen der Börse
+// werden die seit dem letzten Mal vergangenen Stunden nachsimuliert.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_prices (
+    guild_id  TEXT    NOT NULL,
+    symbol    TEXT    NOT NULL,
+    price     INTEGER NOT NULL,
+    tick      INTEGER NOT NULL,        -- bis hierhin simuliert
+    listed_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, symbol)
+  );
+`);
+
+// Zustand des Gesamtmarktes: eine Welt, eine Uhr, eine Stimmung.
+// `vol` ist die aktuelle Nervosität (1 = normal) und wandert langsam – daher
+// gibt es ruhige Wochen und hektische Tage, statt immer gleich viel Zappeln.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_state (
+    guild_id TEXT    PRIMARY KEY,
+    vol      REAL    NOT NULL,
+    tick     INTEGER NOT NULL
+  );
+`);
+
+// Kursverlauf für die Anzeige (Sparkline, Tagesveränderung). Alte Ticks
+// werden gekappt – niemand braucht den Kurs von vorletzter Woche.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_history (
+    guild_id TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    tick     INTEGER NOT NULL,
+    price    INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, symbol, tick)
+  );
+`);
+
+// Depot: wie viele Stücke jemand hält und was er dafür bezahlt hat.
+// `invested` ist die Summe der Kaufpreise OHNE Gebühr – daraus wird der
+// Einstandskurs und damit Gewinn/Verlust berechnet.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_holdings (
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    shares   INTEGER NOT NULL,
+    invested INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, symbol)
+  );
+`);
+
+// Schlagzeilen. Sie entstehen NACH einer Bewegung und erklären sie nur –
+// eine Vorhersage wäre ein garantierter Gewinn (ARCHITEKTUR §3).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_news (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    tick     INTEGER NOT NULL,
+    headline TEXT    NOT NULL,
+    change   REAL    NOT NULL,
+    at       INTEGER NOT NULL
+  );
+`);
+
 // Webhooks der Kanal-Brücke: Damit eine gespiegelte Nachricht drüben mit
 // NAME UND AVATAR des Absenders erscheint, wird sie über einen Webhook
 // gesendet. Dessen Token gibt es nur EINMAL – beim Anlegen. Fluxer gibt ihn
@@ -869,6 +936,58 @@ const stmt = {
        mapping = excluded.mapping, updated_at = excluded.updated_at`),
   getFluxerView: db.prepare('SELECT * FROM fluxer_views WHERE message_id = ?'),
   purgeFluxerViews: db.prepare('DELETE FROM fluxer_views WHERE updated_at < ?'),
+
+  // --- Börse ---
+  getMarketState: db.prepare('SELECT * FROM market_state WHERE guild_id = ?'),
+  setMarketState: db.prepare(
+    `INSERT INTO market_state (guild_id, vol, tick) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id) DO UPDATE SET vol = excluded.vol, tick = excluded.tick`),
+  clearMarketState: db.prepare('DELETE FROM market_state WHERE guild_id = ?'),
+  getPrice: db.prepare('SELECT * FROM market_prices WHERE guild_id = ? AND symbol = ?'),
+  allPrices: db.prepare('SELECT * FROM market_prices WHERE guild_id = ?'),
+  setPrice: db.prepare(
+    `INSERT INTO market_prices (guild_id, symbol, price, tick, listed_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, symbol) DO UPDATE SET
+       price = excluded.price, tick = excluded.tick`),
+  relist: db.prepare(
+    `UPDATE market_prices SET price = ?, tick = ?, listed_at = ?
+     WHERE guild_id = ? AND symbol = ?`),
+  addHistory: db.prepare(
+    `INSERT INTO market_history (guild_id, symbol, tick, price) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, symbol, tick) DO UPDATE SET price = excluded.price`),
+  history: db.prepare(
+    `SELECT tick, price FROM market_history
+     WHERE guild_id = ? AND symbol = ? AND tick >= ? ORDER BY tick ASC`),
+  purgeHistory: db.prepare(
+    'DELETE FROM market_history WHERE guild_id = ? AND symbol = ? AND tick < ?'),
+  clearHistoryOf: db.prepare('DELETE FROM market_history WHERE guild_id = ? AND symbol = ?'),
+
+  getHolding: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND user_id = ? AND symbol = ?'),
+  holdingsOf: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND user_id = ? AND shares > 0'),
+  holdersOf: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND symbol = ? AND shares > 0'),
+  setHolding: db.prepare(
+    `INSERT INTO market_holdings (guild_id, user_id, symbol, shares, invested)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, symbol) DO UPDATE SET
+       shares = excluded.shares, invested = excluded.invested`),
+  dropHolding: db.prepare(
+    'DELETE FROM market_holdings WHERE guild_id = ? AND user_id = ? AND symbol = ?'),
+  pruneHoldings: db.prepare('DELETE FROM market_holdings WHERE shares <= 0'),
+
+  addNews: db.prepare(
+    `INSERT INTO market_news (guild_id, symbol, tick, headline, change, at)
+     VALUES (?, ?, ?, ?, ?, ?)`),
+  listNews: db.prepare(
+    'SELECT * FROM market_news WHERE guild_id = ? ORDER BY tick DESC, id DESC LIMIT ?'),
+  purgeNews: db.prepare('DELETE FROM market_news WHERE guild_id = ? AND tick < ?'),
+  clearMarket: db.prepare('DELETE FROM market_prices WHERE guild_id = ?'),
+  clearMarketHoldings: db.prepare('DELETE FROM market_holdings WHERE guild_id = ?'),
+  clearMarketNews: db.prepare('DELETE FROM market_news WHERE guild_id = ?'),
+  clearMarketHistory: db.prepare('DELETE FROM market_history WHERE guild_id = ?'),
 
   // --- Brücken-Webhooks ---
   setRelayWebhook: db.prepare(
@@ -1847,6 +1966,99 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// -------------------------------------------------------------- Börse
+
+/** Uhr und Stimmung des Marktes (oder null beim allerersten Mal). */
+function getMarketState(guildId) {
+  return stmt.getMarketState.get(guildId) ?? null;
+}
+
+function setMarketState(guildId, vol, tick) {
+  stmt.setMarketState.run(guildId, vol, tick);
+}
+
+/** Kurszeile eines Wertes (oder null, wenn er noch nie notiert wurde). */
+function getPrice(guildId, symbol) {
+  return stmt.getPrice.get(guildId, symbol) ?? null;
+}
+
+/** Alle notierten Werte dieser Welt. */
+function allPrices(guildId) {
+  return stmt.allPrices.all(guildId);
+}
+
+/** Schreibt Kurs und Stand der Simulation fort. */
+function setPrice(guildId, symbol, price, tick, listedAt = Date.now()) {
+  stmt.setPrice.run(guildId, symbol, Math.max(1, Math.round(price)), tick, listedAt);
+}
+
+/** Neuemission nach einer Insolvenz: Kurs und Startzeitpunkt zurücksetzen. */
+function relistAsset(guildId, symbol, price, tick, when = Date.now()) {
+  stmt.relist.run(Math.max(1, Math.round(price)), tick, when, guildId, symbol);
+  stmt.clearHistoryOf.run(guildId, symbol);
+}
+
+function addHistory(guildId, symbol, tick, price) {
+  stmt.addHistory.run(guildId, symbol, tick, Math.max(1, Math.round(price)));
+}
+
+/** Kursverlauf ab einem Tick (aufsteigend). */
+function history(guildId, symbol, sinceTick = 0) {
+  return stmt.history.all(guildId, symbol, sinceTick);
+}
+
+function purgeHistory(guildId, symbol, beforeTick) {
+  stmt.purgeHistory.run(guildId, symbol, beforeTick);
+}
+
+/** Depotposition eines Spielers. */
+function getHolding(guildId, userId, symbol) {
+  return stmt.getHolding.get(guildId, userId, symbol) ?? null;
+}
+
+/** Alle Positionen eines Spielers. */
+function holdingsOf(guildId, userId) {
+  return stmt.holdingsOf.all(guildId, userId);
+}
+
+/** Alle Halter eines Wertes – gebraucht bei der Insolvenz-Auszahlung. */
+function holdersOf(guildId, symbol) {
+  return stmt.holdersOf.all(guildId, symbol);
+}
+
+/** Schreibt eine Position (0 Stücke = Position löschen). */
+function setHolding(guildId, userId, symbol, shares, invested) {
+  if (shares <= 0) {
+    stmt.dropHolding.run(guildId, userId, symbol);
+    return;
+  }
+  stmt.setHolding.run(guildId, userId, symbol, Math.round(shares), Math.round(invested));
+}
+
+function addNews(guildId, symbol, tick, headline, change, when = Date.now()) {
+  stmt.addNews.run(guildId, symbol, tick, headline, change, when);
+}
+
+function listNews(guildId, limit = 5) {
+  return stmt.listNews.all(guildId, limit);
+}
+
+function purgeNews(guildId, beforeTick) {
+  stmt.purgeNews.run(guildId, beforeTick);
+}
+
+/** Räumt die ganze Börse dieser Welt ab – für Tests und Resets. */
+function clearMarket(guildId) {
+  return transaction(() => {
+    stmt.clearMarket.run(guildId);
+    stmt.clearMarketHoldings.run(guildId);
+    stmt.clearMarketNews.run(guildId);
+    stmt.clearMarketHistory.run(guildId);
+    stmt.clearMarketState.run(guildId);
+    return true;
+  });
+}
+
 // ------------------------------------------------------ Brücken-Webhooks
 
 /** Merkt sich Webhook-ID und Token eines Brücken-Kanals. */
@@ -1967,6 +2179,10 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
+  getMarketState, setMarketState,
+  getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,
+  getHolding, holdingsOf, holdersOf, setHolding,
+  addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,

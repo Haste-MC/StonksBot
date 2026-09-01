@@ -1113,6 +1113,292 @@ async function buildRepairView({ guildId, userId, key, page = 1 }) {
   return { embeds: [embed], components: rows };
 }
 
+// -------------------------------------------------------------------- Börse
+
+/** Farbe zur Richtung – grün rauf, rot runter. */
+const marketColor = (change) => (change > 0.002 ? 0x2ecc71 : (change < -0.002 ? 0xe74c3c : 0x95a5a6));
+
+/**
+ * Das Kursboard: alle Werte einer Anlageklasse mit Verlauf und Tagesänderung.
+ *
+ * Aufgeteilt in Fonds / Aktien / Krypto, weil 25 Werte auf einer Seite
+ * niemand liest – und weil die Klassen sich wirklich unterschiedlich
+ * verhalten.
+ */
+async function buildMarketView({ guildId, userId, page = 1, kind = null }) {
+  const symbol = await getSymbol(guildId);
+  const market = require('./wallstreet');
+  const data = require('./data/wallstreet');
+
+  // Vor der Anzeige aufholen, falls der Ticker Takte verpasst hat.
+  await market.advance(guildId).catch(() => {});
+
+  const all = market.board(guildId);
+  const shown = kind ? all.filter((a) => a.kind === kind) : all;
+  const perPage = 8;
+  const totalPages = Math.max(1, Math.ceil(shown.length / perPage));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const items = shown.slice((p - 1) * perPage, p * perPage);
+
+  const index = all.find((a) => a.symbol === 'IDX');
+  const embed = new EmbedBuilder()
+    .setTitle(`📈 Börse${kind ? ` · ${data.KIND_LABEL[kind]}` : ''}`)
+    .setColor(marketColor(index?.dayChange ?? 0));
+
+  embed.setDescription(items.map((a) =>
+    `${a.emoji} **${a.name}** \`${a.symbol}\` · _${a.sector}_\n` +
+    `${money(symbol, a.price)} · ${market.arrow(a.dayChange)} ${market.percent(a.dayChange)} ` +
+    `\`${market.sparkline(a.history, 20)}\``).join('\n\n'));
+
+  if (index) {
+    embed.addFields({
+      name: '📊 Gesamtmarkt',
+      value: `${money(symbol, index.price)} · ${market.percent(index.dayChange)} (24 h)`,
+      inline: true,
+    });
+  }
+
+  const depot = market.portfolio(guildId, userId);
+  if (depot.positions.length) {
+    embed.addFields({
+      name: '💼 Dein Depot',
+      value: `${money(symbol, depot.value)} · ` +
+        `${depot.profit >= 0 ? '📈 +' : '📉 '}${depot.profit.toLocaleString('de-DE')}`,
+      inline: true,
+    });
+  }
+
+  const news = db.listNews(guildId, 3);
+  if (news.length) {
+    embed.addFields({
+      name: '📰 Schlagzeilen',
+      value: news.map((n) => `• ${n.headline}`).join('\n').slice(0, 1000),
+    });
+  }
+
+  embed.setFooter({
+    text: `${shown.length} Werte · Kurse ändern sich alle 30 min · ` +
+      `Gebühr ${(market.FEE * 100).toFixed(0)} % je Auftrag`,
+  });
+
+  const rows = [];
+  rows.push(new ActionRowBuilder().addComponents(...items.slice(0, 5).map((a) =>
+    new ButtonBuilder()
+      .setCustomId(`wdet2|${a.symbol}|${p}|${userId}`)
+      .setLabel(`${a.symbol} ${a.price.toLocaleString('de-DE')}`).setEmoji(a.emoji)
+      .setStyle(ButtonStyle.Secondary))));
+  if (items.length > 5) {
+    rows.push(new ActionRowBuilder().addComponents(...items.slice(5, 10).map((a) =>
+      new ButtonBuilder()
+        .setCustomId(`wdet2|${a.symbol}|${p}|${userId}`)
+        .setLabel(`${a.symbol} ${a.price.toLocaleString('de-DE')}`).setEmoji(a.emoji)
+        .setStyle(ButtonStyle.Secondary))));
+  }
+
+  // Filterzeile: Anlageklassen und das eigene Depot.
+  rows.push(actionsRow(
+    new ButtonBuilder().setCustomId(`wkind|all|${userId}`)
+      .setLabel('Alle').setEmoji('🗂️')
+      .setStyle(kind ? ButtonStyle.Secondary : ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`wkind|stock|${userId}`)
+      .setLabel('Aktien').setEmoji('🏭')
+      .setStyle(kind === 'stock' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wkind|fund|${userId}`)
+      .setLabel('Fonds').setEmoji('📊')
+      .setStyle(kind === 'fund' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wkind|crypto|${userId}`)
+      .setLabel('Krypto').setEmoji('🪙')
+      .setStyle(kind === 'crypto' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
+      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Success),
+  ));
+
+  rows.push(navigationRow(kind ? `boerse:${kind}` : 'boerse', p, totalPages, userId));
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Ein einzelner Wert mit allen Kauf- und Verkaufswegen.
+ *
+ * Bewusst viele Knöpfe: Stückzahlen für den schnellen Griff, Beträge für
+ * „ich will 50.000 investieren", Anteile für den Ausstieg. Der eigene Bestand
+ * steht mit Einstandskurs daneben, damit man nicht rechnen muss.
+ */
+async function buildAssetView({ guildId, userId, symbol: sym, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const { getBalance } = require('./unb');
+  const market = require('./wallstreet');
+  await market.advance(guildId).catch(() => {});
+
+  const a = market.quote(guildId, sym);
+  const back = new ButtonBuilder()
+    .setCustomId(ID.menu('boerse', page, userId))
+    .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary);
+
+  if (!a) {
+    return {
+      embeds: [new EmbedBuilder().setTitle('❌ Unbekannter Wert')
+        .setDescription('Diesen Wert gibt es an unserer Börse nicht.')
+        .setColor(0xe74c3c)],
+      components: [new ActionRowBuilder().addComponents(back, homeButton(userId))],
+    };
+  }
+
+  const balance = await getBalance(guildId, userId).catch(() => ({ total: 0, cash: 0 }));
+  const holding = db.getHolding(guildId, userId, a.symbol);
+  const affordable = market.sharesFor(a.price, balance.total);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${a.emoji} ${a.name}  \`${a.symbol}\``)
+    .setDescription(
+      `_${a.blurb}_\n\n` +
+      `\`${market.sparkline(a.history, 28)}\`\n` +
+      `**${money(symbol, a.price)}** · ${market.arrow(a.dayChange)} ${market.percent(a.dayChange)} (24 h)`)
+    .setColor(marketColor(a.dayChange))
+    .addFields(
+      { name: 'Art', value: `${a.kindLabel} · ${a.sector}`, inline: true },
+      { name: 'Dein Geld', value: money(symbol, balance.total), inline: true },
+      { name: 'Davon kaufbar', value: `${affordable.toLocaleString('de-DE')} Stück`, inline: true },
+    );
+
+  if (holding?.shares > 0) {
+    const value = holding.shares * a.price;
+    const profit = value - holding.invested;
+    embed.addFields({
+      name: '💼 Dein Bestand',
+      value: `${holding.shares.toLocaleString('de-DE')} Stück · Wert ${money(symbol, value)}\n` +
+        `Einstand ${money(symbol, Math.round(holding.invested / holding.shares))} je Stück · ` +
+        `${profit >= 0 ? '📈 +' : '📉 '}${profit.toLocaleString('de-DE')} ` +
+        `(${market.percent(holding.invested > 0 ? profit / holding.invested : 0)})`,
+    });
+  }
+
+  embed.setFooter({
+    text: `Gebühr ${(market.FEE * 100).toFixed(0)} % je Auftrag · ` +
+      'Kurse sind reiner Zufall – niemand kann sie vorhersagen',
+  });
+
+  const rows = [];
+
+  // Stückzahlen.
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[1, 5, 10, 50].map((n) =>
+      new ButtonBuilder()
+        .setCustomId(`wbuy|${a.symbol}|${n}|${page}|${userId}`)
+        .setLabel(`${n}×`).setEmoji('🛒')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(affordable < n)),
+    new ButtonBuilder()
+      .setCustomId(`wbuy|${a.symbol}|max|${page}|${userId}`)
+      .setLabel('Max').setEmoji('🧨')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(affordable < 1),
+  ));
+
+  // Beträge – „für 10.000 kaufen" ist oft die natürlichere Frage.
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[1000, 10000, 100000].map((amount) =>
+      new ButtonBuilder()
+        .setCustomId(`wbuyfor|${a.symbol}|${amount}|${page}|${userId}`)
+        .setLabel(`für ${amount.toLocaleString('de-DE')}`).setEmoji('💰')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(balance.total < amount || market.sharesFor(a.price, amount) < 1)),
+    new ButtonBuilder()
+      .setCustomId(`wmod|${a.symbol}|buy|${page}|${userId}`)
+      .setLabel('Eigene Menge').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+  ));
+
+  // Verkaufen – Anteile des Bestands.
+  const held = holding?.shares ?? 0;
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[25, 50, 100].map((pct) =>
+      new ButtonBuilder()
+        .setCustomId(`wsell|${a.symbol}|${pct}|${page}|${userId}`)
+        .setLabel(`${pct} % verkaufen`).setEmoji('📤')
+        .setStyle(pct === 100 ? ButtonStyle.Danger : ButtonStyle.Secondary)
+        .setDisabled(held < 1)),
+    new ButtonBuilder()
+      .setCustomId(`wmod|${a.symbol}|sell|${page}|${userId}`)
+      .setLabel('Stückzahl').setEmoji('✏️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(held < 1),
+  ));
+
+  rows.push(new ActionRowBuilder().addComponents(
+    back,
+    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
+      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Secondary),
+    homeButton(userId),
+  ));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Das eigene Depot: Positionen, Bewertung, Gewinn und Verlust. */
+async function buildDepotView({ guildId, userId }) {
+  const symbol = await getSymbol(guildId);
+  const { getBalance } = require('./unb');
+  const market = require('./wallstreet');
+  await market.advance(guildId).catch(() => {});
+
+  const depot = market.portfolio(guildId, userId);
+  const balance = await getBalance(guildId, userId).catch(() => ({ total: 0 }));
+
+  const embed = new EmbedBuilder().setTitle('💼 Dein Depot')
+    .setColor(marketColor(depot.invested > 0 ? depot.profit / depot.invested : 0));
+
+  if (!depot.positions.length) {
+    embed.setDescription(
+      'Du besitzt keine Wertpapiere.\n\n' +
+      '_An der 📈 Börse kannst du Aktien, Fonds-Anteile und Krypto kaufen. ' +
+      'Der Fonds ist der ruhigste Einstieg._');
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(ID.menu('boerse', 1, userId))
+          .setLabel('Zur Börse').setEmoji('📈').setStyle(ButtonStyle.Primary),
+        homeButton(userId))],
+    };
+  }
+
+  embed.setDescription(depot.positions.map((p) =>
+    `${p.emoji} **${p.name}** \`${p.symbol}\`\n` +
+    `${p.shares.toLocaleString('de-DE')} × ${money(symbol, p.price)} = ` +
+    `**${money(symbol, p.value)}**\n` +
+    `Einstand ${money(symbol, Math.round(p.average))} · ` +
+    `${p.profit >= 0 ? '📈 +' : '📉 '}${p.profit.toLocaleString('de-DE')} ` +
+    `(${market.percent(p.ratio)})`).join('\n\n'));
+
+  embed.addFields(
+    { name: 'Depotwert', value: money(symbol, depot.value), inline: true },
+    { name: 'Eingesetzt', value: money(symbol, depot.invested), inline: true },
+    {
+      name: 'Gewinn/Verlust',
+      value: `${depot.profit >= 0 ? '+' : ''}${depot.profit.toLocaleString('de-DE')} ` +
+        `(${market.percent(depot.invested > 0 ? depot.profit / depot.invested : 0)})`,
+      inline: true,
+    },
+    { name: 'Bargeld & Bank', value: money(symbol, balance.total), inline: true },
+    { name: 'Gesamtvermögen', value: money(symbol, balance.total + depot.value), inline: true },
+  );
+
+  const rows = [];
+  for (let i = 0; i < depot.positions.length && rows.length < 3; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(
+      ...depot.positions.slice(i, i + 5).map((p) =>
+        new ButtonBuilder()
+          .setCustomId(`wdet2|${p.symbol}|1|${userId}`)
+          .setLabel(`${p.symbol} ${p.profit >= 0 ? '+' : ''}${p.profit.toLocaleString('de-DE')}`)
+          .setEmoji(p.emoji)
+          .setStyle(p.profit >= 0 ? ButtonStyle.Success : ButtonStyle.Danger))));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(ID.menu('boerse', 1, userId))
+      .setLabel('Zur Börse').setEmoji('📈').setStyle(ButtonStyle.Primary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
 // ------------------------------------------------------------ Eigene Inserate
 
 async function buildListingsView({ guildId, userId }) {
@@ -1875,6 +2161,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
+  buildMarketView, buildAssetView, buildDepotView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

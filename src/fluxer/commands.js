@@ -230,6 +230,73 @@ const COMMANDS = [
     },
   },
   {
+    names: ['invest', 'investieren'],
+    info: 'Wertpapier kaufen: !invest <kürzel> <stück|für betrag>',
+    run: async ({ guildId, userId, args, prefix }) => {
+      const wallstreet = require('../wallstreet');
+      const symbol = String(args[0] ?? '').toUpperCase();
+      if (!symbol) {
+        return { text: `❓ Was denn? Beispiel: \`${prefix}invest HAST 10\` oder ` +
+          `\`${prefix}invest RUBI für 20000\` (Kürzel siehe \`${prefix}boerse\`).` };
+      }
+
+      await wallstreet.advance(guildId).catch(() => {});
+      const quote = wallstreet.quote(guildId, symbol);
+      if (!quote) return { text: `❌ **${symbol}** wird bei uns nicht gehandelt.` };
+
+      const rest = args.slice(1).join(' ').toLowerCase();
+      const digits = Math.floor(Number(rest.replace(/[^\d]/g, '')));
+      let shares = digits;
+
+      if (/^(für|fuer|for)\b/.test(rest)) {
+        shares = wallstreet.sharesFor(quote.price, digits);
+      } else if (['alles', 'all', 'max'].includes(rest.trim())) {
+        const balance = await require('../unb').getBalance(guildId, userId);
+        shares = wallstreet.sharesFor(quote.price, balance.total);
+      }
+
+      const currency = await getSymbol(guildId);
+      const res = await wallstreet.buy(guildId, userId, symbol, shares);
+      if (!res.ok) return { text: marketProblem(res, currency) };
+
+      return {
+        text: `🛒 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** ` +
+          `zu ${money(currency, res.price)} gekauft.\n` +
+          `Gesamt ${money(currency, res.total)} (davon ${money(currency, res.fee)} Gebühr) · ` +
+          `Kontostand: ${money(currency, res.newBalance.total)}`,
+      };
+    },
+  },
+  {
+    names: ['verkaufe', 'verkaufen', 'sell'],
+    info: 'Wertpapier verkaufen: !verkaufe <kürzel> [stück|alles]',
+    run: async ({ guildId, userId, args, prefix }) => {
+      const wallstreet = require('../wallstreet');
+      const symbol = String(args[0] ?? '').toUpperCase();
+      if (!symbol) {
+        return { text: `❓ Was denn? Beispiel: \`${prefix}verkaufe HAST alles\`.` };
+      }
+
+      await wallstreet.advance(guildId).catch(() => {});
+      const rest = (args[1] ?? 'alles').toLowerCase();
+      const shares = ['alles', 'all', 'max'].includes(rest)
+        ? null : Math.floor(Number(rest.replace(/[^\d]/g, '')));
+
+      const currency = await getSymbol(guildId);
+      const res = await wallstreet.sell(guildId, userId, symbol, shares);
+      if (!res.ok) return { text: marketProblem(res, currency) };
+
+      return {
+        text: `📤 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** ` +
+          `zu ${money(currency, res.price)} verkauft.\n` +
+          `Erlös ${money(currency, res.net)} (nach ${money(currency, res.fee)} Gebühr) · ` +
+          `${res.profit >= 0 ? '📈 Gewinn' : '📉 Verlust'} ` +
+          `${res.profit >= 0 ? '+' : ''}${res.profit.toLocaleString('de-DE')} · ` +
+          `Kontostand: ${money(currency, res.newBalance.total)}`,
+      };
+    },
+  },
+  {
     names: ['kaufen', 'buy'],
     info: 'Auto kaufen: !kaufen <id>',
     run: async ({ guildId, userId, args, prefix }) => {
@@ -265,6 +332,8 @@ const ENTRY_COMMANDS = {
   used: ['gebraucht', 'gebrauchtwagen'],
   garage: ['garage'],
   werkstatt: ['werkstatt', 'reparieren', 'repair'],
+  boerse: ['boerse', 'börse', 'aktien', 'markt2'],
+  depot: ['depot', 'portfolio'],
   listings: ['inserate'],
   property: ['markt', 'immobilienmarkt'],
   estate: ['besitz', 'meinbesitz'],
@@ -333,6 +402,21 @@ function robProblem(res, symbol, prefix) {
     case 'no_cash':
       return '👛 Ohne eigenes Bargeld kein Überfall – du könntest die Strafe nicht zahlen.';
     default: return '❌ Der Überfall ging schief.';
+  }
+}
+
+function marketProblem(res, symbol) {
+  switch (res.reason) {
+    case 'unknown_symbol': return '❌ Diesen Wert gibt es an unserer Börse nicht.';
+    case 'bad_amount': return '❓ Wie viele Stück denn? Sag eine Zahl über null.';
+    case 'too_many': return `📦 Höchstens ${res.max.toLocaleString('de-DE')} Stück auf einmal.`;
+    case 'nothing_held': return 'ℹ️ Davon besitzt du nichts.';
+    case 'not_enough_shares':
+      return `📉 So viele hast du nicht – nur ${res.have.toLocaleString('de-DE')} Stück.`;
+    case 'insufficient_funds':
+      return `💸 Zu wenig Geld: Der Auftrag kostet ${money(symbol, res.needed)}, ` +
+        `du hast ${money(symbol, res.have)}.`;
+    default: return '❌ Der Auftrag ist nicht durchgegangen.';
   }
 }
 

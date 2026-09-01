@@ -10,7 +10,7 @@ const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
-  buildTopView, buildRepairView, money,
+  buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -20,6 +20,7 @@ const street = require('./street');
 const condition = require('./condition');
 const identity = require('./identity');
 const workshop = require('./workshop');
+const wallstreet = require('./wallstreet');
 const npc = require('./npc');
 const buyers = require('./buyers');
 const bills = require('./bills');
@@ -894,6 +895,13 @@ async function unbCash(interaction) {
   catch { return null; }
 }
 
+/** Vollständiges Guthaben (Bargeld + Bank) – die Börse darf beides nutzen. */
+async function unbBalance(interaction) {
+  const unb = require('./unb');
+  try { return await unb.getBalance(gid(interaction), uid(interaction)); }
+  catch { return null; }
+}
+
 function insufficientBanner(res, symbol) {
   return `💸 Zu wenig Bargeld — du hast ${money(symbol, res.have)}, brauchst aber ${money(symbol, res.needed)}.`;
 }
@@ -1100,6 +1108,79 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
+  // ------------------------------------------------------------- Börse
+
+  /** Kursboard nach Anlageklasse filtern. */
+  async wkind(interaction, [kind]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildMarketView({
+      guildId: gid(interaction), userId: uid(interaction),
+      kind: kind === 'all' ? null : kind, page: 1,
+    }));
+  },
+
+  /** Einen Wert öffnen (Kurs, Bestand, alle Kaufwege). */
+  async wdet2(interaction, [symbol, page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildAssetView({
+      guildId: gid(interaction), userId: uid(interaction),
+      symbol, page: Number(page) || 1,
+    }));
+  },
+
+  /** Depot öffnen. */
+  async wdepot(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildDepotView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Kaufen: feste Stückzahl oder "max". */
+  async wbuy(interaction, [symbol, amount, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+
+    let shares = Number(amount);
+    if (amount === 'max') {
+      const quote = wallstreet.quote(guildId, symbol);
+      const balance = await unbBalance(interaction);
+      shares = quote ? wallstreet.sharesFor(quote.price, balance?.total ?? 0) : 0;
+    }
+    await tradeBuy(interaction, symbol, shares, page);
+  },
+
+  /** Kaufen für einen Betrag – die natürlichere Frage als "wie viele Stück". */
+  async wbuyfor(interaction, [symbol, amount, page]) {
+    await interaction.deferUpdate();
+    const quote = wallstreet.quote(gid(interaction), symbol);
+    const shares = quote ? wallstreet.sharesFor(quote.price, Number(amount)) : 0;
+    await tradeBuy(interaction, symbol, shares, page);
+  },
+
+  /** Verkaufen: Anteil des Bestands in Prozent. */
+  async wsell(interaction, [symbol, pct, page]) {
+    await interaction.deferUpdate();
+    const holding = db.getHolding(gid(interaction), uid(interaction), symbol);
+    const held = holding?.shares ?? 0;
+    const shares = Number(pct) >= 100 ? held : Math.floor(held * (Number(pct) / 100));
+    await tradeSell(interaction, symbol, shares, page);
+  },
+
+  /** Eigene Stückzahl eingeben (Modal). */
+  async wmod(interaction, [symbol, side, page]) {
+    const modal = new ModalBuilder()
+      .setCustomId(`wtrade|${symbol}|${side}|${page}|${uid(interaction)}`)
+      .setTitle(side === 'buy' ? 'Kaufen' : 'Verkaufen');
+    const input = new TextInputBuilder()
+      .setCustomId('amount')
+      .setLabel(side === 'buy' ? 'Stückzahl (oder "für 5000")' : 'Stückzahl (oder "alles")')
+      .setStyle(TextInputStyle.Short).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal);
+  },
+
   /** Werkstatt: Kostenvoranschlag für ein Auto öffnen. */
   async wdet(interaction, [itemId, page]) {
     await interaction.update(await buildRepairView({
@@ -1137,6 +1218,74 @@ Object.assign(buttons, {
   },
 });
 
+/** Kauf ausführen, Panel neu aufbauen, Ergebnis privat melden. */
+async function tradeBuy(interaction, symbol, shares, page) {
+  const guildId = gid(interaction);
+  const userId = uid(interaction);
+  const currency = await getSymbol(guildId);
+
+  const res = await wallstreet.buy(guildId, userId, symbol, shares);
+  await interaction.editReply(await buildAssetView({
+    guildId, userId, symbol, page: Number(page) || 1,
+  }));
+
+  const note = res.ok
+    ? `🛒 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** zu ` +
+      `${money(currency, res.price)} gekauft.\n` +
+      `Kosten ${money(currency, res.gross)} + ${money(currency, res.fee)} Gebühr = ` +
+      `**${money(currency, res.total)}**` +
+      (res.movedFromBank > 0 ? `\n_${money(currency, res.movedFromBank)} von der Bank geholt._` : '') +
+      `\nBargeld: ${money(currency, res.newBalance.cash)}`
+    : marketFailure(res, currency);
+
+  await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+/** Verkauf ausführen. */
+async function tradeSell(interaction, symbol, shares, page) {
+  const guildId = gid(interaction);
+  const userId = uid(interaction);
+  const currency = await getSymbol(guildId);
+
+  const res = await wallstreet.sell(guildId, userId, symbol, shares);
+  await interaction.editReply(await buildAssetView({
+    guildId, userId, symbol, page: Number(page) || 1,
+  }));
+
+  const note = res.ok
+    ? `📤 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** zu ` +
+      `${money(currency, res.price)} verkauft.\n` +
+      `Erlös ${money(currency, res.gross)} − ${money(currency, res.fee)} Gebühr = ` +
+      `**${money(currency, res.net)}**\n` +
+      `${res.profit >= 0 ? '📈 Gewinn' : '📉 Verlust'}: ` +
+      `${res.profit >= 0 ? '+' : ''}${res.profit.toLocaleString('de-DE')} ` +
+      `· Bargeld: ${money(currency, res.newBalance.cash)}`
+    : marketFailure(res, currency);
+
+  await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+/** Fehlermeldungen der Börse. */
+function marketFailure(result, currency) {
+  switch (result.reason) {
+    case 'unknown_symbol':
+      return '❌ Diesen Wert gibt es an unserer Börse nicht.';
+    case 'bad_amount':
+      return '❓ Wie viele Stück denn? Sag eine Zahl über null.';
+    case 'too_many':
+      return `📦 So viele auf einmal gehen nicht (höchstens ${result.max.toLocaleString('de-DE')}).`;
+    case 'nothing_held':
+      return 'ℹ️ Davon besitzt du nichts.';
+    case 'not_enough_shares':
+      return `📉 So viele hast du nicht – nur ${result.have.toLocaleString('de-DE')} Stück.`;
+    case 'insufficient_funds':
+      return `💸 Zu wenig Geld: Der Auftrag kostet ${money(currency, result.needed)}, ` +
+        `du hast ${money(currency, result.have)}.`;
+    default:
+      return '❌ Der Auftrag ist nicht durchgegangen.';
+  }
+}
+
 /** Fehlermeldungen der Werkstatt. */
 function workshopFailure(result, symbol) {
   switch (result.reason) {
@@ -1173,6 +1322,37 @@ const modals = {
     await interaction.editReply(await buildProfileView({
       guildId: gid(interaction), userId: uid(interaction),
     }));
+  },
+
+  /**
+   * Eigene Börsen-Menge wurde eingegeben.
+   * Akzeptiert Stückzahlen, "alles" und "für 5000" – Tippen soll nicht
+   * schwerer sein als Klicken.
+   */
+  async wtrade(interaction, [symbol, side, page]) {
+    await interaction.deferUpdate();
+    const raw = (interaction.fields.getTextInputValue('amount') || '').trim().toLowerCase();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+
+    if (side === 'sell') {
+      const held = db.getHolding(guildId, userId, symbol)?.shares ?? 0;
+      const shares = ['alles', 'all', 'max'].includes(raw)
+        ? held : Math.floor(Number(raw.replace(/[^\d]/g, '')));
+      return tradeSell(interaction, symbol, shares, page);
+    }
+
+    const quote = wallstreet.quote(guildId, symbol);
+    const digits = Math.floor(Number(raw.replace(/[^\d]/g, '')));
+    let shares = digits;
+
+    if (/^(für|fuer|for)\b/.test(raw)) {
+      shares = quote ? wallstreet.sharesFor(quote.price, digits) : 0;
+    } else if (['alles', 'all', 'max'].includes(raw)) {
+      const balance = await unbBalance(interaction);
+      shares = quote ? wallstreet.sharesFor(quote.price, balance?.total ?? 0) : 0;
+    }
+    return tradeBuy(interaction, symbol, shares, page);
   },
 
   /** Eigenes Auktionsgebot wurde eingegeben. */

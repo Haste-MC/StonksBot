@@ -38,6 +38,11 @@ module.exports = {
             'Die Werkstatt bringt es wieder auf Vordermann: Aufbereitung, Instandsetzung oder volle Restaurierung.',
         },
         {
+          name: '📈 Börse',
+          value: '`/boerse` – Aktien, Fonds-Anteile und Krypto. Die Kurse ändern sich alle 30 Minuten, ' +
+            'ganz von selbst. `/depot` zeigt, wie es um dich steht.',
+        },
+        {
           name: '🏬 Storage Wars',
           value: '`/auktion` – verschlossene **Garagen ersteigern** und Wertobjekte finden. ' +
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
