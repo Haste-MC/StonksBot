@@ -862,10 +862,19 @@ async function buildJobCenterView({ guildId, userId }) {
   if (current) {
     embed.addFields({
       name: 'Deine Anstellung',
-      value: `${current.job.emoji} **${current.job.title}** · ` +
-        `${money(symbol, current.job.pay)} pro Schicht\n` +
-        `${current.employment.shifts} Schichten insgesamt · ` +
-        `${money(symbol, current.employment.earned)} verdient`,
+      value: (() => {
+        const ranks = require('./ranks');
+        const emp = current.employment;
+        const r = ranks.rank(emp.rank ?? 0);
+        const since = emp.shifts - (emp.rank_at ?? 0);
+        const p = ranks.chance(r.rank, since);
+        return `${current.job.emoji} **${current.job.title}** · ` +
+          `${money(symbol, current.job.pay)} pro Schicht\n` +
+          `${r.emoji} **${r.title}** · Lohn ×${r.pay.toFixed(2)}\n` +
+          `${emp.shifts} Schichten insgesamt · ${money(symbol, emp.earned)} verdient\n` +
+          `🎲 Beförderungschance je Schicht: **${Math.round(p * 100)} %** ` +
+          `_(steigt mit jeder Schicht ohne Aufstieg)_`;
+      })(),
     });
     embed.addFields({
       name: 'Heute gearbeitet',
@@ -1108,7 +1117,90 @@ async function buildRepairView({ guildId, userId, key, page = 1 }) {
         .setEmoji(q.tier.emoji)
         .setStyle(q.tier.id === 'resto' ? ButtonStyle.Success : ButtonStyle.Primary))));
   }
+
+  // Wer Werkzeug hat, zahlt nur Material – dafür kann es misslingen.
+  const tools = workshop.toolsOf(guildId, userId);
+  if (tools.base && offers.length) {
+    const wait = workshop.selfRemainingMs(guildId, userId);
+    const selfOffers = offers.map((q) => workshop.selfQuote(guildId, userId, car.price, c, q.tier.id));
+
+    embed.addFields({
+      name: '🔧 Selbst schrauben',
+      value: `Mit deinem Werkzeug zahlst du nur Material – ` +
+        `**${Math.round((1 - tools.markup / 1.09) * 100)} %** günstiger als die Werkstatt.
+` +
+        selfOffers.map((q) =>
+          `${q.tier.emoji} ${q.tier.label}: ${money(symbol, q.cost)} _(spart ${money(symbol, q.saved)})_`)
+          .join('\n') +
+        `\n⚠️ **${Math.round(tools.botch * 100)} %** Pfuschrisiko` +
+        (tools.extras.length ? ` · ${tools.extras.map((t) => t.note).join(', ')}` : '') +
+        (wait > 0 ? `\n⏳ Wieder in ${require('./income').formatRemaining(wait)}` : ''),
+    });
+
+    rows.push(new ActionRowBuilder().addComponents(...selfOffers.map((q) =>
+      new ButtonBuilder()
+        .setCustomId(`wself|${car.id}|${q.tier.id}|${page}|${userId}`)
+        .setLabel(`Selbst · ${q.cost.toLocaleString('de-DE')}`).setEmoji('🔧')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(wait > 0))));
+  }
+
   rows.push(backRow());
+
+  return { embeds: [embed], components: rows };
+}
+
+// ------------------------------------------------------------------- Angeln
+
+/**
+ * Der Angelplatz. Eine Tätigkeit, die allein an der Ausrüstung hängt – kein
+ * Job, keine Bewerbung, kein Chef.
+ */
+async function buildFishingView({ guildId, userId }) {
+  const symbol = await getSymbol(guildId);
+  const fishing = require('./fishing');
+  const gear = require('./data/gear');
+
+  const has = fishing.hasGear(guildId, userId);
+  const left = fishing.remainingMs(guildId, userId);
+
+  const embed = new EmbedBuilder().setTitle('🎣 Angelplatz').setColor(0x3498db);
+  const rows = [];
+
+  if (!has) {
+    const item = gear.findGear(fishing.GEAR);
+    embed.setDescription(
+      `Ohne **${fishing.GEAR}** wird das nichts.\n\n` +
+      `_${item?.description ?? ''}_\n` +
+      `Sie kostet ${money(symbol, item?.price ?? 0)} in der 🧰 **Ausrüstung**.`)
+      .setColor(0x95a5a6);
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(ID.menu('gear', 1, userId))
+        .setLabel('Zur Ausrüstung').setEmoji('🧰').setStyle(ButtonStyle.Primary),
+      homeButton(userId)));
+    return { embeds: [embed], components: rows };
+  }
+
+  embed.setDescription(
+    'Rute raus, Köder dran, warten.\n\n' +
+    '_Was anbeißt, entscheidet der Fluss. Vom alten Stiefel bis zum Wels ist ' +
+    'alles dabei – verkauft wird direkt am Steg._');
+
+  embed.addFields(
+    {
+      name: '⏳ Nächster Zug',
+      value: left > 0 ? `in **${require('./income').formatRemaining(left)}**` : '**jetzt**',
+      inline: true,
+    },
+    { name: '🎣 Ausrüstung', value: 'vorhanden', inline: true },
+  );
+  embed.setFooter({ text: 'Alle 20 Minuten ein Zug · die Rute kann brechen' });
+
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`fish|${userId}`)
+      .setLabel(left > 0 ? 'Noch nicht' : 'Auswerfen').setEmoji('🎣')
+      .setStyle(ButtonStyle.Success).setDisabled(left > 0),
+    homeButton(userId)));
 
   return { embeds: [embed], components: rows };
 }
@@ -1612,7 +1704,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const garage = db.garageValue(guildId, owner);
   const realty = db.propertyValue(guildId, owner);
   const liquid = bal ? bal.total : 0;
-  const networth = liquid + garage + realty;
+  const depotValue = require('./wallstreet').portfolio(guildId, owner).value;
+  const networth = liquid + garage + realty + depotValue;
 
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);
@@ -1658,7 +1751,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     {
       name: '💼 Beruf',
       value: job
-        ? `${job.emoji} **${job.title}**\n${emp.shifts} ${emp.shifts === 1 ? 'Schicht' : 'Schichten'}`
+        ? `${job.emoji} **${job.title}**\n${require('./ranks').label(emp.rank ?? 0)}\n` +
+          `${emp.shifts} ${emp.shifts === 1 ? 'Schicht' : 'Schichten'}`
         : '💤 Arbeitslos',
       inline: true,
     },
@@ -1674,6 +1768,28 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
       value: `${collection.n} ${collection.n === 1 ? 'Fundstück' : 'Fundstücke'} · ` +
         `Schätzwert ${money(symbol, collection.value)}` +
         (best ? `\nTop: ${bestR.emoji} ${best.name} _(${bestR.label})_` : ''),
+      inline: true,
+    });
+  }
+
+  // Wofür man levelt: aktive Vorteile und der nächste Meilenstein. Ohne diese
+  // Anzeige wäre das Levelsystem eine Zahl ohne Wirkung.
+  const perks = require('./perks');
+  const next = perks.nextMilestone(prog.level);
+  embed.addFields({
+    name: '✨ Level-Vorteile',
+    value: perks.summary(prog.level).join('\n') +
+      (next ? `\n\n_Als Nächstes: ${next.text}_` : '\n\n_Alles freigeschaltet._'),
+  });
+
+  // Depot, falls jemand an der Börse unterwegs ist.
+  const depot = require('./wallstreet').portfolio(guildId, owner);
+  if (depot.positions.length) {
+    embed.addFields({
+      name: '📈 Depot',
+      value: `${depot.positions.length} ${depot.positions.length === 1 ? 'Position' : 'Positionen'} · ` +
+        `${money(symbol, depot.value)}\n${depot.profit >= 0 ? '📈 +' : '📉 '}` +
+        `${depot.profit.toLocaleString('de-DE')}`,
       inline: true,
     });
   }
@@ -2161,7 +2277,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
-  buildMarketView, buildAssetView, buildDepotView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

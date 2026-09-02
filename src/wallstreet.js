@@ -325,7 +325,7 @@ async function bankrupt(guildId, asset, price, tick, now = Date.now()) {
 
   for (const holding of db.holdersOf(guildId, asset.symbol)) {
     const gross = holding.shares * price;
-    const amount = Math.max(0, gross - feeFor(gross));
+    const amount = Math.max(0, gross - feeForUser(guildId, holding.user_id, gross));
     db.setHolding(guildId, holding.user_id, asset.symbol, 0, 0);
 
     if (amount > 0) {
@@ -356,9 +356,25 @@ async function bankrupt(guildId, asset, price, tick, now = Date.now()) {
 
 // ------------------------------------------------------------- Abfragen
 
-/** Gebühr zu einem Auftragswert. */
-function feeFor(amount) {
-  return Math.max(MIN_FEE, Math.round(Math.abs(amount) * FEE));
+/**
+ * Gebühr zu einem Auftragswert.
+ *
+ * `factor` ist der Level-Rabatt (siehe perks.js). Er darf die Gebühr senken,
+ * aber nie auf null: Sie ist der Grund, warum die Börse unterm Strich eine
+ * Geldsenke ist – ohne sie wäre Handeln ein Nullsummenspiel mit unbegrenzt
+ * vielen Versuchen.
+ */
+function feeFor(amount, factor = 1) {
+  // Achtung: `Number(x) || 1` wäre hier falsch – 0 ist falsy und würde zum
+  // vollen Satz statt zum Deckel führen.
+  const raw = Number.isFinite(Number(factor)) ? Number(factor) : 1;
+  const cut = Math.min(1, Math.max(0.25, raw));
+  return Math.max(MIN_FEE, Math.round(Math.abs(amount) * FEE * cut));
+}
+
+/** Die Gebühr, die dieser Spieler zahlt (mit seinem Level-Rabatt). */
+function feeForUser(guildId, userId, amount) {
+  return feeFor(amount, require('./perks').perksOf(guildId, userId).fee);
 }
 
 /** Ein Wert mit Kurs, Verlauf und Veränderung. */
@@ -438,7 +454,7 @@ async function buy(guildId, userId, symbol, sharesWanted, now = Date.now(), allo
   if (shares > MAX_SHARES) return { ok: false, reason: 'too_many', max: MAX_SHARES };
 
   const gross = shares * q.price;
-  const fee = feeFor(gross);
+  const fee = feeForUser(guildId, userId, gross);
   const total = gross + fee;
 
   const balance = await getBalance(guildId, userId);
@@ -492,7 +508,7 @@ async function sell(guildId, userId, symbol, sharesWanted = null, now = Date.now
   }
 
   const gross = shares * q.price;
-  const fee = feeFor(gross);
+  const fee = feeForUser(guildId, userId, gross);
   const net = Math.max(0, gross - fee);
 
   // Anteiliger Einstand der verkauften Stücke – der Rest bleibt im Depot.
@@ -612,7 +628,7 @@ module.exports = {
   NEWS_THRESHOLD, MAX_SHARES, MARKET_SIGMA, CRYPTO_SIGMA, VOL_RANGE,
   gauss, step, nextVol, tickOf, basketOf, fundPrice, basketMean, list, advance,
   simulate, makeHeadline, bankrupt,
-  feeFor, quote, board, portfolio, sharesFor, buy, sell,
+  feeFor, feeForUser, quote, board, portfolio, sharesFor, buy, sell,
   startTicker, stopTicker, tickerRunning,
   sparkline, percent, arrow,
 };

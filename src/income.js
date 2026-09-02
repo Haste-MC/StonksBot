@@ -44,20 +44,25 @@ function remainingMs(guildId, userId, kind = 'daily', now = Date.now(), cooldown
  * schneller Aufruf findet dann schon den Cooldown vor und geht leer aus –
  * so kann der Bonus nicht doppelt kassiert werden (ARCHITEKTUR §7).
  *
- * @returns {Promise<{ok:boolean, amount?:number, balance?:object, flavor?:string,
+ * @returns {Promise<{ok:boolean, amount?:number, base?:number, bonus?:number,
+ *   balance?:object, flavor?:string,
  *   remainingMs?:number}>} `flavor` ist die Spruchvorlage mit `{betrag}`.
  */
 async function daily(guildId, userId, now = Date.now(), random = Math.random) {
   const left = remainingMs(guildId, userId, 'daily', now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
 
-  const amount = DAILY.base + Math.floor(random() * (DAILY.bonus + 1));
+  // Level zahlt sich aus: Der Aufschlag kommt aus perks.js (dort steht auch,
+  // warum ausgerechnet Einkommen erhöht werden darf und Gebühren nicht).
+  const perk = require('./perks').perksOf(guildId, userId);
+  const base = DAILY.base + Math.floor(random() * (DAILY.bonus + 1));
+  const amount = Math.round(base * perk.income);
   const flavor = lines.pick(random);
   db.setClaim(guildId, userId, 'daily', now);
 
   try {
     const balance = await changeCash(guildId, userId, amount, 'Täglicher Bonus');
-    return { ok: true, amount, balance, flavor };
+    return { ok: true, amount, base, bonus: amount - base, level: perk.level, balance, flavor };
   } catch (err) {
     // Buchung fehlgeschlagen -> Anspruch zurückgeben, sonst wäre der Tag verloren.
     db.clearClaim(guildId, userId, 'daily');

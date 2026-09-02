@@ -55,6 +55,9 @@ const COMMANDS = [
       }
       return {
         text: `${income.lines.format(res.flavor, money(symbol, res.amount))}\n` +
+          (res.bonus > 0
+            ? `🏆 Davon **+${money(symbol, res.bonus)}** Level-Zuschlag (Level ${res.level}).\n`
+            : '') +
           `💰 Kontostand: ${money(symbol, res.balance.total)}`,
       };
     },
@@ -69,7 +72,14 @@ const COMMANDS = [
       const l = level.progress(db.getStats(guildId, userId).xp);
       return {
         text: `${res.job.emoji} **${res.job.title}** – Schicht erledigt!\n` +
-          `Verdienst: **${money(symbol, res.amount)}** · Kontostand: ${money(symbol, res.balance.total)}\n` +
+          (res.promotion
+            ? `🎉 **Befördert!** Du bist jetzt ${res.promotion.to.emoji} ` +
+              `**${res.promotion.to.title}** ` +
+              `(+${Math.round((res.promotion.to.pay - 1) * 100)} % je Schicht).\n`
+            : '') +
+          `Verdienst: **${money(symbol, res.amount)}**` +
+          (res.levelBonus > 0 ? ` _(inkl. ${money(symbol, res.levelBonus)} Level-Zuschlag)_` : '') +
+          ` · Kontostand: ${money(symbol, res.balance.total)}\n` +
           `🏆 Level ${l.level}` +
           (res.broken ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.name}**` : ''),
       };
@@ -332,6 +342,7 @@ const ENTRY_COMMANDS = {
   used: ['gebraucht', 'gebrauchtwagen'],
   garage: ['garage'],
   werkstatt: ['werkstatt', 'reparieren', 'repair'],
+  angeln: ['angeln', 'fischen', 'fish'],
   boerse: ['boerse', 'börse', 'aktien', 'markt2'],
   depot: ['depot', 'portfolio'],
   listings: ['inserate'],

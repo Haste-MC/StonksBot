@@ -25,6 +25,7 @@
 // auf Fluxer keine Entsprechung und umgekehrt – ohne Übersetzung landet in der
 // Brücke Rohtext wie `:Rubine:`. Kein SDK-Import, nur Textumformung.
 const emoji = require('./fluxer/emoji');
+const mentions = require('./fluxer/mentions');
 const db = require('./db');
 const identity = require('./identity');
 
@@ -301,35 +302,9 @@ function avatarOf(message) {
   }
 }
 
-/**
- * Vergleichsform eines Anzeigenamens: ohne Akzente, ohne Zierrat, klein.
- * „Kevin!" und „kévin" sind damit dieselbe Person.
- */
-function nameKey(name) {
-  return String(name ?? '')
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, '');
-}
-
-/**
- * Sucht das Discord-Konto zu einem Anzeigenamen.
- * Nur ein **eindeutiger** Treffer zählt (siehe MATCH_NAMES).
- *
- * @returns {string|null} Konto-ID
- */
-function accountByName(name) {
-  const key = nameKey(name);
-  if (!key) return null;
-
-  const hits = new Set();
-  for (const row of db.allAccountNames()) {
-    if (!identity.isDiscordAccount(row.account_id)) continue;   // fx:… scheidet aus
-    if (nameKey(row.name) === key) hits.add(row.account_id);
-  }
-  return hits.size === 1 ? [...hits][0] : null;
-}
+// Der Namensabgleich liegt in identity.js – Brücke und Erwähnungen brauchen ihn.
+const nameKey = (name) => identity.nameKey(name);
+const accountByName = (name) => identity.accountByName(name);
 
 /**
  * Das Discord-Gesicht eines Kontos – oder null, wenn es keins gibt bzw. der
@@ -597,6 +572,15 @@ function destination(message, platform) {
   return null;
 }
 
+/**
+ * Text für die Gegenseite aufbereiten: Emojis UND Erwähnungen.
+ *
+ * Beides sind IDs, die nur zu Hause gelten – ungefiltert steht drüben
+ * `:Rubine:` bzw. „@unbekannter-Benutzer".
+ */
+const forFluxer = (text, message) => mentions.toFluxer(emoji.toFluxer(text), message);
+const forDiscord = (text, message) => mentions.toDiscord(emoji.toDiscord(text), message);
+
 /** Von einem fremden Webhook – und sollen die übersprungen werden? */
 function ignored(message) {
   if (!IGNORE_WEBHOOKS) return false;
@@ -638,12 +622,15 @@ async function fromDiscord(message) {
   const target = destination(message, 'discord');
   if (!target || !body(message)) return false;
   const asPersona = await sendAsPersona(
-    'fluxer', target, message, emoji.toFluxer(body(message) ?? ''), 'discord');
+    'fluxer', target, message, forFluxer(body(message) ?? '', message), 'discord');
   if (asPersona) return true;
 
   const text = format(message, { platform: 'discord' });
   if (!text) return false;
-  await clients.fluxer.channels.send(target, { content: emoji.toFluxer(text) });
+  await clients.fluxer.channels.send(target, {
+    content: forFluxer(text, message),
+    allowedMentions: { parse: [] },
+  });
   return true;
 }
 
@@ -655,14 +642,14 @@ async function fromFluxer(message) {
   const target = destination(message, 'fluxer');
   if (!target || !body(message)) return false;
   const asPersona = await sendAsPersona(
-    'discord', target, message, emoji.toDiscord(body(message) ?? ''), 'fluxer');
+    'discord', target, message, forDiscord(body(message) ?? '', message), 'fluxer');
   if (asPersona) return true;
 
   const text = format(message, { platform: 'fluxer' });
   if (!text) return false;
   const channel = await clients.discord.channels.fetch(target);
   // Keine Erwähnungen auslösen: gespiegelter Text soll niemanden anpingen.
-  await channel.send({ content: emoji.toDiscord(text), allowedMentions: { parse: [] } });
+  await channel.send({ content: forDiscord(text, message), allowedMentions: { parse: [] } });
   return true;
 }
 
@@ -673,6 +660,7 @@ module.exports = {
   fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
   body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
+  forFluxer, forDiscord,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, ownWebhookIds, hooks,
 };

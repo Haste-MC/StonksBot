@@ -216,6 +216,48 @@ const msg = (over = {}) => ({
  * Eigenes Modul-Exemplar, weil `RELAY_WEBHOOKS` beim Laden gelesen wird.
  */
 async function personaTests() {
+  console.log('--- Erwähnungen über die Plattformgrenze ---');
+  // Der Fehler aus der Praxis: Eine Fluxer-Erwähnung landete roh auf Discord,
+  // das daraus "@unbekannter-Benutzer" machte.
+  const db2 = require('../src/db');
+  const konten = require('../src/accounts');
+  const mentions = require('../src/fluxer/mentions');
+  const DC = '498875863496916995';
+  const FX = '1543693306263769088';
+  const fxMessage = { mentions: [{ id: FX, username: 'Diabilon' }] };
+
+  db2.deleteLink('fluxer', FX);
+  db2.setAccountName(DC, 'Kevin');
+  check('ohne Verknüpfung: lesbarer Name statt kaputter Erwähnung',
+    mentions.toDiscord(`<@${FX}> civ?`, fxMessage) === '@Diabilon civ?',
+    mentions.toDiscord(`<@${FX}> civ?`, fxMessage));
+  check('keine rohe ID mehr im Text',
+    !mentions.toDiscord(`<@${FX}> civ?`, fxMessage).includes(FX));
+
+  await konten.link('fluxer', FX, DC);
+  check('verknüpft: echte Discord-Erwähnung',
+    mentions.toDiscord(`<@${FX}> civ?`, fxMessage) === `<@${DC}> civ?`,
+    mentions.toDiscord(`<@${FX}> civ?`, fxMessage));
+  check('Gegenrichtung: echte Fluxer-Erwähnung',
+    mentions.toFluxer(`Hey <@${DC}>`, {}) === `Hey <@${FX}>`,
+    mentions.toFluxer(`Hey <@${DC}>`, {}));
+  konten.unlink('fluxer', FX);
+
+  db2.setAccountName(DC, 'Diabilon');
+  check('ohne Verknüpfung erkennt der Namensabgleich die Person',
+    mentions.toDiscord(`<@${FX}>`, fxMessage) === `<@${DC}>`,
+    mentions.toDiscord(`<@${FX}>`, fxMessage));
+  db2.setAccountName(DC, 'Kevin');
+
+  check('unbekannte Erwähnung wird nicht zur Zahl',
+    mentions.toDiscord('<@777000111> hallo', {}) === '@jemand hallo',
+    mentions.toDiscord('<@777000111> hallo', {}));
+  check('Rollen und Kanäle bleiben lesbar',
+    mentions.toFluxer('<@&123> in <#456>', {}) === '@Rolle in #kanal',
+    mentions.toFluxer('<@&123> in <#456>', {}));
+  check('Text ohne Erwähnung bleibt unverändert',
+    mentions.toDiscord('nur Text', {}) === 'nur Text');
+
   console.log('--- Als Persona spiegeln (Webhooks) ---');
 
   const db = require('../src/db');

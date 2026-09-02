@@ -38,6 +38,11 @@ module.exports = {
             'Die Werkstatt bringt es wieder auf Vordermann: Aufbereitung, Instandsetzung oder volle Restaurierung.',
         },
         {
+          name: '🧰 Ausrüstung, die etwas kann',
+          value: '`/angeln` mit der Angelausrüstung · mit dem Werkzeugkasten reparierst du in der ' +
+            '🛠️ Werkstatt selbst und zahlst nur Material.',
+        },
+        {
           name: '📈 Börse',
           value: '`/boerse` – Aktien, Fonds-Anteile und Krypto. Die Kurse ändern sich alle 30 Minuten, ' +
             'ganz von selbst. `/depot` zeigt, wie es um dich steht.',

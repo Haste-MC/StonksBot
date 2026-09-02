@@ -63,9 +63,9 @@ const CASH_RANGE = [200, 3000];
  * ergibt, damit diese Prozente exakt stimmen.
  */
 const RARITY_TAIL = [
-  { id: 'uncommon',     label: 'Uncommon',     emoji: '🟢', weight: 25,            mult: 2 },
-  { id: 'rare',         label: 'Rare',         emoji: '🔵', weight: 9,             mult: 4 },
-  { id: 'epic',         label: 'Epic',         emoji: '🟣', weight: 3.5,           mult: 8 },
+  { id: 'uncommon',     label: 'Uncommon',     emoji: '🟢', weight: 28,            mult: 2 },
+  { id: 'rare',         label: 'Rare',         emoji: '🔵', weight: 15,             mult: 4 },
+  { id: 'epic',         label: 'Epic',         emoji: '🟣', weight: 5,           mult: 8 },
   { id: 'legendary',    label: 'Legendary',    emoji: '🟡', weight: 1,             mult: 20 },
   { id: 'mythic',       label: 'Mythic',       emoji: '🔴', weight: 0.5,           mult: 60 },
   // ---- ab hier respektlos selten ----

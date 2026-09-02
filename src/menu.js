@@ -78,6 +78,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildJobCenterView(ctx),
   },
   {
+    id: 'angeln',
+    group: 'work',
+    label: 'Angeln',
+    emoji: '🎣',
+    description: 'Mit der Angelausrüstung Geld verdienen',
+    style: 'secondary',
+    build: (ctx) => ui.buildFishingView(ctx),
+  },
+  {
     id: 'gear',
     group: 'work',
     label: 'Ausrüstung',

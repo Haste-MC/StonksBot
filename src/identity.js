@@ -126,6 +126,45 @@ function display(accountId) {
 }
 
 /**
+ * Vergleichsform eines Anzeigenamens: ohne Akzente, ohne Zierrat, klein.
+ * „Kevin!" und „kévin" sind damit dieselbe Person.
+ */
+function nameKey(name) {
+  return String(name ?? '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/**
+ * Sucht das Discord-Konto zu einem Anzeigenamen – für alle Stellen, die
+ * jemanden ohne `!link` wiedererkennen wollen (Brücke, Erwähnungen).
+ *
+ * Nur ein **eindeutiger** Treffer zählt: Zwei „Kevin" auf Discord ergeben
+ * keinen. Es geht ausschließlich um Darstellung; Konto, Geld und Fortschritt
+ * hängen weiterhin allein an `!link`.
+ */
+function accountByName(name) {
+  const key = nameKey(name);
+  if (!key) return null;
+
+  const hits = new Set();
+  for (const row of db.allAccountNames()) {
+    if (!isDiscordAccount(row.account_id)) continue;
+    if (nameKey(row.name) === key) hits.add(row.account_id);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
+/** Die Plattform-ID eines Kontos auf der anderen Seite (oder null). */
+function platformIdOf(accountId, platform) {
+  if (platform === 'discord') return isDiscordAccount(accountId) ? String(accountId) : null;
+  const link = db.linksOf(accountId).find((l) => l.platform === platform);
+  return link ? String(link.user_id) : null;
+}
+
+/**
  * Verweis auf einen Spieler in einer Ansicht: echte Erwähnung, wo sie
  * funktioniert, sonst der Name. Eine rohe ID sieht nie jemand.
  */
@@ -138,5 +177,6 @@ function mention(accountId) {
 module.exports = {
   WORLD_ID, FLUXER_PREFIX,
   world, account, isDiscordAccount, isLinked, remember, nameOf, display, mention,
+  nameKey, accountByName, platformIdOf,
   checkWorld,
 };

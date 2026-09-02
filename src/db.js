@@ -495,6 +495,11 @@ const employmentColumns = new Set(
 for (const [column, definition] of [
   ['work_day', "TEXT NOT NULL DEFAULT ''"],        // z.B. "2026-07-20"
   ['shifts_today', 'INTEGER NOT NULL DEFAULT 0'],
+  // Beförderungen werden gewürfelt, nicht erreicht – der Rang muss also
+  // gespeichert werden. `rank_at` merkt sich die Schichtzahl beim letzten
+  // Aufstieg; daraus ergibt sich die wachsende Chance (siehe ranks.js).
+  ['rank', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rank_at', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   if (!employmentColumns.has(column)) {
     db.exec(`ALTER TABLE employment ADD COLUMN ${column} ${definition}`);
@@ -757,8 +762,10 @@ const stmt = {
      VALUES (?, ?, ?, ?, 0)
      ON CONFLICT (guild_id, user_id)
      DO UPDATE SET job_id = excluded.job_id, hired_at = excluded.hired_at,
-                   last_work_at = 0, shifts = 0, earned = 0`),
+                   last_work_at = 0, shifts = 0, earned = 0, rank = 0, rank_at = 0`),
   clearEmployment: db.prepare('DELETE FROM employment WHERE guild_id = ? AND user_id = ?'),
+  promote: db.prepare(
+    `UPDATE employment SET rank = ?, rank_at = ? WHERE guild_id = ? AND user_id = ?`),
   recordShift: db.prepare(
     `UPDATE employment
      SET last_work_at = ?, shifts = shifts + 1, earned = earned + ?,
@@ -1423,6 +1430,12 @@ function getEmployment(guildId, userId) {
 function setEmployment(guildId, userId, jobId) {
   stmt.setEmployment.run(guildId, userId, jobId, Date.now());
   return getEmployment(guildId, userId);
+}
+
+/** Setzt Rang und die Schichtzahl, bei der er erreicht wurde. */
+function promote(guildId, userId, rank, atShifts) {
+  stmt.promote.run(Math.max(0, Math.round(rank)), Math.max(0, Math.round(atShifts)),
+    guildId, userId);
 }
 
 function clearEmployment(guildId, userId) {
@@ -2195,7 +2208,7 @@ module.exports = {
   addGarage, listGarages, getGarage, removeGarage, countGarages,
   listListings, allListingsOfKind, getListing, createListing, cancelListing,
   takeListing, restoreListing,
-  getEmployment, setEmployment, clearEmployment, recordShift, shiftsToday, consumeNamed,
+  getEmployment, setEmployment, clearEmployment, promote, recordShift, shiftsToday, consumeNamed,
   ownedGarageSlots, carsOwned, listOwnedProperties, ownedOfKind,
   getRental, startRental, endRental, extendRental, countRentersOf,
   createOffer, deleteOffer, getOffer, listOffers, listOffersOf, offerTaken, tenantsOf,

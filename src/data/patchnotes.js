@@ -18,6 +18,30 @@
  */
 module.exports = [
   {
+    version: '1.7.0',
+    date: '2026-09-02',
+    title: 'Karriere, Angeln und Selberschrauben',
+    lines: [
+      '🔗 **Brücke: Erwähnungen funktionieren.** Ein @Name aus Fluxer kam auf Discord als „unbekannter Benutzer" an – jetzt wird er übersetzt (echte Erwähnung bei verknüpften Konten, sonst der Name).',
+      '🎉 **Beförderungen:** Nach jeder Schicht wird gewürfelt – je länger du ohne Aufstieg dabei bist, desto wahrscheinlicher. Nach oben offen: hinter Teilhaber:in geht es mit Sternen weiter. Ein Jobwechsel setzt den Rang zurück.',
+      '🎣 **Angeln:** Mit der Angelausrüstung alle 20 Minuten auswerfen. 18 mögliche Fänge, vom alten Stiefel bis zum 60-Kilo-Wels. `/angeln`',
+      '🔧 **Selbst schrauben:** Mit einem Werkzeugkasten reparierst du in der Werkstatt selbst und zahlst nur Material. Hebebühne und Diagnosegerät machen es günstiger und sicherer – aber Pfusch bleibt möglich.',
+      '💼 **Rang sichtbar:** Profil und Schichtmeldung zeigen deinen Rang und wie viele Schichten bis zur nächsten Beförderung fehlen.',
+    ],
+  },
+  {
+    version: '1.6.0',
+    date: '2026-09-02',
+    title: 'Levels bringen jetzt etwas',
+    lines: [
+      '💰 **Mehr Geld pro Level:** +2 % Einkommen je Level auf `!daily`, jede Schicht – und als Zuschlag auf UnbelievaBoats `!work`. Bis +60 %.',
+      '📉 **Günstiger handeln:** Die Börsengebühr sinkt um 2 % je Level (bis zur Hälfte).',
+      '🅿️ **Mehr Platz:** Ein zusätzlicher Stellplatz ab Level 10, 20 und 35.',
+      '🛡️ **Sicherer parken:** Das Diebstahlrisiko draußen sinkt mit dem Level (bis −40 %).',
+      '👤 **Im Profil sichtbar:** `/profil` zeigt deine aktiven Vorteile und den nächsten Meilenstein.',
+    ],
+  },
+  {
     version: '1.5.0',
     date: '2026-09-01',
     title: 'Wallstreet',

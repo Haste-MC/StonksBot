@@ -117,7 +117,13 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const freq = (id) => (counts[id] || 0) / N;
   console.log(`    common ${(freq('common') * 100).toFixed(1)}% · legendary ${(freq('legendary') * 100).toFixed(3)}% ` +
     `· mythic ${(freq('mythic') * 100).toFixed(3)}% · godlike ${(freq('godlike') * 100).toFixed(4)}%`);
-  check('common ist mit Abstand am häufigsten', freq('common') > 0.55);
+  // Absichtlich als Aussage über die REIHENFOLGE, nicht als feste Prozentzahl:
+  // Wie großzügig die Stufen sind, ist eine Balance-Entscheidung und darf sich
+  // ändern – dass "common" die häufigste Stufe bleibt, nicht.
+  check(`common ist die häufigste Stufe (${(freq('common') * 100).toFixed(1)} %)`,
+    data.RARITIES.every((r) => r.id === 'common' || freq(r.id) < freq('common')) &&
+    freq('common') > 0.4,
+    String(freq('common')));
   check('legendary ≈ 1 % (±0,3)', Math.abs(freq('legendary') - 0.01) < 0.003, String(freq('legendary')));
   check('mythic ≈ 0,5 % (±0,2)', Math.abs(freq('mythic') - 0.005) < 0.002, String(freq('mythic')));
   const order = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'godlike'];

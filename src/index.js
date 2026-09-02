@@ -11,7 +11,8 @@ const relay = require('./relay');
 // Nachrichten mitlesen braucht das privilegierte Message-Content-Intent.
 // Nur anfordern, wenn eines der Features es wirklich benötigt – ohne
 // Freischaltung im Developer Portal würde der Bot sonst gar nicht starten.
-const needsMessages = nudges.enabled || relay.enabled;
+const perks = require('./perks');
+const needsMessages = nudges.enabled || relay.enabled || perks.enabled;
 const intents = [GatewayIntentBits.Guilds];
 if (needsMessages) {
   intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
@@ -59,9 +60,29 @@ client.once('clientReady', (c) => {
 if (needsMessages) {
   client.on('messageCreate', (message) => {
     if (nudges.enabled) nudges.handleMessage(message).catch(() => {});
+    if (perks.enabled) workBonus(message).catch(() => {});
     relay.fromDiscord(message).catch((err) =>
       console.error('Brücke Discord→Fluxer:', err.message));
   });
+}
+
+/**
+ * Level-Zuschlag auf UnbelievaBoats Auszahlungen: mitlesen, aufschlagen,
+ * kurz Bescheid geben. Warum das so umständlich sein muss, steht in perks.js.
+ */
+async function workBonus(message) {
+  const unb = require('./unb');
+  const result = await perks.handleMessage(message, (accountId, amount, reason) =>
+    unb.changeCash(identity.world(), accountId, amount, reason));
+  if (!result) return;
+
+  const { money } = require('./ui');
+  const symbol = await require('./currency').getSymbol(identity.world());
+  await message.channel.send({
+    content: `🏆 <@${result.userId}> Level ${result.level}: ` +
+      `**+${money(symbol, result.amount)}** Zuschlag auf deine Auszahlung.`,
+    allowedMentions: { users: [result.userId] },
+  }).catch(() => {});
 }
 
 client.on('interactionCreate', async (rawInteraction) => {

@@ -194,6 +194,156 @@ async function repair(guildId, userId, itemId, tierId, allowBank = true) {
   }
 }
 
+// ===========================================================================
+//  SELBER SCHRAUBEN
+// ===========================================================================
+//
+// Wer Werkzeug besitzt, soll es benutzen können, statt es nur als
+// Job-Voraussetzung im Schrank zu haben. Mit dem **Werkzeugkasten** repariert
+// man selbst und zahlt nur noch Material – die Werkstattmarge entfällt.
+//
+// ===================== DIE REGEL BLEIBT =====================
+// Auch selbst geschraubt kostet eine Reparatur **mehr, als sie an Wert
+// zurückbringt**. Sonst wäre der Weg offen: Wrack billig kaufen, selbst
+// herrichten, zum Zeitwert verkaufen, Gewinn (ARCHITEKTUR §3). Der Aufschlag
+// ist nur kleiner als in der Werkstatt, nie kleiner als 1.
+// ============================================================
+//
+// Zusätzliches Werkzeug macht die Sache besser: Die Hebebühne senkt den
+// Materialaufschlag weiter, das Diagnosegerät verhindert Pfusch.
+
+/** Ohne das geht gar nichts. */
+const BASE_TOOL = 'Werkzeugkasten';
+
+/** Werkzeug, das die Sache verbessert: Name -> Wirkung. */
+const EXTRA_TOOLS = [
+  { name: 'Hebebühne', markup: -0.02, botch: -0.10, note: 'Hebebühne spart Material' },
+  { name: 'Diagnosegerät', markup: -0.005, botch: -0.15, note: 'Diagnosegerät findet den Fehler sofort' },
+  { name: 'Schweißgerät', markup: -0.01, botch: -0.05, note: 'Schweißgerät für die Karosserie' },
+];
+
+/** Materialaufschlag ohne Zusatzwerkzeug – knapp, aber über 1. */
+const SELF_MARKUP = 1.03;
+
+/** So weit darf der Aufschlag höchstens sinken. NIE auf oder unter 1. */
+const SELF_MARKUP_FLOOR = 1.005;
+
+/** Grundchance, dass etwas schiefgeht. */
+const BOTCH_CHANCE = 0.25;
+
+/** Bei Pfusch erreichst du nur diesen Anteil des Zielzustands. */
+const BOTCH_KEEP = [0.4, 0.75];
+
+/** Pause zwischen zwei Eigenreparaturen – Schrauben dauert. */
+const COOLDOWN_MS = 45 * 60 * 1000;
+
+/** Chance, dabei den Werkzeugkasten zu ruinieren. */
+const TOOL_BREAK_CHANCE = 0.02;
+
+/** Welches Werkzeug jemand hat und was es bringt. */
+function toolsOf(guildId, userId) {
+  const db2 = require('./db');
+  const base = Boolean(db2.ownsNamed(guildId, userId, BASE_TOOL));
+  const extras = EXTRA_TOOLS.filter((t) => db2.ownsNamed(guildId, userId, t.name));
+
+  const markup = Math.max(
+    SELF_MARKUP_FLOOR,
+    SELF_MARKUP + extras.reduce((s, t) => s + t.markup, 0));
+  const botch = Math.max(0.02, BOTCH_CHANCE + extras.reduce((s, t) => s + t.botch, 0));
+
+  return { base, extras, markup, botch };
+}
+
+/** Kostenvoranschlag fürs Selberschrauben (Material statt Werkstattpreis). */
+function selfQuote(guildId, userId, price, current, tierId) {
+  const est = quote(price, current, tierId);
+  if (!est) return null;
+
+  const tools = toolsOf(guildId, userId);
+  const cost = Math.min(price, Math.ceil(est.gain * tools.markup) + fee(price));
+
+  return { ...est, cost, tools, saved: Math.max(0, est.cost - cost) };
+}
+
+/** Wie lange noch bis zur nächsten Eigenreparatur? */
+function selfRemainingMs(guildId, userId, now = Date.now()) {
+  const claim = require('./db').getClaim(guildId, userId, 'wrench');
+  if (!claim) return 0;
+  return Math.max(0, claim.claimed_at + COOLDOWN_MS - now);
+}
+
+/**
+ * Selbst reparieren.
+ *
+ * Dieselbe Reihenfolge wie in der Werkstatt (§7/§9): Zustand synchron setzen,
+ * dann buchen, bei Fehlschlag zurückrollen. Zusätzlich kann es misslingen –
+ * dann steigt der Zustand nur teilweise, das Material ist aber bezahlt.
+ */
+async function selfRepair(guildId, userId, itemId, tierId, now = Date.now(), random = Math.random) {
+  const tier = findTier(tierId);
+  if (!tier) return { ok: false, reason: 'bad_tier' };
+
+  const tools = toolsOf(guildId, userId);
+  if (!tools.base) return { ok: false, reason: 'no_tools', needs: BASE_TOOL };
+
+  const left = selfRemainingMs(guildId, userId, now);
+  if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
+
+  const car = db.getOwned(guildId, userId, itemId);
+  if (!car) return { ok: false, reason: 'not_owned' };
+  if (car.kind !== 'car') return { ok: false, reason: 'not_a_car', item: car };
+
+  const q = selfQuote(guildId, userId, car.price, car.condition, tierId);
+  if (!q.possible) return { ok: false, reason: 'already_good', item: car, quote: q };
+
+  // Pfusch: Der Zustand steigt nur teilweise – nie mehr als bezahlt.
+  const botched = random() < tools.botch;
+  const reached = botched
+    ? condition.clamp(q.from + (q.to - q.from) *
+        (BOTCH_KEEP[0] + random() * (BOTCH_KEEP[1] - BOTCH_KEEP[0])))
+    : q.to;
+
+  db.setClaim(guildId, userId, 'wrench', now);
+  db.setCondition(guildId, userId, itemId, reached);
+
+  let movedFromBank = 0;
+  try {
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < q.cost) {
+      db.setCondition(guildId, userId, itemId, q.from);
+      db.clearClaim(guildId, userId, 'wrench');
+      return {
+        ok: false, reason: 'insufficient_funds', item: car, quote: q,
+        needed: q.cost, have: balance.total,
+      };
+    }
+
+    if (balance.cash < q.cost) {
+      movedFromBank = q.cost - balance.cash;
+      await withdrawFromBank(guildId, userId, movedFromBank, `Material: ${car.name}`);
+    }
+    const newBalance = await changeCash(
+      guildId, userId, -q.cost, `Selbst repariert: ${car.name} (${q.from} % → ${reached} %)`);
+
+    const brokeTool = random() < TOOL_BREAK_CHANCE
+      ? db.consumeNamed(guildId, userId, BASE_TOOL) : false;
+
+    return {
+      ok: true, item: car, quote: q, cost: q.cost, reached, botched, tools,
+      saved: q.saved, movedFromBank, newBalance, brokeTool,
+    };
+  } catch (err) {
+    db.setCondition(guildId, userId, itemId, q.from);
+    db.clearClaim(guildId, userId, 'wrench');
+    if (movedFromBank > 0) {
+      await withdrawFromBank(guildId, userId, -movedFromBank, 'Reparatur abgebrochen').catch(() => {});
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   TIERS, FEE_RATIO, MIN_FEE, fee, findTier, quote, quotes, repair,
+  BASE_TOOL, EXTRA_TOOLS, SELF_MARKUP, SELF_MARKUP_FLOOR, BOTCH_CHANCE, COOLDOWN_MS,
+  TOOL_BREAK_CHANCE, toolsOf, selfQuote, selfRemainingMs, selfRepair,
 };

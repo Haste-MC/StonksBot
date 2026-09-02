@@ -10,7 +10,8 @@ const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
-  buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView, money,
+  buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
+  buildFishingView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -210,7 +211,10 @@ async function shiftResult(interaction, result) {
 
   const embed = new EmbedBuilder()
     .setTitle(`${result.job.emoji} Schicht beendet`)
-    .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.`)
+    .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.` +
+      (result.levelBonus > 0
+        ? `\n🏆 Darin stecken **${money(symbol, result.levelBonus)}** Level-Zuschlag (Level ${result.level}).`
+        : ''))
     .addFields(
       { name: 'Bargeld', value: money(symbol, result.balance.cash), inline: true },
       {
@@ -231,6 +235,21 @@ async function shiftResult(interaction, result) {
         '\n_Ohne Ersatz kannst du diesen Job nicht weiter ausüben._',
     });
     embed.setColor(0xe74c3c);
+  }
+
+  if (result.promotion) {
+    embed.addFields({
+      name: '🎉 Befördert!',
+      value: `Der Chef hat dich bemerkt: Du bist jetzt ` +
+        `**${result.promotion.to.emoji} ${result.promotion.to.title}** ` +
+        `— **+${Math.round((result.promotion.to.pay - 1) * 100)} %** auf jede Schicht.`,
+    });
+    embed.setColor(0xf1c40f);
+  } else if (result.rank) {
+    embed.setFooter({
+      text: `${result.rank.emoji} ${result.rank.title} · ` +
+        `Beförderungschance nächste Schicht: ${Math.round((result.nextChance ?? 0) * 100)} %`,
+    });
   }
 
   if (result.shiftsToday >= result.maxShifts) {
@@ -1181,6 +1200,58 @@ Object.assign(buttons, {
     await interaction.showModal(modal);
   },
 
+  /** Angeln: einmal auswerfen. */
+  async fish(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const fishing = require('./fishing');
+    const symbol = await getSymbol(guildId);
+
+    const res = await fishing.fish(guildId, userId);
+    await interaction.editReply(await buildFishingView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      note = res.reason === 'cooldown'
+        ? `⏳ Die Fische brauchen Ruhe – nächster Zug in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`
+        : `🎣 Dafür brauchst du eine **${res.gear}** (🧰 Ausrüstung, ` +
+          `${money(symbol, res.price ?? 0)}).`;
+    } else {
+      note = fishing.describe(res, money(symbol, res.amount)) +
+        (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Selbst schrauben statt in die Werkstatt. */
+  async wself(interaction, [itemId, tierId, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await workshop.selfRepair(guildId, userId, Number(itemId), tierId);
+    await interaction.editReply(await buildRepairView({
+      guildId, userId, key: Number(itemId), page: Number(page) || 1,
+    }));
+
+    const note = res.ok
+      ? (res.botched
+        ? `🔧 **${res.item.name}**: Es hat nicht ganz geklappt – ` +
+          `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.reached)}.\n` +
+          `_Material ist trotzdem weg: ${money(symbol, res.cost)}._`
+        : `🔧 **${res.item.name}** selbst hergerichtet — ` +
+          `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.reached)}.\n` +
+          `Material: ${money(symbol, res.cost)} _(${money(symbol, res.saved)} gespart)_`) +
+        (res.brokeTool ? '\n💥 Dein **Werkzeugkasten** hat es nicht überlebt.' : '') +
+        `\nBargeld: ${money(symbol, res.newBalance.cash)}`
+      : selfRepairFailure(res, symbol);
+
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
   /** Werkstatt: Kostenvoranschlag für ein Auto öffnen. */
   async wdet(interaction, [itemId, page]) {
     await interaction.update(await buildRepairView({
@@ -1283,6 +1354,19 @@ function marketFailure(result, currency) {
         `du hast ${money(currency, result.have)}.`;
     default:
       return '❌ Der Auftrag ist nicht durchgegangen.';
+  }
+}
+
+/** Fehlermeldungen fürs Selberschrauben. */
+function selfRepairFailure(result, symbol) {
+  switch (result.reason) {
+    case 'no_tools':
+      return `🧰 Dafür brauchst du einen **${result.needs}** (🧰 Ausrüstung).`;
+    case 'cooldown':
+      return '🔧 Du hast gerade erst geschraubt – Pause bis ' +
+        `**${require('./income').formatRemaining(result.remainingMs)}**.`;
+    default:
+      return workshopFailure(result, symbol);
   }
 }
 
