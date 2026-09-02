@@ -137,6 +137,38 @@ check('ohne Ausrüstung keine Schicht',
   noGear.ok === false && noGear.reason === 'requirements', JSON.stringify(noGear));
 check('nennt das fehlende Teil', noGear.missing?.includes(itemName));
 
+console.log('--- Beförderung durch echte Schichten ---');
+// Der Wurf hängt an den Schichten SEIT dem letzten Aufstieg, wird nach jeder
+// Schicht gemacht und der neue Rang gespeichert.
+const ranks = require('../src/ranks');
+const P = 'PROMOUSER';
+const promoJob = require('../src/data/jobs')[0];
+db.setEmployment(G, P, promoJob.id);
+check('startet als Aushilfe', (db.getEmployment(G, P).rank ?? 0) === 0);
+
+let promoted = null;
+for (let i = 0; i < 300 && !promoted; i++) {
+  db.recordShift(G, P, 100, `tag-${i}`);
+  const fresh = db.getEmployment(G, P);
+  const roll = ranks.roll(fresh.rank ?? 0, fresh.shifts - (fresh.rank_at ?? 0));
+  if (roll) {
+    db.promote(G, P, roll.to.rank, fresh.shifts);
+    promoted = roll;
+  }
+}
+check('irgendwann wird befördert', promoted !== null);
+check('der Rang ist gespeichert', db.getEmployment(G, P).rank === promoted?.to.rank,
+  String(db.getEmployment(G, P).rank));
+check('der Zähler beginnt von vorn',
+  db.getEmployment(G, P).rank_at === db.getEmployment(G, P).shifts);
+check('direkt danach ist die Chance wieder null',
+  ranks.chance(db.getEmployment(G, P).rank,
+    db.getEmployment(G, P).shifts - db.getEmployment(G, P).rank_at) === 0);
+
+db.setEmployment(G, P, require('../src/data/jobs')[1].id);
+check('ein Jobwechsel setzt den Rang zurück', db.getEmployment(G, P).rank === 0);
+db.clearEmployment(G, P);
+
 cleanup();
 console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
 process.exit(fail === 0 ? 0 : 1);

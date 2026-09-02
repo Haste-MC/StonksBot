@@ -33,9 +33,30 @@ module.exports = {
           value: '✨ **Neuwagen** · 🔧 **Gebrauchtwagen** · 🏘️ **Immobilien** (kaufen & mieten) · 🧰 **Ausrüstung**',
         },
         {
+          name: '🛠️ Werkstatt',
+          value: '`/werkstatt` – was auf der Straße stand, kommt zerkratzt zurück. ' +
+            'Die Werkstatt bringt es wieder auf Vordermann: Aufbereitung, Instandsetzung oder volle Restaurierung.',
+        },
+        {
+          name: '🧰 Ausrüstung, die etwas kann',
+          value: '`/angeln` mit der Angelausrüstung · mit dem Werkzeugkasten reparierst du in der ' +
+            '🛠️ Werkstatt selbst und zahlst nur Material.',
+        },
+        {
+          name: '📈 Börse',
+          value: '`/boerse` – Aktien, Fonds-Anteile und Krypto. Die Kurse ändern sich alle 30 Minuten, ' +
+            'ganz von selbst. `/depot` zeigt, wie es um dich steht.',
+        },
+        {
           name: '🏬 Storage Wars',
           value: '`/auktion` – verschlossene **Garagen ersteigern** und Wertobjekte finden. ' +
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
+        },
+        {
+          name: '🏛️ Staatskasse',
+          value: '`/staat` – der gemeinsame Topf des Servers. Er wächst bei jeder Geldbewegung mit, ' +
+            '**ohne dass du etwas abgibst**: 19 % deiner Ausgaben und 40 % deiner Einnahmen werden ' +
+            'zusätzlich obendrauf gelegt.',
         },
         {
           name: '👤 Angeben & vergleichen',

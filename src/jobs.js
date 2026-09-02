@@ -204,7 +204,13 @@ async function work(guildId, userId, now = new Date()) {
   if (!check.ok) return { ok: false, reason: 'requirements', job, missing: check.missing };
 
   const variance = 0.85 + Math.random() * 0.3;
-  const amount = Math.max(1, Math.round(job.pay * variance));
+  // Zwei Aufschläge, beide gedeckelt: das Konto-Level (perks.js) und der
+  // Rang in DIESEM Job (ranks.js – wer bleibt, verdient mehr).
+  const perk = require('./perks').perksOf(guildId, userId);
+  const ranks = require('./ranks');
+  const rank = ranks.rank(employment.rank ?? 0);
+  const base = Math.max(1, Math.round(job.pay * variance));
+  const amount = Math.max(1, Math.round(base * perk.income * rank.pay));
 
   const balance = await changeCash(guildId, userId, amount, `Schicht: ${job.title}`);
   db.recordShift(guildId, userId, amount, day);
@@ -213,9 +219,20 @@ async function work(guildId, userId, now = new Date()) {
   // niemand Ausrüstung für Arbeit, die gar nicht bezahlt wurde.
   const broken = applyWear(guildId, userId, job);
 
+  // Nach der Schicht wird gewürfelt: Je länger jemand ohne Aufstieg dabei
+  // ist, desto wahrscheinlicher wird er bemerkt (siehe ranks.js).
   const updated = db.getEmployment(guildId, userId);
+  const since = updated.shifts - (updated.rank_at ?? 0);
+  const promotion = ranks.roll(updated.rank ?? 0, since);
+  if (promotion) db.promote(guildId, userId, promotion.to.rank, updated.shifts);
+
+  const after = promotion ? promotion.to : rank;
+
   return {
-    ok: true, job, amount, balance, broken,
+    ok: true, job, amount, base, levelBonus: amount - base, level: perk.level,
+    rank: after, promotion,
+    nextChance: ranks.chance(after.rank, promotion ? 0 : since),
+    balance, broken,
     employment: updated,
     shiftsToday: updated.shifts_today,
     maxShifts: MAX_SHIFTS_PER_DAY,

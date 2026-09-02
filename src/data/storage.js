@@ -15,33 +15,47 @@
 const { weighted, pick, between } = require('./npc');
 
 /**
- * Basis-Objekte: nur Name + Basiswertspanne (Seltenheit „common"). Seltenheit
- * und Zustand skalieren diesen Basiswert. Bewusst überschaubar gehalten –
- * die Spannbreite entsteht über die Seltenheitsstufen.
+ * Basis-Objekte: Name, Fundgewicht und Basiswertspanne (Seltenheit „common").
+ * Seltenheit und Zustand skalieren diesen Basiswert.
+ *
+ * Das `weight` ist eine **Balance-Stellschraube gegen Frust**: Ohne Gewichte
+ * wurde jedes Objekt gleich oft gezogen, und die eine teure Ausnahme
+ * (Dragonlore) trug fast die Hälfte des Durchschnittswerts – also fast die
+ * Hälfte des Startpreises – obwohl sie nur in 1 von 14 Funden steckt. Bezahlt
+ * hat man sie in JEDER Garage. Jetzt sind die teuren Stücke entsprechend
+ * seltener, und der Preis folgt dem, was üblicherweise drin liegt.
  */
 const OBJECTS = [
-  { name: 'Kiste altes Werkzeug', range: [50, 300] },
-  { name: 'Stapel alte Schallplatten', range: [80, 400] },
-  { name: 'Voller Werkzeugkoffer', range: [120, 500] },
-  { name: 'Alte Armbanduhr', range: [100, 600] },
-  { name: 'Antike Vase', range: [150, 800] },
-  { name: 'Gerahmtes Gemälde', range: [200, 900] },
-  { name: 'Vergessene Münzsammlung', range: [120, 700] },
-  { name: 'AWP - Dragonlore', range: [2750, 7560] },
-  { name: 'Simons Schrotflinte', range: [400, 2450] },
-  { name: 'Miros Pokemon Karten', range: [50, 500] },
-  { name: '1 von Gabriels 300 Controllern', range: [20, 300] },
-  { name: 'Ente mit Talenten', range: [50, 1000] },
-  { name: 'Haste MCs Motorradteile', range: [20, 700] },
-  { name: 'Toaster', range: [5, 400] },
+  { name: 'Kiste altes Werkzeug', weight: 10, range: [50, 300] },
+  { name: 'Stapel alte Schallplatten', weight: 10, range: [80, 400] },
+  { name: 'Voller Werkzeugkoffer', weight: 8, range: [120, 500] },
+  { name: 'Alte Armbanduhr', weight: 8, range: [100, 600] },
+  { name: 'Antike Vase', weight: 6, range: [150, 800] },
+  { name: 'Gerahmtes Gemälde', weight: 5, range: [200, 900] },
+  { name: 'Vergessene Münzsammlung', weight: 7, range: [120, 700] },
+  { name: 'AWP - Dragonlore', weight: 0.5, range: [2750, 7560] },
+  { name: 'Simons Schrotflinte', weight: 2, range: [400, 2450] },
+  { name: 'Miros Pokemon Karten', weight: 8, range: [50, 500] },
+  { name: '1 von Gabriels 300 Controllern', weight: 10, range: [20, 300] },
+  { name: 'Ente mit Talenten', weight: 5, range: [50, 1000] },
+  { name: 'Haste MCs Motorradteile', weight: 8, range: [20, 700] },
+  { name: 'Toaster', weight: 10, range: [5, 400] },
 ];
 
-/** Wie viel Bargeld in einer Kiste stecken kann, wenn welches drin ist. */
+/**
+ * Rückfall-Spanne für Bargeld, falls eine Stufe keine eigene `cash` mitbringt.
+ * Die Stufen unten setzen ihre eigene – dort liegt IMMER Bargeld dabei.
+ */
 const CASH_RANGE = [200, 3000];
 
 /**
  * Seltenheitsstufen: `weight` = grobe Drop-Wahrscheinlichkeit in Prozent
  * (weighted() normalisiert über die Summe), `mult` = Wert-Multiplikator.
+ *
+ * Die Multiplikatoren der mittleren Stufen sind bewusst gestaucht (früher bis
+ * 60× bei Mythic): Der Startpreis ist der Erwartungswert, und der wurde zu
+ * einem Viertel von Funden getragen, die seltener als 1:100 sind. Man hat also
+ * in jeder Garage eine Lotterie mitbezahlt, die man fast nie gewinnt.
  *
  * Ab „Godlike" wird es *respektlos* selten – die Stufen sind absichtlich fast
  * unerreichbar, dafür bei einem Treffer absurd wertvoll. Vorgabe: legendary 1 %,
@@ -49,9 +63,9 @@ const CASH_RANGE = [200, 3000];
  * ergibt, damit diese Prozente exakt stimmen.
  */
 const RARITY_TAIL = [
-  { id: 'uncommon',     label: 'Uncommon',     emoji: '🟢', weight: 25,            mult: 2 },
-  { id: 'rare',         label: 'Rare',         emoji: '🔵', weight: 9,             mult: 4 },
-  { id: 'epic',         label: 'Epic',         emoji: '🟣', weight: 3.5,           mult: 8 },
+  { id: 'uncommon',     label: 'Uncommon',     emoji: '🟢', weight: 28,            mult: 2 },
+  { id: 'rare',         label: 'Rare',         emoji: '🔵', weight: 15,             mult: 4 },
+  { id: 'epic',         label: 'Epic',         emoji: '🟣', weight: 5,           mult: 8 },
   { id: 'legendary',    label: 'Legendary',    emoji: '🟡', weight: 1,             mult: 20 },
   { id: 'mythic',       label: 'Mythic',       emoji: '🔴', weight: 0.5,           mult: 60 },
   // ---- ab hier respektlos selten ----
@@ -59,7 +73,7 @@ const RARITY_TAIL = [
   { id: 'cosmic',       label: 'Cosmic',       emoji: '🌌', weight: 0.005,         mult: 800 },
   { id: 'primordial',   label: 'Primordial',   emoji: '🩸', weight: 0.0005,        mult: 4000 },
   { id: 'celestial',    label: 'Celestial',    emoji: '🌟', weight: 0.00003,       mult: 20000 },
-  { id: 'eternal',      label: 'Eternal',      emoji: '♾️',  weight: 0.000005,      mult: 100000 },
+  { id: 'eternal',      label: 'Eternal',      emoji: '♾️', weight: 0.000005,      mult: 100000 },
   { id: 'ascended',     label: 'Ascended',     emoji: '🔆', weight: 0.0000005,     mult: 500000 },
   { id: 'transcendent', label: 'Transcendent', emoji: '🕳️', weight: 0.00000003,    mult: 3000000 },
   { id: 'omnipotent',   label: 'Omnipotent',   emoji: '👁️', weight: 0.000000002,   mult: 20000000 },
@@ -78,7 +92,7 @@ const RARITIES = [
  * „Sammlerzustand" verdreifacht – und ist entsprechend selten.
  */
 const CONDITIONS = [
-  { id: 'beschaedigt',    label: 'beschädigt',     emoji: '💢', weight: 18, mult: 0.4 },
+  { id: 'beschaedigt',    label: 'beschädigt',     emoji: '💢', weight: 15, mult: 0.5 },
   { id: 'abgenutzt',      label: 'abgenutzt',      emoji: '🩹', weight: 22, mult: 0.75 },
   { id: 'normal',         label: 'normal',         emoji: '📦', weight: 50, mult: 1.0 },
   { id: 'gepflegt',       label: 'gepflegt',       emoji: '✨', weight: 8,  mult: 1.5 },
@@ -93,12 +107,19 @@ const conditionOf = (id) => CONDITION_BY_ID.get(id) ?? CONDITIONS[2];
 
 /**
  * Größenstufen der Garage (NICHT Item-Seltenheit): bestimmen, wie viele Objekte
- * drin sind und wie wahrscheinlich Bargeld/ein Auto dazukommt.
+ * drin sind, wie viel Bargeld dabeiliegt und wie wahrscheinlich ein Auto ist.
+ *
+ * Zwei bewusste Entscheidungen gegen das „Geld verbrennen"-Gefühl:
+ *  - **Bargeld liegt IMMER dabei** (`cash`-Spanne je Stufe). Ein sicherer
+ *    Sockel senkt keine Erwartungswerte, er verschiebt nur Preis und Inhalt
+ *    gleichermaßen – dafür ist die typische Garage nicht mehr fast wertlos.
+ *  - **Mehr Objekte je Garage.** Je mehr Stücke drin sind, desto näher liegt
+ *    der einzelne Fund am Durchschnitt – aus Alles-oder-nichts wird Streuung.
  */
 const TIERS = [
-  { id: 'klein', label: 'kleine Garage', weight: 5, objectCount: [1, 3], cashChance: 0.15, carChance: 0.00 },
-  { id: 'mittel', label: 'normale Garage', weight: 3, objectCount: [2, 5], cashChance: 0.25, carChance: 0.03 },
-  { id: 'gross', label: 'große Garage', weight: 2, objectCount: [3, 7], cashChance: 0.35, carChance: 0.06 },
+  { id: 'klein', label: 'kleine Garage', weight: 5, objectCount: [3, 5], cash: [500, 1500], carChance: 0.00 },
+  { id: 'mittel', label: 'normale Garage', weight: 3, objectCount: [4, 7], cash: [1000, 3000], carChance: 0.03 },
+  { id: 'gross', label: 'große Garage', weight: 2, objectCount: [5, 9], cash: [2000, 5000], carChance: 0.06 },
 ];
 
 /** Vage Andeutungen – Storage-Wars-Gefühl, ohne den Inhalt zu verraten. */

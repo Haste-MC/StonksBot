@@ -1,6 +1,7 @@
 const { EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const db = require('./db');
 const { getSymbol, plainSymbol } = require('./currency');
+const identity = require('./identity');
 
 /**
  * Button-IDs sind bewusst zustandslos: alles zum Neuaufbau der Ansicht
@@ -861,10 +862,19 @@ async function buildJobCenterView({ guildId, userId }) {
   if (current) {
     embed.addFields({
       name: 'Deine Anstellung',
-      value: `${current.job.emoji} **${current.job.title}** · ` +
-        `${money(symbol, current.job.pay)} pro Schicht\n` +
-        `${current.employment.shifts} Schichten insgesamt · ` +
-        `${money(symbol, current.employment.earned)} verdient`,
+      value: (() => {
+        const ranks = require('./ranks');
+        const emp = current.employment;
+        const r = ranks.rank(emp.rank ?? 0);
+        const since = emp.shifts - (emp.rank_at ?? 0);
+        const p = ranks.chance(r.rank, since);
+        return `${current.job.emoji} **${current.job.title}** · ` +
+          `${money(symbol, current.job.pay)} pro Schicht\n` +
+          `${r.emoji} **${r.title}** · Lohn ×${r.pay.toFixed(2)}\n` +
+          `${emp.shifts} Schichten insgesamt · ${money(symbol, emp.earned)} verdient\n` +
+          `🎲 Beförderungschance je Schicht: **${Math.round(p * 100)} %** ` +
+          `_(steigt mit jeder Schicht ohne Aufstieg)_`;
+      })(),
     });
     embed.addFields({
       name: 'Heute gearbeitet',
@@ -937,7 +947,7 @@ async function buildGarageView({ guildId, userId, targetId = null, page = 1 }) {
       owner === userId
         ? 'Deine Garage ist leer. Ab ins Autohaus!\n' +
           '_Ausrüstung findest du unter 🧰, Immobilien unter 🔑 Mein Besitz._'
-        : `<@${owner}> hat noch kein Auto.`);
+        : `${identity.mention(owner)} hat noch kein Auto.`);
     return { embeds: [embed], components: [navigationRow('garage', 1, 1, userId)] };
   }
 
@@ -971,7 +981,514 @@ async function buildGarageView({ guildId, userId, targetId = null, page = 1 }) {
   const best = items.reduce((a, b) => (b.price > a.price ? b : a));
   if (best.image_url) embed.setThumbnail(best.image_url);
 
-  return { embeds: [embed], components: [navigationRow('garage', p, totalPages, userId)] };
+  // Kurzer Weg in die Werkstatt – aber nur, wenn es dort etwas zu tun gibt
+  // und es die eigene Garage ist.
+  const damaged = owner === userId ? db.listDamaged(guildId, owner, 1).total : 0;
+  const toWorkshop = damaged > 0
+    ? new ButtonBuilder()
+      .setCustomId(ID.menu('werkstatt', 1, userId))
+      .setLabel(`Werkstatt (${damaged})`).setEmoji('🛠️')
+      .setStyle(ButtonStyle.Primary)
+    : null;
+
+  return {
+    embeds: [embed],
+    components: [navigationRow('garage', p, totalPages, userId, toWorkshop)],
+  };
+}
+
+// ------------------------------------------------------------------ Werkstatt
+
+/**
+ * Die Werkstatt zeigt nur, was Arbeit braucht: Autos unter Neuzustand, die
+ * schlimmsten zuerst. Der Preis der vollen Restaurierung steht gleich dabei –
+ * so sieht man ohne Klick, ob sich der Weg lohnt.
+ */
+async function buildWorkshopView({ guildId, userId, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const cond = require('./condition');
+  const workshop = require('./workshop');
+
+  const { items, total, totalPages, page: p } =
+    fetchPage((n) => db.listDamaged(guildId, userId, n), page);
+
+  const embed = new EmbedBuilder().setTitle('🛠️ Werkstatt').setColor(0xe67e22);
+
+  if (total === 0) {
+    embed.setDescription(
+      'Alles in Schuss — kein Wagen in deiner Garage hat einen Kratzer.\n\n' +
+      '_Hier landen Autos, die auf der Straße etwas abbekommen haben. ' +
+      'Eine Garage schützt davor, die Werkstatt repariert danach._');
+    return { embeds: [embed], components: [navigationRow('werkstatt', 1, 1, userId)] };
+  }
+
+  embed.setDescription(items.map((i) => {
+    const c = i.condition ?? 100;
+    const full = workshop.quote(i.price, c, 'resto');
+    return `${i.emoji ? `${i.emoji} ` : ''}**${i.name}**  \`ID ${i.id}\`\n` +
+      `${cond.bar(c)} ${cond.labelDetailed(c)}\n` +
+      `Wert ${money(symbol, full.before)} _(neu ${money(symbol, i.price)})_ · ` +
+      `komplett ab ${money(symbol, full.cost)}`;
+  }).join('\n\n'));
+
+  embed.setFooter({
+    text: `${total} ${total === 1 ? 'Wagen braucht' : 'Wagen brauchen'} Arbeit · ` +
+      '🛠️ öffnet den Kostenvoranschlag',
+  });
+
+  const picks = new ActionRowBuilder().addComponents(...items.map((i) =>
+    new ButtonBuilder()
+      .setCustomId(`wdet|${i.id}|${p}|${userId}`)
+      .setLabel(i.name.slice(0, 40)).setEmoji('🛠️')
+      .setStyle(ButtonStyle.Secondary)));
+
+  return {
+    embeds: [embed],
+    components: [picks, navigationRow('werkstatt', p, totalPages, userId)],
+  };
+}
+
+/**
+ * Kostenvoranschlag für ein Auto: alle Stufen mit Preis und Wert danach.
+ *
+ * Hier darf es genau sein (Prozente, Neupreis, Wertzuwachs) – es ist der
+ * eigene Wagen, und ohne die Zahlen wäre der Preis nicht nachvollziehbar.
+ */
+async function buildRepairView({ guildId, userId, key, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const cond = require('./condition');
+  const workshop = require('./workshop');
+
+  const backRow = (extra = []) => new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(ID.menu('werkstatt', page, userId))
+      .setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary),
+    ...extra,
+    homeButton(userId),
+  );
+
+  const car = db.getOwned(guildId, userId, Number(key));
+
+  if (!car || car.kind !== 'car') {
+    return {
+      embeds: [new EmbedBuilder()
+        .setTitle('❌ Kein Auftrag')
+        .setDescription('Dieses Auto steht nicht (mehr) in deiner Garage.')
+        .setColor(0xe74c3c)],
+      components: [backRow()],
+    };
+  }
+
+  const c = car.condition ?? 100;
+  const embed = new EmbedBuilder()
+    .setTitle(`🛠️ ${car.emoji ? `${car.emoji} ` : ''}${car.name}`)
+    .setDescription(`${cond.bar(c)} ${cond.labelDetailed(c)}`)
+    .setColor(cond.level(c).color)
+    .addFields(
+      { name: 'Zeitwert', value: money(symbol, cond.currentValue(car.price, c)), inline: true },
+      { name: 'Neupreis', value: money(symbol, car.price), inline: true },
+    );
+
+  for (const q of workshop.quotes(car.price, c)) {
+    embed.addFields({
+      name: `${q.tier.emoji} ${q.tier.label} → ${cond.label(q.to)} (${q.to} %)`,
+      value: q.possible
+        ? `**${money(symbol, q.cost)}** · Wert danach ${money(symbol, q.after)} ` +
+          `_(+${money(symbol, q.gain)})_\n_${q.tier.blurb}_`
+        : '_Dafür ist dein Wagen schon zu gut._',
+    });
+  }
+
+  embed.setFooter({
+    text: 'Eine Reparatur kostet immer mehr, als sie an Wert zurückbringt — ' +
+      'du kaufst Erhalt, kein Geschäft.',
+  });
+
+  if (car.image_url) embed.setThumbnail(car.image_url);
+
+  const offers = workshop.quotes(car.price, c).filter((q) => q.possible);
+  const rows = [];
+  if (offers.length) {
+    rows.push(new ActionRowBuilder().addComponents(...offers.map((q) =>
+      new ButtonBuilder()
+        .setCustomId(`wfix|${car.id}|${q.tier.id}|${page}|${userId}`)
+        .setLabel(`${q.tier.label} · ${q.cost.toLocaleString('de-DE')}`)
+        .setEmoji(q.tier.emoji)
+        .setStyle(q.tier.id === 'resto' ? ButtonStyle.Success : ButtonStyle.Primary))));
+  }
+
+  // Wer Werkzeug hat, zahlt nur Material – dafür kann es misslingen.
+  const tools = workshop.toolsOf(guildId, userId);
+  if (tools.base && offers.length) {
+    const wait = workshop.selfRemainingMs(guildId, userId);
+    const selfOffers = offers.map((q) => workshop.selfQuote(guildId, userId, car.price, c, q.tier.id));
+
+    embed.addFields({
+      name: '🔧 Selbst schrauben',
+      value: `Mit deinem Werkzeug zahlst du nur Material – ` +
+        `**${Math.round((1 - tools.markup / 1.09) * 100)} %** günstiger als die Werkstatt.
+` +
+        selfOffers.map((q) =>
+          `${q.tier.emoji} ${q.tier.label}: ${money(symbol, q.cost)} _(spart ${money(symbol, q.saved)})_`)
+          .join('\n') +
+        `\n⚠️ **${Math.round(tools.botch * 100)} %** Pfuschrisiko` +
+        (tools.extras.length ? ` · ${tools.extras.map((t) => t.note).join(', ')}` : '') +
+        (wait > 0 ? `\n⏳ Wieder in ${require('./income').formatRemaining(wait)}` : ''),
+    });
+
+    rows.push(new ActionRowBuilder().addComponents(...selfOffers.map((q) =>
+      new ButtonBuilder()
+        .setCustomId(`wself|${car.id}|${q.tier.id}|${page}|${userId}`)
+        .setLabel(`Selbst · ${q.cost.toLocaleString('de-DE')}`).setEmoji('🔧')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(wait > 0))));
+  }
+
+  rows.push(backRow());
+
+  return { embeds: [embed], components: rows };
+}
+
+// ------------------------------------------------------------------- Angeln
+
+/**
+ * Der Angelplatz. Eine Tätigkeit, die allein an der Ausrüstung hängt – kein
+ * Job, keine Bewerbung, kein Chef.
+ */
+async function buildFishingView({ guildId, userId }) {
+  const symbol = await getSymbol(guildId);
+  const fishing = require('./fishing');
+  const gear = require('./data/gear');
+
+  const has = fishing.hasGear(guildId, userId);
+  const left = fishing.remainingMs(guildId, userId);
+
+  const embed = new EmbedBuilder().setTitle('🎣 Angelplatz').setColor(0x3498db);
+  const rows = [];
+
+  if (!has) {
+    const item = gear.findGear(fishing.GEAR);
+    embed.setDescription(
+      `Ohne **${fishing.GEAR}** wird das nichts.\n\n` +
+      `_${item?.description ?? ''}_\n` +
+      `Sie kostet ${money(symbol, item?.price ?? 0)} in der 🧰 **Ausrüstung**.`)
+      .setColor(0x95a5a6);
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(ID.menu('gear', 1, userId))
+        .setLabel('Zur Ausrüstung').setEmoji('🧰').setStyle(ButtonStyle.Primary),
+      homeButton(userId)));
+    return { embeds: [embed], components: rows };
+  }
+
+  embed.setDescription(
+    'Rute raus, Köder dran, warten.\n\n' +
+    '_Was anbeißt, entscheidet der Fluss. Vom alten Stiefel bis zum Wels ist ' +
+    'alles dabei – verkauft wird direkt am Steg._');
+
+  embed.addFields(
+    {
+      name: '⏳ Nächster Zug',
+      value: left > 0 ? `in **${require('./income').formatRemaining(left)}**` : '**jetzt**',
+      inline: true,
+    },
+    { name: '🎣 Ausrüstung', value: 'vorhanden', inline: true },
+  );
+  embed.setFooter({ text: 'Alle 20 Minuten ein Zug · die Rute kann brechen' });
+
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`fish|${userId}`)
+      .setLabel(left > 0 ? 'Noch nicht' : 'Auswerfen').setEmoji('🎣')
+      .setStyle(ButtonStyle.Success).setDisabled(left > 0),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+// -------------------------------------------------------------------- Börse
+
+/** Farbe zur Richtung – grün rauf, rot runter. */
+const marketColor = (change) => (change > 0.002 ? 0x2ecc71 : (change < -0.002 ? 0xe74c3c : 0x95a5a6));
+
+/**
+ * Das Kursboard: alle Werte einer Anlageklasse mit Verlauf und Tagesänderung.
+ *
+ * Aufgeteilt in Fonds / Aktien / Krypto, weil 25 Werte auf einer Seite
+ * niemand liest – und weil die Klassen sich wirklich unterschiedlich
+ * verhalten.
+ */
+async function buildMarketView({ guildId, userId, page = 1, kind = null }) {
+  const symbol = await getSymbol(guildId);
+  const market = require('./wallstreet');
+  const data = require('./data/wallstreet');
+
+  // Vor der Anzeige aufholen, falls der Ticker Takte verpasst hat.
+  await market.advance(guildId).catch(() => {});
+
+  const all = market.board(guildId);
+  const shown = kind ? all.filter((a) => a.kind === kind) : all;
+  const perPage = 8;
+  const totalPages = Math.max(1, Math.ceil(shown.length / perPage));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const items = shown.slice((p - 1) * perPage, p * perPage);
+
+  const index = all.find((a) => a.symbol === 'IDX');
+  const embed = new EmbedBuilder()
+    .setTitle(`📈 Börse${kind ? ` · ${data.KIND_LABEL[kind]}` : ''}`)
+    .setColor(marketColor(index?.dayChange ?? 0));
+
+  embed.setDescription(items.map((a) =>
+    `${a.emoji} **${a.name}** \`${a.symbol}\` · _${a.sector}_\n` +
+    `${money(symbol, a.price)} · ${market.arrow(a.dayChange)} ${market.percent(a.dayChange)} ` +
+    `\`${market.sparkline(a.history, 20)}\``).join('\n\n'));
+
+  if (index) {
+    embed.addFields({
+      name: '📊 Gesamtmarkt',
+      value: `${money(symbol, index.price)} · ${market.percent(index.dayChange)} (24 h)`,
+      inline: true,
+    });
+  }
+
+  const depot = market.portfolio(guildId, userId);
+  if (depot.positions.length) {
+    embed.addFields({
+      name: '💼 Dein Depot',
+      value: `${money(symbol, depot.value)} · ` +
+        `${depot.profit >= 0 ? '📈 +' : '📉 '}${depot.profit.toLocaleString('de-DE')}`,
+      inline: true,
+    });
+  }
+
+  const news = db.listNews(guildId, 3);
+  if (news.length) {
+    embed.addFields({
+      name: '📰 Schlagzeilen',
+      value: news.map((n) => `• ${n.headline}`).join('\n').slice(0, 1000),
+    });
+  }
+
+  embed.setFooter({
+    text: `${shown.length} Werte · Kurse ändern sich alle 30 min · ` +
+      `Gebühr ${(market.FEE * 100).toFixed(0)} % je Auftrag`,
+  });
+
+  const rows = [];
+  rows.push(new ActionRowBuilder().addComponents(...items.slice(0, 5).map((a) =>
+    new ButtonBuilder()
+      .setCustomId(`wdet2|${a.symbol}|${p}|${userId}`)
+      .setLabel(`${a.symbol} ${a.price.toLocaleString('de-DE')}`).setEmoji(a.emoji)
+      .setStyle(ButtonStyle.Secondary))));
+  if (items.length > 5) {
+    rows.push(new ActionRowBuilder().addComponents(...items.slice(5, 10).map((a) =>
+      new ButtonBuilder()
+        .setCustomId(`wdet2|${a.symbol}|${p}|${userId}`)
+        .setLabel(`${a.symbol} ${a.price.toLocaleString('de-DE')}`).setEmoji(a.emoji)
+        .setStyle(ButtonStyle.Secondary))));
+  }
+
+  // Filterzeile: Anlageklassen und das eigene Depot.
+  rows.push(actionsRow(
+    new ButtonBuilder().setCustomId(`wkind|all|${userId}`)
+      .setLabel('Alle').setEmoji('🗂️')
+      .setStyle(kind ? ButtonStyle.Secondary : ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`wkind|stock|${userId}`)
+      .setLabel('Aktien').setEmoji('🏭')
+      .setStyle(kind === 'stock' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wkind|fund|${userId}`)
+      .setLabel('Fonds').setEmoji('📊')
+      .setStyle(kind === 'fund' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wkind|crypto|${userId}`)
+      .setLabel('Krypto').setEmoji('🪙')
+      .setStyle(kind === 'crypto' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
+      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Success),
+  ));
+
+  rows.push(navigationRow(kind ? `boerse:${kind}` : 'boerse', p, totalPages, userId));
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Ein einzelner Wert mit allen Kauf- und Verkaufswegen.
+ *
+ * Bewusst viele Knöpfe: Stückzahlen für den schnellen Griff, Beträge für
+ * „ich will 50.000 investieren", Anteile für den Ausstieg. Der eigene Bestand
+ * steht mit Einstandskurs daneben, damit man nicht rechnen muss.
+ */
+async function buildAssetView({ guildId, userId, symbol: sym, page = 1 }) {
+  const symbol = await getSymbol(guildId);
+  const { getBalance } = require('./unb');
+  const market = require('./wallstreet');
+  await market.advance(guildId).catch(() => {});
+
+  const a = market.quote(guildId, sym);
+  const back = new ButtonBuilder()
+    .setCustomId(ID.menu('boerse', page, userId))
+    .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary);
+
+  if (!a) {
+    return {
+      embeds: [new EmbedBuilder().setTitle('❌ Unbekannter Wert')
+        .setDescription('Diesen Wert gibt es an unserer Börse nicht.')
+        .setColor(0xe74c3c)],
+      components: [new ActionRowBuilder().addComponents(back, homeButton(userId))],
+    };
+  }
+
+  const balance = await getBalance(guildId, userId).catch(() => ({ total: 0, cash: 0 }));
+  const holding = db.getHolding(guildId, userId, a.symbol);
+  const affordable = market.sharesFor(a.price, balance.total);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${a.emoji} ${a.name}  \`${a.symbol}\``)
+    .setDescription(
+      `_${a.blurb}_\n\n` +
+      `\`${market.sparkline(a.history, 28)}\`\n` +
+      `**${money(symbol, a.price)}** · ${market.arrow(a.dayChange)} ${market.percent(a.dayChange)} (24 h)`)
+    .setColor(marketColor(a.dayChange))
+    .addFields(
+      { name: 'Art', value: `${a.kindLabel} · ${a.sector}`, inline: true },
+      { name: 'Dein Geld', value: money(symbol, balance.total), inline: true },
+      { name: 'Davon kaufbar', value: `${affordable.toLocaleString('de-DE')} Stück`, inline: true },
+    );
+
+  if (holding?.shares > 0) {
+    const value = holding.shares * a.price;
+    const profit = value - holding.invested;
+    embed.addFields({
+      name: '💼 Dein Bestand',
+      value: `${holding.shares.toLocaleString('de-DE')} Stück · Wert ${money(symbol, value)}\n` +
+        `Einstand ${money(symbol, Math.round(holding.invested / holding.shares))} je Stück · ` +
+        `${profit >= 0 ? '📈 +' : '📉 '}${profit.toLocaleString('de-DE')} ` +
+        `(${market.percent(holding.invested > 0 ? profit / holding.invested : 0)})`,
+    });
+  }
+
+  embed.setFooter({
+    text: `Gebühr ${(market.FEE * 100).toFixed(0)} % je Auftrag · ` +
+      'Kurse sind reiner Zufall – niemand kann sie vorhersagen',
+  });
+
+  const rows = [];
+
+  // Stückzahlen.
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[1, 5, 10, 50].map((n) =>
+      new ButtonBuilder()
+        .setCustomId(`wbuy|${a.symbol}|${n}|${page}|${userId}`)
+        .setLabel(`${n}×`).setEmoji('🛒')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(affordable < n)),
+    new ButtonBuilder()
+      .setCustomId(`wbuy|${a.symbol}|max|${page}|${userId}`)
+      .setLabel('Max').setEmoji('🧨')
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(affordable < 1),
+  ));
+
+  // Beträge – „für 10.000 kaufen" ist oft die natürlichere Frage.
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[1000, 10000, 100000].map((amount) =>
+      new ButtonBuilder()
+        .setCustomId(`wbuyfor|${a.symbol}|${amount}|${page}|${userId}`)
+        .setLabel(`für ${amount.toLocaleString('de-DE')}`).setEmoji('💰')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(balance.total < amount || market.sharesFor(a.price, amount) < 1)),
+    new ButtonBuilder()
+      .setCustomId(`wmod|${a.symbol}|buy|${page}|${userId}`)
+      .setLabel('Eigene Menge').setEmoji('✏️').setStyle(ButtonStyle.Primary),
+  ));
+
+  // Verkaufen – Anteile des Bestands.
+  const held = holding?.shares ?? 0;
+  rows.push(new ActionRowBuilder().addComponents(
+    ...[25, 50, 100].map((pct) =>
+      new ButtonBuilder()
+        .setCustomId(`wsell|${a.symbol}|${pct}|${page}|${userId}`)
+        .setLabel(`${pct} % verkaufen`).setEmoji('📤')
+        .setStyle(pct === 100 ? ButtonStyle.Danger : ButtonStyle.Secondary)
+        .setDisabled(held < 1)),
+    new ButtonBuilder()
+      .setCustomId(`wmod|${a.symbol}|sell|${page}|${userId}`)
+      .setLabel('Stückzahl').setEmoji('✏️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(held < 1),
+  ));
+
+  rows.push(new ActionRowBuilder().addComponents(
+    back,
+    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
+      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Secondary),
+    homeButton(userId),
+  ));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Das eigene Depot: Positionen, Bewertung, Gewinn und Verlust. */
+async function buildDepotView({ guildId, userId }) {
+  const symbol = await getSymbol(guildId);
+  const { getBalance } = require('./unb');
+  const market = require('./wallstreet');
+  await market.advance(guildId).catch(() => {});
+
+  const depot = market.portfolio(guildId, userId);
+  const balance = await getBalance(guildId, userId).catch(() => ({ total: 0 }));
+
+  const embed = new EmbedBuilder().setTitle('💼 Dein Depot')
+    .setColor(marketColor(depot.invested > 0 ? depot.profit / depot.invested : 0));
+
+  if (!depot.positions.length) {
+    embed.setDescription(
+      'Du besitzt keine Wertpapiere.\n\n' +
+      '_An der 📈 Börse kannst du Aktien, Fonds-Anteile und Krypto kaufen. ' +
+      'Der Fonds ist der ruhigste Einstieg._');
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(ID.menu('boerse', 1, userId))
+          .setLabel('Zur Börse').setEmoji('📈').setStyle(ButtonStyle.Primary),
+        homeButton(userId))],
+    };
+  }
+
+  embed.setDescription(depot.positions.map((p) =>
+    `${p.emoji} **${p.name}** \`${p.symbol}\`\n` +
+    `${p.shares.toLocaleString('de-DE')} × ${money(symbol, p.price)} = ` +
+    `**${money(symbol, p.value)}**\n` +
+    `Einstand ${money(symbol, Math.round(p.average))} · ` +
+    `${p.profit >= 0 ? '📈 +' : '📉 '}${p.profit.toLocaleString('de-DE')} ` +
+    `(${market.percent(p.ratio)})`).join('\n\n'));
+
+  embed.addFields(
+    { name: 'Depotwert', value: money(symbol, depot.value), inline: true },
+    { name: 'Eingesetzt', value: money(symbol, depot.invested), inline: true },
+    {
+      name: 'Gewinn/Verlust',
+      value: `${depot.profit >= 0 ? '+' : ''}${depot.profit.toLocaleString('de-DE')} ` +
+        `(${market.percent(depot.invested > 0 ? depot.profit / depot.invested : 0)})`,
+      inline: true,
+    },
+    { name: 'Bargeld & Bank', value: money(symbol, balance.total), inline: true },
+    { name: 'Gesamtvermögen', value: money(symbol, balance.total + depot.value), inline: true },
+  );
+
+  const rows = [];
+  for (let i = 0; i < depot.positions.length && rows.length < 3; i += 5) {
+    rows.push(new ActionRowBuilder().addComponents(
+      ...depot.positions.slice(i, i + 5).map((p) =>
+        new ButtonBuilder()
+          .setCustomId(`wdet2|${p.symbol}|1|${userId}`)
+          .setLabel(`${p.symbol} ${p.profit >= 0 ? '+' : ''}${p.profit.toLocaleString('de-DE')}`)
+          .setEmoji(p.emoji)
+          .setStyle(p.profit >= 0 ? ButtonStyle.Success : ButtonStyle.Danger))));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(ID.menu('boerse', 1, userId))
+      .setLabel('Zur Börse').setEmoji('📈').setStyle(ButtonStyle.Primary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
 }
 
 // ------------------------------------------------------------ Eigene Inserate
@@ -1149,7 +1666,7 @@ async function buildBalanceView({ guildId, userId, targetId = null }) {
 
   const embed = new EmbedBuilder()
     .setTitle('💰 Guthaben')
-    .setDescription(`<@${owner}>`)
+    .setDescription(identity.mention(owner))
     .addFields(
       { name: 'Bargeld', value: money(symbol, bal.cash), inline: true },
       { name: 'Bank', value: money(symbol, bal.bank), inline: true },
@@ -1187,7 +1704,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const garage = db.garageValue(guildId, owner);
   const realty = db.propertyValue(guildId, owner);
   const liquid = bal ? bal.total : 0;
-  const networth = liquid + garage + realty;
+  const depotValue = require('./wallstreet').portfolio(guildId, owner).value;
+  const networth = liquid + garage + realty + depotValue;
 
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);
@@ -1201,7 +1719,7 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     .setTitle('👤 Profil')
     .setColor(0xf1c40f)
     .setDescription(
-      `<@${owner}>` + (stats.tagline ? `\n> _${stats.tagline}_` : ''));
+      identity.mention(owner) + (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
   embed.addFields(
     {
@@ -1233,7 +1751,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     {
       name: '💼 Beruf',
       value: job
-        ? `${job.emoji} **${job.title}**\n${emp.shifts} ${emp.shifts === 1 ? 'Schicht' : 'Schichten'}`
+        ? `${job.emoji} **${job.title}**\n${require('./ranks').label(emp.rank ?? 0)}\n` +
+          `${emp.shifts} ${emp.shifts === 1 ? 'Schicht' : 'Schichten'}`
         : '💤 Arbeitslos',
       inline: true,
     },
@@ -1249,6 +1768,28 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
       value: `${collection.n} ${collection.n === 1 ? 'Fundstück' : 'Fundstücke'} · ` +
         `Schätzwert ${money(symbol, collection.value)}` +
         (best ? `\nTop: ${bestR.emoji} ${best.name} _(${bestR.label})_` : ''),
+      inline: true,
+    });
+  }
+
+  // Wofür man levelt: aktive Vorteile und der nächste Meilenstein. Ohne diese
+  // Anzeige wäre das Levelsystem eine Zahl ohne Wirkung.
+  const perks = require('./perks');
+  const next = perks.nextMilestone(prog.level);
+  embed.addFields({
+    name: '✨ Level-Vorteile',
+    value: perks.summary(prog.level).join('\n') +
+      (next ? `\n\n_Als Nächstes: ${next.text}_` : '\n\n_Alles freigeschaltet._'),
+  });
+
+  // Depot, falls jemand an der Börse unterwegs ist.
+  const depot = require('./wallstreet').portfolio(guildId, owner);
+  if (depot.positions.length) {
+    embed.addFields({
+      name: '📈 Depot',
+      value: `${depot.positions.length} ${depot.positions.length === 1 ? 'Position' : 'Positionen'} · ` +
+        `${money(symbol, depot.value)}\n${depot.profit >= 0 ? '📈 +' : '📉 '}` +
+        `${depot.profit.toLocaleString('de-DE')}`,
       inline: true,
     });
   }
@@ -1375,6 +1916,99 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   return { embeds: [embed], components: [metricRow, navRow] };
 }
 
+// --------------------------------------------------------------- Staatskasse
+
+/** "1 Buchung" / "12 Buchungen". */
+function bookings(n) {
+  return `${n.toLocaleString('de-DE')} ${n === 1 ? 'Buchung' : 'Buchungen'}`;
+}
+
+/** Prozent mit einer Nachkommastelle, aber ohne unnötige ",0". */
+function percent(ratio) {
+  const value = (ratio || 0) * 100;
+  return `${value.toFixed(value >= 10 ? 0 : 1).replace('.', ',')} %`;
+}
+
+/**
+ * Die Staatskasse: was der ganze Server bisher zusammengetragen hat.
+ *
+ * Bewusst prominent erklärt, dass niemand dafür zahlt – sonst wirkt es wie
+ * eine versteckte Gebühr, und genau das ist es nicht (siehe treasury.js).
+ */
+async function buildTreasuryView({ guildId, userId }) {
+  const treasury = require('./treasury');
+  const symbol = await getSymbol(guildId);
+  const state = treasury.state(guildId);
+  const mine = treasury.contribution(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏛️ Staatskasse')
+    .setColor(0x1abc9c)
+    .setDescription(
+      `**${money(symbol, state.balance)}**\n` +
+      `_Der gemeinsame Topf des Servers. Bei jedem Kauf fließen ` +
+      `**${percent(treasury.VAT_RATE)}** hinein, bei jeder Einnahme ` +
+      `**${percent(treasury.TAX_RATE)}** – **zusätzlich**, nicht von dir. ` +
+      `Du zahlst keinen Taler mehr und gibst nichts ab._`);
+
+  embed.addFields(
+    {
+      name: `🧾 Mehrwertsteuer (${percent(treasury.VAT_RATE)})`,
+      value: `${money(symbol, state.vat_total)}\n_aus ${money(symbol, state.spend_base)} Ausgaben_`,
+      inline: true,
+    },
+    {
+      name: `💼 Einkommensteuer (${percent(treasury.TAX_RATE)})`,
+      value: `${money(symbol, state.tax_total)}\n_aus ${money(symbol, state.income_base)} Einnahmen_`,
+      inline: true,
+    },
+    {
+      name: '🔁 Umsatz',
+      value: `${money(symbol, state.turnover)}\n_${bookings(state.bookings)}_`,
+      inline: true,
+    },
+  );
+
+  const sources = treasury.sources(guildId, 5);
+  if (sources.length > 0) {
+    embed.addFields({
+      name: '📊 Stärkste Bereiche',
+      value: sources.map((src) =>
+        `${src.emoji} **${src.label}** — ${money(symbol, src.amount)} ` +
+        `_(${percent(state.balance > 0 ? src.amount / state.balance : 0)})_`).join('\n'),
+    });
+  }
+
+  const payers = treasury.payers(guildId, 5);
+  if (payers.length > 0) {
+    const medal = (i) => ['🥇', '🥈', '🥉'][i] ?? `**#${i + 1}**`;
+    embed.addFields({
+      name: '🏅 Größte Beitragszahler',
+      value: payers.map((p, i) =>
+        `${medal(i)} ${identity.mention(p.account_id)} — ${money(symbol, p.amount)}` +
+        (p.account_id === userId ? ' ⬅️ **du**' : '')).join('\n'),
+    });
+  }
+
+  const recent = treasury.recent(guildId, 4);
+  if (recent.length > 0) {
+    embed.addFields({
+      name: '🕒 Zuletzt eingegangen',
+      value: recent.map((r) =>
+        `${r.emoji} +${money(symbol, r.amount)} — _${r.reason || r.label}_`).join('\n'),
+    });
+  }
+
+  embed.setFooter({
+    text: state.bookings === 0
+      ? 'Noch nichts drin – die Kasse füllt sich, sobald auf dem Server Geld bewegt wird.'
+      : `Dein Beitrag: ${plainSymbol(symbol)} ${mine.amount.toLocaleString('de-DE')} ` +
+        `aus ${bookings(mine.bookings)}.`,
+  });
+
+  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(homeButton(userId))] };
+}
+
 // -------------------------------------------------------------- Auktionshaus
 
 /** Kurze, menschliche Restzeit-Angabe. */
@@ -1439,7 +2073,11 @@ async function buildAuctionView({ guildId, userId }) {
       { name: bid ? 'Höchstgebot' : 'Startpreis', value: money(symbol, bid ?? live.start_price), inline: true },
       { name: 'Mindestgebot', value: money(symbol, storage.minBid(live)), inline: true },
     );
-    if (bid) embed.addFields({ name: 'Höchstbietender', value: `<@${live.top_bidder}>`, inline: true });
+    if (bid) {
+      embed.addFields({
+        name: 'Höchstbietender', value: identity.mention(live.top_bidder), inline: true,
+      });
+    }
 
     rows.push(new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -1462,7 +2100,13 @@ async function buildAuctionView({ guildId, userId }) {
     });
   }
 
-  embed.setFooter({ text: `Runde mit ${round.size} Garagen · Ersteigertes landet verschlossen bei „Meine Garagen"` });
+  // Erwartung geradebiegen: Der Startpreis liegt bewusst über dem, was
+  // üblicherweise drin liegt. Wer das weiß, fühlt sich vom Ergebnis nicht
+  // betrogen – und weiß, dass der Gewinn in den seltenen Funden steckt.
+  embed.setFooter({
+    text: `Runde mit ${round.size} Garagen · Die meisten liegen knapp unter dem Startpreis — ` +
+      'der Gewinn steckt in den seltenen Funden',
+  });
   rows.push(bottomRow());
 
   return { embeds: [embed], components: rows };
@@ -1542,6 +2186,56 @@ async function buildCollectionView({ guildId, userId }) {
     homeButton(userId)));
 
   return { embeds: [embed], components: rows };
+}
+
+// -------------------------------------------------------- Geld-Rangliste
+
+/**
+ * Die reine Geld-Rangliste (`!top`) – wie man sie von UnbelievaBoat kennt.
+ *
+ * Nicht zu verwechseln mit buildLeaderboardView: Die zeigt Level, Einnahmen
+ * und Ausgaben aus unseren eigenen Daten. Hier geht es nur ums Geld, direkt
+ * von UnbelievaBoat gelesen und um die ungelinkten Fluxer-Spieler ergänzt.
+ */
+async function buildTopView({ guildId, userId, sort = 'total' }) {
+  const toplist = require('./toplist');
+  const symbol = await getSymbol(guildId);
+  const key = toplist.parseSort(sort);
+  const entries = await toplist.fetch({ sort: key, limit: 15 });
+
+  const titles = { total: 'Gesamtvermögen', cash: 'Bargeld', bank: 'Bank' };
+  const embed = new EmbedBuilder()
+    .setTitle(`💰 Reichste Spieler — ${titles[key]}`)
+    .setColor(0xf1c40f);
+
+  if (!entries.length) {
+    embed.setDescription('Noch keine Daten.');
+    return { embeds: [embed], components: [new ActionRowBuilder().addComponents(homeButton(userId))] };
+  }
+
+  const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] ?? `**#${rank}**`;
+  embed.setDescription(entries.map((e) => {
+    const you = e.userId === userId ? ' ⬅️ **du**' : '';
+    return `${medal(e.rank)} ${toplist.label(e.userId)}${you} — ${money(symbol, e[key])}`;
+  }).join('\n'));
+
+  const mine = entries.find((e) => e.userId === userId);
+  embed.setFooter({
+    text: mine
+      ? `Dein Platz: ${mine.rank} von ${entries.length}`
+      : 'Du bist (noch) nicht in den Top 15.',
+  });
+
+  // Umschalten zwischen den drei Sichten.
+  const row = new ActionRowBuilder().addComponents(
+    ...Object.entries(titles).map(([k, label]) =>
+      new ButtonBuilder()
+        .setCustomId(`top|${k}|${userId}`)
+        .setLabel(label)
+        .setStyle(k === key ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+    homeButton(userId));
+
+  return { embeds: [embed], components: [row] };
 }
 
 // ------------------------------------------------------------------- Detail
@@ -1675,9 +2369,11 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildGarageView, buildListingsView, buildBalanceView,
-  buildInboxView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, buildGaragesView,
+  buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView,
+  buildListingsView, buildBalanceView,
+  buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
+  buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money,
 };

@@ -42,4 +42,12 @@ function plainSymbol(symbol) {
   return m ? m[1] : (symbol || FALLBACK);
 }
 
-module.exports = { getSymbol, format, plainSymbol, FALLBACK };
+/**
+ * Das bereits geholte Symbol, ohne die API zu fragen (oder null).
+ * Gebraucht in synchronen Render-Pfaden, etwa der Fluxer-Darstellung.
+ */
+function peek(guildId) {
+  return cache.get(guildId) ?? null;
+}
+
+module.exports = { getSymbol, format, plainSymbol, peek, FALLBACK };

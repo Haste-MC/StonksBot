@@ -80,6 +80,9 @@ async function settle(guildId, userId, now = Date.now()) {
   if (outside.length === 0) return { events: [], days, outside: 0 };
 
   const events = [];
+  // Erfahrung schützt: Wer weiß, wo er parkt, wird seltener bestohlen
+  // (siehe perks.js).
+  const theftFactor = require('./perks').perksOf(guildId, userId).theft;
   // Der Zustand ändert sich während der Simulation – lokal mitführen.
   const state = new Map(outside.map((c) => [c.id, c.condition ?? 100]));
   const stolen = new Set();
@@ -88,7 +91,7 @@ async function settle(guildId, userId, now = Date.now()) {
     for (const car of outside) {
       if (stolen.has(car.id)) continue;
 
-      if (Math.random() < theftChance(car.price)) {
+      if (Math.random() < theftChance(car.price) * theftFactor) {
         stolen.add(car.id);
         db.removeCar(guildId, userId, car.id);
         events.push({ type: 'theft', name: car.name, price: car.price });

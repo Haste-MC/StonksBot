@@ -9,7 +9,9 @@ const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
-  buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView, money,
+  buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
+  buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
+  buildFishingView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -17,6 +19,9 @@ const jobs = require('./jobs');
 const property = require('./property');
 const street = require('./street');
 const condition = require('./condition');
+const identity = require('./identity');
+const workshop = require('./workshop');
+const wallstreet = require('./wallstreet');
 const npc = require('./npc');
 const buyers = require('./buyers');
 const bills = require('./bills');
@@ -147,7 +152,9 @@ async function settle(interaction) {
 }
 
 /** Menüpunkte, bei denen Miete und Stellplätze relevant sind. */
-const RENT_RELEVANT = new Set(['property', 'estate', 'garage', 'new', 'used', 'inbox', 'listings', 'auktion']);
+const RENT_RELEVANT = new Set([
+  'property', 'estate', 'garage', 'werkstatt', 'new', 'used', 'inbox', 'listings', 'auktion',
+]);
 
 /** Baut die offene Menü-Nachricht neu, damit Änderungen sofort sichtbar sind. */
 async function refresh(interaction, entryId) {
@@ -204,7 +211,10 @@ async function shiftResult(interaction, result) {
 
   const embed = new EmbedBuilder()
     .setTitle(`${result.job.emoji} Schicht beendet`)
-    .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.`)
+    .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.` +
+      (result.levelBonus > 0
+        ? `\n🏆 Darin stecken **${money(symbol, result.levelBonus)}** Level-Zuschlag (Level ${result.level}).`
+        : ''))
     .addFields(
       { name: 'Bargeld', value: money(symbol, result.balance.cash), inline: true },
       {
@@ -225,6 +235,21 @@ async function shiftResult(interaction, result) {
         '\n_Ohne Ersatz kannst du diesen Job nicht weiter ausüben._',
     });
     embed.setColor(0xe74c3c);
+  }
+
+  if (result.promotion) {
+    embed.addFields({
+      name: '🎉 Befördert!',
+      value: `Der Chef hat dich bemerkt: Du bist jetzt ` +
+        `**${result.promotion.to.emoji} ${result.promotion.to.title}** ` +
+        `— **+${Math.round((result.promotion.to.pay - 1) * 100)} %** auf jede Schicht.`,
+    });
+    embed.setColor(0xf1c40f);
+  } else if (result.rank) {
+    embed.setFooter({
+      text: `${result.rank.emoji} ${result.rank.title} · ` +
+        `Beförderungschance nächste Schicht: ${Math.round((result.nextChance ?? 0) * 100)} %`,
+    });
   }
 
   if (result.shiftsToday >= result.maxShifts) {
@@ -480,7 +505,8 @@ const buttons = {
       .setTitle('🔑 Gekauft!')
       .setDescription(
         `**${result.listing.name}** gehört jetzt dir.\n` +
-        `<@${result.listing.seller_id}> hat ${money(symbol, result.price)} erhalten.`)
+        `${identity.mention(result.listing.seller_id)} hat ` +
+        `${money(symbol, result.price)} erhalten.`)
       .addFields({ name: 'Neues Bargeld', value: money(symbol, result.newBalance.cash) })
       .setColor(0x16a085);
     if (result.listing.image_url) embed.setThumbnail(result.listing.image_url);
@@ -699,7 +725,8 @@ const buttons = {
       .setTitle('✅ Gebrauchtwagen gekauft!')
       .setDescription(
         `**${result.listing.name}** steht jetzt in deiner Garage.\n` +
-        `<@${result.listing.seller_id}> hat ${money(symbol, result.price)} erhalten.`)
+        `${identity.mention(result.listing.seller_id)} hat ` +
+        `${money(symbol, result.price)} erhalten.`)
       .addFields({ name: 'Neues Bargeld', value: money(symbol, result.newBalance.cash) })
       .setColor(0x2ecc71);
 
@@ -887,6 +914,13 @@ async function unbCash(interaction) {
   catch { return null; }
 }
 
+/** Vollständiges Guthaben (Bargeld + Bank) – die Börse darf beides nutzen. */
+async function unbBalance(interaction) {
+  const unb = require('./unb');
+  try { return await unb.getBalance(gid(interaction), uid(interaction)); }
+  catch { return null; }
+}
+
 function insufficientBanner(res, symbol) {
   return `💸 Zu wenig Bargeld — du hast ${money(symbol, res.have)}, brauchst aber ${money(symbol, res.needed)}.`;
 }
@@ -1051,6 +1085,14 @@ Object.assign(buttons, {
     }).catch(() => {});
   },
 
+  /** Geld-Rangliste: zwischen Gesamt, Bargeld und Bank umschalten. */
+  async top(interaction, [sort]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildTopView({
+      guildId: gid(interaction), userId: uid(interaction), sort,
+    }));
+  },
+
   /** Verschlossene Garagen ansehen. */
   async sgar(interaction) {
     await interaction.deferUpdate();
@@ -1084,7 +1126,266 @@ Object.assign(buttons, {
       : (res.reason === 'empty' ? 'Nichts zu verkaufen.' : '❌ Konnte nicht verkauft werden.');
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
+
+  // ------------------------------------------------------------- Börse
+
+  /** Kursboard nach Anlageklasse filtern. */
+  async wkind(interaction, [kind]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildMarketView({
+      guildId: gid(interaction), userId: uid(interaction),
+      kind: kind === 'all' ? null : kind, page: 1,
+    }));
+  },
+
+  /** Einen Wert öffnen (Kurs, Bestand, alle Kaufwege). */
+  async wdet2(interaction, [symbol, page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildAssetView({
+      guildId: gid(interaction), userId: uid(interaction),
+      symbol, page: Number(page) || 1,
+    }));
+  },
+
+  /** Depot öffnen. */
+  async wdepot(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildDepotView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Kaufen: feste Stückzahl oder "max". */
+  async wbuy(interaction, [symbol, amount, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+
+    let shares = Number(amount);
+    if (amount === 'max') {
+      const quote = wallstreet.quote(guildId, symbol);
+      const balance = await unbBalance(interaction);
+      shares = quote ? wallstreet.sharesFor(quote.price, balance?.total ?? 0) : 0;
+    }
+    await tradeBuy(interaction, symbol, shares, page);
+  },
+
+  /** Kaufen für einen Betrag – die natürlichere Frage als "wie viele Stück". */
+  async wbuyfor(interaction, [symbol, amount, page]) {
+    await interaction.deferUpdate();
+    const quote = wallstreet.quote(gid(interaction), symbol);
+    const shares = quote ? wallstreet.sharesFor(quote.price, Number(amount)) : 0;
+    await tradeBuy(interaction, symbol, shares, page);
+  },
+
+  /** Verkaufen: Anteil des Bestands in Prozent. */
+  async wsell(interaction, [symbol, pct, page]) {
+    await interaction.deferUpdate();
+    const holding = db.getHolding(gid(interaction), uid(interaction), symbol);
+    const held = holding?.shares ?? 0;
+    const shares = Number(pct) >= 100 ? held : Math.floor(held * (Number(pct) / 100));
+    await tradeSell(interaction, symbol, shares, page);
+  },
+
+  /** Eigene Stückzahl eingeben (Modal). */
+  async wmod(interaction, [symbol, side, page]) {
+    const modal = new ModalBuilder()
+      .setCustomId(`wtrade|${symbol}|${side}|${page}|${uid(interaction)}`)
+      .setTitle(side === 'buy' ? 'Kaufen' : 'Verkaufen');
+    const input = new TextInputBuilder()
+      .setCustomId('amount')
+      .setLabel(side === 'buy' ? 'Stückzahl (oder "für 5000")' : 'Stückzahl (oder "alles")')
+      .setStyle(TextInputStyle.Short).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal);
+  },
+
+  /** Angeln: einmal auswerfen. */
+  async fish(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const fishing = require('./fishing');
+    const symbol = await getSymbol(guildId);
+
+    const res = await fishing.fish(guildId, userId);
+    await interaction.editReply(await buildFishingView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      note = res.reason === 'cooldown'
+        ? `⏳ Die Fische brauchen Ruhe – nächster Zug in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`
+        : `🎣 Dafür brauchst du eine **${res.gear}** (🧰 Ausrüstung, ` +
+          `${money(symbol, res.price ?? 0)}).`;
+    } else {
+      note = fishing.describe(res, money(symbol, res.amount)) +
+        (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Selbst schrauben statt in die Werkstatt. */
+  async wself(interaction, [itemId, tierId, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await workshop.selfRepair(guildId, userId, Number(itemId), tierId);
+    await interaction.editReply(await buildRepairView({
+      guildId, userId, key: Number(itemId), page: Number(page) || 1,
+    }));
+
+    const note = res.ok
+      ? (res.botched
+        ? `🔧 **${res.item.name}**: Es hat nicht ganz geklappt – ` +
+          `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.reached)}.\n` +
+          `_Material ist trotzdem weg: ${money(symbol, res.cost)}._`
+        : `🔧 **${res.item.name}** selbst hergerichtet — ` +
+          `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.reached)}.\n` +
+          `Material: ${money(symbol, res.cost)} _(${money(symbol, res.saved)} gespart)_`) +
+        (res.brokeTool ? '\n💥 Dein **Werkzeugkasten** hat es nicht überlebt.' : '') +
+        `\nBargeld: ${money(symbol, res.newBalance.cash)}`
+      : selfRepairFailure(res, symbol);
+
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Werkstatt: Kostenvoranschlag für ein Auto öffnen. */
+  async wdet(interaction, [itemId, page]) {
+    await interaction.update(await buildRepairView({
+      guildId: gid(interaction), userId: uid(interaction),
+      key: Number(itemId), page: Number(page) || 1,
+    }));
+  },
+
+  /**
+   * Reparatur beauftragen. Das Panel zeigt danach den neuen Zustand, das
+   * Ergebnis kommt als kurze private Meldung dazu.
+   */
+  async wfix(interaction, [itemId, tierId, page]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await workshop.repair(guildId, userId, Number(itemId), tierId);
+
+    await interaction.editReply(await buildRepairView({
+      guildId, userId, key: Number(itemId), page: Number(page) || 1,
+    }));
+
+    const note = res.ok
+      ? `${res.quote.tier.emoji} **${res.item.name}** ist fertig — ` +
+        `${condition.labelDetailed(res.quote.from)} → ${condition.labelDetailed(res.quote.to)}.\n` +
+        `Rechnung: ${money(symbol, res.cost)} · Zeitwert jetzt ${money(symbol, res.quote.after)}` +
+        (res.movedFromBank > 0
+          ? `\n_${money(symbol, res.movedFromBank)} von der Bank geholt._` : '') +
+        `\nNeues Bargeld: ${money(symbol, res.newBalance.cash)}`
+      : workshopFailure(res, symbol);
+
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
 });
+
+/** Kauf ausführen, Panel neu aufbauen, Ergebnis privat melden. */
+async function tradeBuy(interaction, symbol, shares, page) {
+  const guildId = gid(interaction);
+  const userId = uid(interaction);
+  const currency = await getSymbol(guildId);
+
+  const res = await wallstreet.buy(guildId, userId, symbol, shares);
+  await interaction.editReply(await buildAssetView({
+    guildId, userId, symbol, page: Number(page) || 1,
+  }));
+
+  const note = res.ok
+    ? `🛒 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** zu ` +
+      `${money(currency, res.price)} gekauft.\n` +
+      `Kosten ${money(currency, res.gross)} + ${money(currency, res.fee)} Gebühr = ` +
+      `**${money(currency, res.total)}**` +
+      (res.movedFromBank > 0 ? `\n_${money(currency, res.movedFromBank)} von der Bank geholt._` : '') +
+      `\nBargeld: ${money(currency, res.newBalance.cash)}`
+    : marketFailure(res, currency);
+
+  await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+/** Verkauf ausführen. */
+async function tradeSell(interaction, symbol, shares, page) {
+  const guildId = gid(interaction);
+  const userId = uid(interaction);
+  const currency = await getSymbol(guildId);
+
+  const res = await wallstreet.sell(guildId, userId, symbol, shares);
+  await interaction.editReply(await buildAssetView({
+    guildId, userId, symbol, page: Number(page) || 1,
+  }));
+
+  const note = res.ok
+    ? `📤 **${res.shares.toLocaleString('de-DE')}× ${res.quote.symbol}** zu ` +
+      `${money(currency, res.price)} verkauft.\n` +
+      `Erlös ${money(currency, res.gross)} − ${money(currency, res.fee)} Gebühr = ` +
+      `**${money(currency, res.net)}**\n` +
+      `${res.profit >= 0 ? '📈 Gewinn' : '📉 Verlust'}: ` +
+      `${res.profit >= 0 ? '+' : ''}${res.profit.toLocaleString('de-DE')} ` +
+      `· Bargeld: ${money(currency, res.newBalance.cash)}`
+    : marketFailure(res, currency);
+
+  await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+}
+
+/** Fehlermeldungen der Börse. */
+function marketFailure(result, currency) {
+  switch (result.reason) {
+    case 'unknown_symbol':
+      return '❌ Diesen Wert gibt es an unserer Börse nicht.';
+    case 'bad_amount':
+      return '❓ Wie viele Stück denn? Sag eine Zahl über null.';
+    case 'too_many':
+      return `📦 So viele auf einmal gehen nicht (höchstens ${result.max.toLocaleString('de-DE')}).`;
+    case 'nothing_held':
+      return 'ℹ️ Davon besitzt du nichts.';
+    case 'not_enough_shares':
+      return `📉 So viele hast du nicht – nur ${result.have.toLocaleString('de-DE')} Stück.`;
+    case 'insufficient_funds':
+      return `💸 Zu wenig Geld: Der Auftrag kostet ${money(currency, result.needed)}, ` +
+        `du hast ${money(currency, result.have)}.`;
+    default:
+      return '❌ Der Auftrag ist nicht durchgegangen.';
+  }
+}
+
+/** Fehlermeldungen fürs Selberschrauben. */
+function selfRepairFailure(result, symbol) {
+  switch (result.reason) {
+    case 'no_tools':
+      return `🧰 Dafür brauchst du einen **${result.needs}** (🧰 Ausrüstung).`;
+    case 'cooldown':
+      return '🔧 Du hast gerade erst geschraubt – Pause bis ' +
+        `**${require('./income').formatRemaining(result.remainingMs)}**.`;
+    default:
+      return workshopFailure(result, symbol);
+  }
+}
+
+/** Fehlermeldungen der Werkstatt. */
+function workshopFailure(result, symbol) {
+  switch (result.reason) {
+    case 'not_owned':
+      return '❌ Dieses Auto steht nicht (mehr) in deiner Garage.';
+    case 'not_a_car':
+      return '🔧 Die Werkstatt nimmt nur Autos an.';
+    case 'already_good':
+      return 'ℹ️ Dafür ist dein Wagen schon zu gut — such dir eine höhere Stufe.';
+    case 'insufficient_funds':
+      return `💸 Zu wenig Geld. Der Auftrag kostet ${money(symbol, result.needed)}, ` +
+        `du hast ${money(symbol, result.have)}.`;
+    default:
+      return '❌ Der Auftrag ist schiefgegangen.';
+  }
+}
 
 // -------------------------------------------------------- Modal-Handler
 
@@ -1107,6 +1408,37 @@ const modals = {
     }));
   },
 
+  /**
+   * Eigene Börsen-Menge wurde eingegeben.
+   * Akzeptiert Stückzahlen, "alles" und "für 5000" – Tippen soll nicht
+   * schwerer sein als Klicken.
+   */
+  async wtrade(interaction, [symbol, side, page]) {
+    await interaction.deferUpdate();
+    const raw = (interaction.fields.getTextInputValue('amount') || '').trim().toLowerCase();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+
+    if (side === 'sell') {
+      const held = db.getHolding(guildId, userId, symbol)?.shares ?? 0;
+      const shares = ['alles', 'all', 'max'].includes(raw)
+        ? held : Math.floor(Number(raw.replace(/[^\d]/g, '')));
+      return tradeSell(interaction, symbol, shares, page);
+    }
+
+    const quote = wallstreet.quote(guildId, symbol);
+    const digits = Math.floor(Number(raw.replace(/[^\d]/g, '')));
+    let shares = digits;
+
+    if (/^(für|fuer|for)\b/.test(raw)) {
+      shares = quote ? wallstreet.sharesFor(quote.price, digits) : 0;
+    } else if (['alles', 'all', 'max'].includes(raw)) {
+      const balance = await unbBalance(interaction);
+      shares = quote ? wallstreet.sharesFor(quote.price, balance?.total ?? 0) : 0;
+    }
+    return tradeBuy(interaction, symbol, shares, page);
+  },
+
   /** Eigenes Auktionsgebot wurde eingegeben. */
   async sbidset(interaction, [lotId]) {
     await interaction.deferUpdate();
@@ -1116,4 +1448,6 @@ const modals = {
   },
 };
 
-module.exports = { buttons, modals, parseId, failureText, shiftResult, settle };
+module.exports = {
+  buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
+};

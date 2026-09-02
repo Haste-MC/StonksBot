@@ -13,7 +13,7 @@ const jobs = require('./data/jobs');
 const guildId = process.argv[2];
 const reset = process.argv.includes('--reset');
 
-if (!guildId || !/^\d{17,20}$/.test(guildId)) {
+if (!guildId || !/^[A-Za-z0-9_][A-Za-z0-9_-]{4,63}$/.test(guildId)) {
   console.error('Aufruf: node src/seed-gear.js <server-id> [--reset]');
   process.exit(1);
 }

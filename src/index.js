@@ -4,12 +4,17 @@ const { Client, Collection, GatewayIntentBits, MessageFlags } = require('discord
 const { discordToken } = require('./config');
 const { buttons, modals, parseId } = require('./buttons');
 const nudges = require('./nudges');
+const bridge = require('./bridge');
+const identity = require('./identity');
+const relay = require('./relay');
 
-// Nachrichten mitlesen (für die !work-Nudges) nur, wenn das Feature an ist –
-// sonst würde der Bot das privilegierte Message-Content-Intent anfordern und
-// ohne Freischaltung im Developer Portal gar nicht erst starten.
+// Nachrichten mitlesen braucht das privilegierte Message-Content-Intent.
+// Nur anfordern, wenn eines der Features es wirklich benötigt – ohne
+// Freischaltung im Developer Portal würde der Bot sonst gar nicht starten.
+const perks = require('./perks');
+const needsMessages = nudges.enabled || relay.enabled || perks.enabled;
 const intents = [GatewayIntentBits.Guilds];
-if (nudges.enabled) {
+if (needsMessages) {
   intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
 }
 
@@ -30,16 +35,61 @@ for (const file of fs.readdirSync(commandsDir).filter((f) => f.endsWith('.js')))
 client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
+
+  // Börsenticker: Kurse bewegen sich auch, wenn niemand zusieht (der einzige
+  // Taktgeber im Bot – warum, steht in wallstreet.js).
+  require('./wallstreet').startTicker(identity.world());
+
+  relay.register('discord', client);
+  if (relay.enabled) {
+    console.log('🔗 Kanal-Brücke: Discord-Seite bereit.');
+    relay.announce();
+  }
+
+  // Fehlende Anzeigenamen nachtragen, damit nirgends eine rohe ID steht.
+  // Verzögert, damit beide Seiten angemeldet sind; Fehler sind egal.
+  setTimeout(() => {
+    require('./names').warm({
+      discord: relay.discordClient(), fluxer: relay.fluxerClient(),
+    }).catch(() => {});
+  }, 5000).unref();
+
 });
 
-// Werbe-Nudges bei UnbelievaBoat-Einkommensbefehlen (nur wenn aktiviert).
-if (nudges.enabled) {
+// Nachrichten im Kanal: Werbe-Nudges und die Brücke nach Fluxer.
+if (needsMessages) {
   client.on('messageCreate', (message) => {
-    nudges.handleMessage(message).catch(() => {});
+    if (nudges.enabled) nudges.handleMessage(message).catch(() => {});
+    if (perks.enabled) workBonus(message).catch(() => {});
+    relay.fromDiscord(message).catch((err) =>
+      console.error('Brücke Discord→Fluxer:', err.message));
   });
 }
 
-client.on('interactionCreate', async (interaction) => {
+/**
+ * Level-Zuschlag auf UnbelievaBoats Auszahlungen: mitlesen, aufschlagen,
+ * kurz Bescheid geben. Warum das so umständlich sein muss, steht in perks.js.
+ */
+async function workBonus(message) {
+  const unb = require('./unb');
+  const result = await perks.handleMessage(message, (accountId, amount, reason) =>
+    unb.changeCash(identity.world(), accountId, amount, reason));
+  if (!result) return;
+
+  const { money } = require('./ui');
+  const symbol = await require('./currency').getSymbol(identity.world());
+  await message.channel.send({
+    content: `🏆 <@${result.userId}> Level ${result.level}: ` +
+      `**+${money(symbol, result.amount)}** Zuschlag auf deine Auszahlung.`,
+    allowedMentions: { users: [result.userId] },
+  }).catch(() => {});
+}
+
+client.on('interactionCreate', async (rawInteraction) => {
+  // Ab hier arbeitet alles mit Welt und Konto statt mit Server und Discord-ID
+  // – das ist die Grundlage der Cross-Progression (siehe bridge.js).
+  const interaction = bridge.wrap(rawInteraction, 'discord');
+
   if (interaction.isButton()) return handleButton(interaction);
   if (interaction.isModalSubmit()) return handleModal(interaction);
   if (!interaction.isChatInputCommand()) return;

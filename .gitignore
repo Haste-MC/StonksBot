@@ -1,5 +1,8 @@
 node_modules/
+# Alle Varianten: .env, .env-old, .env.bak … enthalten Tokens!
 .env
+.env*
+!.env.example
 *.log
 .idea/
 .claude/

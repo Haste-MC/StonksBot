@@ -78,6 +78,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildJobCenterView(ctx),
   },
   {
+    id: 'angeln',
+    group: 'work',
+    label: 'Angeln',
+    emoji: '🎣',
+    description: 'Mit der Angelausrüstung Geld verdienen',
+    style: 'secondary',
+    build: (ctx) => ui.buildFishingView(ctx),
+  },
+  {
     id: 'gear',
     group: 'work',
     label: 'Ausrüstung',
@@ -112,6 +121,15 @@ const ENTRIES = [
     description: 'Deine Autos und ihr Gesamtwert',
     style: 'secondary',
     build: (ctx) => ui.buildGarageView(ctx),
+  },
+  {
+    id: 'werkstatt',
+    group: 'cars',
+    label: 'Werkstatt',
+    emoji: '🛠️',
+    description: 'Beschädigte Autos reparieren lassen',
+    style: 'primary',
+    build: (ctx) => ui.buildWorkshopView(ctx),
   },
   {
     id: 'listings',
@@ -150,6 +168,33 @@ const ENTRIES = [
     build: (ctx) => ui.buildLeaderboardView(ctx),
   },
   {
+    id: 'boerse',
+    group: 'fun',
+    label: 'Börse',
+    emoji: '📈',
+    description: 'Aktien, Fonds und Krypto – Kurse alle 30 min',
+    style: 'success',
+    build: (ctx) => ui.buildMarketView(ctx),
+  },
+  {
+    id: 'depot',
+    group: 'me',
+    label: 'Depot',
+    emoji: '💼',
+    description: 'Deine Wertpapiere und ihr Gewinn',
+    style: 'secondary',
+    build: (ctx) => ui.buildDepotView(ctx),
+  },
+  {
+    id: 'staat',
+    group: 'me',
+    label: 'Staatskasse',
+    emoji: '🏛️',
+    description: 'Der gemeinsame Topf des Servers',
+    style: 'secondary',
+    build: (ctx) => ui.buildTreasuryView(ctx),
+  },
+  {
     id: 'auktion',
     group: 'fun',
     label: 'Auktionshaus',
@@ -180,7 +225,7 @@ const GROUPS = [
   { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
   { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
   { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino und Auktionshaus' },
-  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste' },
+  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Staatskasse' },
 ];
 
 const groupById = new Map(GROUPS.map((g) => [g.id, g]));

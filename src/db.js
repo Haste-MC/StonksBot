@@ -279,6 +279,221 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_garages_user ON storage_garages (guild_id, user_id, won_at);
 `);
 
+// Fluxer-Menüs: Welche Reaktion einer Nachricht löst welche Aktion aus.
+// Fluxer kennt keine Buttons, also merken wir uns die Zuordnung hier – dadurch
+// funktionieren offene Menüs auch nach einem Neustart weiter (wie die
+// zustandslosen Button-IDs im Discord-Original, ARCHITEKTUR §6).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS fluxer_views (
+    message_id TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL,
+    channel_id TEXT NOT NULL DEFAULT '',
+    mapping    TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+
+// Börse: Kurse, Depots und Schlagzeilen.
+//
+// Die Kurse gehören der WELT, nicht dem Spieler – alle sehen dieselben. Sie
+// werden faul fortgeschrieben (siehe wallstreet.js): Beim Öffnen der Börse
+// werden die seit dem letzten Mal vergangenen Stunden nachsimuliert.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_prices (
+    guild_id  TEXT    NOT NULL,
+    symbol    TEXT    NOT NULL,
+    price     INTEGER NOT NULL,
+    tick      INTEGER NOT NULL,        -- bis hierhin simuliert
+    listed_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, symbol)
+  );
+`);
+
+// Zustand des Gesamtmarktes: eine Welt, eine Uhr, eine Stimmung.
+// `vol` ist die aktuelle Nervosität (1 = normal) und wandert langsam – daher
+// gibt es ruhige Wochen und hektische Tage, statt immer gleich viel Zappeln.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_state (
+    guild_id TEXT    PRIMARY KEY,
+    vol      REAL    NOT NULL,
+    tick     INTEGER NOT NULL
+  );
+`);
+
+// Kursverlauf für die Anzeige (Sparkline, Tagesveränderung). Alte Ticks
+// werden gekappt – niemand braucht den Kurs von vorletzter Woche.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_history (
+    guild_id TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    tick     INTEGER NOT NULL,
+    price    INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, symbol, tick)
+  );
+`);
+
+// Depot: wie viele Stücke jemand hält und was er dafür bezahlt hat.
+// `invested` ist die Summe der Kaufpreise OHNE Gebühr – daraus wird der
+// Einstandskurs und damit Gewinn/Verlust berechnet.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_holdings (
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    shares   INTEGER NOT NULL,
+    invested INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, symbol)
+  );
+`);
+
+// Schlagzeilen. Sie entstehen NACH einer Bewegung und erklären sie nur –
+// eine Vorhersage wäre ein garantierter Gewinn (ARCHITEKTUR §3).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS market_news (
+    id       INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id TEXT    NOT NULL,
+    symbol   TEXT    NOT NULL,
+    tick     INTEGER NOT NULL,
+    headline TEXT    NOT NULL,
+    change   REAL    NOT NULL,
+    at       INTEGER NOT NULL
+  );
+`);
+
+// Webhooks der Kanal-Brücke: Damit eine gespiegelte Nachricht drüben mit
+// NAME UND AVATAR des Absenders erscheint, wird sie über einen Webhook
+// gesendet. Dessen Token gibt es nur EINMAL – beim Anlegen. Fluxer gibt ihn
+// beim späteren Abrufen nicht mehr heraus ("fetched webhooks cannot execute"),
+// also muss er hier liegen, sonst bräuchte jeder Neustart einen neuen Webhook.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS relay_webhooks (
+    platform   TEXT NOT NULL,          -- 'discord' | 'fluxer'
+    channel_id TEXT NOT NULL,
+    webhook_id TEXT NOT NULL,
+    token      TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (platform, channel_id)
+  );
+`);
+
+// Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
+// denselben Fortschritt haben. Dafür wird jede Plattform-Identität auf EIN
+// kanonisches Konto abgebildet – siehe src/identity.js.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS account_links (
+    platform   TEXT NOT NULL,          -- 'discord' | 'fluxer'
+    user_id    TEXT NOT NULL,          -- ID auf dieser Plattform
+    account_id TEXT NOT NULL,          -- kanonisches Konto (= Discord-ID)
+    linked_at  INTEGER NOT NULL,
+    PRIMARY KEY (platform, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_links_account ON account_links (account_id);
+
+  -- Anzeigenamen je Konto. Auf Fluxer lassen sich Discord-Erwähnungen nicht
+  -- darstellen, deshalb wird dort stattdessen der Name gezeigt.
+  CREATE TABLE IF NOT EXISTS account_names (
+    account_id TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
+`);
+
+// ------------------------------------------------------------- STAATSKASSE
+// Ein serverweiter Topf, der bei JEDER Geldbuchung mitverdient: 19 % auf
+// Ausgaben (Mehrwertsteuer), 40 % auf Einnahmen (Einkommensteuer).
+//
+// Wichtig: Diese Anteile werden dem Spieler NICHT abgezogen – sie werden aus
+// dem Betrag nur berechnet und hier zusätzlich abgelegt. Deshalb ist das kein
+// Gelddrucker im Sinne von ARCHITEKTUR §3: aus der Kasse fließt nichts an
+// Spieler zurück, sie ist eine reine Senke/Statistik (siehe src/treasury.js).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS treasury (
+    guild_id    TEXT    PRIMARY KEY,
+    balance     INTEGER NOT NULL DEFAULT 0,   -- Stand der Kasse
+    vat_total   INTEGER NOT NULL DEFAULT 0,   -- davon aus Ausgaben (19 %)
+    tax_total   INTEGER NOT NULL DEFAULT 0,   -- davon aus Einnahmen (40 %)
+    spend_base  INTEGER NOT NULL DEFAULT 0,   -- Bemessungsgrundlage Ausgaben
+    income_base INTEGER NOT NULL DEFAULT 0,   -- Bemessungsgrundlage Einnahmen
+    bookings    INTEGER NOT NULL DEFAULT 0,
+    started_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+
+  -- Woher das Geld kommt (Käufe, Arbeit, Börse …). Getrennt nach Art, damit
+  -- sich Mehrwert- und Einkommensteuer je Bereich vergleichen lassen.
+  CREATE TABLE IF NOT EXISTS treasury_sources (
+    guild_id TEXT    NOT NULL,
+    source   TEXT    NOT NULL,
+    kind     TEXT    NOT NULL,               -- 'vat' | 'tax'
+    amount   INTEGER NOT NULL DEFAULT 0,
+    base     INTEGER NOT NULL DEFAULT 0,
+    bookings INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, source, kind)
+  );
+
+  -- Wer wie viel beigetragen hat. Reine Statistik – auch hier zahlt niemand
+  -- wirklich etwas, es ist der auf ihn entfallende Anteil.
+  CREATE TABLE IF NOT EXISTS treasury_payers (
+    guild_id   TEXT    NOT NULL,
+    account_id TEXT    NOT NULL,
+    amount     INTEGER NOT NULL DEFAULT 0,
+    vat        INTEGER NOT NULL DEFAULT 0,
+    tax        INTEGER NOT NULL DEFAULT 0,
+    bookings   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, account_id)
+  );
+
+  -- Die letzten Zuflüsse für die Anzeige. Wird gekappt (siehe LOG_KEEP).
+  CREATE TABLE IF NOT EXISTS treasury_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    account_id TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    base       INTEGER NOT NULL,
+    amount     INTEGER NOT NULL,
+    source     TEXT    NOT NULL DEFAULT '',
+    reason     TEXT    NOT NULL DEFAULT '',
+    at         INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_treasury_log ON treasury_log (guild_id, id);
+`);
+
+// ---------------------------------------------------------------- WALLET
+// Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
+// deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
+// Bargeld und Bank getrennt –, damit src/unb.js ein reiner Austausch bleibt
+// und die gesamte Spiellogik unverändert weiterläuft.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS wallets (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    cash       INTEGER NOT NULL DEFAULT 0,
+    bank       INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+
+  -- Ersetzt das UnbelievaBoat-Transaktionslog: jede Buchung mit Grund.
+  CREATE TABLE IF NOT EXISTS wallet_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    amount     INTEGER NOT NULL,
+    reason     TEXT    NOT NULL DEFAULT '',
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_wallet_log ON wallet_log (guild_id, user_id, created_at);
+
+  -- Cooldowns für wiederkehrende Einkommensbefehle (!daily …).
+  CREATE TABLE IF NOT EXISTS income_claims (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    claimed_at INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, kind)
+  );
+`);
+
 // Zuletzt gesehene Patchnotes-Version nachrüsten ('' = noch nie welche gesehen).
 const statsColumns = new Set(
   db.prepare('PRAGMA table_info(player_stats)').all().map((c) => c.name));
@@ -340,6 +555,11 @@ const employmentColumns = new Set(
 for (const [column, definition] of [
   ['work_day', "TEXT NOT NULL DEFAULT ''"],        // z.B. "2026-07-20"
   ['shifts_today', 'INTEGER NOT NULL DEFAULT 0'],
+  // Beförderungen werden gewürfelt, nicht erreicht – der Rang muss also
+  // gespeichert werden. `rank_at` merkt sich die Schichtzahl beim letzten
+  // Aufstieg; daraus ergibt sich die wachsende Chance (siehe ranks.js).
+  ['rank', 'INTEGER NOT NULL DEFAULT 0'],
+  ['rank_at', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   if (!employmentColumns.has(column)) {
     db.exec(`ALTER TABLE employment ADD COLUMN ${column} ${definition}`);
@@ -602,8 +822,10 @@ const stmt = {
      VALUES (?, ?, ?, ?, 0)
      ON CONFLICT (guild_id, user_id)
      DO UPDATE SET job_id = excluded.job_id, hired_at = excluded.hired_at,
-                   last_work_at = 0, shifts = 0, earned = 0`),
+                   last_work_at = 0, shifts = 0, earned = 0, rank = 0, rank_at = 0`),
   clearEmployment: db.prepare('DELETE FROM employment WHERE guild_id = ? AND user_id = ?'),
+  promote: db.prepare(
+    `UPDATE employment SET rank = ?, rank_at = ? WHERE guild_id = ? AND user_id = ?`),
   recordShift: db.prepare(
     `UPDATE employment
      SET last_work_at = ?, shifts = shifts + 1, earned = earned + ?,
@@ -643,6 +865,18 @@ const stmt = {
   countInventory: db.prepare(
     `SELECT COUNT(*) AS n FROM inventory inv JOIN items i ON i.id = inv.item_id
      WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0 AND i.kind = 'car'`),
+  // Werkstatt: nur Autos unter Neuzustand, die schlimmsten zuerst –
+  // dort ist der Handlungsbedarf am größten.
+  listDamaged: db.prepare(
+    `SELECT i.*, inv.quantity, inv.condition
+     FROM inventory inv JOIN items i ON i.id = inv.item_id
+     WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0
+       AND i.kind = 'car' AND inv.condition < 100
+     ORDER BY inv.condition ASC, i.price DESC LIMIT ? OFFSET ?`),
+  countDamaged: db.prepare(
+    `SELECT COUNT(*) AS n FROM inventory inv JOIN items i ON i.id = inv.item_id
+     WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0
+       AND i.kind = 'car' AND inv.condition < 100`),
   getOwned: db.prepare(
     `SELECT i.*, inv.quantity, inv.condition
      FROM inventory inv JOIN items i ON i.id = inv.item_id
@@ -760,6 +994,127 @@ const stmt = {
   getLoot: db.prepare('SELECT * FROM storage_loot WHERE guild_id = ? AND id = ?'),
   removeLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ? AND id = ?'),
   clearLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ?'),
+  // --- Fluxer-Menüzuordnung ---
+  saveFluxerView: db.prepare(
+    `INSERT INTO fluxer_views (message_id, user_id, channel_id, mapping, updated_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (message_id) DO UPDATE SET
+       user_id = excluded.user_id, channel_id = excluded.channel_id,
+       mapping = excluded.mapping, updated_at = excluded.updated_at`),
+  getFluxerView: db.prepare('SELECT * FROM fluxer_views WHERE message_id = ?'),
+  purgeFluxerViews: db.prepare('DELETE FROM fluxer_views WHERE updated_at < ?'),
+
+  // --- Börse ---
+  getMarketState: db.prepare('SELECT * FROM market_state WHERE guild_id = ?'),
+  setMarketState: db.prepare(
+    `INSERT INTO market_state (guild_id, vol, tick) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id) DO UPDATE SET vol = excluded.vol, tick = excluded.tick`),
+  clearMarketState: db.prepare('DELETE FROM market_state WHERE guild_id = ?'),
+  getPrice: db.prepare('SELECT * FROM market_prices WHERE guild_id = ? AND symbol = ?'),
+  allPrices: db.prepare('SELECT * FROM market_prices WHERE guild_id = ?'),
+  setPrice: db.prepare(
+    `INSERT INTO market_prices (guild_id, symbol, price, tick, listed_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, symbol) DO UPDATE SET
+       price = excluded.price, tick = excluded.tick`),
+  relist: db.prepare(
+    `UPDATE market_prices SET price = ?, tick = ?, listed_at = ?
+     WHERE guild_id = ? AND symbol = ?`),
+  addHistory: db.prepare(
+    `INSERT INTO market_history (guild_id, symbol, tick, price) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, symbol, tick) DO UPDATE SET price = excluded.price`),
+  history: db.prepare(
+    `SELECT tick, price FROM market_history
+     WHERE guild_id = ? AND symbol = ? AND tick >= ? ORDER BY tick ASC`),
+  purgeHistory: db.prepare(
+    'DELETE FROM market_history WHERE guild_id = ? AND symbol = ? AND tick < ?'),
+  clearHistoryOf: db.prepare('DELETE FROM market_history WHERE guild_id = ? AND symbol = ?'),
+
+  getHolding: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND user_id = ? AND symbol = ?'),
+  holdingsOf: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND user_id = ? AND shares > 0'),
+  holdersOf: db.prepare(
+    'SELECT * FROM market_holdings WHERE guild_id = ? AND symbol = ? AND shares > 0'),
+  setHolding: db.prepare(
+    `INSERT INTO market_holdings (guild_id, user_id, symbol, shares, invested)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, symbol) DO UPDATE SET
+       shares = excluded.shares, invested = excluded.invested`),
+  dropHolding: db.prepare(
+    'DELETE FROM market_holdings WHERE guild_id = ? AND user_id = ? AND symbol = ?'),
+  pruneHoldings: db.prepare('DELETE FROM market_holdings WHERE shares <= 0'),
+
+  addNews: db.prepare(
+    `INSERT INTO market_news (guild_id, symbol, tick, headline, change, at)
+     VALUES (?, ?, ?, ?, ?, ?)`),
+  listNews: db.prepare(
+    'SELECT * FROM market_news WHERE guild_id = ? ORDER BY tick DESC, id DESC LIMIT ?'),
+  purgeNews: db.prepare('DELETE FROM market_news WHERE guild_id = ? AND tick < ?'),
+  clearMarket: db.prepare('DELETE FROM market_prices WHERE guild_id = ?'),
+  clearMarketHoldings: db.prepare('DELETE FROM market_holdings WHERE guild_id = ?'),
+  clearMarketNews: db.prepare('DELETE FROM market_news WHERE guild_id = ?'),
+  clearMarketHistory: db.prepare('DELETE FROM market_history WHERE guild_id = ?'),
+
+  // --- Brücken-Webhooks ---
+  setRelayWebhook: db.prepare(
+    `INSERT INTO relay_webhooks (platform, channel_id, webhook_id, token, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (platform, channel_id) DO UPDATE SET
+       webhook_id = excluded.webhook_id, token = excluded.token,
+       created_at = excluded.created_at`),
+  getRelayWebhook: db.prepare(
+    'SELECT * FROM relay_webhooks WHERE platform = ? AND channel_id = ?'),
+  deleteRelayWebhook: db.prepare(
+    'DELETE FROM relay_webhooks WHERE platform = ? AND channel_id = ?'),
+  allRelayWebhooks: db.prepare('SELECT * FROM relay_webhooks'),
+
+  // --- Kontoverknüpfung ---
+  getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
+  setLink: db.prepare(
+    `INSERT INTO account_links (platform, user_id, account_id, linked_at)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (platform, user_id) DO UPDATE SET
+       account_id = excluded.account_id, linked_at = excluded.linked_at`),
+  deleteLink: db.prepare('DELETE FROM account_links WHERE platform = ? AND user_id = ?'),
+  linksOf: db.prepare('SELECT * FROM account_links WHERE account_id = ?'),
+  setAccountName: db.prepare(
+    `INSERT INTO account_names (account_id, name, updated_at) VALUES (?, ?, ?)
+     ON CONFLICT (account_id) DO UPDATE SET name = excluded.name, updated_at = excluded.updated_at`),
+  getAccountName: db.prepare('SELECT name FROM account_names WHERE account_id = ?'),
+  allAccountNames: db.prepare('SELECT account_id, name FROM account_names'),
+
+  // --- Wallet (eigene Wirtschaft) ---
+  getWallet: db.prepare('SELECT * FROM wallets WHERE guild_id = ? AND user_id = ?'),
+  createWallet: db.prepare(
+    `INSERT INTO wallets (guild_id, user_id, cash, bank, created_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  // Eine einzige Anweisung = atomar. Zwischen ihr und dem nächsten await kann
+  // kein zweiter Klick dazwischenfunken (ARCHITEKTUR §7).
+  addCash: db.prepare(
+    'UPDATE wallets SET cash = cash + ? WHERE guild_id = ? AND user_id = ?'),
+  // Bank -> Bar in EINER Anweisung: die Summe kann dabei nicht verloren gehen.
+  moveToCash: db.prepare(
+    'UPDATE wallets SET cash = cash + ?, bank = bank - ? WHERE guild_id = ? AND user_id = ?'),
+  logWallet: db.prepare(
+    `INSERT INTO wallet_log (guild_id, user_id, amount, reason, created_at)
+     VALUES (?, ?, ?, ?, ?)`),
+  walletLog: db.prepare(
+    `SELECT * FROM wallet_log WHERE guild_id = ? AND user_id = ?
+     ORDER BY created_at DESC LIMIT ?`),
+  walletTop: db.prepare(
+    `SELECT user_id, cash, bank, cash + bank AS total FROM wallets
+     WHERE guild_id = ? ORDER BY total DESC LIMIT ?`),
+
+  // --- Einkommens-Cooldowns (!daily …) ---
+  getClaim: db.prepare(
+    'SELECT * FROM income_claims WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+  setClaim: db.prepare(
+    `INSERT INTO income_claims (guild_id, user_id, kind, claimed_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET claimed_at = excluded.claimed_at`),
+  clearClaim: db.prepare(
+    'DELETE FROM income_claims WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+
   deleteRounds: db.prepare('DELETE FROM storage_rounds WHERE guild_id = ?'),
   deleteLots: db.prepare('DELETE FROM storage_lots WHERE guild_id = ?'),
   deleteLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ?'),
@@ -776,6 +1131,63 @@ const stmt = {
   countGarages: db.prepare(
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
+
+  // --- Staatskasse ---
+  getTreasury: db.prepare('SELECT * FROM treasury WHERE guild_id = ?'),
+  // Eine Anweisung je Zufluss: anlegen oder aufaddieren.
+  addTreasury: db.prepare(
+    `INSERT INTO treasury (guild_id, balance, vat_total, tax_total,
+                           spend_base, income_base, bookings, started_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT (guild_id) DO UPDATE SET
+       balance     = balance     + excluded.balance,
+       vat_total   = vat_total   + excluded.vat_total,
+       tax_total   = tax_total   + excluded.tax_total,
+       spend_base  = spend_base  + excluded.spend_base,
+       income_base = income_base + excluded.income_base,
+       bookings    = bookings    + 1,
+       updated_at  = excluded.updated_at`),
+  addTreasurySource: db.prepare(
+    `INSERT INTO treasury_sources (guild_id, source, kind, amount, base, bookings)
+     VALUES (?, ?, ?, ?, ?, 1)
+     ON CONFLICT (guild_id, source, kind) DO UPDATE SET
+       amount   = amount   + excluded.amount,
+       base     = base     + excluded.base,
+       bookings = bookings + 1`),
+  topTreasurySources: db.prepare(
+    `SELECT source,
+            SUM(amount)   AS amount,
+            SUM(base)     AS base,
+            SUM(bookings) AS bookings,
+            SUM(CASE WHEN kind = 'vat' THEN amount ELSE 0 END) AS vat,
+            SUM(CASE WHEN kind = 'tax' THEN amount ELSE 0 END) AS tax
+     FROM treasury_sources WHERE guild_id = ?
+     GROUP BY source ORDER BY amount DESC LIMIT ?`),
+  addTreasuryPayer: db.prepare(
+    `INSERT INTO treasury_payers (guild_id, account_id, amount, vat, tax, bookings)
+     VALUES (?, ?, ?, ?, ?, 1)
+     ON CONFLICT (guild_id, account_id) DO UPDATE SET
+       amount   = amount   + excluded.amount,
+       vat      = vat      + excluded.vat,
+       tax      = tax      + excluded.tax,
+       bookings = bookings + 1`),
+  topTreasuryPayers: db.prepare(
+    'SELECT * FROM treasury_payers WHERE guild_id = ? ORDER BY amount DESC LIMIT ?'),
+  treasuryPayer: db.prepare(
+    'SELECT * FROM treasury_payers WHERE guild_id = ? AND account_id = ?'),
+  logTreasury: db.prepare(
+    `INSERT INTO treasury_log (guild_id, account_id, kind, base, amount, source, reason, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  treasuryLog: db.prepare(
+    'SELECT * FROM treasury_log WHERE guild_id = ? ORDER BY id DESC LIMIT ?'),
+  // Alles außer den letzten N Zeilen wegwerfen – das Log ist reine Anzeige.
+  trimTreasuryLog: db.prepare(
+    `DELETE FROM treasury_log WHERE guild_id = ? AND id NOT IN
+       (SELECT id FROM treasury_log WHERE guild_id = ? ORDER BY id DESC LIMIT ?)`),
+  clearTreasury: db.prepare('DELETE FROM treasury WHERE guild_id = ?'),
+  clearTreasurySources: db.prepare('DELETE FROM treasury_sources WHERE guild_id = ?'),
+  clearTreasuryPayers: db.prepare('DELETE FROM treasury_payers WHERE guild_id = ?'),
+  clearTreasuryLog: db.prepare('DELETE FROM treasury_log WHERE guild_id = ?'),
 };
 
 /** Führt fn in einer Transaktion aus; bei einem Fehler wird alles zurückgerollt. */
@@ -1137,6 +1549,12 @@ function setEmployment(guildId, userId, jobId) {
   return getEmployment(guildId, userId);
 }
 
+/** Setzt Rang und die Schichtzahl, bei der er erreicht wurde. */
+function promote(guildId, userId, rank, atShifts) {
+  stmt.promote.run(Math.max(0, Math.round(rank)), Math.max(0, Math.round(atShifts)),
+    guildId, userId);
+}
+
 function clearEmployment(guildId, userId) {
   return stmt.clearEmployment.run(guildId, userId).changes > 0;
 }
@@ -1206,6 +1624,13 @@ function listInventory(guildId, userId, page = 1) {
  * aufgerufen, damit ein Fehlschlag lokal (und damit zuverlässig) rückgängig
  * gemacht werden kann.
  */
+/** Beschädigte Autos eines Spielers (Zustand < 100), schlimmste zuerst. */
+function listDamaged(guildId, userId, page = 1) {
+  const total = stmt.countDamaged.get(guildId, userId).n;
+  const items = stmt.listDamaged.all(guildId, userId, PAGE_SIZE, (page - 1) * PAGE_SIZE);
+  return { items, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)), page };
+}
+
 function reservePurchase(guildId, userId, itemId, quantity) {
   return transaction(() => {
     const item = stmt.getItem.get(guildId, itemId);
@@ -1522,11 +1947,467 @@ function restoreListing(guildId, buyerId, listing) {
   });
 }
 
+// ------------------------------------------------------ Fluxer-Menüs
+
+/** Merkt sich, welche Reaktion dieser Nachricht welche Aktion auslöst. */
+function saveFluxerView(messageId, userId, mapping, channelId = '') {
+  stmt.saveFluxerView.run(
+    String(messageId), String(userId), String(channelId),
+    JSON.stringify(mapping), Date.now());
+}
+
+/** Die gemerkte Zuordnung einer Nachricht, oder null. */
+function getFluxerView(messageId) {
+  const row = stmt.getFluxerView.get(String(messageId));
+  if (!row) return null;
+  return { ...row, mapping: JSON.parse(row.mapping) };
+}
+
+/** Räumt alte Menüs weg (Standard: älter als 7 Tage). */
+function purgeFluxerViews(before = Date.now() - 7 * 24 * 60 * 60 * 1000) {
+  return stmt.purgeFluxerViews.run(before).changes;
+}
+
+// ------------------------------------------------- Konten zusammenführen
+
+/**
+ * Führt den Spielstand eines Kontos in ein anderes über.
+ *
+ * Nötig, wenn ein Fluxer-Spieler erst losspielt und sich später mit seinem
+ * Discord-Konto verknüpft: Sein bisheriger Fortschritt darf nicht verfallen.
+ *
+ * Läuft komplett in EINER Transaktion – entweder alles wandert, oder nichts.
+ *
+ * Zwei Arten von Tabellen:
+ *  - **umhängen**: mehrere Zeilen je Spieler möglich (Inserate, Fundstücke …)
+ *    -> einfach die Besitzerspalte umschreiben.
+ *  - **eine Zeile je Spieler** (Anstellung, Mietvertrag, Frist …)
+ *    -> nur übernehmen, wenn das Zielkonto dort noch nichts hat.
+ *
+ * Geld ist bewusst NICHT dabei: Das erledigt der Aufrufer über die
+ * Geldschnittstelle, weil es je nach Konto bei UnbelievaBoat liegen kann.
+ *
+ * @returns {{moved: object}} was jeweils übernommen wurde
+ */
+function mergeAccounts(guildId, fromId, toId) {
+  if (String(fromId) === String(toId)) return { moved: {} };
+
+  return transaction(() => {
+    const moved = {};
+    const reassign = (sql, label) => {
+      const res = db.prepare(sql).run(String(toId), guildId, String(fromId));
+      if (res.changes) moved[label] = res.changes;
+    };
+
+    // --- Besitz: Mengen zusammenzählen, damit nichts überschrieben wird ---
+    const items = db.prepare(
+      'SELECT item_id, quantity, condition FROM inventory WHERE guild_id = ? AND user_id = ?'
+    ).all(guildId, String(fromId));
+    for (const row of items) {
+      const target = db.prepare(
+        'SELECT quantity FROM inventory WHERE guild_id = ? AND user_id = ? AND item_id = ?'
+      ).get(guildId, String(toId), row.item_id);
+      if (target) {
+        db.prepare(
+          `UPDATE inventory SET quantity = quantity + ?
+           WHERE guild_id = ? AND user_id = ? AND item_id = ?`
+        ).run(row.quantity, guildId, String(toId), row.item_id);
+      } else {
+        db.prepare(
+          `INSERT INTO inventory (guild_id, user_id, item_id, quantity, condition)
+           VALUES (?, ?, ?, ?, ?)`
+        ).run(guildId, String(toId), row.item_id, row.quantity, row.condition ?? 100);
+      }
+    }
+    if (items.length) {
+      db.prepare('DELETE FROM inventory WHERE guild_id = ? AND user_id = ?')
+        .run(guildId, String(fromId));
+      moved.inventory = items.length;
+    }
+
+    // --- Erfahrung und Statistik addieren ---
+    const stats = db.prepare(
+      'SELECT * FROM player_stats WHERE guild_id = ? AND user_id = ?'
+    ).get(guildId, String(fromId));
+    if (stats) {
+      db.prepare(
+        `INSERT INTO player_stats
+           (guild_id, user_id, xp, income_total, expense_total, tagline, seen_version)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT (guild_id, user_id) DO UPDATE SET
+           xp = xp + excluded.xp,
+           income_total = income_total + excluded.income_total,
+           expense_total = expense_total + excluded.expense_total,
+           tagline = CASE WHEN tagline = '' THEN excluded.tagline ELSE tagline END`
+      ).run(guildId, String(toId), stats.xp, stats.income_total, stats.expense_total,
+        stats.tagline, stats.seen_version);
+      db.prepare('DELETE FROM player_stats WHERE guild_id = ? AND user_id = ?')
+        .run(guildId, String(fromId));
+      moved.stats = stats.xp;
+    }
+
+    // --- Mehrfach-Zeilen: einfach umhängen ---
+    reassign('UPDATE listings SET seller_id = ? WHERE guild_id = ? AND seller_id = ?', 'listings');
+    reassign('UPDATE rent_offers SET landlord_id = ? WHERE guild_id = ? AND landlord_id = ?', 'rentOffers');
+    reassign('UPDATE rentals SET landlord_id = ? WHERE guild_id = ? AND landlord_id = ?', 'tenants');
+    reassign('UPDATE messages SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'messages');
+    reassign('UPDATE storage_loot SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'loot');
+    reassign('UPDATE storage_garages SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'garages');
+    reassign('UPDATE storage_lots SET top_bidder = ? WHERE guild_id = ? AND top_bidder = ?', 'bids');
+    reassign('UPDATE wallet_log SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'walletLog');
+    reassign('UPDATE treasury_log SET account_id = ? WHERE guild_id = ? AND account_id = ?',
+      'treasuryLog');
+
+    // --- Beitrag zur Staatskasse addieren (der Topf selbst bleibt unberührt) ---
+    const paid = db.prepare(
+      'SELECT * FROM treasury_payers WHERE guild_id = ? AND account_id = ?'
+    ).get(guildId, String(fromId));
+    if (paid) {
+      db.prepare(
+        `INSERT INTO treasury_payers (guild_id, account_id, amount, vat, tax, bookings)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (guild_id, account_id) DO UPDATE SET
+           amount   = amount   + excluded.amount,
+           vat      = vat      + excluded.vat,
+           tax      = tax      + excluded.tax,
+           bookings = bookings + excluded.bookings`
+      ).run(guildId, String(toId), paid.amount, paid.vat, paid.tax, paid.bookings);
+      db.prepare('DELETE FROM treasury_payers WHERE guild_id = ? AND account_id = ?')
+        .run(guildId, String(fromId));
+      moved.treasury = paid.amount;
+    }
+
+    // --- Eine Zeile je Spieler: nur übernehmen, wenn das Ziel noch leer ist ---
+    for (const [table, label] of [
+      ['employment', 'employment'], ['rentals', 'rental'], ['capacity_grace', 'grace'],
+      ['street_watch', 'streetWatch'], ['casino_games', 'casinoGame'],
+    ]) {
+      const has = db.prepare(
+        `SELECT 1 FROM ${table} WHERE guild_id = ? AND user_id = ?`
+      ).get(guildId, String(toId));
+      if (has) {
+        db.prepare(`DELETE FROM ${table} WHERE guild_id = ? AND user_id = ?`)
+          .run(guildId, String(fromId));
+      } else {
+        const res = db.prepare(
+          `UPDATE ${table} SET user_id = ? WHERE guild_id = ? AND user_id = ?`
+        ).run(String(toId), guildId, String(fromId));
+        if (res.changes) moved[label] = res.changes;
+      }
+    }
+
+    // Cooldowns (je Art eine Zeile): den späteren behalten, damit das
+    // Zusammenführen kein zusätzliches !daily verschenkt.
+    for (const claim of db.prepare(
+      'SELECT * FROM income_claims WHERE guild_id = ? AND user_id = ?'
+    ).all(guildId, String(fromId))) {
+      db.prepare(
+        `INSERT INTO income_claims (guild_id, user_id, kind, claimed_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET
+           claimed_at = MAX(claimed_at, excluded.claimed_at)`
+      ).run(guildId, String(toId), claim.kind, claim.claimed_at);
+    }
+    db.prepare('DELETE FROM income_claims WHERE guild_id = ? AND user_id = ?')
+      .run(guildId, String(fromId));
+
+    return { moved };
+  });
+}
+
+// ------------------------------------------------------ Kontoverknüpfung
+
+/** Die Verknüpfung einer Plattform-Identität, oder null. */
+// -------------------------------------------------------- Staatskasse
+
+/** Wie viele Log-Zeilen je Welt aufgehoben werden. */
+const TREASURY_LOG_KEEP = 200;
+
+/** Stand der Staatskasse – nie null, eine leere Kasse zählt als 0. */
+function getTreasury(guildId) {
+  return stmt.getTreasury.get(guildId) ?? {
+    guild_id: guildId, balance: 0, vat_total: 0, tax_total: 0,
+    spend_base: 0, income_base: 0, bookings: 0, started_at: 0, updated_at: 0,
+  };
+}
+
+/**
+ * Bucht einen Zufluss in die Staatskasse. Vier synchrone Anweisungen, kein
+ * `await` dazwischen – der Stand kann dabei nicht auseinanderlaufen (§7).
+ */
+function bookTreasury({
+  guildId, accountId, kind, base, amount, source = '', reason = '', at = Date.now(),
+}) {
+  const vat = kind === 'vat' ? amount : 0;
+  const tax = kind === 'tax' ? amount : 0;
+
+  stmt.addTreasury.run(guildId, amount, vat, tax,
+    kind === 'vat' ? base : 0, kind === 'tax' ? base : 0, at, at);
+  stmt.addTreasurySource.run(guildId, source, kind, amount, base);
+  stmt.addTreasuryPayer.run(guildId, String(accountId), amount, vat, tax);
+  stmt.logTreasury.run(guildId, String(accountId), kind, base, amount, source, reason, at);
+
+  const row = stmt.getTreasury.get(guildId);
+  // Nur gelegentlich aufräumen – das Kappen kostet mehr als das Einfügen.
+  if (row && row.bookings % 50 === 0) {
+    stmt.trimTreasuryLog.run(guildId, guildId, TREASURY_LOG_KEEP);
+  }
+  return row;
+}
+
+/** Die ergiebigsten Bereiche (Käufe, Arbeit, Börse …). */
+function topTreasurySources(guildId, limit = 5) {
+  return stmt.topTreasurySources.all(guildId, limit);
+}
+
+/** Wer am meisten beigetragen hat. */
+function topTreasuryPayers(guildId, limit = 5) {
+  return stmt.topTreasuryPayers.all(guildId, limit);
+}
+
+/** Der Beitrag eines einzelnen Kontos – nie null. */
+function treasuryPayer(guildId, accountId) {
+  return stmt.treasuryPayer.get(guildId, String(accountId)) ?? {
+    guild_id: guildId, account_id: String(accountId),
+    amount: 0, vat: 0, tax: 0, bookings: 0,
+  };
+}
+
+/** Die letzten Zuflüsse. */
+function treasuryLog(guildId, limit = 5) {
+  return stmt.treasuryLog.all(guildId, limit);
+}
+
+/** Setzt die Kasse einer Welt zurück (Tests, Admin). */
+function clearTreasury(guildId) {
+  stmt.clearTreasury.run(guildId);
+  stmt.clearTreasurySources.run(guildId);
+  stmt.clearTreasuryPayers.run(guildId);
+  stmt.clearTreasuryLog.run(guildId);
+}
+
+// -------------------------------------------------------------- Börse
+
+/** Uhr und Stimmung des Marktes (oder null beim allerersten Mal). */
+function getMarketState(guildId) {
+  return stmt.getMarketState.get(guildId) ?? null;
+}
+
+function setMarketState(guildId, vol, tick) {
+  stmt.setMarketState.run(guildId, vol, tick);
+}
+
+/** Kurszeile eines Wertes (oder null, wenn er noch nie notiert wurde). */
+function getPrice(guildId, symbol) {
+  return stmt.getPrice.get(guildId, symbol) ?? null;
+}
+
+/** Alle notierten Werte dieser Welt. */
+function allPrices(guildId) {
+  return stmt.allPrices.all(guildId);
+}
+
+/** Schreibt Kurs und Stand der Simulation fort. */
+function setPrice(guildId, symbol, price, tick, listedAt = Date.now()) {
+  stmt.setPrice.run(guildId, symbol, Math.max(1, Math.round(price)), tick, listedAt);
+}
+
+/** Neuemission nach einer Insolvenz: Kurs und Startzeitpunkt zurücksetzen. */
+function relistAsset(guildId, symbol, price, tick, when = Date.now()) {
+  stmt.relist.run(Math.max(1, Math.round(price)), tick, when, guildId, symbol);
+  stmt.clearHistoryOf.run(guildId, symbol);
+}
+
+function addHistory(guildId, symbol, tick, price) {
+  stmt.addHistory.run(guildId, symbol, tick, Math.max(1, Math.round(price)));
+}
+
+/** Kursverlauf ab einem Tick (aufsteigend). */
+function history(guildId, symbol, sinceTick = 0) {
+  return stmt.history.all(guildId, symbol, sinceTick);
+}
+
+function purgeHistory(guildId, symbol, beforeTick) {
+  stmt.purgeHistory.run(guildId, symbol, beforeTick);
+}
+
+/** Depotposition eines Spielers. */
+function getHolding(guildId, userId, symbol) {
+  return stmt.getHolding.get(guildId, userId, symbol) ?? null;
+}
+
+/** Alle Positionen eines Spielers. */
+function holdingsOf(guildId, userId) {
+  return stmt.holdingsOf.all(guildId, userId);
+}
+
+/** Alle Halter eines Wertes – gebraucht bei der Insolvenz-Auszahlung. */
+function holdersOf(guildId, symbol) {
+  return stmt.holdersOf.all(guildId, symbol);
+}
+
+/** Schreibt eine Position (0 Stücke = Position löschen). */
+function setHolding(guildId, userId, symbol, shares, invested) {
+  if (shares <= 0) {
+    stmt.dropHolding.run(guildId, userId, symbol);
+    return;
+  }
+  stmt.setHolding.run(guildId, userId, symbol, Math.round(shares), Math.round(invested));
+}
+
+function addNews(guildId, symbol, tick, headline, change, when = Date.now()) {
+  stmt.addNews.run(guildId, symbol, tick, headline, change, when);
+}
+
+function listNews(guildId, limit = 5) {
+  return stmt.listNews.all(guildId, limit);
+}
+
+function purgeNews(guildId, beforeTick) {
+  stmt.purgeNews.run(guildId, beforeTick);
+}
+
+/** Räumt die ganze Börse dieser Welt ab – für Tests und Resets. */
+function clearMarket(guildId) {
+  return transaction(() => {
+    stmt.clearMarket.run(guildId);
+    stmt.clearMarketHoldings.run(guildId);
+    stmt.clearMarketNews.run(guildId);
+    stmt.clearMarketHistory.run(guildId);
+    stmt.clearMarketState.run(guildId);
+    return true;
+  });
+}
+
+// ------------------------------------------------------ Brücken-Webhooks
+
+/** Merkt sich Webhook-ID und Token eines Brücken-Kanals. */
+function setRelayWebhook(platform, channelId, webhookId, token, when = Date.now()) {
+  stmt.setRelayWebhook.run(platform, channelId, webhookId, token, when);
+}
+
+function getRelayWebhook(platform, channelId) {
+  return stmt.getRelayWebhook.get(platform, channelId) ?? null;
+}
+
+/** Vergisst einen Webhook – etwa wenn er drüben gelöscht wurde. */
+function deleteRelayWebhook(platform, channelId) {
+  return stmt.deleteRelayWebhook.run(platform, channelId).changes > 0;
+}
+
+/** Alle gemerkten Webhooks – beim Start gebraucht, um eigene zu erkennen. */
+function allRelayWebhooks() {
+  return stmt.allRelayWebhooks.all();
+}
+
+function getLink(platform, userId) {
+  return stmt.getLink.get(platform, String(userId)) ?? null;
+}
+
+function setLink(platform, userId, accountId) {
+  stmt.setLink.run(platform, String(userId), String(accountId), Date.now());
+}
+
+function deleteLink(platform, userId) {
+  return stmt.deleteLink.run(platform, String(userId)).changes > 0;
+}
+
+/** Alle Plattform-Identitäten eines Kontos. */
+function linksOf(accountId) {
+  return stmt.linksOf.all(String(accountId));
+}
+
+/** Merkt sich den Anzeigenamen – für Plattformen, die fremde Erwähnungen nicht auflösen. */
+function setAccountName(accountId, name) {
+  stmt.setAccountName.run(String(accountId), String(name), Date.now());
+}
+
+function getAccountName(accountId) {
+  return stmt.getAccountName.get(String(accountId))?.name ?? null;
+}
+
+/**
+ * Alle gemerkten Anzeigenamen. Die Tabelle hat eine Zeile je Konto und ist
+ * damit winzig – der Abgleich (Groß-/Kleinschreibung, Sonderzeichen) passiert
+ * bewusst in JavaScript, weil SQLite kein Unicode-Casefolding kann.
+ */
+function allAccountNames() {
+  return stmt.allAccountNames.all();
+}
+
+// ------------------------------------------------------------------- Wallet
+
+/** Geldbeutel eines Spielers; legt ihn beim ersten Zugriff mit Startguthaben an. */
+function getWallet(guildId, userId, startCash = 0) {
+  let row = stmt.getWallet.get(guildId, userId);
+  if (!row) {
+    stmt.createWallet.run(guildId, userId, startCash, 0, Date.now());
+    row = stmt.getWallet.get(guildId, userId);
+    if (startCash) logWallet(guildId, userId, startCash, 'Startguthaben');
+  }
+  return row;
+}
+
+/** Existiert schon ein Geldbeutel? (ohne einen anzulegen) */
+function hasWallet(guildId, userId) {
+  return !!stmt.getWallet.get(guildId, userId);
+}
+
+/** Verändert das Bargeld – eine Anweisung, also atomar. */
+function addCash(guildId, userId, amount) {
+  return stmt.addCash.run(Math.round(amount), guildId, userId).changes > 0;
+}
+
+/** Schiebt Geld von der Bank aufs Bargeld (negativ = zurück auf die Bank). */
+function moveToCash(guildId, userId, amount) {
+  const value = Math.round(amount);
+  return stmt.moveToCash.run(value, value, guildId, userId).changes > 0;
+}
+
+function logWallet(guildId, userId, amount, reason = '') {
+  stmt.logWallet.run(guildId, userId, Math.round(amount), reason, Date.now());
+}
+
+function walletLog(guildId, userId, limit = 20) {
+  return stmt.walletLog.all(guildId, userId, limit);
+}
+
+/** Reichste Spieler (nur flüssiges Vermögen) – für die Rangliste. */
+function walletTop(guildId, limit = 50) {
+  return stmt.walletTop.all(guildId, limit);
+}
+
+// --------------------------------------------------- Einkommens-Cooldowns
+
+/** Zeitpunkt der letzten Auszahlung dieser Art, oder null. */
+function getClaim(guildId, userId, kind) {
+  return stmt.getClaim.get(guildId, userId, kind) ?? null;
+}
+
+function setClaim(guildId, userId, kind, when = Date.now()) {
+  stmt.setClaim.run(guildId, userId, kind, when);
+}
+
+function clearClaim(guildId, userId, kind) {
+  return stmt.clearClaim.run(guildId, userId, kind).changes > 0;
+}
+
 module.exports = {
   listItems, listBrands, getItem, createItem, deleteItem, updateItemImage, allItemsOfKind,
-  listInventory, reservePurchase, releasePurchase,
+  listInventory, listDamaged, reservePurchase, releasePurchase,
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
   addStats, getStats, listStats, setTagline, setSeenVersion,
+  getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
+  getLink, setLink, deleteLink, linksOf,
+  getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
+  treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
+  getMarketState, setMarketState,
+  getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,
+  getHolding, holdingsOf, holdersOf, setHolding,
+  addNews, listNews, purgeNews, clearMarket,
+  setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
+  setAccountName, getAccountName, allAccountNames, mergeAccounts,
+  saveFluxerView, getFluxerView, purgeFluxerViews,
+  getClaim, setClaim, clearClaim,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,
@@ -1535,7 +2416,7 @@ module.exports = {
   addGarage, listGarages, getGarage, removeGarage, countGarages,
   listListings, allListingsOfKind, getListing, createListing, cancelListing,
   takeListing, restoreListing,
-  getEmployment, setEmployment, clearEmployment, recordShift, shiftsToday, consumeNamed,
+  getEmployment, setEmployment, clearEmployment, promote, recordShift, shiftsToday, consumeNamed,
   ownedGarageSlots, carsOwned, listOwnedProperties, ownedOfKind,
   getRental, startRental, endRental, extendRental, countRentersOf,
   createOffer, deleteOffer, getOffer, listOffers, listOffersOf, offerTaken, tenantsOf,

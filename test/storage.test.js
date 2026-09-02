@@ -82,16 +82,29 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const handCond = data.CONDITIONS.reduce((s, c) => s + (c.weight / totC) * c.mult, 0);
   check('E[Seltenheit] == Σ p·mult', Math.abs(storage.expectedRarityMultiplier() - handRar) < 1e-9);
   check('E[Zustand] == Σ p·mult', Math.abs(storage.expectedConditionMultiplier() - handCond) < 1e-9);
-  check('E[Objekt] = Basis × E[Seltenheit] × E[Zustand]',
-    Math.abs(storage.expectedObjectValue() - storage.objectMean() * handRar * handCond) < 1e-6);
+  check('E[Objekt] (voll) = Basis × E[Seltenheit] × E[Zustand]',
+    Math.abs(storage.expectedObjectValueFull() - storage.objectMean() * handRar * handCond) < 1e-6);
+
+  // Der Startpreis rechnet OHNE den Jackpot-Tail (ab UNPRICED_FROM). Damit das
+  // kein Gelddrucker wird, muss der verschenkte Anteil kleiner sein als der
+  // Hausvorteil – und der Preis trotzdem über dem VOLLEN Erwartungswert liegen.
+  check('Preis-Erwartung liegt unter der vollen (Tail ist geschenkt)',
+    storage.pricedRarityMultiplier() < storage.expectedRarityMultiplier());
+  check(`ungepreister Jackpot-Anteil (${(100 * storage.unpricedShare()).toFixed(1)} %) < Hausvorteil ` +
+    `(${(100 * (storage.HOUSE_MARGIN - 1)).toFixed(0)} %)`,
+    storage.unpricedShare() < storage.HOUSE_MARGIN - 1,
+    `${storage.unpricedShare()} vs ${storage.HOUSE_MARGIN - 1}`);
+  check('Sicherheitsabstand bleibt ≥ 2 Punkte',
+    storage.HOUSE_MARGIN - 1 - storage.unpricedShare() >= 0.02,
+    String(storage.HOUSE_MARGIN - 1 - storage.unpricedShare()));
 
   const carAvg = storage.avgCarValue(G);
   const edgeOk = data.TIERS.every((t) => {
-    const e = storage.expectedValue(t, carAvg);
+    const e = storage.expectedValueFull(t, carAvg);   // VOLLER Erwartungswert
     const s = storage.startPrice(t, carAvg);
-    return s >= e && s <= e * storage.HOUSE_MARGIN + 1;   // = round(E × Marge)
+    return s >= e && s <= e * storage.HOUSE_MARGIN + 1;
   });
-  check('Startpreis ≥ E[Inhalt] für jede Stufe (Hausvorteil)', edgeOk);
+  check('Startpreis ≥ vollem E[Inhalt] für jede Stufe (Hausvorteil)', edgeOk);
 
   console.log('--- Drop-Chancen: legendary 1 %, mythic 0,5 %, Tail respektlos selten ---');
   const rng = mulberry32(1234567);
@@ -104,7 +117,13 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const freq = (id) => (counts[id] || 0) / N;
   console.log(`    common ${(freq('common') * 100).toFixed(1)}% · legendary ${(freq('legendary') * 100).toFixed(3)}% ` +
     `· mythic ${(freq('mythic') * 100).toFixed(3)}% · godlike ${(freq('godlike') * 100).toFixed(4)}%`);
-  check('common ist mit Abstand am häufigsten', freq('common') > 0.55);
+  // Absichtlich als Aussage über die REIHENFOLGE, nicht als feste Prozentzahl:
+  // Wie großzügig die Stufen sind, ist eine Balance-Entscheidung und darf sich
+  // ändern – dass "common" die häufigste Stufe bleibt, nicht.
+  check(`common ist die häufigste Stufe (${(freq('common') * 100).toFixed(1)} %)`,
+    data.RARITIES.every((r) => r.id === 'common' || freq(r.id) < freq('common')) &&
+    freq('common') > 0.4,
+    String(freq('common')));
   check('legendary ≈ 1 % (±0,3)', Math.abs(freq('legendary') - 0.01) < 0.003, String(freq('legendary')));
   check('mythic ≈ 0,5 % (±0,2)', Math.abs(freq('mythic') - 0.005) < 0.002, String(freq('mythic')));
   const order = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic', 'godlike'];
@@ -115,8 +134,44 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
     ['godlike', 'cosmic', 'primordial', 'celestial', 'eternal', 'ascended', 'transcendent', 'omnipotent', 'origin']
       .every((id) => freq(id) < 0.001));
 
+  console.log('--- Balance: die typische Garage ist kein Totalverlust ---');
+  // Regressionsschutz für das Rebalancing: Ohne diese Schranken war der Median
+  // bei 38 % des Startpreises – vier von fünf Käufen fühlten sich wie
+  // Geldverbrennen an. Der Hausvorteil deckelt das nach oben (Median < 1).
+  const rngMed = mulberry32(987654);
+  const ratios = [];
+  for (let i = 0; i < 20000; i++) {
+    const r = storage.rollLot(G, rngMed);
+    ratios.push(r.value / r.startPrice);
+  }
+  ratios.sort((a, b) => a - b);
+  const quant = (p) => ratios[Math.floor(p * (ratios.length - 1))];
+  const winRate = ratios.filter((r) => r >= 1).length / ratios.length;
+  console.log(`    Median ${quant(0.5).toFixed(2)} · p25 ${quant(0.25).toFixed(2)} · ` +
+    `p90 ${quant(0.9).toFixed(2)} · Gewinnquote ${(100 * winRate).toFixed(1)} %`);
+  check('Median-Garage ist ≥ 65 % ihres Preises wert', quant(0.5) >= 0.65, quant(0.5).toFixed(3));
+  check('auch das untere Viertel ist ≥ 45 % wert', quant(0.25) >= 0.45, quant(0.25).toFixed(3));
+  check('Median bleibt unter dem Preis (Hausvorteil wirkt)', quant(0.5) < 1, quant(0.5).toFixed(3));
+  check('jede fünfte Garage lohnt sich', winRate >= 0.20, (100 * winRate).toFixed(1));
+
+  console.log('--- Kein Objekt trägt den halben Preis ---');
+  const totW = data.OBJECTS.reduce((a, o) => a + (o.weight ?? 1), 0);
+  const shares = data.OBJECTS.map((o) =>
+    ((o.weight ?? 1) / totW) * ((o.range[0] + o.range[1]) / 2) / storage.objectMean());
+  check('kein Fundstück macht mehr als 20 % des Durchschnitts aus',
+    Math.max(...shares) <= 0.20,
+    data.OBJECTS[shares.indexOf(Math.max(...shares))].name + ' ' + (100 * Math.max(...shares)).toFixed(1) + ' %');
+
+  console.log('--- In jeder Garage liegt Bargeld ---');
+  const rngCash = mulberry32(13579);
+  let withoutCash = 0;
+  for (let i = 0; i < 3000; i++) if (!storage.rollLot(G, rngCash).contents.cash) withoutCash++;
+  check('Bargeld-Sockel ist garantiert', withoutCash === 0, String(withoutCash));
+  check('jede Stufe hat eine eigene Bargeldspanne',
+    data.TIERS.every((t) => Array.isArray(t.cash) && t.cash[0] > 0));
+
   console.log('--- Wert- & Zustands-Multiplikatoren ---');
-  check('beschädigt = 0,4×', data.conditionOf('beschaedigt').mult === 0.4);
+  check('beschädigt = 0,5×', data.conditionOf('beschaedigt').mult === 0.5);
   check('Sammlerzustand = 3×', data.conditionOf('sammlerzustand').mult === 3.0);
   check('Seltenheits-Multiplikator steigt streng',
     data.RARITIES.every((r, i) => i === 0 || r.mult > data.RARITIES[i - 1].mult));

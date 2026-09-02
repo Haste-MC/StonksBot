@@ -36,7 +36,10 @@ function capacity(guildId, userId) {
   const owned = db.ownedGarageSlots(guildId, userId);
   const rental = db.getRental(guildId, userId);
   const rented = rental ? rental.garage : 0;
-  const total = STREET_SLOTS + owned + rented;
+  // Erfahrung bringt Platz: ab bestimmten Leveln gibt es einen Stellplatz
+  // dazu (siehe perks.js).
+  const bonus = require('./perks').perksOf(guildId, userId).slots;
+  const total = STREET_SLOTS + owned + rented + bonus;
   const used = db.carsOwned(guildId, userId);
 
   return {
@@ -46,6 +49,7 @@ function capacity(guildId, userId) {
     street: STREET_SLOTS,
     owned,
     rented,
+    bonus,
   };
 }
 

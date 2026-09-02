@@ -43,6 +43,11 @@ Design-Frage bei jedem PR. Beispiele, wie das gelöst wurde:
   Rückzahlungsquote (RTP) ≤ 100 %.
 - **Zwangsverkauf / Gebrauchtmarkt**: Erlöse liegen unter dem Neupreis.
 
+- **Staatskasse** ([`treasury.js`](src/treasury.js)): sammelt 19 % / 40 % jeder
+  Buchung, ohne dem Spieler etwas abzuziehen – und zahlt **nichts** an Spieler
+  aus. Eine reine Senke erzeugt kein Geld im Kreislauf; erst eine Auszahlung
+  würde diese Regel berühren.
+
 **Diese Grenzen werden per Monte-Carlo-Test bewiesen, nicht behauptet.** Wenn
 du etwas baust, das Geld auszahlt, schreib einen Test, der über viele tausend
 Durchläufe zeigt, dass die Bilanz nicht positiv kippt (siehe
