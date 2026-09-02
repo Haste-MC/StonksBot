@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.8.0',
+    date: '2026-09-02',
+    title: 'Die Staatskasse',
+    lines: [
+      '🏛️ **Staatskasse:** Ein gemeinsamer Topf für den ganzen Server. Er füllt sich bei jeder Geldbewegung – 19 % bei Ausgaben, 40 % bei Einnahmen.',
+      '💸 **Du zahlst dafür nichts.** Der Anteil wird aus dem Betrag nur berechnet und zusätzlich in die Kasse gelegt. Preise und Verdienste bleiben exakt wie bisher.',
+      '📊 **Woher es kommt:** Die Kasse zeigt die stärksten Bereiche (Fahrzeuge, Arbeit, Börse …), die größten Beitragszahler und die letzten Zuflüsse. `/staat` oder 🏛️ im Menü unter „Ich“.',
+      '🏴 **Nicht deklariert:** Raubzüge und Stornos bleiben außen vor – die Kasse sieht nur echte Buchungen.',
+    ],
+  },
+  {
     version: '1.7.0',
     date: '2026-09-02',
     title: 'Karriere, Angeln und Selberschrauben',

@@ -86,6 +86,12 @@ const COMMANDS = [
     },
   },
   {
+    names: ['staat', 'staatskasse', 'staatskonto', 'kasse'],
+    info: 'Die Staatskasse des Servers',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildTreasuryView({ guildId, userId }) }),
+  },
+  {
     names: ['top', 'reich', 'reichste'],
     info: 'Geld-Rangliste: !top [bar|bank]',
     run: async ({ guildId, userId, args }) =>

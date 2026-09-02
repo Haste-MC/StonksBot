@@ -398,6 +398,66 @@ db.exec(`
   );
 `);
 
+// ------------------------------------------------------------- STAATSKASSE
+// Ein serverweiter Topf, der bei JEDER Geldbuchung mitverdient: 19 % auf
+// Ausgaben (Mehrwertsteuer), 40 % auf Einnahmen (Einkommensteuer).
+//
+// Wichtig: Diese Anteile werden dem Spieler NICHT abgezogen – sie werden aus
+// dem Betrag nur berechnet und hier zusätzlich abgelegt. Deshalb ist das kein
+// Gelddrucker im Sinne von ARCHITEKTUR §3: aus der Kasse fließt nichts an
+// Spieler zurück, sie ist eine reine Senke/Statistik (siehe src/treasury.js).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS treasury (
+    guild_id    TEXT    PRIMARY KEY,
+    balance     INTEGER NOT NULL DEFAULT 0,   -- Stand der Kasse
+    vat_total   INTEGER NOT NULL DEFAULT 0,   -- davon aus Ausgaben (19 %)
+    tax_total   INTEGER NOT NULL DEFAULT 0,   -- davon aus Einnahmen (40 %)
+    spend_base  INTEGER NOT NULL DEFAULT 0,   -- Bemessungsgrundlage Ausgaben
+    income_base INTEGER NOT NULL DEFAULT 0,   -- Bemessungsgrundlage Einnahmen
+    bookings    INTEGER NOT NULL DEFAULT 0,
+    started_at  INTEGER NOT NULL,
+    updated_at  INTEGER NOT NULL
+  );
+
+  -- Woher das Geld kommt (Käufe, Arbeit, Börse …). Getrennt nach Art, damit
+  -- sich Mehrwert- und Einkommensteuer je Bereich vergleichen lassen.
+  CREATE TABLE IF NOT EXISTS treasury_sources (
+    guild_id TEXT    NOT NULL,
+    source   TEXT    NOT NULL,
+    kind     TEXT    NOT NULL,               -- 'vat' | 'tax'
+    amount   INTEGER NOT NULL DEFAULT 0,
+    base     INTEGER NOT NULL DEFAULT 0,
+    bookings INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, source, kind)
+  );
+
+  -- Wer wie viel beigetragen hat. Reine Statistik – auch hier zahlt niemand
+  -- wirklich etwas, es ist der auf ihn entfallende Anteil.
+  CREATE TABLE IF NOT EXISTS treasury_payers (
+    guild_id   TEXT    NOT NULL,
+    account_id TEXT    NOT NULL,
+    amount     INTEGER NOT NULL DEFAULT 0,
+    vat        INTEGER NOT NULL DEFAULT 0,
+    tax        INTEGER NOT NULL DEFAULT 0,
+    bookings   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, account_id)
+  );
+
+  -- Die letzten Zuflüsse für die Anzeige. Wird gekappt (siehe LOG_KEEP).
+  CREATE TABLE IF NOT EXISTS treasury_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    account_id TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    base       INTEGER NOT NULL,
+    amount     INTEGER NOT NULL,
+    source     TEXT    NOT NULL DEFAULT '',
+    reason     TEXT    NOT NULL DEFAULT '',
+    at         INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_treasury_log ON treasury_log (guild_id, id);
+`);
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -1071,6 +1131,63 @@ const stmt = {
   countGarages: db.prepare(
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
+
+  // --- Staatskasse ---
+  getTreasury: db.prepare('SELECT * FROM treasury WHERE guild_id = ?'),
+  // Eine Anweisung je Zufluss: anlegen oder aufaddieren.
+  addTreasury: db.prepare(
+    `INSERT INTO treasury (guild_id, balance, vat_total, tax_total,
+                           spend_base, income_base, bookings, started_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)
+     ON CONFLICT (guild_id) DO UPDATE SET
+       balance     = balance     + excluded.balance,
+       vat_total   = vat_total   + excluded.vat_total,
+       tax_total   = tax_total   + excluded.tax_total,
+       spend_base  = spend_base  + excluded.spend_base,
+       income_base = income_base + excluded.income_base,
+       bookings    = bookings    + 1,
+       updated_at  = excluded.updated_at`),
+  addTreasurySource: db.prepare(
+    `INSERT INTO treasury_sources (guild_id, source, kind, amount, base, bookings)
+     VALUES (?, ?, ?, ?, ?, 1)
+     ON CONFLICT (guild_id, source, kind) DO UPDATE SET
+       amount   = amount   + excluded.amount,
+       base     = base     + excluded.base,
+       bookings = bookings + 1`),
+  topTreasurySources: db.prepare(
+    `SELECT source,
+            SUM(amount)   AS amount,
+            SUM(base)     AS base,
+            SUM(bookings) AS bookings,
+            SUM(CASE WHEN kind = 'vat' THEN amount ELSE 0 END) AS vat,
+            SUM(CASE WHEN kind = 'tax' THEN amount ELSE 0 END) AS tax
+     FROM treasury_sources WHERE guild_id = ?
+     GROUP BY source ORDER BY amount DESC LIMIT ?`),
+  addTreasuryPayer: db.prepare(
+    `INSERT INTO treasury_payers (guild_id, account_id, amount, vat, tax, bookings)
+     VALUES (?, ?, ?, ?, ?, 1)
+     ON CONFLICT (guild_id, account_id) DO UPDATE SET
+       amount   = amount   + excluded.amount,
+       vat      = vat      + excluded.vat,
+       tax      = tax      + excluded.tax,
+       bookings = bookings + 1`),
+  topTreasuryPayers: db.prepare(
+    'SELECT * FROM treasury_payers WHERE guild_id = ? ORDER BY amount DESC LIMIT ?'),
+  treasuryPayer: db.prepare(
+    'SELECT * FROM treasury_payers WHERE guild_id = ? AND account_id = ?'),
+  logTreasury: db.prepare(
+    `INSERT INTO treasury_log (guild_id, account_id, kind, base, amount, source, reason, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  treasuryLog: db.prepare(
+    'SELECT * FROM treasury_log WHERE guild_id = ? ORDER BY id DESC LIMIT ?'),
+  // Alles außer den letzten N Zeilen wegwerfen – das Log ist reine Anzeige.
+  trimTreasuryLog: db.prepare(
+    `DELETE FROM treasury_log WHERE guild_id = ? AND id NOT IN
+       (SELECT id FROM treasury_log WHERE guild_id = ? ORDER BY id DESC LIMIT ?)`),
+  clearTreasury: db.prepare('DELETE FROM treasury WHERE guild_id = ?'),
+  clearTreasurySources: db.prepare('DELETE FROM treasury_sources WHERE guild_id = ?'),
+  clearTreasuryPayers: db.prepare('DELETE FROM treasury_payers WHERE guild_id = ?'),
+  clearTreasuryLog: db.prepare('DELETE FROM treasury_log WHERE guild_id = ?'),
 };
 
 /** Führt fn in einer Transaktion aus; bei einem Fehler wird alles zurückgerollt. */
@@ -1938,6 +2055,27 @@ function mergeAccounts(guildId, fromId, toId) {
     reassign('UPDATE storage_garages SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'garages');
     reassign('UPDATE storage_lots SET top_bidder = ? WHERE guild_id = ? AND top_bidder = ?', 'bids');
     reassign('UPDATE wallet_log SET user_id = ? WHERE guild_id = ? AND user_id = ?', 'walletLog');
+    reassign('UPDATE treasury_log SET account_id = ? WHERE guild_id = ? AND account_id = ?',
+      'treasuryLog');
+
+    // --- Beitrag zur Staatskasse addieren (der Topf selbst bleibt unberührt) ---
+    const paid = db.prepare(
+      'SELECT * FROM treasury_payers WHERE guild_id = ? AND account_id = ?'
+    ).get(guildId, String(fromId));
+    if (paid) {
+      db.prepare(
+        `INSERT INTO treasury_payers (guild_id, account_id, amount, vat, tax, bookings)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (guild_id, account_id) DO UPDATE SET
+           amount   = amount   + excluded.amount,
+           vat      = vat      + excluded.vat,
+           tax      = tax      + excluded.tax,
+           bookings = bookings + excluded.bookings`
+      ).run(guildId, String(toId), paid.amount, paid.vat, paid.tax, paid.bookings);
+      db.prepare('DELETE FROM treasury_payers WHERE guild_id = ? AND account_id = ?')
+        .run(guildId, String(fromId));
+      moved.treasury = paid.amount;
+    }
 
     // --- Eine Zeile je Spieler: nur übernehmen, wenn das Ziel noch leer ist ---
     for (const [table, label] of [
@@ -1979,6 +2117,74 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// -------------------------------------------------------- Staatskasse
+
+/** Wie viele Log-Zeilen je Welt aufgehoben werden. */
+const TREASURY_LOG_KEEP = 200;
+
+/** Stand der Staatskasse – nie null, eine leere Kasse zählt als 0. */
+function getTreasury(guildId) {
+  return stmt.getTreasury.get(guildId) ?? {
+    guild_id: guildId, balance: 0, vat_total: 0, tax_total: 0,
+    spend_base: 0, income_base: 0, bookings: 0, started_at: 0, updated_at: 0,
+  };
+}
+
+/**
+ * Bucht einen Zufluss in die Staatskasse. Vier synchrone Anweisungen, kein
+ * `await` dazwischen – der Stand kann dabei nicht auseinanderlaufen (§7).
+ */
+function bookTreasury({
+  guildId, accountId, kind, base, amount, source = '', reason = '', at = Date.now(),
+}) {
+  const vat = kind === 'vat' ? amount : 0;
+  const tax = kind === 'tax' ? amount : 0;
+
+  stmt.addTreasury.run(guildId, amount, vat, tax,
+    kind === 'vat' ? base : 0, kind === 'tax' ? base : 0, at, at);
+  stmt.addTreasurySource.run(guildId, source, kind, amount, base);
+  stmt.addTreasuryPayer.run(guildId, String(accountId), amount, vat, tax);
+  stmt.logTreasury.run(guildId, String(accountId), kind, base, amount, source, reason, at);
+
+  const row = stmt.getTreasury.get(guildId);
+  // Nur gelegentlich aufräumen – das Kappen kostet mehr als das Einfügen.
+  if (row && row.bookings % 50 === 0) {
+    stmt.trimTreasuryLog.run(guildId, guildId, TREASURY_LOG_KEEP);
+  }
+  return row;
+}
+
+/** Die ergiebigsten Bereiche (Käufe, Arbeit, Börse …). */
+function topTreasurySources(guildId, limit = 5) {
+  return stmt.topTreasurySources.all(guildId, limit);
+}
+
+/** Wer am meisten beigetragen hat. */
+function topTreasuryPayers(guildId, limit = 5) {
+  return stmt.topTreasuryPayers.all(guildId, limit);
+}
+
+/** Der Beitrag eines einzelnen Kontos – nie null. */
+function treasuryPayer(guildId, accountId) {
+  return stmt.treasuryPayer.get(guildId, String(accountId)) ?? {
+    guild_id: guildId, account_id: String(accountId),
+    amount: 0, vat: 0, tax: 0, bookings: 0,
+  };
+}
+
+/** Die letzten Zuflüsse. */
+function treasuryLog(guildId, limit = 5) {
+  return stmt.treasuryLog.all(guildId, limit);
+}
+
+/** Setzt die Kasse einer Welt zurück (Tests, Admin). */
+function clearTreasury(guildId) {
+  stmt.clearTreasury.run(guildId);
+  stmt.clearTreasurySources.run(guildId);
+  stmt.clearTreasuryPayers.run(guildId);
+  stmt.clearTreasuryLog.run(guildId);
+}
+
 // -------------------------------------------------------------- Börse
 
 /** Uhr und Stimmung des Marktes (oder null beim allerersten Mal). */
@@ -2192,6 +2398,8 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
+  getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
+  treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,
   getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,
   getHolding, holdingsOf, holdersOf, setHolding,

@@ -114,15 +114,37 @@ anderem mit 200 zufälligen Buchungen.
 ## Währungssymbol auf Fluxer
 
 Kommt das Symbol von UnbelievaBoat, ist es ein **Discord**-Emoji
-(`<:Rubine:1067…>`) – dessen ID kennt Fluxer nicht, dort stünde nur roher Text.
-Trage das Fluxer-Gegenstück ein:
+(`<:Rubine:1067…>`) – Name **und ID**. Die ID gilt nur auf Discord; Fluxer zeigt
+davon nur Rohtext (`:Rubine:`). Trage das Fluxer-Gegenstück ein:
 
 ```env
 FLUXER_CURRENCY_SYMBOL=<:Rubine:DEINE-FLUXER-EMOJI-ID>
 ```
 
-Ohne Eintrag wird auf den bloßen Namen zurückgefallen (lesbar statt kaputt).
-Übrige Discord-Emojis werden ebenfalls durch ihren Namen ersetzt.
+Die Schreibweise ist nachsichtig – `<:Rubine:154…>`, `Rubine:154…` oder auch
+nur die **ID** werden angenommen und in die Form gebracht, die Fluxer im Text
+versteht (`<:Name:ID>`). Bei einer nackten ID wird der Name ergänzt; gerendert
+wird ohnehin über die ID.
+
+Ohne Eintrag steht dort **🪙** – eine Münze ist überall darstellbar. Übrige
+Discord-Emojis werden durch ihren Namen ersetzt (`<:check:456>` → „check").
+
+Übersetzt wird an **einer** Stelle, [`fluxer/emoji.js`](src/fluxer/emoji.js),
+und die hängt an allen Ausgabewegen:
+
+| Weg | Beispiel |
+|--|--|
+| Embeds (Menüs) | Autohaus, Garage, Rangliste |
+| Textantworten | `!daily`, `!einzahlen`, Kaufbestätigungen |
+| Meldungen aus den Button-Handlern | Miete abgebucht, Auto gestohlen, Zuschlag |
+| Kanal-Brücke | UnbelievaBoats eigene Nachrichten aus Discord |
+
+Vorher hing die Übersetzung nur an den Embeds – deshalb stimmte das Symbol im
+Menü, während direkt daneben `:Rubine: 275` stand. In der Gegenrichtung gilt
+dasselbe: Ein Fluxer-Emoji wird auf Discord zum echten Discord-Emoji
+(Währung) bzw. zu seinem Namen, statt als fremde ID zu zerbrechen.
+[`test/fluxer-render.test.js`](test/fluxer-render.test.js) und
+[`test/relay.test.js`](test/relay.test.js) prüfen beide Richtungen.
 
 ## Kanal-Brücke: gemeinsamer Chat über beide Plattformen
 
@@ -154,7 +176,93 @@ die Nachrichten ohne Text an.
 Gespiegelt wird **alles im Kanal**, in **beide Richtungen** – auch Bot-Ausgaben
 wie UnbelievaBoats Auszahlungen und Überfälle. Embeds werden in lesbaren Text
 umgewandelt, Anhänge als Verweis angehängt, überlange Nachrichten gekürzt.
-Erwähnungen lösen drüben bewusst **keinen Ping** aus.
+
+### Erwähnungen
+
+`<@12345>` schreiben beide Plattformen gleich – aber die ID gilt nur dort, wo
+sie herkommt. Ungefiltert gespiegelt zeigte Discord deshalb
+**@unbekannter-Benutzer** und Fluxer eine tote Zahl.
+[`fluxer/mentions.js`](src/fluxer/mentions.js) übersetzt in drei Stufen:
+
+| | Ergebnis |
+|--|--|
+| Konto ist **verknüpft** (`!link`) | echte Erwähnung der Gegenseite, mit Pill und Farbe |
+| **Eindeutiger Namenstreffer** | ebenfalls echte Erwähnung – auch ohne `!link` |
+| sonst | der Name als Text: `@Diabilon` |
+
+Rollen (`<@&…>`) und Kanäle (`<#…>`) gibt es drüben gar nicht; sie werden zu
+ihrem Namen, damit keine kaputte Klammer stehen bleibt. Gepingt wird nie:
+Die Brücke setzt in beide Richtungen `allowedMentions: { parse: [] }`. Die
+Erwähnung soll lesbar sein, nicht jemanden aus dem Bett klingeln.
+
+### Unter dem Namen des Absenders (Webhooks)
+
+Eine gespiegelte Nachricht erscheint drüben mit **Name und Avatar des
+Absenders**, nicht als `🔵 **Kevin:** Hallo` vom Bot. Beide Plattformen
+erlauben das beim Ausführen eines **Webhooks**: Name und Avatar lassen sich pro
+Nachricht überschreiben.
+
+```env
+RELAY_WEBHOOKS=false            # abschalten, dann wieder die Textform
+RELAY_WEBHOOK_NAME=Kanal-Brücke # Name des Webhooks (nur in den Einstellungen sichtbar)
+RELAY_NAME_SUFFIX= (Fluxer)     # optionaler Zusatz hinter dem Namen
+RELAY_IGNORE_WEBHOOKS=true      # Nachrichten fremder Webhooks nicht spiegeln
+```
+
+Auf Discord braucht der Bot dafür das Recht **„Webhooks verwalten"**. Fehlt es,
+spiegelt die Brücke weiter in der alten Textform – lieber sichtbar als schön.
+Getäuscht wird dabei niemand: Beide Plattformen hängen an Webhook-Nachrichten
+ihr **BOT-Abzeichen**.
+
+Drei Dinge, die dabei leicht schiefgehen:
+
+- **Den Token gibt es nur einmal** – beim Anlegen. Fluxer gibt ihn später nicht
+  mehr heraus („fetched webhooks cannot execute"), deshalb liegt er in der
+  Tabelle `relay_webhooks`. Ohne das bräuchte jeder Neustart einen neuen
+  Webhook, bis der Kanal ins Webhook-Limit läuft.
+- **Der Schleifenschutz musste erweitert werden.** Eine Webhook-Nachricht
+  trägt nicht die Bot-ID, sondern die des Webhooks – die alte Prüfung „ist das
+  unser Bot?" hätte nicht mehr gegriffen, und jede Spiegelung wäre sofort
+  zurückgespiegelt worden. Der Bot merkt sich deshalb die IDs seiner eigenen
+  Webhooks; [`test/relay.test.js`](test/relay.test.js) sichert genau das ab.
+- **Zweite Brücke im selben Kanal?** Läuft dort noch ein anderer Bridge-Bot,
+  sehen sich beide gegenseitig als „echte" Nutzer und schaukeln sich hoch.
+  `RELAY_IGNORE_WEBHOOKS=true` ignoriert alles, was von einem Webhook kommt.
+
+Der Anzeigename wird plattformtauglich gemacht: höchstens 80 Zeichen, kein
+`@everyone`, und „discord"/„clyde" darf laut Discord nicht im Webhook-Namen
+stehen (ein abgelehnter Name würde die ganze Nachricht verschlucken).
+
+**Ein Gesicht für beide Plattformen.** Wer über `!link` verknüpft ist, tritt in
+der Brücke immer mit **Name und Avatar seines Discord-Kontos** auf – auch wenn
+er auf Fluxer schreibt und dort anders heißt. Das passt zur Grundidee des
+duo-Branches: ein Konto, zwei Zugänge. Wer nicht verknüpft ist (`fx:…`), behält
+sein Fluxer-Aussehen; ein anderes gibt es für ihn ja nicht. Nachrichten, die
+auf Discord entstehen, behalten ihren **Servernamen** (Spitzname) – der ist
+näher dran als der globale Name.
+
+**Auch ohne `!link`.** Verknüpfen ist für den Spielstand gedacht, nicht fürs
+Aussehen – niemand soll dazu gezwungen werden, nur damit die Brücke hübsch ist.
+Heißt jemand auf Fluxer so wie **genau ein** bekanntes Discord-Konto, wird
+dessen Gesicht benutzt. Zwei Sicherungen:
+
+- Nur **eindeutige** Treffer zählen. Zwei „Kevin" auf Discord → keiner.
+- Es geht ausschließlich um die **Darstellung**. Konto, Geld und Fortschritt
+  hängen weiterhin allein an `!link`; ein Fehlgriff kostet höchstens ein
+  falsches Profilbild an einer gespiegelten Nachricht.
+
+Woher der Bot die Discord-Namen kennt, ohne die Mitgliederliste abzufragen (die
+bräuchte ein privilegiertes Intent): Er lernt sie aus dem Verkehr im
+gespiegelten Kanal.
+
+```env
+RELAY_DISCORD_IDENTITY=false   # aus: jeder sieht aus wie auf seiner Plattform
+RELAY_MATCH_NAMES=false        # aus: Discord-Gesicht nur für verknüpfte Konten
+```
+
+Das Discord-Gesicht wird 15 Minuten gemerkt, damit nicht jede Nachricht eine
+Abfrage auslöst. Fehlt der Discord-Client (Einzelbetrieb) oder ist das Konto
+nicht auffindbar, gilt wieder das Plattform-Aussehen.
 
 **Schleifenschutz:** Die eigenen Nachrichten des Bots werden nie gespiegelt.
 Ohne diese Regel würde jede weitergeleitete Nachricht drüben erneut weitergeleitet
@@ -196,6 +304,273 @@ Die Rollen liest der **Discord**-Client – auch für Fluxer-Spieler, sofern ihr
 Konto verknüpft ist. Genau dafür ist der duo-Betrieb gut: Beide Clients laufen im
 selben Prozess. Ohne Verknüpfung gibt es keine Rollen und damit kein Einkommen –
 ein guter Anreiz für `!link`.
+
+## Namen statt IDs
+
+Konten sind IDs, Menschen sind Namen. Nicht verknüpfte Fluxer-Spieler haben das
+Konto `fx:12345` – und daraus wird auf **keiner** Plattform eine Erwähnung. In
+der Rangliste stand deshalb roh `<@fx:12345>`.
+
+Alle Ansichten gehen jetzt über zwei Helfer in
+[`identity.js`](src/identity.js):
+
+| Fall | Ausgabe |
+|--|--|
+| Discord-Konto | `<@498…>` – echte Erwähnung, auf Fluxer durch den Namen ersetzt |
+| Fluxer-Konto mit bekanntem Namen | **Simon** |
+| noch unbekannt | **Spieler #5544** – nie eine rohe ID, aber unterscheidbar |
+
+Den Namen lernt der Bot von selbst, an drei Stellen und ohne Zutun des
+Spielers:
+
+1. **Bedienung** – wer den Bot benutzt, ist sofort bekannt.
+2. **Kanal-Brücke** – wer im gespiegelten Kanal schreibt, ebenso; das gilt für
+   beide Plattformen.
+3. **Einmal beim Start** – [`names.js`](src/names.js) trägt die Namen zu allen
+   Konten nach, die schon Geld oder Fortschritt haben. Das erwischt die
+   Bestandsspieler von vor der Namensmerkung.
+
+Dafür braucht es **kein** privilegiertes Intent: Ein einzelnes Konto per ID
+abzufragen ist auf beiden Plattformen erlaubt – nur das Auflisten aller
+Mitglieder wäre es nicht.
+
+Abgesichert in [`test/names.test.js`](test/names.test.js).
+
+## Karriere und Tätigkeiten
+
+### Beförderungen
+
+Eine Beförderung ist **kein erreichter Schwellenwert, sondern ein Wurf nach
+jeder Schicht**. Die Chance steigt mit jeder Schicht seit dem letzten Aufstieg
+– wer lange dieselbe Arbeit macht, wird irgendwann bemerkt. Zwei Leute mit
+gleich vielen Schichten können also unterschiedlich weit sein, und der nächste
+Aufstieg kann jederzeit kommen.
+
+**Nach oben ist die Leiter offen.** Es gibt keinen höchsten Rang; nach den
+benannten Stufen zählt ein Stern hoch (`Teilhaber:in ★17`). Damit das nicht in
+absurde Löhne kippt, wachsen zwei Dinge gegenläufig:
+
+| | |
+|--|--|
+| **Chance** | `3 % × Schichten seit dem Aufstieg ÷ (1 + Rang × 0,6)`, gedeckelt bei 50 % |
+| **Lohn** | `1 + 0,25 × ln(1 + Rang)` – wächst immer, aber mit abnehmendem Schwung |
+
+| Rang | Titel | Lohn | Ø Schichten bis zum nächsten |
+|--|--|--|--|
+| 0 | 🔰 Aushilfe | ×1,00 | 7 |
+| 1 | 🥉 Fachkraft | ×1,17 | 9 |
+| 3 | 🥇 Meister:in | ×1,35 | 12 |
+| 8 | 👑 Teilhaber:in | ×1,55 | 17 |
+| 25 | 🌟 Teilhaber:in ★17 | ×1,81 | 28 |
+
+Der Rang wird **gespeichert** (`employment.rank`), weil er gewürfelt ist und
+sich nicht aus der Schichtzahl ableiten lässt; `rank_at` merkt sich die
+Schichtzahl beim letzten Aufstieg, daraus ergibt sich die wachsende Chance.
+Ein Jobwechsel setzt beides auf null: Bleiben ist eine echte Entscheidung
+gegen den nächsthöheren Job. Das Arbeitsamt zeigt die aktuelle Chance an.
+
+### Angeln 🎣
+
+Ausrüstung war bisher reine Job-Voraussetzung: gekauft, eingelagert,
+vergessen. Wer eine **Angelausrüstung** besitzt, kann damit jetzt selbst etwas
+anfangen – ohne Anstellung, ohne Bewerbung.
+
+```
+!angeln          einmal auswerfen (auch !fischen)
+```
+
+Auf Discord `/angeln` oder 🎣 unter Arbeit. Alle 20 Minuten ein Zug, 18
+mögliche Fänge vom alten Stiefel über Hecht und Wels bis zur versunkenen
+Geldkassette. Der Wert hängt an der **Größe** – derselbe Karpfen ist mal 4,
+mal 18 Kilo schwer. Manchmal beißt nichts, und die Rute kann brechen.
+
+### Selbst schrauben 🔧
+
+Mit einem **Werkzeugkasten** repariert man in der Werkstatt selbst und zahlt
+nur Material statt des Werkstattpreises. Zusatzwerkzeug hilft: Die Hebebühne
+senkt den Materialaufschlag, das Diagnosegerät und das Schweißgerät senken das
+Pfuschrisiko.
+
+| | Werkstatt | selbst (nur Kasten) | selbst (voll ausgestattet) |
+|--|--|--|--|
+| Aufschlag | ×1,04 – ×1,09 | ×1,03 | ×1,005 |
+| Risiko | keins | 25 % Pfusch | 2 % Pfusch |
+| Tempo | sofort | 45 min Pause | 45 min Pause |
+
+**Die Regel bleibt auch hier:** Eine Reparatur kostet immer mehr, als sie an
+Wert zurückbringt – sonst wäre der Weg offen, Wracks zu kaufen, selbst
+herzurichten und zum Zeitwert zu verkaufen (ARCHITEKTUR §3). Der Aufschlag ist
+nur kleiner als in der Werkstatt, nie kleiner als 1; das prüft
+[`test/activities.test.js`](test/activities.test.js) für jede Kombination aus
+Preis, Zustand und Werkzeugpark. Bei Pfusch steigt der Zustand nur teilweise,
+das Material ist trotzdem bezahlt – und der Werkzeugkasten kann dabei
+draufgehen.
+
+## Level-Vorteile: wofür man überhaupt levelt
+
+Erfahrung sammelte man bisher nebenbei, ohne dass sie etwas bewirkt hätte.
+Jetzt hängen fünf Vorteile daran – alle in [`perks.js`](src/perks.js), damit
+man beim Balancing nicht durch zehn Dateien sucht.
+
+| Vorteil | Wirkung | Deckel |
+|--|--|--|
+| 💰 **Einkommen** | +2 % je Level auf `!daily`, jede Schicht und `!work` | +60 % (Level 30) |
+| 📉 **Börsengebühr** | −2 % je Level | −50 % |
+| 🅿️ **Stellplätze** | je einer ab Level 10, 20 und 35 | +3 |
+| 🛡️ **Straße** | geringeres Diebstahlrisiko, −2 % je Level | −40 % |
+
+Sichtbar sind sie im **Profil** (`/profil`) samt nächstem Meilenstein – ohne
+diese Anzeige wäre das Levelsystem eine Zahl ohne Wirkung. Beim Tagesbonus und
+bei jeder Schicht steht der Zuschlag in der Antwort.
+
+### Zuschlag auf UnbelievaBoats `!work`
+
+UnbelievaBoats Auszahlung können wir nicht ändern – fremder Bot, eigene
+Datenbank. Also legt der Bot drauf: Er liest die Auszahlung mit und bucht den
+Aufschlag hinterher.
+
+Das Zuordnen ist der heikle Teil, denn die Antwort des fremden Bots hat keinen
+Bezug zum Befehl. Deshalb in zwei Schritten: Wer `!work` schreibt, hinterlässt
+einen Anspruch im Kanal; die nächste Bot-Nachricht dort löst ihn ein, und die
+größte Zahl darin gilt als Auszahlung. Absichtlich vorsichtig – ein offener
+Anspruch je Kanal, 20 Sekunden Zeitfenster, Cooldown je Spieler, Obergrenze
+für die erkannte Summe. Im Zweifel passiert lieber nichts, als dass jemand
+fremdes Geld bekommt.
+
+```env
+WORK_BONUS=true                 # aus, solange nicht gesetzt
+WORK_BONUS_COMMANDS=work,daily,crime,slut,beg
+WORK_BONUS_COOLDOWN_MIN=20
+```
+
+Braucht wie die Nudges das **Message Content Intent** und den Präfix
+(`!work`) – UnbelievaBoats Slash-Befehle sind für uns unsichtbar.
+
+### Was bewusst KEINEN Rabatt bekommt
+
+Zwei Systeme bleiben unangetastet, weil dort der Aufschlag knapp über der
+Grenze liegt, die den Bot vor einem Gelddrucker schützt (ARCHITEKTUR §3):
+
+- **Werkstatt** – der Preis liegt nur wenige Prozent über dem Wertzuwachs. Ein
+  Level-Rabatt machte daraus ein Geschäft: reparieren, verkaufen, Gewinn.
+- **Auktionshaus** – der Startpreis liegt knapp über dem Erwartungswert des
+  Inhalts. Jeder Nachlass drehte den Erwartungswert ins Plus.
+
+Die **Börsengebühr** darf sinken, aber nie auf null: Sie ist der Grund, warum
+die Börse unterm Strich eine Geldsenke ist. Das Einkommen zu erhöhen ist
+dagegen unbedenklich – `!daily`, Schichten und `!work` sind ohnehin die
+geplanten Geldquellen.
+
+Gedeckelt ist alles, weil **jede Geldbuchung XP gibt**: Ohne Obergrenze wäre
+mehr Einkommen → mehr XP → mehr Level → mehr Einkommen eine sich selbst
+verstärkende Schleife. [`test/perks.test.js`](test/perks.test.js) prüft die
+Deckel und dass Werkstatt, Auktionshaus und Gebührenuntergrenze unangetastet
+bleiben.
+
+## Wallstreet: die simulierte Wirtschaft
+
+25 handelbare Werte in drei Anlageklassen, Kurse ändern sich **alle 30
+Minuten**.
+
+```
+!boerse [seite]              Kursboard (auch !aktien)
+!depot                       eigener Bestand mit Gewinn/Verlust
+!invest <kürzel> <stück>     kaufen – auch „für 20000" oder „alles"
+!verkaufe <kürzel> [stück]   verkaufen – ohne Angabe alles
+```
+
+Auf Discord `/boerse` (mit `wert:HAST` direkt zum Papier) und `/depot`, dazu
+📈 **Börse** unter Zocken und 💼 **Depot** unter Ich.
+
+| Klasse | Beispiele | Charakter |
+|--|--|--|
+| **Aktien** (16) | Haste Motors, Miro Pharma, Casino Royale | mittlere Schwankung, eigene Geschichte, gemeinsamer Markttrend |
+| **Fonds** (3) | Haste-Index, Krypto-Korb, Blue-Chip | Mittelwert ihres Korbs – ruhiger Einstieg |
+| **Krypto** (6) | RubinCoin, QuakCoin, ToastCoin | wild, eigener Trend, kann pleitegehen |
+
+**Kaufwege:** Stückzahlen (1/5/10/50/Max), Beträge („für 10.000"), eigene
+Eingabe – und beim Verkauf 25/50/100 % des Bestands oder eine Stückzahl. Auf
+Fluxer geht dasselbe per Text: `!invest RUBI für 20000`.
+
+### Kein Gelddrucker (ARCHITEKTUR §3)
+
+Hier ist die Regel schwerer einzuhalten als anderswo, weil der Spieler selbst
+entscheidet, wann er kauft. Der Kurs ist deshalb ein **Martingal**: Der
+Erwartungswert des nächsten Kurses ist exakt der aktuelle. Gewürfelt wird
+`exp(σ·z − σ²/2)`; für normalverteiltes z hebt der Abzug den Aufwärtseffekt
+der Schwankung genau auf. Ohne ihn hätte jeder Wert eine eingebaute Drift –
+und je wilder ein Coin, desto mehr Geld aus dem Nichts.
+
+Folge: **Keine Strategie hat einen Vorteil.** Halten, Dips kaufen, Trends
+reiten, würfeln – alles hat den Erwartungswert null. Darauf kommt die Gebühr
+von 1 % je Auftrag, und damit ist die Börse unterm Strich eine Geldsenke.
+Keine Zinsen, keine Dividende, kein Bonus – all das wäre Geld aus dem Nichts.
+
+[`test/wallstreet.test.js`](test/wallstreet.test.js) beweist beides:
+analytisch (E[Ertrag] = 1 über 200.000 Schritte je Schwankungsstufe) und
+empirisch (vier Strategien über je 600 Kursbahnen; zusätzlich exakt: auf
+derselben Bahn ist das Ergebnis mit Gebühr immer genau um die gezahlten
+Gebühren schlechter).
+
+### Was die Kurse realistisch macht
+
+- **Gemeinsamer Marktruck.** Aktien bewegen sich nicht unabhängig: Pro Takt
+  gibt es einen Ruck für den ganzen Markt, auf den jeder Wert mit eigenem
+  Rauschen reagiert. Erst dadurch gibt es „rote Tage" – und der Index wird zu
+  einer echten Aussage.
+- **Nervositätsphasen.** Eine träge um 1 pendelnde Volatilität skaliert alle
+  Schwankungen: ruhige Wochen, hektische Tage. Sie ändert nur die Streuung,
+  nie die Richtung.
+- **Echte Diversifikation.** Ein Fonds hat keinen eigenen Zufall, sein Kurs
+  **ist** der Mittelwert seines Korbs. Dass er weniger schwankt, ist deshalb
+  keine gesetzte Zahl, sondern ergibt sich – und wird im Test nachgemessen.
+- **Schlagzeilen** entstehen **nach** einer Bewegung und erklären sie nur.
+  Eine Vorhersage wäre ein garantierter Gewinn.
+- **Insolvenz.** Fällt ein Wert unter 5, werden die Halter zum letzten Kurs
+  ausgezahlt (abzüglich der üblichen Gebühr, sonst wäre die Pleite besser als
+  ein Verkauf), es gibt eine Nachricht ins Postfach, und der Wert wird neu
+  notiert. Das verhindert nebenbei einen Exploit: Bei einem Kurs von 1 könnte
+  es nur noch aufwärtsgehen.
+
+### Der Ticker – die eine Ausnahme
+
+Der Rest des Bots rechnet faul ab (§4). Für eine Börse wäre das falsch: Kurse
+müssen sich bewegen, während niemand zusieht. Es gibt deshalb einen echten
+Taktgeber (`startTicker`, alle 30 min). Er ist aber nur ein **Auslöser**, keine
+zweite Codebahn – er ruft dasselbe `advance()` auf, das auch vor jeder Ansicht
+läuft. Simuliert wird gegen die **Uhr**: Ein verpasster Takt (Neustart,
+Ausfall) wird nachgeholt, ein doppelter Aufruf tut nichts. Nachgeholt wird
+höchstens 14 Tage.
+
+Die ganze Nachsimulation läuft in **einer** Transaktion. Ohne sie schrieb
+SQLite jede der 15.000 Verlaufszeilen einzeln auf die Platte – zwei Wochen
+Nachholen dauerten 107 Sekunden statt 0,14.
+
+## Tagesbonus (!daily)
+
+UnbelievaBoats `!daily` gibt es auf Fluxer nicht, also bringt der Bot einen
+eigenen mit – und der erzählt jetzt auch, woher das Geld kam:
+
+```
+!daily     einmal am Tag kassieren (auch !täglich)
+```
+
+```
+🧻 Auf dem Bahnhofsklo Pfandflaschen gesammelt. Riecht nach Erfolg
+   und nach anderem: 🪙 1.612.
+💰 Kontostand: 🪙 48.930
+```
+
+Rund 60 Sprüche in [`data/daily.js`](src/data/daily.js) – von dummem Glück über
+zwielichtig bis eklig, wie bei UnbelievaBoats `!work`. Der Betrag schwankt
+zwischen **200 und 2000** und hängt **nicht** vom Spruch ab; sonst müsste man
+auf gute Zeilen hoffen statt einfach zu kassieren. Eine neue Zeile hinzufügen
+heißt: eine Zeile in die Liste schreiben (Platzhalter `{betrag}`) – der Test in
+[`test/wallet.test.js`](test/wallet.test.js) prüft jede automatisch auf
+Platzhalter, Dubletten und Länge.
+
+Zum Vergleich: eine Job-Schicht bringt 70–800. Wer arbeitet, verdient weiterhin
+mehr als der eine Griff am Tag.
 
 ## Werkstatt: beschädigte Autos wieder aufbauen
 
@@ -255,6 +630,137 @@ Zwei weitere bewusste Entscheidungen, ebenfalls getestet:
 
 [`workshop.js`](src/workshop.js) bucht über dieselbe Geldschnittstelle wie
 alles andere und funktioniert damit auf beiden Plattformen gleich.
+
+## Auktionshaus: Balance der Garagen
+
+Storage Wars fühlte sich wie Geldverbrennen an – zu Recht. Der Startpreis ist
+der **Erwartungswert** des Inhalts plus Hausvorteil, und der Erwartungswert
+wurde von Dingen getragen, die man praktisch nie zieht:
+
+| Ursache | vorher |
+|--|--|
+| Ein einziges Fundstück (Dragonlore) | trug **49 %** des durchschnittlichen Objektwerts, steckte aber nur in 1 von 14 Funden |
+| Funde seltener als 1 : 100 (Mythic und aufwärts) | **19 %** des Preises – eine Lotterie, die man in jeder Garage mitbezahlt hat |
+| Bargeld | lag nur in 15–35 % der Garagen |
+
+Ergebnis: Die **typische** Garage war 38 % ihres Startpreises wert. Der
+Durchschnitt stimmte – aber den bekommt man nur, wenn man tausende Garagen
+kauft. Bei fünf Käufen sieht man den Median, und der war ein Totalverlust.
+
+Vier Stellschrauben, alle in [`data/storage.js`](src/data/storage.js) bzw.
+[`storage.js`](src/storage.js):
+
+1. **Fundgewichte.** Teure Stücke sind jetzt entsprechend selten, statt gleich
+   oft gezogen zu werden wie ein Toaster. Der Preis folgt dem, was üblicherweise
+   drinliegt.
+2**Der unerreichbare Tail wird nicht mehr eingepreist.** Alles ab „Godlike"
+   (< 1 : 2000) fließt in den Inhalt, aber nicht in den Startpreis – geschenkter
+   Bonus statt Dauerabgabe. Damit das keine Geldquelle wird, muss der so
+   verschenkte Anteil (6,1 %) unter dem Hausvorteil (10 %) bleiben; der Test
+   rechnet beides gegeneinander.
+3**Sockel statt Alles-oder-nichts.** In **jeder** Garage liegt Bargeld
+   (Spanne je Größe), und es sind mehr Objekte drin – mehr Stücke heißt näher am
+   Durchschnitt.
+
+Dazu der Hausvorteil von 15 % auf 10 %.
+
+| | vorher | jetzt |
+|--|--|--|
+| typische Garage (Median) | 38 % des Preises | **77 %** |
+| schlechtes Viertel (p25) | 17 % | **61 %** |
+| Garagen mit Gewinn | 19,6 % | **24,7 %** |
+| Ø Inhalt / Ø Preis | 88 % | **95 %** |
+
+**Warum nicht mehr als jede vierte Garage Gewinn bringt:** Der Preis muss über
+dem Erwartungswert liegen, sonst ist die Auktion eine Geldquelle (ARCHITEKTUR
+§3). Bei einer Verteilung mit Jackpots heißt das zwangsläufig, dass die
+Mehrheit der Käufe knapp darunter landet – der Gewinn steckt in den seltenen
+Funden. Erreichbar war also nicht „meistens Gewinn", sondern „meistens ein
+kleiner Verlust statt eines Totalverlusts". Genau das steht jetzt auch im
+Auktions-Panel, damit niemand mit falscher Erwartung bietet.
+
+Abgesichert ist das Rebalancing in
+[`test/storage.test.js`](test/storage.test.js): Median- und p25-Schranken über
+20 000 gewürfelte Garagen, dazu der analytische Nachweis, dass der Startpreis
+weiterhin über dem **vollen** Erwartungswert liegt (Jackpot-Tail eingerechnet).
+
+## Staatskasse: der gemeinsame Topf
+
+```
+!staat            (auch !staatskasse, !staatskonto, !kasse)
+/staat            auf Discord
+🏛️ Staatskasse    im Menü unter „Ich“
+```
+
+Jede Geldbewegung auf dem Server wirft etwas für die Allgemeinheit ab:
+
+| Buchung | Satz | Beispiel |
+|---------|------|----------|
+| **Ausgabe** (Spieler zahlt) | **19 %** Mehrwertsteuer | Auto für 10 000 → 1 900 in die Kasse |
+| **Einnahme** (Spieler kassiert) | **40 %** Einkommensteuer | Schicht über 2 000 → 800 in die Kasse |
+
+### Niemand zahlt dafür etwas
+
+Das ist der Kern und der häufigste Denkfehler: Der Anteil wird **aus dem Betrag
+nur berechnet** und dann *zusätzlich* in die Kasse gelegt. Der Spieler zahlt
+keinen Taler mehr und gibt von seiner Einnahme nichts ab.
+
+```
+vorher:   Spieler −10 000
+nachher:  Spieler −10 000   +   Staatskasse +1 900
+```
+
+Preise, Löhne, Gebühren und jede Bilanz bleiben also exakt wie bisher. Das ist
+in [`test/treasury.test.js`](test/treasury.test.js) direkt geprüft: über 2 000
+zufällige Buchungen verändert sich das Vermögen der Spieler um **exakt** die
+Summe der gebuchten Beträge – die Kasse hat daran keinen Anteil.
+
+### Warum das kein Gelddrucker ist (ARCHITEKTUR §3)
+
+Die Kasse ist eine **reine Senke**: Aus ihr fließt nichts an Spieler zurück. Sie
+erzeugt kein Geld im Kreislauf, sondern zählt, was die Server-Wirtschaft
+umsetzt. §3 wäre erst berührt, wenn jemand daraus ausgezahlt bekäme – deshalb
+gibt es bewusst keine Auszahlfunktion, und der Test prüft, dass es sie auch
+nicht gibt.
+
+### Angebunden an genau einer Stelle
+
+Der Anteil entsteht in `unb.changeCash` – dem zentralen Geld-Choke-Point, durch
+den jede Buchung des ganzen Bots läuft. Ein neues Feature ist damit automatisch
+angeschlossen, ohne dass es etwas davon wissen muss.
+
+Ausgenommen sind:
+
+- **Stornos und Rückerstattungen** (`{ xp: false }`) – sonst würde ein
+  abgebrochener Kauf die Kasse füttern.
+- **Raubzüge** – Beute wird nicht deklariert (sie laufen ohnehin mit
+  `{ xp: false }`).
+- Buchungen mit ausdrücklichem `{ tax: false }`.
+
+Fehlschläge der Kasse werden geschluckt: Eine Geldbuchung darf niemals daran
+scheitern, dass die Statistik danebengeht.
+
+### Was die Ansicht zeigt
+
+- **Kassenstand** und die Aufteilung in Mehrwert- und Einkommensteuer
+- **Umsatz**: die Bemessungsgrundlage beider Seiten und die Zahl der Buchungen
+- **Stärkste Bereiche** – Fahrzeuge, Arbeit, Miete, Börse, Casino, Auktionshaus,
+  Werkstatt, Angeln, Boni, Rechnungen (die Buchungsgründe sind Freitext, daher
+  eine kleine Zuordnung in `treasury.js` statt hunderter Einzelzeilen)
+- **Größte Beitragszahler** und dein eigener Beitrag in der Fußzeile
+- **Die letzten Zuflüsse**
+
+Beim Verknüpfen zweier Konten (`!link`) wandert der Beitrag mit; der Kassenstand
+selbst bleibt davon unberührt.
+
+### Sätze ändern
+
+```
+TREASURY_VAT_RATE=0.19
+TREASURY_TAX_RATE=0.40
+```
+
+Werte zwischen 0 und 1; alles andere fällt auf die Standardsätze zurück.
 
 ## Geld-Rangliste (!top)
 

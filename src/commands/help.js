@@ -53,6 +53,12 @@ module.exports = {
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
         },
         {
+          name: '🏛️ Staatskasse',
+          value: '`/staat` – der gemeinsame Topf des Servers. Er wächst bei jeder Geldbewegung mit, ' +
+            '**ohne dass du etwas abgibst**: 19 % deiner Ausgaben und 40 % deiner Einnahmen werden ' +
+            'zusätzlich obendrauf gelegt.',
+        },
+        {
           name: '👤 Angeben & vergleichen',
           value: '`/profil` dein Steckbrief · `/leaderboard` die Rangliste · `/showcase` ein Auto herzeigen',
         },

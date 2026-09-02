@@ -66,7 +66,9 @@ async function getBalance(guildId, accountId) {
 async function changeCash(guildId, accountId, amount, reason, opts = {}) {
   if (!viaUnb(accountId)) {
     // Das lokale Wallet vergibt die Erfahrung bereits selbst.
-    return wallet.changeCash(guildId, accountId, amount, reason, opts);
+    const local = await wallet.changeCash(guildId, accountId, amount, reason, opts);
+    collectTax(guildId, accountId, amount, reason, opts);
+    return local;
   }
 
   const balance = await unbClient.editUserBalance(
@@ -75,7 +77,23 @@ async function changeCash(guildId, accountId, amount, reason, opts = {}) {
   if (opts.xp !== false) {
     try { require('./level').award(guildId, accountId, amount); } catch { /* egal */ }
   }
+  collectTax(guildId, accountId, amount, reason, opts);
   return balance;
+}
+
+/**
+ * Legt den Anteil der Staatskasse zurück (19 % auf Ausgaben, 40 % auf
+ * Einnahmen). Er wird dem Spieler NICHT abgezogen – siehe src/treasury.js.
+ *
+ * Läuft erst NACH der eigentlichen Buchung: was nie gebucht wurde, wird auch
+ * nicht besteuert. `{ xp: false }` markiert Storno- und Rückerstattungs-
+ * buchungen; die bleiben außen vor, sonst würde ein abgebrochener Kauf die
+ * Kasse füllen. Mit `{ tax: false }` lässt sich das gezielt abschalten.
+ */
+function collectTax(guildId, accountId, amount, reason, opts = {}) {
+  if (opts.tax === false || opts.xp === false) return;
+  try { require('./treasury').collect(guildId, accountId, amount, reason); }
+  catch { /* die Kasse darf eine Buchung nie scheitern lassen */ }
 }
 
 /** Verschiebt Geld von der Bank aufs Bargeld (negativ = zurück auf die Bank). */
@@ -103,4 +121,5 @@ async function leaderboard({ sort = 'total', limit = 25 } = {}) {
 
 module.exports = {
   unb, getBalance, changeCash, withdrawFromBank, leaderboard, viaUnb, UNB_GUILD,
+  collectTax,
 };

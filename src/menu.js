@@ -186,6 +186,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildDepotView(ctx),
   },
   {
+    id: 'staat',
+    group: 'me',
+    label: 'Staatskasse',
+    emoji: '🏛️',
+    description: 'Der gemeinsame Topf des Servers',
+    style: 'secondary',
+    build: (ctx) => ui.buildTreasuryView(ctx),
+  },
+  {
     id: 'auktion',
     group: 'fun',
     label: 'Auktionshaus',
@@ -216,7 +225,7 @@ const GROUPS = [
   { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
   { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
   { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino und Auktionshaus' },
-  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste' },
+  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Staatskasse' },
 ];
 
 const groupById = new Map(GROUPS.map((g) => [g.id, g]));

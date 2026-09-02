@@ -1916,6 +1916,99 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   return { embeds: [embed], components: [metricRow, navRow] };
 }
 
+// --------------------------------------------------------------- Staatskasse
+
+/** "1 Buchung" / "12 Buchungen". */
+function bookings(n) {
+  return `${n.toLocaleString('de-DE')} ${n === 1 ? 'Buchung' : 'Buchungen'}`;
+}
+
+/** Prozent mit einer Nachkommastelle, aber ohne unnötige ",0". */
+function percent(ratio) {
+  const value = (ratio || 0) * 100;
+  return `${value.toFixed(value >= 10 ? 0 : 1).replace('.', ',')} %`;
+}
+
+/**
+ * Die Staatskasse: was der ganze Server bisher zusammengetragen hat.
+ *
+ * Bewusst prominent erklärt, dass niemand dafür zahlt – sonst wirkt es wie
+ * eine versteckte Gebühr, und genau das ist es nicht (siehe treasury.js).
+ */
+async function buildTreasuryView({ guildId, userId }) {
+  const treasury = require('./treasury');
+  const symbol = await getSymbol(guildId);
+  const state = treasury.state(guildId);
+  const mine = treasury.contribution(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏛️ Staatskasse')
+    .setColor(0x1abc9c)
+    .setDescription(
+      `**${money(symbol, state.balance)}**\n` +
+      `_Der gemeinsame Topf des Servers. Bei jedem Kauf fließen ` +
+      `**${percent(treasury.VAT_RATE)}** hinein, bei jeder Einnahme ` +
+      `**${percent(treasury.TAX_RATE)}** – **zusätzlich**, nicht von dir. ` +
+      `Du zahlst keinen Taler mehr und gibst nichts ab._`);
+
+  embed.addFields(
+    {
+      name: `🧾 Mehrwertsteuer (${percent(treasury.VAT_RATE)})`,
+      value: `${money(symbol, state.vat_total)}\n_aus ${money(symbol, state.spend_base)} Ausgaben_`,
+      inline: true,
+    },
+    {
+      name: `💼 Einkommensteuer (${percent(treasury.TAX_RATE)})`,
+      value: `${money(symbol, state.tax_total)}\n_aus ${money(symbol, state.income_base)} Einnahmen_`,
+      inline: true,
+    },
+    {
+      name: '🔁 Umsatz',
+      value: `${money(symbol, state.turnover)}\n_${bookings(state.bookings)}_`,
+      inline: true,
+    },
+  );
+
+  const sources = treasury.sources(guildId, 5);
+  if (sources.length > 0) {
+    embed.addFields({
+      name: '📊 Stärkste Bereiche',
+      value: sources.map((src) =>
+        `${src.emoji} **${src.label}** — ${money(symbol, src.amount)} ` +
+        `_(${percent(state.balance > 0 ? src.amount / state.balance : 0)})_`).join('\n'),
+    });
+  }
+
+  const payers = treasury.payers(guildId, 5);
+  if (payers.length > 0) {
+    const medal = (i) => ['🥇', '🥈', '🥉'][i] ?? `**#${i + 1}**`;
+    embed.addFields({
+      name: '🏅 Größte Beitragszahler',
+      value: payers.map((p, i) =>
+        `${medal(i)} ${identity.mention(p.account_id)} — ${money(symbol, p.amount)}` +
+        (p.account_id === userId ? ' ⬅️ **du**' : '')).join('\n'),
+    });
+  }
+
+  const recent = treasury.recent(guildId, 4);
+  if (recent.length > 0) {
+    embed.addFields({
+      name: '🕒 Zuletzt eingegangen',
+      value: recent.map((r) =>
+        `${r.emoji} +${money(symbol, r.amount)} — _${r.reason || r.label}_`).join('\n'),
+    });
+  }
+
+  embed.setFooter({
+    text: state.bookings === 0
+      ? 'Noch nichts drin – die Kasse füllt sich, sobald auf dem Server Geld bewegt wird.'
+      : `Dein Beitrag: ${plainSymbol(symbol)} ${mine.amount.toLocaleString('de-DE')} ` +
+        `aus ${bookings(mine.bookings)}.`,
+  });
+
+  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(homeButton(userId))] };
+}
+
 // -------------------------------------------------------------- Auktionshaus
 
 /** Kurze, menschliche Restzeit-Angabe. */
@@ -2279,7 +2372,7 @@ module.exports = {
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView,
   buildListingsView, buildBalanceView,
-  buildInboxView, buildProfileView, buildLeaderboardView,
+  buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money,

@@ -21,6 +21,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/inventory [user] [seite]` | Zeigt die Garage von dir oder einem anderen User. |
 | `/showcase [id] [user]` | Zeigt ein Auto aus der Garage groß her (ohne ID: das teuerste). |
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
+| `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
 | `/removeitem <id>` | **Admin:** löscht einen Artikel. |
 
@@ -151,6 +152,21 @@ Miete und für beschädigte Fahrzeuge:
 
 Konfiguration in [`src/data/npc.js`](src/data/npc.js), Logik in
 [`src/npc.js`](src/npc.js).
+
+## Staatskasse
+
+Ein serverweiter Topf, der bei **jeder** Geldbewegung mitverdient: **19 %** bei
+Ausgaben (Mehrwertsteuer) und **40 %** bei Einnahmen (Einkommensteuer).
+
+**Der Spieler zahlt dafür nichts.** Der Anteil wird aus dem Betrag nur
+berechnet und zusätzlich in die Kasse gelegt – ein Auto für 10 000 kostet
+weiterhin genau 10 000, die Kasse notiert dazu 1 900. Preise und Verdienste
+ändern sich durch das Feature an keiner Stelle.
+
+Aus der Kasse fließt nichts an Spieler zurück; sie ist eine reine Senke und
+damit kein Gelddrucker im Sinne von [ARCHITEKTUR §3](ARCHITEKTUR.md). `/staat`
+zeigt Stand, Aufteilung, die stärksten Bereiche, die größten Beitragszahler und
+die letzten Zuflüsse. Ausführlich in [DUO.md](DUO.md#staatskasse-der-gemeinsame-topf).
 
 ## Casino
 
