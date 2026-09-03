@@ -86,6 +86,12 @@ const COMMANDS = [
     },
   },
   {
+    names: ['stream', 'streamen', 'kanal', 'live'],
+    info: 'Dein Streaming-Kanal',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildStreamView({ guildId, userId }) }),
+  },
+  {
     names: ['staat', 'staatskasse', 'staatskonto', 'kasse'],
     info: 'Die Staatskasse des Servers',
     run: async ({ guildId, userId }) =>

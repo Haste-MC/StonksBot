@@ -11,7 +11,7 @@ const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
-  buildFishingView, money,
+  buildFishingView, buildStreamView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1220,6 +1220,38 @@ Object.assign(buttons, {
           `${money(symbol, res.price ?? 0)}).`;
     } else {
       note = fishing.describe(res, money(symbol, res.amount)) +
+        (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Streaming: eine Sendung in der gewählten Kategorie. */
+  async stream(interaction, [categoryId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const streaming = require('./streaming');
+    const symbol = await getSymbol(guildId);
+
+    const res = await streaming.stream(guildId, userId, categoryId);
+    await interaction.editReply(await buildStreamView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      if (res.reason === 'cooldown') {
+        note = '⏳ Du warst gerade erst live – die nächste Sendung geht in ' +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'daily_limit') {
+        note = `😴 ${res.done} von ${res.max} Sendungen heute. Mehr schafft niemand – ` +
+          `morgen wieder (in **${require('./income').formatRemaining(res.resetMs)}**).`;
+      } else if (res.reason === 'no_gear') {
+        note = `🎙️ Dafür brauchst du ein **${res.gear}** (🧰 Ausrüstung, ` +
+          `${money(symbol, res.price ?? 0)}).`;
+      } else {
+        note = '❌ Diese Kategorie gibt es nicht.';
+      }
+    } else {
+      note = streaming.describe(res, (n) => money(symbol, n)) +
         (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});

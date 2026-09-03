@@ -25,7 +25,10 @@ const cleanup = () => {
 cleanup();
 
 console.log('--- Katalog ---');
-check(`viele Jobs vorhanden (${JOBS.length})`, JOBS.length >= 50, String(JOBS.length));
+// Untergrenze, damit das Tagesangebot (5 Stellen) nie eintönig wird.
+// Der Streamer ist bewusst NICHT mehr dabei: Aus ihm wurde eine eigene
+// Tätigkeit am Setup (siehe src/streaming.js).
+check(`viele Jobs vorhanden (${JOBS.length})`, JOBS.length >= 45, String(JOBS.length));
 check('IDs eindeutig', new Set(JOBS.map((j) => j.id)).size === JOBS.length);
 check('alle Tiers bekannt',
   JOBS.every((j) => jobs.TIER_WEIGHT[j.tier] !== undefined),
