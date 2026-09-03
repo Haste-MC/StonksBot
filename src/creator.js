@@ -837,13 +837,13 @@ const FAME_PER_LEVEL = 400;
  */
 const FAME_RANKS = [
   { at: 0, emoji: '🫥', title: 'Unbeschriebenes Blatt' },
-  { at: 1_000, emoji: '🙂', title: 'Vom Sehen bekannt' },
-  { at: 10_000, emoji: '📍', title: 'Lokalgröße' },
-  { at: 50_000, emoji: '🏙️', title: 'Stadtbekannt' },
-  { at: 250_000, emoji: '📺', title: 'Landesweit ein Begriff' },
-  { at: 1_000_000, emoji: '✨', title: 'Prominenz' },
-  { at: 5_000_000, emoji: '🌟', title: 'Superstar' },
-  { at: 20_000_000, emoji: '👑', title: 'Legende' },
+  { at: 10000, emoji: '🙂', title: 'Vom Sehen bekannt' },
+  { at: 25000, emoji: '📍', title: 'Lokalgröße' },
+  { at: 50000, emoji: '🏙️', title: 'Stadtbekannt' },
+  { at: 250000, emoji: '📺', title: 'Landesweit ein Begriff' },
+  { at: 1000000, emoji: '✨', title: 'Prominenz' },
+  { at: 5000000, emoji: '🌟', title: 'Superstar' },
+  { at: 20000000, emoji: '👑', title: 'Legende' },
 ];
 
 /** Der Bekanntheitswert aus Reichweite und Level. */
