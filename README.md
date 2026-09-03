@@ -22,6 +22,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/showcase [id] [user]` | Zeigt ein Auto aus der Garage groß her (ohne ID: das teuerste). |
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
+| `/stream` | Dein Streaming-Kanal: Reichweite aufbauen und live gehen. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
 | `/removeitem <id>` | **Admin:** löscht einen Artikel. |
 
@@ -152,6 +153,20 @@ Miete und für beschädigte Fahrzeuge:
 
 Konfiguration in [`src/data/npc.js`](src/data/npc.js), Logik in
 [`src/npc.js`](src/npc.js).
+
+## Streaming
+
+Das **Streaming-Setup** aus der Ausrüstung hat eine eigene Tätigkeit: einen
+Kanal, den man über viele Sendungen aufbaut. Verdient wird an **Werbung**
+(nach Aufrufen), **Spenden** (nach Laune des Publikums) und **Abos** (nach
+Followern) – sechs Kategorien mit unterschiedlichem Profil, dazu Raids,
+virale Clips, Technikpannen und Trollwellen.
+
+Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Zuschauer wachsen
+unterlinear zur Followerzahl, der Schwund linear – daraus folgt ein
+Gleichgewicht, über das kein Kanal hinauskommt. Dazu höchstens vier Sendungen
+am Tag. Wer pausiert, verliert Follower. Details in
+[DUO.md](DUO.md#streamen-️).
 
 ## Staatskasse
 

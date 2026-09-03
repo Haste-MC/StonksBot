@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.9.0',
+    date: '2026-09-03',
+    title: 'Der eigene Kanal',
+    lines: [
+      '🎙️ **Streaming:** Aus dem Job „Streamer" wird eine eigene Tätigkeit. Wer ein **Streaming-Setup** hat, baut sich damit einen Kanal auf. `/stream` oder 🎙️ unter Arbeit.',
+      '💰 **Drei Einnahmen:** Werbung nach Aufrufen, Spenden nach Laune des Publikums, Abos nach Followern – jede Sendung.',
+      '🎮 **Sechs Kategorien:** Gaming und IRL bringen Reichweite, Just Chatting und Musik ein spendables Publikum, Speedrun treue Follower, Kochen Ruhe. Keine ist insgesamt die beste.',
+      '🚀 **Ereignisse:** Raids, virale Clips und Wale im Chat – dagegen Technikpannen, Trollwellen, Stromausfall und der eine Satz zu viel.',
+      '📉 **Reichweite verfällt:** Wer nicht sendet, verliert Follower. Der Aufbau dauert Wochen, dafür ist ein großer Kanal die stärkste aktive Geldquelle im Spiel.',
+      '⭐ **Der Streamer-Job ist raus** – das Setup kannst du weiterhin in der 🧰 Ausrüstung kaufen (und es kann beim Senden kaputtgehen).',
+    ],
+  },
+  {
     version: '1.8.0',
     date: '2026-09-02',
     title: 'Die Staatskasse',

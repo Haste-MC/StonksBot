@@ -384,6 +384,75 @@ mögliche Fänge vom alten Stiefel über Hecht und Wels bis zur versunkenen
 Geldkassette. Der Wert hängt an der **Größe** – derselbe Karpfen ist mal 4,
 mal 18 Kilo schwer. Manchmal beißt nichts, und die Rute kann brechen.
 
+### Streamen 🎙️
+
+Das **Streaming-Setup** war bisher Voraussetzung für den Job „Streamer". Der
+Job ist raus – stattdessen gehört dem Setup jetzt eine eigene Tätigkeit, und
+zwar die mit Abstand komplexeste.
+
+```
+!stream          dein Kanal (auch !kanal, !live, !streamen)
+/stream          auf Discord, oder 🎙️ unter Arbeit
+```
+
+Der Unterschied zum Angeln: Angeln ist ein Wurf – Cooldown, Zufall, Geld.
+Streaming ist ein **Kanal**, den man über Wochen aufbaut und der wieder
+schrumpft, wenn man ihn liegen lässt. Was du verdienst, hängt nicht am
+einzelnen Klick, sondern an dem, was du dir bis dahin aufgebaut hast.
+
+**Drei Einnahmen, drei Logiken:**
+
+| Quelle | Hängt ab von | Charakter |
+|--------|--------------|-----------|
+| 📺 Werbung | Aufrufen (live + später) | verlässlich, das Brot |
+| 💸 Spenden | Zuschauern und ihrer Laune | Glückssache, gelegentlich absurd |
+| ⭐ Abos | Followern, jede Sendung | wächst langsam, bleibt |
+
+**Sechs Kategorien**, jede mit anderem Profil: Gaming und IRL bringen
+Reichweite (IRL zum Preis des höchsten Risikos), Just Chatting und Musik ein
+spendables Publikum, Speedrun die treuesten Follower, Kochen den ruhigsten
+Abend. Keine ist insgesamt die beste.
+
+Dazu **Ereignisse**: ein Raid, ein viraler Clip, ein Wal im Chat – oder
+Technikpanne, Trollwelle, Stromausfall und der Satz, den man besser nicht
+gesagt hätte. Riskante Kategorien ziehen die Pannen an.
+
+#### Warum das kein Gelddrucker ist (ARCHITEKTUR §3)
+
+Streaming ist die erste Tätigkeit, deren Ertrag mit dem eigenen Fortschritt
+**wächst** – genau die Form, aus der sonst ein Gelddrucker wird. Verhindert
+wird das durch die Form der beiden Kurven:
+
+```
+Zuschauer  ~  follower^0,62     unterlinear
+Verlust    ~  follower          linear
+```
+
+Der zehnfache Kanal hat nur die gut vierfache Zuschauerzahl – aber den
+zehnfachen Schwund. Zuwachs wächst also langsamer als Verlust, und es gibt
+genau einen Punkt, an dem sich beides aufhebt: ein **Gleichgewicht**, über das
+kein Kanal hinauskommt, egal wie lange jemand spielt.
+
+[`test/streaming.test.js`](test/streaming.test.js) rechnet das über **300
+simulierte Karrieren** nach: Nach 200 Tagen hat ein Kanal keine 1,35-fache
+Reichweite gegenüber Tag 100 – ohne Gleichgewicht müsste sich der Wert
+verdoppeln. Dazu kommt eine harte Grenze von **vier Sendungen am Tag**, genau
+wie die vier Schichten im Arbeitsamt.
+
+#### Der Aufbau ist lang
+
+Das ist die Gegenleistung für die hohen Erträge am Ende:
+
+| | Woche 1 | Woche 14 |
+|--|--|--|
+| Einnahme je Tag | ~800 | ~8.000 |
+
+Die ersten Sendungen sehen ein Dutzend Leute, und das Setup kostet 3.400.
+Wer durchhält, hat am Ende die stärkste aktive Geldquelle im Spiel – wer zwei
+Wochen nichts sendet, findet einen deutlich kleineren Kanal vor. Follower
+verfallen pro Tag ohne Sendung, abgerechnet wird beim nächsten Mal (faule
+Abrechnung, §4): Die Ansicht zeigt den Verlust an, bucht ihn aber nicht.
+
 ### Selbst schrauben 🔧
 
 Mit einem **Werkzeugkasten** repariert man in der Werkstatt selbst und zahlt

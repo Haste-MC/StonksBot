@@ -1205,6 +1205,142 @@ async function buildFishingView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
+// ---------------------------------------------------------------- Streaming
+
+/** Balken für die Form der letzten Sendungen. */
+function hypeBar(hype) {
+  const streaming = require('./streaming');
+  const span = streaming.HYPE_MAX - streaming.HYPE_MIN;
+  const ratio = (hype - streaming.HYPE_MIN) / span;
+  return progressBar(ratio, 10);
+}
+
+/** Kurze Einordnung der Kanalgröße – Zahlen allein sagen wenig. */
+function reachLabel(followers) {
+  if (followers < 100) return 'Niemand kennt dich';
+  if (followers < 1000) return 'Erste Stammgäste';
+  if (followers < 5000) return 'Kleiner, treuer Kanal';
+  if (followers < 15000) return 'Man kennt dich in der Nische';
+  if (followers < 40000) return 'Richtig große Nummer';
+  return 'Du bist das Gespräch';
+}
+
+/**
+ * Der eigene Kanal: Zustand, Reichweite und die Wahl der Kategorie.
+ *
+ * Anders als beim Angeln gibt es hier keinen einzelnen Knopf, sondern eine
+ * Entscheidung – jede Kategorie zieht ein anderes Publikum an.
+ */
+async function buildStreamView({ guildId, userId }) {
+  const streaming = require('./streaming');
+  const gear = require('./data/gear');
+  const symbol = await getSymbol(guildId);
+
+  const embed = new EmbedBuilder().setTitle('🎙️ Dein Kanal').setColor(0x9146ff);
+
+  const s = streaming.status(guildId, userId);
+
+  // Ohne Setup geht nichts. Wer schon einen Kanal hat (Setup kaputt oder
+  // verkauft), sieht ihn trotzdem – sonst wirkt die Reichweite verloren,
+  // dabei wartet sie nur. Sie schmilzt allerdings weiter.
+  if (!s.hasGear) {
+    const item = gear.findGear(streaming.GEAR);
+    embed
+      .setDescription(
+        (s.streams > 0
+          ? `Dein Kanal steht still: Ohne **${streaming.GEAR}** sendest du nichts.\n` +
+            `**${s.followers.toLocaleString('de-DE')}** Follower warten – aber nicht ewig, ` +
+            `pro Tag ohne Sendung gehen welche verloren.\n\n`
+          : `Ohne **${streaming.GEAR}** sendest du gar nichts.\n\n`) +
+        `_${item?.description ?? ''}_\n` +
+        `Kostet ${money(symbol, item?.price ?? 0)} in der 🧰 **Ausrüstung**.`)
+      .setColor(0x95a5a6)
+      .setFooter({ text: 'Reichweite baut man auf – das dauert, zahlt sich aber aus.' });
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(ID.menu('gear', 1, userId))
+          .setLabel('Zur Ausrüstung').setEmoji('🧰').setStyle(ButtonStyle.Primary),
+        homeButton(userId))],
+    };
+  }
+
+  const ready = s.remainingMs <= 0 && s.budget.left > 0;
+
+  embed.setDescription(
+    s.streams === 0
+      ? 'Kamera an. Die ersten Sendungen sehen fast nur du und der Zufall – ' +
+        '**Reichweite ist Arbeit**. Wähle unten, was du heute machst.'
+      : `**${s.followers.toLocaleString('de-DE')}** Follower · _${reachLabel(s.followers)}_`);
+
+  embed.addFields(
+    {
+      name: '👥 Reichweite',
+      value: `${s.followers.toLocaleString('de-DE')} Follower\n` +
+        `⭐ ${s.subs.toLocaleString('de-DE')} Abos`,
+      inline: true,
+    },
+    {
+      name: '👀 Zu erwarten',
+      value: `~${s.viewersExpected.toLocaleString('de-DE')} Zuschauer\n` +
+        `_${s.streams.toLocaleString('de-DE')} Sendungen bisher_`,
+      inline: true,
+    },
+    {
+      name: '📈 Form',
+      value: `${hypeBar(s.hype)}\n_${s.hype >= 1.15 ? 'Läuft gerade' : s.hype <= 0.85 ? 'Zäh' : 'Normal'}_`,
+      inline: true,
+    },
+  );
+
+  if (s.streams > 0) {
+    embed.addFields({
+      name: '🏆 Bestwerte',
+      value: `${s.peak_viewers.toLocaleString('de-DE')} Zuschauer · ` +
+        `${s.peak_followers.toLocaleString('de-DE')} Follower · ` +
+        `${money(symbol, s.earned_total)} verdient`,
+    });
+  }
+
+  if (s.lostToIdle > 0) {
+    embed.addFields({
+      name: '📉 Die Pause kostet',
+      value: `**${s.lostToIdle.toLocaleString('de-DE')}** Follower haben dich in ` +
+        `${s.idleDays} Tagen ohne Sendung entfolgt. Wird bei der nächsten Sendung fällig.`,
+    });
+  }
+
+  embed.addFields({
+    name: '⏳ Sendezeit',
+    value: s.budget.left <= 0
+      ? `Für heute reicht es (${s.budget.done}/${s.budget.max}).`
+      : s.remainingMs > 0
+        ? `Nächste Sendung in **${require('./income').formatRemaining(s.remainingMs)}** ` +
+          `· heute noch ${s.budget.left} von ${s.budget.max}`
+        : `**Jetzt** · heute noch ${s.budget.left} von ${s.budget.max}`,
+  });
+
+  embed.setFooter({
+    text: 'Werbung zahlt nach Aufrufen, Spenden nach Laune, Abos jede Sendung · '
+      + 'das Setup kann kaputtgehen',
+  });
+
+  const buttons = streaming.CATEGORIES.map((c) =>
+    new ButtonBuilder()
+      .setCustomId(`stream|${c.id}|${userId}`)
+      .setLabel(c.name).setEmoji(c.emoji)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(!ready));
+
+  const rows = [
+    new ActionRowBuilder().addComponents(...buttons.slice(0, 3)),
+    new ActionRowBuilder().addComponents(...buttons.slice(3)),
+    new ActionRowBuilder().addComponents(homeButton(userId)),
+  ];
+
+  return { embeds: [embed], components: rows };
+}
+
 // -------------------------------------------------------------------- Börse
 
 /** Farbe zur Richtung – grün rauf, rot runter. */
@@ -2370,7 +2506,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
-  buildMarketView, buildAssetView, buildDepotView, buildFishingView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildStreamView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

@@ -458,6 +458,46 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_treasury_log ON treasury_log (guild_id, id);
 `);
 
+// ---------------------------------------------------------------- KANAL
+// Streaming: Der Kanal eines Spielers wächst über viele Streams und schrumpft,
+// wenn er ihn liegen lässt. Deshalb hier ein dauerhafter Zustand statt einer
+// reinen Auszahlung wie beim Angeln.
+//
+// `hype` ist die Form der letzten Streams (Momentum); `streams_today`/`day`
+// begrenzen die Sendezeit pro Tag, genau wie die Schichten im Arbeitsamt.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS channels (
+    guild_id       TEXT    NOT NULL,
+    user_id        TEXT    NOT NULL,
+    followers      INTEGER NOT NULL DEFAULT 0,
+    subs           INTEGER NOT NULL DEFAULT 0,
+    hype           REAL    NOT NULL DEFAULT 1,
+    streams        INTEGER NOT NULL DEFAULT 0,
+    views_total    INTEGER NOT NULL DEFAULT 0,
+    earned_total   INTEGER NOT NULL DEFAULT 0,
+    peak_viewers   INTEGER NOT NULL DEFAULT 0,
+    peak_followers INTEGER NOT NULL DEFAULT 0,
+    last_stream_at INTEGER NOT NULL DEFAULT 0,
+    streams_today  INTEGER NOT NULL DEFAULT 0,
+    day            TEXT    NOT NULL DEFAULT '',
+    created_at     INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_channels_reach ON channels (guild_id, followers);
+`);
+
+// Tageszähler nachrüsten (Sendezeit pro Tag), ohne bestehende Kanäle zu verlieren.
+const channelColumns = new Set(
+  db.prepare('PRAGMA table_info(channels)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['streams_today', "INTEGER NOT NULL DEFAULT 0"],
+  ['day', "TEXT NOT NULL DEFAULT ''"],
+]) {
+  if (!channelColumns.has(column)) {
+    db.exec(`ALTER TABLE channels ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -1131,6 +1171,24 @@ const stmt = {
   countGarages: db.prepare(
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
+
+  // --- Kanal (Streaming) ---
+  getChannel: db.prepare('SELECT * FROM channels WHERE guild_id = ? AND user_id = ?'),
+  createChannel: db.prepare(
+    `INSERT INTO channels (guild_id, user_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  // Ein Stream = EINE Anweisung. Zwischen ihr und dem nächsten await kann kein
+  // zweiter Klick dazwischenfunken (§7) – der findet den Cooldown vor.
+  saveChannel: db.prepare(
+    `UPDATE channels SET
+       followers = ?, subs = ?, hype = ?, streams = ?, views_total = ?,
+       earned_total = ?, peak_viewers = ?, peak_followers = ?,
+       last_stream_at = ?, streams_today = ?, day = ?
+     WHERE guild_id = ? AND user_id = ?`),
+  topChannels: db.prepare(
+    `SELECT * FROM channels WHERE guild_id = ? AND followers > 0
+     ORDER BY followers DESC, subs DESC LIMIT ?`),
+  clearChannel: db.prepare('DELETE FROM channels WHERE guild_id = ? AND user_id = ?'),
 
   // --- Staatskasse ---
   getTreasury: db.prepare('SELECT * FROM treasury WHERE guild_id = ?'),
@@ -2117,6 +2175,37 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// --------------------------------------------------------------- Kanal
+
+/** Der Kanal eines Spielers – legt ihn beim ersten Zugriff an. */
+function getChannel(guildId, userId, now = Date.now()) {
+  stmt.createChannel.run(guildId, String(userId), now);
+  return stmt.getChannel.get(guildId, String(userId));
+}
+
+/** Gibt es den Kanal schon? (ohne ihn anzulegen) */
+function hasChannel(guildId, userId) {
+  return Boolean(stmt.getChannel.get(guildId, String(userId)));
+}
+
+/** Schreibt den kompletten Kanalzustand in EINER Anweisung fort. */
+function saveChannel(guildId, userId, c) {
+  stmt.saveChannel.run(
+    Math.max(0, Math.round(c.followers)), Math.max(0, Math.round(c.subs)), c.hype,
+    c.streams, c.views_total, c.earned_total, c.peak_viewers, c.peak_followers,
+    c.last_stream_at, c.streams_today, c.day, guildId, String(userId));
+}
+
+/** Die reichweitenstärksten Kanäle dieser Welt. */
+function topChannels(guildId, limit = 10) {
+  return stmt.topChannels.all(guildId, limit);
+}
+
+/** Löscht einen Kanal (Tests, Admin). */
+function clearChannel(guildId, userId) {
+  stmt.clearChannel.run(guildId, String(userId));
+}
+
 // -------------------------------------------------------- Staatskasse
 
 /** Wie viele Log-Zeilen je Welt aufgehoben werden. */
@@ -2398,6 +2487,7 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
+  getChannel, hasChannel, saveChannel, topChannels, clearChannel,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,

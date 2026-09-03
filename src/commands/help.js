@@ -39,8 +39,9 @@ module.exports = {
         },
         {
           name: '🧰 Ausrüstung, die etwas kann',
-          value: '`/angeln` mit der Angelausrüstung · mit dem Werkzeugkasten reparierst du in der ' +
-            '🛠️ Werkstatt selbst und zahlst nur Material.',
+          value: '`/angeln` mit der Angelausrüstung · `/stream` mit dem Streaming-Setup ' +
+            '(Kanal aufbauen: Follower, Abos, Werbung) · mit dem Werkzeugkasten reparierst du ' +
+            'in der 🛠️ Werkstatt selbst und zahlst nur Material.',
         },
         {
           name: '📈 Börse',
