@@ -86,10 +86,24 @@ const COMMANDS = [
     },
   },
   {
-    names: ['stream', 'streamen', 'kanal', 'live'],
-    info: 'Dein Streaming-Kanal',
+    names: ['creator', 'netzwerk', 'social'],
+    info: 'Dein Creator-Netzwerk (alle Plattformen)',
     run: async ({ guildId, userId }) =>
-      ({ view: await ui.buildStreamView({ guildId, userId }) }),
+      ({ view: await ui.buildCreatorView({ guildId, userId }) }),
+  },
+  {
+    names: ['stream', 'streamen', 'live', 'twitch', 'youtube', 'yt',
+      'instagram', 'insta', 'ig', 'twitter', 'x'],
+    info: 'Direkt zu einer Plattform: !twitch, !youtube, !insta, !twitter',
+    run: async ({ guildId, userId, name }) => {
+      const key = {
+        stream: 'twitch', streamen: 'twitch', live: 'twitch', twitch: 'twitch',
+        youtube: 'youtube', yt: 'youtube',
+        instagram: 'instagram', insta: 'instagram', ig: 'instagram',
+        twitter: 'twitter', x: 'twitter',
+      }[name] ?? 'twitch';
+      return { view: await ui.buildPlatformView({ guildId, userId, key }) };
+    },
   },
   {
     names: ['staat', 'staatskasse', 'staatskonto', 'kasse'],

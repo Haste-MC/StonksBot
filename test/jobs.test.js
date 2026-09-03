@@ -27,7 +27,7 @@ cleanup();
 console.log('--- Katalog ---');
 // Untergrenze, damit das Tagesangebot (5 Stellen) nie eintönig wird.
 // Der Streamer ist bewusst NICHT mehr dabei: Aus ihm wurde eine eigene
-// Tätigkeit am Setup (siehe src/streaming.js).
+// Tätigkeit im Creator-Netzwerk (siehe src/creator.js).
 check(`viele Jobs vorhanden (${JOBS.length})`, JOBS.length >= 45, String(JOBS.length));
 check('IDs eindeutig', new Set(JOBS.map((j) => j.id)).size === JOBS.length);
 check('alle Tiers bekannt',

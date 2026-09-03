@@ -1205,138 +1205,193 @@ async function buildFishingView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
-// ---------------------------------------------------------------- Streaming
+// ------------------------------------------------------------------ Creator
 
-/** Balken für die Form der letzten Sendungen. */
+/** Balken für die Form der letzten Aktionen. */
 function hypeBar(hype) {
-  const streaming = require('./streaming');
-  const span = streaming.HYPE_MAX - streaming.HYPE_MIN;
-  const ratio = (hype - streaming.HYPE_MIN) / span;
-  return progressBar(ratio, 10);
+  const creator = require('./creator');
+  const span = creator.HYPE_MAX - creator.HYPE_MIN;
+  return progressBar((hype - creator.HYPE_MIN) / span, 8);
 }
 
-/** Kurze Einordnung der Kanalgröße – Zahlen allein sagen wenig. */
+/** Kurze Einordnung der Gesamtreichweite – Zahlen allein sagen wenig. */
 function reachLabel(followers) {
-  if (followers < 100) return 'Niemand kennt dich';
-  if (followers < 1000) return 'Erste Stammgäste';
-  if (followers < 5000) return 'Kleiner, treuer Kanal';
-  if (followers < 15000) return 'Man kennt dich in der Nische';
-  if (followers < 40000) return 'Richtig große Nummer';
+  if (followers < 200) return 'Niemand kennt dich';
+  if (followers < 2000) return 'Erste Stammgäste';
+  if (followers < 10000) return 'Kleine, treue Blase';
+  if (followers < 30000) return 'Man kennt dich in der Nische';
+  if (followers < 80000) return 'Richtig große Nummer';
   return 'Du bist das Gespräch';
 }
 
+/** Kompakte Zeitangabe für Cooldowns. */
+function readyIn(ms) {
+  return ms > 0 ? `in ${require('./income').formatRemaining(ms)}` : '**jetzt**';
+}
+
 /**
- * Der eigene Kanal: Zustand, Reichweite und die Wahl der Kategorie.
+ * Die Übersicht über alle vier Plattformen.
  *
- * Anders als beim Angeln gibt es hier keinen einzelnen Knopf, sondern eine
- * Entscheidung – jede Kategorie zieht ein anderes Publikum an.
+ * Bewusst eine Seite: Der Reiz des Netzwerks ist, alle Zahlen nebeneinander
+ * zu sehen – wo wächst was, wo verfällt gerade etwas.
  */
-async function buildStreamView({ guildId, userId }) {
-  const streaming = require('./streaming');
+async function buildCreatorView({ guildId, userId }) {
+  const creator = require('./creator');
+  const symbol = await getSymbol(guildId);
+  const s = creator.status(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('📡 Dein Netzwerk')
+    .setColor(0x9146ff)
+    .setDescription(
+      s.actions === 0
+        ? 'Vier Plattformen, ein Publikum. Wer auf einer wächst, startet auf den ' +
+          'anderen nicht bei null – und **Twitter zahlt nie**, schiebt aber alles an.\n' +
+          'Wähle unten, wo du anfängst.'
+        : `**${s.total.toLocaleString('de-DE')}** Follower insgesamt · _${reachLabel(s.total)}_`);
+
+  for (const p of s.platforms) {
+    const lines = [
+      `**${p.followers.toLocaleString('de-DE')}** ${p.followerName}` +
+      (p.subs && p.subs > 0 ? ` · ⭐ ${p.subs}` : ''),
+      `${p.action}: ${p.hasGear ? readyIn(p.remainingMs) : `🔒 ${p.gear}`}` +
+      ` · ⏱️ ${p.time}`,
+    ];
+    if (p.id === 'youtube' && p.stock > 0) {
+      lines.push(`📼 ${p.stock.toLocaleString('de-DE')} Aufrufe im Katalog`);
+    }
+    if (p.lostToIdle > 0) lines.push(`📉 −${p.lostToIdle.toLocaleString('de-DE')} durch Pause`);
+    embed.addFields({ name: `${p.emoji} ${p.name}`, value: lines.join('\n'), inline: true });
+  }
+
+  const extras = [
+    `⏳ **Zeit heute:** ${s.budget.left} von ${s.budget.max} übrig`,
+  ];
+  if (s.boost > 0) {
+    extras.push(`🐦 **Promo läuft:** nächste Aktion +${Math.round(s.boost * 100)} % Reichweite`);
+  }
+  if (s.community > 0) {
+    extras.push(`💞 **Community:** ${Math.round(s.community)} ` +
+      `_(−${Math.round(s.churnCut * 100)} % Schwund in Pausen)_`);
+  }
+  if (s.earned > 0) extras.push(`💰 **Bisher verdient:** ${money(symbol, s.earned)}`);
+  embed.addFields({ name: '\u200b', value: extras.join('\n') });
+
+  embed.setFooter({
+    text: 'Ein Stream kostet 2 Zeit, ein Video 3, Post und Tweet je 1 · '
+      + 'Twitter zahlt nichts und ist trotzdem wichtig',
+  });
+
+  const rows = [
+    new ActionRowBuilder().addComponents(...s.platforms.map((p) =>
+      new ButtonBuilder()
+        .setCustomId(`creator|${p.id}|${userId}`)
+        .setLabel(p.name).setEmoji(p.emoji)
+        .setStyle(p.remainingMs <= 0 && p.hasGear && s.budget.left >= p.time
+          ? ButtonStyle.Primary : ButtonStyle.Secondary))),
+    new ActionRowBuilder().addComponents(homeButton(userId)),
+  ];
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Eine einzelne Plattform mit ihren Formaten. */
+async function buildPlatformView({ guildId, userId, key }) {
+  const creator = require('./creator');
   const gear = require('./data/gear');
   const symbol = await getSymbol(guildId);
 
-  const embed = new EmbedBuilder().setTitle('🎙️ Dein Kanal').setColor(0x9146ff);
+  const p = creator.platform(key);
+  if (!p) return buildCreatorView({ guildId, userId });
 
-  const s = streaming.status(guildId, userId);
+  const s = creator.status(guildId, userId);
+  const me = s.platforms.find((x) => x.id === p.id);
+  const embed = new EmbedBuilder()
+    .setTitle(`${p.emoji} ${p.name}`)
+    .setColor(p.color)
+    .setDescription(`_${p.blurb}_`);
 
-  // Ohne Setup geht nichts. Wer schon einen Kanal hat (Setup kaputt oder
-  // verkauft), sieht ihn trotzdem – sonst wirkt die Reichweite verloren,
-  // dabei wartet sie nur. Sie schmilzt allerdings weiter.
-  if (!s.hasGear) {
-    const item = gear.findGear(streaming.GEAR);
-    embed
-      .setDescription(
-        (s.streams > 0
-          ? `Dein Kanal steht still: Ohne **${streaming.GEAR}** sendest du nichts.\n` +
-            `**${s.followers.toLocaleString('de-DE')}** Follower warten – aber nicht ewig, ` +
-            `pro Tag ohne Sendung gehen welche verloren.\n\n`
-          : `Ohne **${streaming.GEAR}** sendest du gar nichts.\n\n`) +
-        `_${item?.description ?? ''}_\n` +
-        `Kostet ${money(symbol, item?.price ?? 0)} in der 🧰 **Ausrüstung**.`)
-      .setColor(0x95a5a6)
-      .setFooter({ text: 'Reichweite baut man auf – das dauert, zahlt sich aber aus.' });
+  const back = new ButtonBuilder()
+    .setCustomId(ID.menu('creator', 1, userId))
+    .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary);
+
+  if (!me.hasGear) {
+    const item = gear.findGear(p.gear);
+    embed.addFields({
+      name: '🔒 Fehlt dir noch',
+      value: `**${p.gear}** – ${money(symbol, item?.price ?? 0)} in der 🧰 Ausrüstung.\n` +
+        `_${item?.description ?? ''}_`,
+    });
     return {
       embeds: [embed],
       components: [new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(ID.menu('gear', 1, userId))
           .setLabel('Zur Ausrüstung').setEmoji('🧰').setStyle(ButtonStyle.Primary),
-        homeButton(userId))],
+        back, homeButton(userId))],
     };
   }
 
-  const ready = s.remainingMs <= 0 && s.budget.left > 0;
-
-  embed.setDescription(
-    s.streams === 0
-      ? 'Kamera an. Die ersten Sendungen sehen fast nur du und der Zufall – ' +
-        '**Reichweite ist Arbeit**. Wähle unten, was du heute machst.'
-      : `**${s.followers.toLocaleString('de-DE')}** Follower · _${reachLabel(s.followers)}_`);
-
   embed.addFields(
     {
-      name: '👥 Reichweite',
-      value: `${s.followers.toLocaleString('de-DE')} Follower\n` +
-        `⭐ ${s.subs.toLocaleString('de-DE')} Abos`,
+      name: `👥 ${p.followerName}`,
+      value: `${me.followers.toLocaleString('de-DE')}` +
+        (p.subs ? `\n⭐ ${me.subs.toLocaleString('de-DE')} Abos` : ''),
       inline: true,
     },
     {
-      name: '👀 Zu erwarten',
-      value: `~${s.viewersExpected.toLocaleString('de-DE')} Zuschauer\n` +
-        `_${s.streams.toLocaleString('de-DE')} Sendungen bisher_`,
+      name: `👀 Zu erwarten`,
+      value: `~${me.expected.toLocaleString('de-DE')} ${p.unit}\n_${me.actions} ${p.action}s bisher_`,
       inline: true,
     },
-    {
-      name: '📈 Form',
-      value: `${hypeBar(s.hype)}\n_${s.hype >= 1.15 ? 'Läuft gerade' : s.hype <= 0.85 ? 'Zäh' : 'Normal'}_`,
-      inline: true,
-    },
+    { name: '📈 Form', value: hypeBar(me.hype), inline: true },
   );
 
-  if (s.streams > 0) {
+  if (p.id === 'youtube' && me.stock > 0) {
     embed.addFields({
-      name: '🏆 Bestwerte',
-      value: `${s.peak_viewers.toLocaleString('de-DE')} Zuschauer · ` +
-        `${s.peak_followers.toLocaleString('de-DE')} Follower · ` +
-        `${money(symbol, s.earned_total)} verdient`,
+      name: '📼 Katalog',
+      value: `**${me.stock.toLocaleString('de-DE')}** Aufrufe stehen noch aus – die zahlen ` +
+        'in den nächsten Tagen von allein.',
     });
   }
-
-  if (s.lostToIdle > 0) {
+  if (p.id === 'twitter') {
     embed.addFields({
-      name: '📉 Die Pause kostet',
-      value: `**${s.lostToIdle.toLocaleString('de-DE')}** Follower haben dich in ` +
-        `${s.idleDays} Tagen ohne Sendung entfolgt. Wird bei der nächsten Sendung fällig.`,
+      name: '💸 Verdienst',
+      value: 'Twitter zahlt dir **nichts**. Nie. Ein Tweet schiebt dafür deine nächste ' +
+        'Aktion an und hält über die Community die Leute bei Laune.',
+    });
+  }
+  if (p.id === 'instagram') {
+    embed.addFields({
+      name: '💸 Verdienst',
+      value: 'Instagram selbst zahlt **nicht** – Geld kommt nur über **Kooperationen**. ' +
+        'Wie oft Marken anklopfen, hängt an deiner Reichweite im **ganzen** Netzwerk.',
     });
   }
 
   embed.addFields({
-    name: '⏳ Sendezeit',
-    value: s.budget.left <= 0
-      ? `Für heute reicht es (${s.budget.done}/${s.budget.max}).`
-      : s.remainingMs > 0
-        ? `Nächste Sendung in **${require('./income').formatRemaining(s.remainingMs)}** ` +
-          `· heute noch ${s.budget.left} von ${s.budget.max}`
-        : `**Jetzt** · heute noch ${s.budget.left} von ${s.budget.max}`,
+    name: '⏳ Bereit',
+    value: `${readyIn(me.remainingMs)} · Zeit: **${p.time}** von ${s.budget.left} übrig` +
+      (s.boost > 0 && p.id !== 'twitter'
+        ? `\n🐦 Promo aktiv: **+${Math.round(s.boost * 100)} %** Reichweite` : ''),
   });
 
+  const ready = me.remainingMs <= 0 && s.budget.left >= p.time;
   embed.setFooter({
-    text: 'Werbung zahlt nach Aufrufen, Spenden nach Laune, Abos jede Sendung · '
-      + 'das Setup kann kaputtgehen',
+    text: ready ? 'Wähle ein Format.' : 'Noch nicht bereit – Cooldown oder Zeit ist alle.',
   });
 
-  const buttons = streaming.CATEGORIES.map((c) =>
+  const buttons = creator.formats(p.id).map((f) =>
     new ButtonBuilder()
-      .setCustomId(`stream|${c.id}|${userId}`)
-      .setLabel(c.name).setEmoji(c.emoji)
+      .setCustomId(`post|${p.id}|${f.id}|${userId}`)
+      .setLabel(f.name).setEmoji(f.emoji)
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!ready));
 
-  const rows = [
-    new ActionRowBuilder().addComponents(...buttons.slice(0, 3)),
-    new ActionRowBuilder().addComponents(...buttons.slice(3)),
-    new ActionRowBuilder().addComponents(homeButton(userId)),
-  ];
+  const rows = [];
+  for (let i = 0; i < buttons.length; i += 3) {
+    rows.push(new ActionRowBuilder().addComponents(...buttons.slice(i, i + 3)));
+  }
+  rows.push(new ActionRowBuilder().addComponents(back, homeButton(userId)));
 
   return { embeds: [embed], components: rows };
 }
@@ -2506,7 +2561,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
-  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildStreamView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

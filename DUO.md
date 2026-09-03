@@ -384,74 +384,89 @@ mögliche Fänge vom alten Stiefel über Hecht und Wels bis zur versunkenen
 Geldkassette. Der Wert hängt an der **Größe** – derselbe Karpfen ist mal 4,
 mal 18 Kilo schwer. Manchmal beißt nichts, und die Rute kann brechen.
 
-### Streamen 🎙️
+### Creator-Netzwerk 📡
 
-Das **Streaming-Setup** war bisher Voraussetzung für den Job „Streamer". Der
-Job ist raus – stattdessen gehört dem Setup jetzt eine eigene Tätigkeit, und
-zwar die mit Abstand komplexeste.
+Das **Streaming-Setup** war früher Voraussetzung für den Job „Streamer". Der
+Job ist raus – stattdessen hängt daran die komplexeste Tätigkeit im Spiel, und
+zwar nicht auf einer Plattform, sondern auf **vier**:
 
 ```
-!stream          dein Kanal (auch !kanal, !live, !streamen)
-/stream          auf Discord, oder 🎙️ unter Arbeit
+!creator         das ganze Netzwerk (auch !netzwerk, !social)
+!twitch !youtube !insta !twitter    direkt zu einer Plattform
+/creator [plattform]                auf Discord, oder 📡 unter Arbeit
 ```
 
-Der Unterschied zum Angeln: Angeln ist ein Wurf – Cooldown, Zufall, Geld.
-Streaming ist ein **Kanal**, den man über Wochen aufbaut und der wieder
-schrumpft, wenn man ihn liegen lässt. Was du verdienst, hängt nicht am
-einzelnen Klick, sondern an dem, was du dir bis dahin aufgebaut hast.
+Niemand ist nur auf einer Plattform. Wer streamt, hat auch YouTube, Instagram
+und Twitter – und die hängen zusammen.
 
-**Drei Einnahmen, drei Logiken:**
+#### Vier Plattformen, vier Geschäftsmodelle
 
-| Quelle | Hängt ab von | Charakter |
-|--------|--------------|-----------|
-| 📺 Werbung | Aufrufen (live + später) | verlässlich, das Brot |
-| 💸 Spenden | Zuschauern und ihrer Laune | Glückssache, gelegentlich absurd |
-| ⭐ Abos | Followern, jede Sendung | wächst langsam, bleibt |
+| | Aktion | Zeit | Verdient an | Charakter |
+|--|--|--|--|--|
+| 🟣 **Twitch** | Stream | 2 | Werbung + Spenden + **Abos** | live, sofort, das meiste Geld |
+| 🔴 **YouTube** | Video | 3 | Werbung auf Aufrufe | teuer in der Zeit, **zahlt tagelang nach** |
+| 📸 **Instagram** | Post | 1 | **nur Kooperationen** | wächst am schnellsten, zahlt selbst nichts |
+| 🐦 **Twitter** | Tweet | 1 | **gar nichts** | Promo und Community – und trotzdem unverzichtbar |
 
-**Sechs Kategorien**, jede mit anderem Profil: Gaming und IRL bringen
-Reichweite (IRL zum Preis des höchsten Risikos), Just Chatting und Musik ein
-spendables Publikum, Speedrun die treuesten Follower, Kochen den ruhigsten
-Abend. Keine ist insgesamt die beste.
+Das ist bewusst so ungleich wie in Wirklichkeit:
 
-Dazu **Ereignisse**: ein Raid, ein viraler Clip, ein Wal im Chat – oder
-Technikpanne, Trollwelle, Stromausfall und der Satz, den man besser nicht
-gesagt hätte. Riskante Kategorien ziehen die Pannen an.
+- **Twitch** zahlt pro Zuschauer am besten, weil Spenden und Abos dazukommen.
+- **YouTube** erreicht ein Vielfaches eines Livestreams, aber fast niemand
+  abonniert. Dafür wandert jedes Video in den **Katalog** und wird noch tagelang
+  geklickt – das Geld kommt von allein, auch wenn du nichts tust.
+- **Instagram** überweist dir **keinen Cent**. Geld gibt es nur, wenn eine Marke
+  anklopft – und wie oft das passiert, hängt an deiner Reichweite im **ganzen**
+  Netzwerk, nicht an diesem einen Post.
+- **Twitter** zahlt **nie**. Ein Tweet gibt der nächsten Aktion einen
+  Reichweitenschub (Promo) und baut **Community** auf, die den Schwund in
+  Pausen halbiert. Wer Twitter ignoriert, verliert schneller Follower.
+
+#### Wie sich die Plattformen gegenseitig tragen
+
+- **Übertrag:** Jede Aktion spült Follower zu den anderen Kanälen („Link in
+  Bio"). Twitter am stärksten, weil es reine Promo ist.
+- **Gemeinsame Reichweite:** Fremde Follower zählen zu 25 % in die eigene
+  Reichweite hinein. Wer auf YouTube groß ist, startet auf Instagram nicht bei
+  null.
+- **Ereignisse wirken netzwerkweit:** Ein viraler Clip oder ein Presseartikel
+  bringt überall Follower – ein **Shitstorm** kostet überall welche.
+- **Ein Tagesbudget:** Alle Plattformen teilen sich **8 Zeiteinheiten** am Tag.
+  Vier Streams sind ein voller Tag; zwei Videos plus zwei Posts auch. Damit ist
+  „einfach alles machen" keine Option, sondern eine Entscheidung.
 
 #### Warum das kein Gelddrucker ist (ARCHITEKTUR §3)
 
-Streaming ist die erste Tätigkeit, deren Ertrag mit dem eigenen Fortschritt
-**wächst** – genau die Form, aus der sonst ein Gelddrucker wird. Verhindert
-wird das durch die Form der beiden Kurven:
+Vier Plattformen, die sich gegenseitig Follower zuspielen, sind genau die Form,
+aus der eine Aufschaukelung wird. Verhindert wird das dadurch, dass der
+Übertrag **innerhalb** der unterlinearen Wurzel steckt:
 
 ```
-Zuschauer  ~  follower^0,62     unterlinear
-Verlust    ~  follower          linear
+Publikum  ~  (eigene + 0,25 · fremde Follower)^0,55…0,62     unterlinear
+Schwund   ~  Follower je Plattform                            linear
 ```
 
-Der zehnfache Kanal hat nur die gut vierfache Zuschauerzahl – aber den
-zehnfachen Schwund. Zuwachs wächst also langsamer als Verlust, und es gibt
-genau einen Punkt, an dem sich beides aufhebt: ein **Gleichgewicht**, über das
-kein Kanal hinauskommt, egal wie lange jemand spielt.
+Fremde Reichweite verschiebt die Kurve also, sie multipliziert sie nicht. Dazu
+kommt: Auch ein Kanal, auf dem man **nie** etwas macht, verfällt – der Verfall
+wird beim Übertrag mitgerechnet. Ohne das ließe sich Reichweite auf einem
+vergessenen Kanal parken und beliebig ansammeln.
 
-[`test/streaming.test.js`](test/streaming.test.js) rechnet das über **300
-simulierte Karrieren** nach: Nach 200 Tagen hat ein Kanal keine 1,35-fache
-Reichweite gegenüber Tag 100 – ohne Gleichgewicht müsste sich der Wert
-verdoppeln. Dazu kommt eine harte Grenze von **vier Sendungen am Tag**, genau
-wie die vier Schichten im Arbeitsamt.
+[`test/creator.test.js`](test/creator.test.js) rechnet das über **200 simulierte
+Karrieren** nach: Nach 200 Tagen hat ein Netzwerk keine 1,4-fache Reichweite
+gegenüber Tag 100, und der Tagesverdienst bleibt unter der Decke. Geprüft wird
+außerdem, dass Twitter über hunderte Tweets **exakt null** verdient und
+Instagram ohne Kooperation ebenfalls nichts.
 
-#### Der Aufbau ist lang
+#### Was sich lohnt
 
-Das ist die Gegenleistung für die hohen Erträge am Ende:
-
-| | Woche 1 | Woche 14 |
+| Strategie | pro Tag | Reichweite |
 |--|--|--|
-| Einnahme je Tag | ~800 | ~8.000 |
+| nur Twitch (4 Streams) | ~5.600 | ~4.400 |
+| gemischt (Tweet + 2 Streams + Video) | ~4.300 | ~7.900 |
 
-Die ersten Sendungen sehen ein Dutzend Leute, und das Setup kostet 3.400.
-Wer durchhält, hat am Ende die stärkste aktive Geldquelle im Spiel – wer zwei
-Wochen nichts sendet, findet einen deutlich kleineren Kanal vor. Follower
-verfallen pro Tag ohne Sendung, abgerechnet wird beim nächsten Mal (faule
-Abrechnung, §4): Die Ansicht zeigt den Verlust an, bucht ihn aber nicht.
+Live bleibt die stärkste Geldquelle – wer nur streamt, verdient kurzfristig am
+meisten. Wer verteilt, hat die doppelte Reichweite, verliert bei einem
+schlechten Lauf weniger und verdient über Katalog und Kooperationen weiter,
+auch wenn er mal nicht sendet.
 
 ### Selbst schrauben 🔧
 

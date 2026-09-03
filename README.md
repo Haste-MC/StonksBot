@@ -22,7 +22,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/showcase [id] [user]` | Zeigt ein Auto aus der Garage groß her (ohne ID: das teuerste). |
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
-| `/stream` | Dein Streaming-Kanal: Reichweite aufbauen und live gehen. |
+| `/creator [plattform]` | Dein Netzwerk: Twitch, YouTube, Instagram, Twitter. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
 | `/removeitem <id>` | **Admin:** löscht einen Artikel. |
 
@@ -154,19 +154,21 @@ Miete und für beschädigte Fahrzeuge:
 Konfiguration in [`src/data/npc.js`](src/data/npc.js), Logik in
 [`src/npc.js`](src/npc.js).
 
-## Streaming
+## Creator-Netzwerk
 
-Das **Streaming-Setup** aus der Ausrüstung hat eine eigene Tätigkeit: einen
-Kanal, den man über viele Sendungen aufbaut. Verdient wird an **Werbung**
-(nach Aufrufen), **Spenden** (nach Laune des Publikums) und **Abos** (nach
-Followern) – sechs Kategorien mit unterschiedlichem Profil, dazu Raids,
-virale Clips, Technikpannen und Trollwellen.
+Vier Plattformen, ein Publikum: **Twitch** (Streams: Werbung, Spenden, Abos),
+**YouTube** (Videos, die noch tagelang Aufrufe bringen), **Instagram** (wächst
+am schnellsten, zahlt selbst nichts – Geld kommt nur über Kooperationen) und
+**Twitter** (zahlt **nie** etwas, gibt aber Promo und Community).
 
-Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Zuschauer wachsen
-unterlinear zur Followerzahl, der Schwund linear – daraus folgt ein
-Gleichgewicht, über das kein Kanal hinauskommt. Dazu höchstens vier Sendungen
-am Tag. Wer pausiert, verliert Follower. Details in
-[DUO.md](DUO.md#streamen-️).
+Sie hängen zusammen: Jede Aktion spült Follower zu den anderen Kanälen, fremde
+Reichweite zählt anteilig in die eigene hinein, und Ereignisse wie ein viraler
+Clip oder ein Shitstorm wirken überall. Alles teilt sich ein Tagesbudget an
+Zeit – ein Stream kostet 2, ein Video 3, ein Post oder Tweet 1.
+
+Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Publikum wächst
+unterlinear zur Followerzahl (auch die übertragene), der Schwund linear.
+Details in [DUO.md](DUO.md#creator-netzwerk-).
 
 ## Staatskasse
 
