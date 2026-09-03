@@ -18,6 +18,20 @@
  */
 module.exports = [
   {
+    version: '1.12.0',
+    date: '2026-09-03',
+    title: 'Creator-Balance: die Decke fällt',
+    lines: [
+      '📈 **Reichweite kann jetzt wirklich groß werden.** Bisher war bei ~14.000 Followern Schluss – weniger, als ein Spitzenjob einbringt. Die Obergrenze liegt jetzt bei mehreren Millionen je Plattform.',
+      '🛌 **Der Grund war ein Fehler:** Wer täglich zur selben Zeit sendete, bekam jeden Tag einen vollen Tag „Inaktivitätsverfall" aufgebrummt. Jetzt gibt es einen **Schontag** – bestraft wird Abwesenheit, nicht Regelmäßigkeit.',
+      '💰 **Entsprechend zahlt es sich aus:** ~24.000 am Tag nach einem halben Jahr, sechsstellig für die ganz Großen. Zum Vergleich: Der beste Job bringt 20.000.',
+      '👕 **Merch neu gerechnet:** (Community / 100) × Reichweite^0,62 × 4 – also Anteil der Fans, der kauft, mal Zahl der Fans. Ohne Bindung verkauft auch der größte Kanal nichts.',
+      '🤝 **Werbedeals knallen:** Bei einer Million Reichweite bringt ein Dreier-Vertrag ~119.000.',
+      '🌟 **Bekanntheitsleiter gestreckt:** „Superstar" liegt jetzt bei 5 Millionen Followern statt 100.000 – international, nicht nach drei Monaten.',
+      '🌪️ **Shitstorms sind seltener, aber härter** – vorher fraß alle 40 Aktionen einer 5 % der Follower und deckelte damit heimlich den ganzen Kanal.',
+    ],
+  },
+  {
     version: '1.11.0',
     date: '2026-09-03',
     title: 'Verträge, Merch, Burnout und eigene Titel',
@@ -27,6 +41,7 @@ module.exports = [
       '🔋 **Burnout:** Wer jeden Tag das volle Zeitbudget raushaut, verliert bis zu 35 % Reichweite. Pausen bringen sie zurück. Vollgas dauerhaft = 80 %.',
       '✏️ **Eigene Titel:** Streams, Videos, Posts und Tweets kannst du selbst benennen – Schalter 🎲/✏️ in jeder Plattform-Ansicht. Der letzte Titel bleibt am Kanal stehen.',
       '📡 **Reichweiten-Rangliste:** `/leaderboard` hat eine neue Ansicht – wer hat das größte Publikum?',
+      '🖼️ **Profil aufgehübscht:** Oben rechts steht jetzt dein **Profilbild**, darunter dein **Bekanntheitsgrad** – vom Unbeschriebenen Blatt bis zur Legende. Der Wert ist deine Reichweite plus 150 je Level, damit auch ohne Kanal jeder einen Titel hat.',
       '👤 **Im Profil:** Sobald du Follower hast, zeigt dein Steckbrief das Netzwerk mit der Aufteilung je Plattform.',
     ],
   },

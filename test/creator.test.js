@@ -83,9 +83,15 @@ function network(random) {
   }
   let community = 0, boost = 0, money = 0, day = 0;
 
+  // Spiegelt creator.idleDays: ein Schontag, dann Verfall. Ohne den würde
+  // hier täglich ein voller Tag Verfall anfallen und der Prüfstand käme zu
+  // ganz anderen Obergrenzen als das Spiel.
+  const idleOf = (id) => (touched[id] === null
+    ? 0 : Math.max(0, day - touched[id] - creator.IDLE_GRACE_DAYS));
+
   const decay = (id) => {
     const p = creator.platform(id);
-    const idle = touched[id] === null ? 0 : Math.max(0, day - touched[id]);
+    const idle = idleOf(id);
     touched[id] = day;
     if (idle <= 0) return 1;
     return Math.pow(1 - p.churnPerDay * creator.churnFactor(community),
@@ -104,7 +110,7 @@ function network(random) {
       const cross = Object.entries(state)
         .filter(([id]) => id !== platformId)
         .reduce((s, [, v]) => s + v.followers, 0);
-      const idle = touched[platformId] === null ? 0 : Math.max(0, day - touched[platformId]);
+      const idle = idleOf(platformId);
       touched[platformId] = day;
       const r = creator.simulate(state[platformId], p, fmt,
         { cross, community, boost, idleDays: idle, random });
@@ -241,33 +247,82 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('Twitter überträgt am stärksten (reine Promo)',
       creator.SPREAD.twitter > creator.SPREAD.twitch);
 
-    // Vergleich: dieselbe Zeit, einmal auf einer Plattform, einmal verteilt.
-    const solo = median(Array.from({ length: 30 }, (_, i) => career(PLAN_TWITCH, 120, rng(200 + i)).total));
-    const mixed = median(Array.from({ length: 30 }, (_, i) => career(PLAN_MIX, 120, rng(200 + i)).total));
-    check('verteilt wächst die Gesamtreichweite stärker als auf einer Plattform',
-      mixed > solo, `${de(mixed)} vs ${de(solo)}`);
+    /*
+     * Spezialisieren oder verteilen? Das Gleichgewicht einer Plattform hängt
+     * NICHT an der Zahl der Aktionen (Zuwachs und Schwund skalieren beide
+     * damit) – nur das Tempo. Wer alles auf einen Kanal wirft, ist deshalb
+     * früh vorn; wer verteilt, hat am Ende vier Obergrenzen statt einer.
+     */
+    const runs = (plan, days, seed) =>
+      median(Array.from({ length: 12 }, (_, i) => career(plan, days, rng(seed + i)).total));
 
-    const soloMoney = median(Array.from({ length: 30 }, (_, i) => career(PLAN_TWITCH, 120, rng(300 + i)).perDay));
-    const mixedMoney = median(Array.from({ length: 30 }, (_, i) => career(PLAN_MIX, 120, rng(300 + i)).perDay));
-    check('live bleibt trotzdem die stärkste Geldquelle',
+    const soloEarly = runs(PLAN_TWITCH, 120, 200);
+    const mixedEarly = runs(PLAN_MIX, 120, 200);
+    check('kurzfristig ist Spezialisieren schneller',
+      soloEarly > mixedEarly, `${de(soloEarly)} vs ${de(mixedEarly)}`);
+
+    const soloLate = runs(PLAN_TWITCH, 900, 400);
+    const mixedLate = runs(PLAN_MIX, 900, 400);
+    check('langfristig überholt das Netzwerk die eine Plattform',
+      mixedLate > soloLate, `${de(mixedLate)} vs ${de(soloLate)}`);
+
+    const soloMoney = median(Array.from({ length: 12 },
+      (_, i) => career(PLAN_TWITCH, 300, rng(300 + i)).perDay));
+    const mixedMoney = median(Array.from({ length: 12 },
+      (_, i) => career(PLAN_MIX, 300, rng(300 + i)).perDay));
+    check('live bleibt die stärkste Geldquelle je Zeiteinheit',
       soloMoney > mixedMoney * 0.9, `${de(soloMoney)} vs ${de(mixedMoney)}`);
-    console.log(`     ℹ️  nur Twitch: ${de(soloMoney)} pro Tag / ${de(solo)} Follower · ` +
-      `gemischt: ${de(mixedMoney)} pro Tag / ${de(mixed)} Follower`);
+    console.log(`     ℹ️  Tag 120: nur Twitch ${de(soloEarly)} · gemischt ${de(mixedEarly)} Follower`);
+    console.log(`     ℹ️  Tag 900: nur Twitch ${de(soloLate)} · gemischt ${de(mixedLate)} Follower`);
   }
 
   console.log('\n--- Kein Gelddrucker, auch nicht zu viert (§3) ---');
   {
-    const CAREERS = 60;
-    const MARKS = [100, 200, 400, 800];
+    // 1. Analytisch: Für jede Plattform gibt es einen Punkt, ab dem der
+    //    Schwund den Zuwachs überholt. Das gilt unabhängig davon, wie lange
+    //    jemand spielt – eine Simulation kann so etwas nie beweisen.
+    const fixedPoints = creator.PLATFORMS.map((p) => {
+      const best = creator.formats(p.id).reduce((a, b) => (b.follow > a.follow ? b : a));
+      const F = Math.pow((p.k * p.follow * best.follow) / p.churnPerAction, 1 / (1 - p.exp));
+      // Deutlich oberhalb des Fixpunkts muss der Zuwachs kleiner sein als der Schwund.
+      const above = F * 3;
+      const gain = creator.reachOf(p, above) * p.follow * best.follow;
+      const loss = above * p.churnPerAction;
+      return { p, F, ok: Number.isFinite(F) && gain < loss };
+    });
+    check('jede Plattform hat einen endlichen Fixpunkt',
+      fixedPoints.every((x) => x.ok),
+      fixedPoints.filter((x) => !x.ok).map((x) => x.p.id).join());
+    console.log('     ℹ️  Obergrenzen: ' +
+      fixedPoints.map((x) => `${x.p.emoji} ${de(x.F)}`).join(' · '));
+
+    // 2. Ertrag wächst langsamer als Reichweite – zehnfaches Publikum ist
+    //    nicht zehnfaches Geld.
+    const p = creator.platform('twitch');
+    const f = creator.format('twitch', 'gaming');
+    const fixed = () => 0.5;
+    const small = creator.simulate({ followers: 100000, subs: 0, hype: 1, stock: 0 }, p, f, { random: fixed });
+    const big = creator.simulate({ followers: 1000000, subs: 0, hype: 1, stock: 0 }, p, f, { random: fixed });
+    check('zehnfache Reichweite bringt weniger als zehnfaches Geld',
+      big.money < small.money * 10, `${de(small.money)} -> ${de(big.money)}`);
+    check('das gilt auch für Merch',
+      creator.merchPerDay(1000000, 100) < creator.merchPerDay(100000, 100) * 10);
+    check('und für Vertragssummen', creator.DEAL_REACH_EXP < 1);
+
+    // 3. Simuliert: Jede Verdopplung der Spielzeit bringt weniger als die
+    //    vorige. Genau das ist der Unterschied zwischen langsamem Wachstum
+    //    und einem Gleichgewicht.
+    const CAREERS = 22;
+    const MARKS = [150, 300, 600, 1200];
     const at = Object.fromEntries(MARKS.map((m) => [m, []]));
     const perDay = [];
 
     for (let i = 0; i < CAREERS; i++) {
       const n = network(rng(5000 + i));
       let lastMoney = 0;
-      for (let d = 1; d <= 800; d++) {
-        if (d === 771) lastMoney = n.money;
-        for (const [p, f] of PLAN_MIX) n.do(p, f);
+      for (let d = 1; d <= 1200; d++) {
+        if (d === 1171) lastMoney = n.money;
+        for (const [pl, fm] of PLAN_MIX) n.do(pl, fm);
         n.do('instagram', 'reel');
         n.endDay();
         if (at[d]) at[d].push(n.total());
@@ -277,23 +332,15 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
 
     const m = Object.fromEntries(MARKS.map((k) => [k, median(at[k])]));
     const growth = (a, b) => m[b] / m[a];
-
-    // DER Beweis: Jede Verdopplung der Spielzeit bringt WENIGER als die
-    // vorige. Ohne Gleichgewicht bliebe das Verhältnis konstant oder stiege.
     check('jede Verdopplung der Spielzeit bringt weniger als die vorige',
-      growth(200, 400) < growth(100, 200) && growth(400, 800) < growth(200, 400),
-      `100→200: ${growth(100, 200).toFixed(2)} · 200→400: ${growth(200, 400).toFixed(2)} ` +
-      `· 400→800: ${growth(400, 800).toFixed(2)}`);
-    check('nach 400 Tagen steht die Reichweite praktisch still',
-      growth(400, 800) < 1.1, growth(400, 800).toFixed(3));
-    check('das Gleichgewicht ist endlich',
-      quantile(at[800], 0.99) < 150000, de(quantile(at[800], 0.99)));
-    check('der Tagesverdienst bleibt unter der Decke',
-      quantile(perDay, 0.95) < 25000,
-      `Median ${de(median(perDay))} · p95 ${de(quantile(perDay, 0.95))}`);
-    console.log(`     ℹ️  Reichweite über die Zeit: ` +
-      MARKS.map((k) => `Tag ${k}: ${de(m[k])}`).join(' · '));
-    console.log(`     ℹ️  ausgebautes Netzwerk: ${de(median(perDay))} pro Tag`);
+      growth(300, 600) < growth(150, 300) && growth(600, 1200) < growth(300, 600),
+      `150→300: ${growth(150, 300).toFixed(2)} · 300→600: ${growth(300, 600).toFixed(2)} ` +
+      `· 600→1200: ${growth(600, 1200).toFixed(2)}`);
+    check('auch nach über drei Jahren bleibt alles im Rahmen',
+      quantile(at[1200], 0.99) < 20_000_000 && quantile(perDay, 0.95) < 1_000_000,
+      `${de(quantile(at[1200], 0.99))} Follower · ${de(quantile(perDay, 0.95))} pro Tag`);
+    console.log(`     ℹ️  Reichweite: ` + MARKS.map((k) => `Tag ${k}: ${de(m[k])}`).join(' · '));
+    console.log(`     ℹ️  Einnahmen am Ende: ${de(median(perDay))} pro Tag`);
   }
 
   console.log('\n--- Reichweite verfällt, auch auf vergessenen Kanälen ---');
@@ -317,9 +364,15 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     const view = creator.status(G, U, later);
     check('drei Wochen Pause kosten überall Follower',
       view.total < built.total, `${built.total} -> ${view.total}`);
-    check('Ansehen allein ändert nichts an der Datenbank',
-      db.allCreator(G, U).reduce((s, r) => s + r.followers, 0)
-        === built.platforms.reduce((s, p) => s + p.followers, 0));
+    // Wichtig ist nicht, dass Vorschau und Datenbank gleich sind – sie dürfen
+    // sich gerade unterscheiden, das ist ja der Sinn der faulen Abrechnung.
+    // Wichtig ist, dass das Ansehen selbst NICHTS schreibt.
+    const rawBefore = db.allCreator(G, U).reduce((s, r) => s + r.followers, 0);
+    creator.status(G, U, later);
+    creator.status(G, U, later + DAY_MS);
+    const rawAfter = db.allCreator(G, U).reduce((s, r) => s + r.followers, 0);
+    check('Ansehen allein ändert nichts an der Datenbank', rawAfter === rawBefore,
+      `${rawBefore} -> ${rawAfter}`);
 
     // Der Kern des Verfalls: Auch ein Kanal, auf dem man NIE etwas macht,
     // schrumpft – sonst ließe sich Reichweite dort dauerhaft parken.
@@ -397,6 +450,32 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     refill(U);
     const next = await creator.act(G, U, 'instagram', 'reel', tomorrow);
     check('am nächsten Tag ist das Budget wieder voll', next.ok === true, next.reason ?? '');
+  }
+
+  console.log('\n--- Bekanntheitsgrad ---');
+  {
+    check('ohne alles ist man ein unbeschriebenes Blatt',
+      creator.fameOf(0, 0).title === creator.FAME_RANKS[0].title);
+    check('Reichweite und Level zahlen beide ein',
+      creator.fameScore(1000, 2) === 1000 + 2 * creator.FAME_PER_LEVEL);
+    check('der Titel steigt monoton mit dem Wert',
+      [0, 500, 2000, 8000, 20000, 50000, 120000, 300000]
+        .map((r) => creator.FAME_RANKS.indexOf(
+          creator.FAME_RANKS.find((x) => x.title === creator.fameOf(r, 0).title)))
+        .every((v, i, a) => i === 0 || v >= a[i - 1]));
+    check('auch ohne Kanal bekommt man einen Titel',
+      creator.fameOf(0, 20).title !== creator.FAME_RANKS[0].title,
+      creator.fameOf(0, 20).title);
+    const beyond = creator.FAME_RANKS.at(-1).at * 5;
+    check('der höchste Rang hat kein "als Nächstes" mehr',
+      creator.fameOf(beyond, 0).next === null
+      && creator.fameOf(beyond, 0).title === creator.FAME_RANKS.at(-1).title);
+    check('Superstar liegt im Millionenbereich',
+      creator.FAME_RANKS.find((r) => r.title === 'Superstar').at >= 1_000_000);
+    check('bis zum nächsten Rang fehlt genau die Differenz',
+      creator.fameOf(0, 0).toNext === creator.FAME_RANKS[1].at);
+    check('jeder Rang hat Emoji und Titel',
+      creator.FAME_RANKS.every((r) => r.emoji && r.title && Number.isFinite(r.at)));
   }
 
   console.log('\n--- Eigene Titel ---');
@@ -511,8 +590,9 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('kleine Kanäle bekommen keine Anfragen',
       creator.rollDeal(G, U, 100, now, () => 0) === null);
 
-    // Mit genug Reichweite und einem Würfel, der immer trifft.
-    const offer = creator.rollDeal(G, U, 40000, now, () => 0.01);
+    // Mit genug Reichweite und einem Würfel, der immer trifft (0 liegt unter
+    // jeder Chance – 0.01 lag bei kleinen Kanälen genau auf der Kippe).
+    const offer = creator.rollDeal(G, U, 40000, now, () => 0);
     check('große Kanäle bekommen Anfragen', offer !== null && offer.status === 'offer');
     check('die Summe hängt an der Reichweite',
       offer.payout > 0 && offer.quota >= 2, `${offer.payout} für ${offer.quota}`);
@@ -525,7 +605,7 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('ein Angebot lässt sich annehmen', accepted.ok === true, accepted.reason ?? '');
     check('danach läuft es', db.activeDeal(G, U)?.id === offer.id);
 
-    const second = creator.rollDeal(G, U, 40000, now, () => 0.01);
+    const second = creator.rollDeal(G, U, 40000, now, () => 0);
     check('während ein Vertrag läuft, kommt keiner dazu', second === null);
 
     // Liefern: die passende Plattform bedienen, bis die Quote steht.
@@ -549,7 +629,7 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
 
     // Frist reißen lassen.
     const U2 = player('pleite');
-    const late = creator.rollDeal(G, U2, 40000, now, () => 0.01);
+    const late = creator.rollDeal(G, U2, 40000, now, () => 0);
     creator.accept(G, U2, late.id, now);
     earned = 0;
     const settled = await creator.settleDeals(G, U2, now + 30 * DAY_MS);
@@ -559,7 +639,7 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
 
     // Angebote verfallen von selbst.
     const U3 = player('zoegern');
-    const stale = creator.rollDeal(G, U3, 40000, now, () => 0.01);
+    const stale = creator.rollDeal(G, U3, 40000, now, () => 0);
     await creator.settleDeals(G, U3, now + 10 * DAY_MS);
     check('unbeantwortete Angebote verfallen',
       db.getDeal(G, stale.id).status === 'expired');
@@ -571,7 +651,7 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
   {
     // Verträge: zehnfache Reichweite darf nicht das Zehnfache zahlen.
     const U = player('grenze');
-    const fixed = () => 0.01;
+    const fixed = () => 0;
     const small = creator.rollDeal(G, U, 10000, Date.now(), fixed);
     db.setDealStatus(G, small.id, 'expired');
     const big = creator.rollDeal(G, U, 100000, Date.now(), fixed);
@@ -615,8 +695,13 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
 
     earned = 0;
     await creator.settleMerch(G, U, now + 90 * DAY_MS);
-    check('ein Rückstau ist gedeckelt',
-      earned <= creator.MERCH_DAILY_CAP * 7 + 1, String(earned));
+    check('ein Rückstau ist auf sieben Tage gedeckelt',
+      earned <= st.merch.perDay * 7 + 1, `${de(earned)} von ${de(st.merch.perDay * 7)}`);
+    check('ohne Community verkauft auch ein großer Kanal nichts',
+      creator.merchPerDay(1_000_000, 0) === 0);
+    check('Merch skaliert mit BEIDEM – Bindung und Reichweite',
+      creator.merchPerDay(1_000_000, 100) > creator.merchPerDay(1_000_000, 50)
+      && creator.merchPerDay(1_000_000, 100) > creator.merchPerDay(100_000, 100));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -122,9 +122,15 @@ const FATIGUE_MALUS = 0.35;           // höchstens −35 % Publikum
  * Die Community klingt ohne Tweets ab – wer aufhört, verkauft nichts mehr.
  */
 const MERCH_MIN_REACH = 5000;
-const MERCH_PER_COMMUNITY = 10;       // je Community-Punkt und Tag
-const MERCH_PER_REACH = 4;            // je Wurzel der Gesamtfollower und Tag
-const MERCH_DAILY_CAP = 2500;
+/**
+ * Umsatz = **Anteil der Fans, der kauft × Zahl der Fans**. Die Community ist
+ * deshalb ein Faktor, kein Summand: Ohne Bindung verkauft auch der größte
+ * Kanal nichts, und ein kleiner Kanal mit treuer Blase verdient nicht plötzlich
+ * so viel wie ein Weltstar. Der Exponent hält es unterlinear (§3).
+ */
+const MERCH_FACTOR = 4;
+const MERCH_REACH_EXP = 0.62;
+const MERCH_DAILY_CAP = 100000;       // reine Notbremse, greift nie im Normalbetrieb
 const MERCH_MAX_DAYS = 7;
 const MERCH_MIN_SETTLE_MS = 60 * 60 * 1000;
 
@@ -135,9 +141,9 @@ const MERCH_MIN_SETTLE_MS = 60 * 60 * 1000;
  */
 const DEAL_MIN_REACH = 3000;
 const DEAL_CHANCE_MAX = 0.25;
-const DEAL_REACH_FULL = 60000;        // ab hier kommen Angebote am häufigsten
-const DEAL_FACTOR = 4.5;
-const DEAL_REACH_EXP = 0.6;           // auch hier unterlinear (§3)
+const DEAL_REACH_FULL = 250000;       // ab hier kommen Angebote am häufigsten
+const DEAL_FACTOR = 5;
+const DEAL_REACH_EXP = 0.65;          // auch hier unterlinear (§3)
 const DEAL_PENALTY = 0.3;             // Vertragsstrafe, Anteil der Summe
 const DEAL_OFFER_MS = 2 * DAY_MS;     // so lange steht ein Angebot
 const DEAL_MAX_OFFERS = 2;
@@ -230,15 +236,27 @@ function budget(guildId, userId, now = Date.now()) {
 }
 
 /**
- * Volle Tage ohne Berührung (der erste Tag ist frei).
+ * Tage ohne Berührung, abzüglich eines Schontags.
  *
  * Gerechnet wird ab `touched_at`, nicht ab der letzten Aktion: Sonst könnte
  * man Reichweite auf einer Plattform parken, die man nie wieder anfasst –
  * der Verfall würde ewig aufgeschoben.
+ *
+ * Der Schontag ist wichtig: Wer täglich zur selben Zeit sendet, liegt exakt
+ * 24 Stunden auseinander und bekäme sonst JEDEN Tag einen vollen Tag
+ * Inaktivitätsverfall – 2,5 % gegen 0,16 % Schwund je Aktion. Der Verfall
+ * würde damit die Obergrenze bestimmen statt der eigentlichen Stellschraube,
+ * und ein täglich gepflegter Kanal käme nie über ein paar zehntausend
+ * Follower hinaus. Bestraft werden soll Abwesenheit, nicht Regelmäßigkeit.
+ *
+ * Gerechnet wird in Bruchteilen: zwei Tage Pause sind ein Tag Verfall,
+ * zweieinhalb Tage anderthalb.
  */
+const IDLE_GRACE_DAYS = 1;
+
 function idleDays(lastAt, now) {
   if (!lastAt) return 0;
-  return clamp(0, MAX_IDLE_DAYS, Math.floor((now - lastAt) / DAY_MS));
+  return clamp(0, MAX_IDLE_DAYS, (now - lastAt) / DAY_MS - IDLE_GRACE_DAYS);
 }
 
 /** Community-Bindung, nachdem sie seit dem letzten Mal abgeklungen ist. */
@@ -468,8 +486,7 @@ async function settleMerch(guildId, userId, now = Date.now()) {
   if (elapsed < MERCH_MIN_SETTLE_MS) return null;
 
   const community = communityNow(state, now);
-  const perDay = Math.min(MERCH_DAILY_CAP,
-    community * MERCH_PER_COMMUNITY + Math.sqrt(reach) * MERCH_PER_REACH);
+  const perDay = merchPerDay(reach, community);
   const days = Math.min(MERCH_MAX_DAYS, elapsed / DAY_MS);
   const amount = Math.round(perDay * days);
 
@@ -480,6 +497,14 @@ async function settleMerch(guildId, userId, now = Date.now()) {
   const paid = Math.max(0, Math.round(amount * perk.income));
   const balance = await changeCash(guildId, userId, paid, 'Merch: Verkäufe');
   return { amount: paid, perDay: Math.round(perDay), days, balance };
+}
+
+/** Merch-Umsatz pro Tag: Bindung × Reichweite. */
+function merchPerDay(reach, community) {
+  if (reach < MERCH_MIN_REACH) return 0;
+  const share = clamp(0, 1, community / COMMUNITY_MAX);
+  return Math.min(MERCH_DAILY_CAP,
+    Math.round(share * Math.pow(Math.max(0, reach), MERCH_REACH_EXP) * MERCH_FACTOR));
 }
 
 /** Ist dieser Kanal groß genug für Merch? */
@@ -761,8 +786,10 @@ function status(guildId, userId, now = Date.now()) {
       peakAudience: row.peak_audience,
       peakFollowers: row.peak_followers,
       lastTitle: row.last_title ?? '',
+      // Für die Anzeige gerundet – gerechnet wird mit dem genauen Wert.
+      idleDaysExact: idle,
       lostToIdle: Math.round(row.followers - followers),
-      idleDays: idle,
+      idleDays: Math.round(idle),
       stock: Math.round(row.stock),
       expected: Math.round(reachOf(p, followers, cross) * row.hype),
       remainingMs: remainingMs(guildId, userId, p.id, now),
@@ -787,13 +814,53 @@ function status(guildId, userId, now = Date.now()) {
     merch: {
       unlocked: merchUnlocked(total),
       minReach: MERCH_MIN_REACH,
-      perDay: Math.round(Math.min(MERCH_DAILY_CAP,
-        community * MERCH_PER_COMMUNITY + Math.sqrt(total) * MERCH_PER_REACH)),
+      perDay: merchPerDay(total, community),
     },
     deal: db.activeDeal(guildId, userId),
     offers: db.listDeals(guildId, userId, 'offer').filter((d) => d.expires_at > now),
     history: db.dealHistory(guildId, userId, 5),
   };
+}
+
+/**
+ * ===================== BEKANNTHEIT =====================
+ * Wie bekannt jemand auf dem Server ist. Vor allem eine Frage der Reichweite –
+ * aber wer lange dabei ist, kennt man auch ohne Kanal. Deshalb zählt das Level
+ * mit, damit jeder einen Titel hat und nicht nur Creator.
+ */
+const FAME_PER_LEVEL = 400;
+
+/**
+ * Die Leiter reicht bewusst bis in zweistellige Millionen: „Superstar" soll
+ * das sein, was es draußen auch ist – internationale Reichweite, kein Titel
+ * für den dritten Monat. Die oberen Ränge sind ein Fernziel, keine Station.
+ */
+const FAME_RANKS = [
+  { at: 0, emoji: '🫥', title: 'Unbeschriebenes Blatt' },
+  { at: 1_000, emoji: '🙂', title: 'Vom Sehen bekannt' },
+  { at: 10_000, emoji: '📍', title: 'Lokalgröße' },
+  { at: 50_000, emoji: '🏙️', title: 'Stadtbekannt' },
+  { at: 250_000, emoji: '📺', title: 'Landesweit ein Begriff' },
+  { at: 1_000_000, emoji: '✨', title: 'Prominenz' },
+  { at: 5_000_000, emoji: '🌟', title: 'Superstar' },
+  { at: 20_000_000, emoji: '👑', title: 'Legende' },
+];
+
+/** Der Bekanntheitswert aus Reichweite und Level. */
+function fameScore(reach = 0, level = 0) {
+  return Math.max(0, Math.round(reach)) + Math.max(0, Math.round(level)) * FAME_PER_LEVEL;
+}
+
+/**
+ * Der Titel zu einem Bekanntheitswert – plus dem, was zum nächsten fehlt.
+ * @returns {{emoji,title,at,score,next:object|null,toNext:number}}
+ */
+function fameOf(reach = 0, level = 0) {
+  const score = fameScore(reach, level);
+  let rank = FAME_RANKS[0];
+  for (const r of FAME_RANKS) if (score >= r.at) rank = r;
+  const next = FAME_RANKS.find((r) => r.at > score) ?? null;
+  return { ...rank, score, next, toNext: next ? next.at - score : 0 };
 }
 
 /** Fertige Meldung für Discord und Fluxer. */
@@ -860,12 +927,15 @@ module.exports = {
   PLATFORMS: data.PLATFORMS, PLATFORM_IDS,
   TIME_PER_DAY, SPILL, CROSS_CONV, SPREAD, MAX_IDLE_DAYS,
   HYPE_MIN, HYPE_MAX, BOOST_MAX, BOOST_MS, COMMUNITY_MAX, COMMUNITY_CHURN_CUT,
+  IDLE_GRACE_DAYS,
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
   platform, format, formats, reachOf, hasGear, remainingMs, budget, today, cleanTitle,
   idleDays, communityNow, churnFactor, keepFactor, activeBoost,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
   accept, decline,
   FATIGUE_MAX, FATIGUE_PER_TIME, FATIGUE_MALUS, FATIGUE_RECOVERY,
-  MERCH_MIN_REACH, MERCH_DAILY_CAP, DEAL_MIN_REACH, DEAL_PENALTY, DEAL_MAX_OFFERS,
+  MERCH_MIN_REACH, MERCH_DAILY_CAP, MERCH_FACTOR, merchPerDay,
+  DEAL_MIN_REACH, DEAL_PENALTY, DEAL_MAX_OFFERS, DEAL_REACH_EXP,
   rollEvent, rollDonations, simulate, settle, act, status, describe,
+  FAME_RANKS, FAME_PER_LEVEL, fameScore, fameOf,
 };

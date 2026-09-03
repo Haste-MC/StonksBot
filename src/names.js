@@ -89,4 +89,46 @@ async function warm(clients, { world = identity.world(), limit = MAX_LOOKUPS } =
   return { checked: todo.length, learned };
 }
 
-module.exports = { MAX_LOOKUPS, unnamed, lookup, warm };
+/**
+ * Das Profilbild eines Kontos – oder null, wenn es keins gibt bzw. der Client
+ * der Plattform gerade nicht da ist.
+ *
+ * Gemerkt für eine halbe Stunde: Ein Profil wird oft geöffnet, und ein
+ * Avatar ändert sich selten. Ohne den Puffer wäre jeder `/profil`-Aufruf eine
+ * API-Abfrage.
+ */
+const AVATAR_TTL_MS = 30 * 60 * 1000;
+const avatars = new Map();
+
+async function avatar(accountId, now = Date.now()) {
+  const id = String(accountId ?? '');
+  if (!id) return null;
+
+  const cached = avatars.get(id);
+  if (cached && now - cached.at < AVATAR_TTL_MS) return cached.url;
+
+  const relay = require('./relay');
+  const isDiscord = identity.isDiscordAccount(id);
+  const client = isDiscord ? relay.discordClient?.() : relay.fluxerClient?.();
+  if (!client?.users?.fetch) return null;
+
+  const platformId = isDiscord ? id : id.slice(identity.FLUXER_PREFIX.length);
+
+  try {
+    const user = await client.users.fetch(platformId);
+    // Je nach Plattform ist das eine Funktion oder direkt eine Zeichenkette.
+    let url = null;
+    if (typeof user?.displayAvatarURL === 'function') url = user.displayAvatarURL({ size: 256 });
+    else if (typeof user?.avatarURL === 'function') url = user.avatarURL({ size: 256 });
+    else if (typeof user?.avatarURL === 'string') url = user.avatarURL;
+    url = url || null;
+    avatars.set(id, { url, at: now });
+    return url;
+  } catch {
+    // Konto gelöscht, nie gesehen, API zickt – kein Grund für Lärm.
+    avatars.set(id, { url: null, at: now });
+    return null;
+  }
+}
+
+module.exports = { MAX_LOOKUPS, unnamed, lookup, warm, avatar, AVATAR_TTL_MS };
