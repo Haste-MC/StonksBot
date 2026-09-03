@@ -11,7 +11,7 @@ const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
-  buildFishingView, buildStreamView, money,
+  buildFishingView, buildCreatorView, buildPlatformView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1225,33 +1225,55 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
-  /** Streaming: eine Sendung in der gewählten Kategorie. */
-  async stream(interaction, [categoryId]) {
+  /** Creator: eine Plattform öffnen. */
+  async creator(interaction, [platformId]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
-    const streaming = require('./streaming');
+
+    // Beim Öffnen den YouTube-Katalog abrechnen – Aufrufe, die seit dem
+    // letzten Mal dazugekommen sind (faule Abrechnung, §4).
+    const settled = await require('./creator').settle(guildId, userId).catch(() => null);
+    await interaction.editReply(await buildPlatformView({ guildId, userId, key: platformId }));
+
+    if (settled) {
+      const symbol = await getSymbol(guildId);
+      await interaction.followUp({
+        content: `📼 Dein Katalog lief weiter: **${settled.views.toLocaleString('de-DE')}** ` +
+          `Aufrufe, **${money(symbol, settled.amount)}**.`,
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => {});
+    }
+  },
+
+  /** Creator: eine Aktion auf einer Plattform (Stream, Video, Post, Tweet). */
+  async post(interaction, [platformId, formatId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const creator = require('./creator');
     const symbol = await getSymbol(guildId);
 
-    const res = await streaming.stream(guildId, userId, categoryId);
-    await interaction.editReply(await buildStreamView({ guildId, userId }));
+    const res = await creator.act(guildId, userId, platformId, formatId);
+    await interaction.editReply(await buildPlatformView({ guildId, userId, key: platformId }));
 
     let note;
     if (!res.ok) {
       if (res.reason === 'cooldown') {
-        note = '⏳ Du warst gerade erst live – die nächste Sendung geht in ' +
-          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
-      } else if (res.reason === 'daily_limit') {
-        note = `😴 ${res.done} von ${res.max} Sendungen heute. Mehr schafft niemand – ` +
-          `morgen wieder (in **${require('./income').formatRemaining(res.resetMs)}**).`;
+        note = `⏳ Zu früh – ${res.platform.name} ist in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}** wieder dran.`;
+      } else if (res.reason === 'no_time') {
+        note = `😴 Der Tag hat nur ${res.max} Stunden Kreativzeit. ` +
+          `Für ${res.platform.action} brauchst du **${res.need}**, übrig sind **${res.left}**. ` +
+          `Morgen wieder (in **${require('./income').formatRemaining(res.resetMs)}**).`;
       } else if (res.reason === 'no_gear') {
-        note = `🎙️ Dafür brauchst du ein **${res.gear}** (🧰 Ausrüstung, ` +
-          `${money(symbol, res.price ?? 0)}).`;
+        note = `${res.platform.emoji} Dafür brauchst du **${res.gear}** ` +
+          `(🧰 Ausrüstung, ${money(symbol, res.price ?? 0)}).`;
       } else {
-        note = '❌ Diese Kategorie gibt es nicht.';
+        note = '❌ Das gibt es so nicht.';
       }
     } else {
-      note = streaming.describe(res, (n) => money(symbol, n)) +
+      note = creator.describe(res, (n) => money(symbol, n)) +
         (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});

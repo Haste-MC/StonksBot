@@ -87,13 +87,13 @@ const ENTRIES = [
     build: (ctx) => ui.buildFishingView(ctx),
   },
   {
-    id: 'stream',
+    id: 'creator',
     group: 'work',
-    label: 'Streamen',
-    emoji: '🎙️',
-    description: 'Kanal aufbauen: Follower, Abos, Werbung',
+    label: 'Creator',
+    emoji: '📡',
+    description: 'Twitch, YouTube, Instagram, Twitter',
     style: 'primary',
-    build: (ctx) => ui.buildStreamView(ctx),
+    build: (ctx) => ui.buildCreatorView(ctx),
   },
   {
     id: 'gear',

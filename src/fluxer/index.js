@@ -109,6 +109,9 @@ client.on(Events.MessageCreate, async (message) => {
       guildId: identity.world(),
       userId: accountId,
       platformUserId,
+      // Unter welchem Namen der Befehl aufgerufen wurde – manche Befehle
+      // hören auf mehrere und verzweigen danach (z.B. !twitch / !youtube).
+      name: String(name || '').toLowerCase(),
       args,
       prefix: config.prefix,
       isAdmin: require('../accounts').isAdmin(platformUserId),

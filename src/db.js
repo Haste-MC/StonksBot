@@ -458,44 +458,81 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_treasury_log ON treasury_log (guild_id, id);
 `);
 
-// ---------------------------------------------------------------- KANAL
-// Streaming: Der Kanal eines Spielers wächst über viele Streams und schrumpft,
-// wenn er ihn liegen lässt. Deshalb hier ein dauerhafter Zustand statt einer
-// reinen Auszahlung wie beim Angeln.
+// ------------------------------------------------------------- CREATOR
+// Vier Plattformen (Twitch, YouTube, Instagram, Twitter) mit je eigenem
+// Publikum – eine Zeile je Spieler UND Plattform. Der Zustand ist dauerhaft:
+// Reichweite wächst über viele Aktionen und schrumpft, wenn man sie liegen
+// lässt (siehe src/creator.js).
 //
-// `hype` ist die Form der letzten Streams (Momentum); `streams_today`/`day`
-// begrenzen die Sendezeit pro Tag, genau wie die Schichten im Arbeitsamt.
+// `hype`  Form der letzten Aktionen (Momentum)
+// `stock` unbezahlte Katalog-Reichweite – YouTube-Videos werden noch tagelang
+//         geklickt und über `stock_paid_through` faul abgerechnet (§4).
+// `touched_at` letzte Berührung – Aktion ODER Übertrag von einer anderen
+//         Plattform. Daran hängt der Verfall: Ohne diesen Zeitstempel würde
+//         eine liegengelassene Plattform nie schrumpfen, weil der Verfall
+//         erst bei der nächsten Aktion gerechnet wird – Reichweite ließe sich
+//         auf einem Kanal parken, den man nie wieder anfasst.
 db.exec(`
-  CREATE TABLE IF NOT EXISTS channels (
-    guild_id       TEXT    NOT NULL,
-    user_id        TEXT    NOT NULL,
-    followers      INTEGER NOT NULL DEFAULT 0,
-    subs           INTEGER NOT NULL DEFAULT 0,
-    hype           REAL    NOT NULL DEFAULT 1,
-    streams        INTEGER NOT NULL DEFAULT 0,
-    views_total    INTEGER NOT NULL DEFAULT 0,
-    earned_total   INTEGER NOT NULL DEFAULT 0,
-    peak_viewers   INTEGER NOT NULL DEFAULT 0,
-    peak_followers INTEGER NOT NULL DEFAULT 0,
-    last_stream_at INTEGER NOT NULL DEFAULT 0,
-    streams_today  INTEGER NOT NULL DEFAULT 0,
-    day            TEXT    NOT NULL DEFAULT '',
-    created_at     INTEGER NOT NULL,
-    PRIMARY KEY (guild_id, user_id)
+  CREATE TABLE IF NOT EXISTS creator_channels (
+    guild_id           TEXT    NOT NULL,
+    user_id            TEXT    NOT NULL,
+    platform           TEXT    NOT NULL,
+    followers          INTEGER NOT NULL DEFAULT 0,
+    subs               INTEGER NOT NULL DEFAULT 0,
+    hype               REAL    NOT NULL DEFAULT 1,
+    actions            INTEGER NOT NULL DEFAULT 0,
+    views_total        INTEGER NOT NULL DEFAULT 0,
+    earned_total       INTEGER NOT NULL DEFAULT 0,
+    peak_audience      INTEGER NOT NULL DEFAULT 0,
+    peak_followers     INTEGER NOT NULL DEFAULT 0,
+    last_action_at     INTEGER NOT NULL DEFAULT 0,
+    touched_at         INTEGER NOT NULL DEFAULT 0,
+    stock              REAL    NOT NULL DEFAULT 0,
+    stock_paid_through INTEGER NOT NULL DEFAULT 0,
+    created_at         INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, platform)
   );
-  CREATE INDEX IF NOT EXISTS idx_channels_reach ON channels (guild_id, followers);
+  CREATE INDEX IF NOT EXISTS idx_creator_reach
+    ON creator_channels (guild_id, platform, followers);
 `);
 
-// Tageszähler nachrüsten (Sendezeit pro Tag), ohne bestehende Kanäle zu verlieren.
-const channelColumns = new Set(
-  db.prepare('PRAGMA table_info(channels)').all().map((c) => c.name));
+// Spalten nachrüsten, ohne bestehende Kanäle zu verlieren.
+const creatorColumns = new Set(
+  db.prepare('PRAGMA table_info(creator_channels)').all().map((c) => c.name));
 for (const [column, definition] of [
-  ['streams_today', "INTEGER NOT NULL DEFAULT 0"],
-  ['day', "TEXT NOT NULL DEFAULT ''"],
+  ['touched_at', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
-  if (!channelColumns.has(column)) {
-    db.exec(`ALTER TABLE channels ADD COLUMN ${column} ${definition}`);
+  if (!creatorColumns.has(column)) {
+    db.exec(`ALTER TABLE creator_channels ADD COLUMN ${column} ${definition}`);
   }
+}
+
+// Was sich ein Creator mit sich selbst teilt, nicht mit der Plattform:
+// das Tagesbudget an Zeit, der Promo-Schub aus dem letzten Tweet und die
+// Community-Bindung (senkt den Schwund überall).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS creator_state (
+    guild_id     TEXT    NOT NULL,
+    user_id      TEXT    NOT NULL,
+    day          TEXT    NOT NULL DEFAULT '',
+    time_used    INTEGER NOT NULL DEFAULT 0,
+    boost        REAL    NOT NULL DEFAULT 0,
+    boost_until  INTEGER NOT NULL DEFAULT 0,
+    community    REAL    NOT NULL DEFAULT 0,
+    community_at INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+`);
+
+// Die erste Fassung kannte nur Twitch (Tabelle `channels`, ein Eintrag je
+// Spieler). Sie wird nicht gelöscht, sondern beiseitegelegt – falls doch
+// irgendwo Daten darin liegen, sind sie nicht weg.
+const legacyChannels = db.prepare(
+  "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'channels'").get();
+if (legacyChannels) {
+  const cols = new Set(db.prepare('PRAGMA table_info(channels)').all().map((c) => c.name));
+  if (!cols.has('platform')) db.exec('ALTER TABLE channels RENAME TO channels_v1');
 }
 
 // ---------------------------------------------------------------- WALLET
@@ -1172,23 +1209,47 @@ const stmt = {
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
 
-  // --- Kanal (Streaming) ---
-  getChannel: db.prepare('SELECT * FROM channels WHERE guild_id = ? AND user_id = ?'),
-  createChannel: db.prepare(
-    `INSERT INTO channels (guild_id, user_id, created_at) VALUES (?, ?, ?)
-     ON CONFLICT (guild_id, user_id) DO NOTHING`),
-  // Ein Stream = EINE Anweisung. Zwischen ihr und dem nächsten await kann kein
+  // --- Creator-Netzwerk ---
+  getCreator: db.prepare(
+    'SELECT * FROM creator_channels WHERE guild_id = ? AND user_id = ? AND platform = ?'),
+  allCreator: db.prepare(
+    'SELECT * FROM creator_channels WHERE guild_id = ? AND user_id = ?'),
+  createCreator: db.prepare(
+    `INSERT INTO creator_channels (guild_id, user_id, platform, created_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, platform) DO NOTHING`),
+  // Eine Aktion = EINE Anweisung. Zwischen ihr und dem nächsten await kann kein
   // zweiter Klick dazwischenfunken (§7) – der findet den Cooldown vor.
-  saveChannel: db.prepare(
-    `UPDATE channels SET
-       followers = ?, subs = ?, hype = ?, streams = ?, views_total = ?,
-       earned_total = ?, peak_viewers = ?, peak_followers = ?,
-       last_stream_at = ?, streams_today = ?, day = ?
+  saveCreator: db.prepare(
+    `UPDATE creator_channels SET
+       followers = ?, subs = ?, hype = ?, actions = ?, views_total = ?,
+       earned_total = ?, peak_audience = ?, peak_followers = ?,
+       last_action_at = ?, touched_at = ?, stock = ?, stock_paid_through = ?
+     WHERE guild_id = ? AND user_id = ? AND platform = ?`),
+  // Übertrag auf eine andere Plattform: erst den aufgelaufenen Verfall
+  // anwenden (Faktor), dann den Zuwachs – in EINER Anweisung.
+  addCreatorFollowers: db.prepare(
+    `UPDATE creator_channels
+       SET followers = MAX(0, CAST(followers * ? AS INTEGER) + ?), touched_at = ?
+     WHERE guild_id = ? AND user_id = ? AND platform = ?`),
+  topCreator: db.prepare(
+    `SELECT * FROM creator_channels WHERE guild_id = ? AND platform = ? AND followers > 0
+     ORDER BY followers DESC LIMIT ?`),
+  topCreatorTotal: db.prepare(
+    `SELECT user_id, SUM(followers) AS followers, SUM(earned_total) AS earned
+     FROM creator_channels WHERE guild_id = ?
+     GROUP BY user_id HAVING followers > 0 ORDER BY followers DESC LIMIT ?`),
+  clearCreator: db.prepare('DELETE FROM creator_channels WHERE guild_id = ? AND user_id = ?'),
+
+  getCreatorState: db.prepare(
+    'SELECT * FROM creator_state WHERE guild_id = ? AND user_id = ?'),
+  createCreatorState: db.prepare(
+    `INSERT INTO creator_state (guild_id, user_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  saveCreatorState: db.prepare(
+    `UPDATE creator_state SET day = ?, time_used = ?, boost = ?, boost_until = ?,
+       community = ?, community_at = ?
      WHERE guild_id = ? AND user_id = ?`),
-  topChannels: db.prepare(
-    `SELECT * FROM channels WHERE guild_id = ? AND followers > 0
-     ORDER BY followers DESC, subs DESC LIMIT ?`),
-  clearChannel: db.prepare('DELETE FROM channels WHERE guild_id = ? AND user_id = ?'),
+  clearCreatorState: db.prepare('DELETE FROM creator_state WHERE guild_id = ? AND user_id = ?'),
 
   // --- Staatskasse ---
   getTreasury: db.prepare('SELECT * FROM treasury WHERE guild_id = ?'),
@@ -2175,35 +2236,64 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
-// --------------------------------------------------------------- Kanal
+// ------------------------------------------------------- Creator-Netzwerk
 
-/** Der Kanal eines Spielers – legt ihn beim ersten Zugriff an. */
-function getChannel(guildId, userId, now = Date.now()) {
-  stmt.createChannel.run(guildId, String(userId), now);
-  return stmt.getChannel.get(guildId, String(userId));
+/** Eine Plattform eines Spielers – legt sie beim ersten Zugriff an. */
+function getCreator(guildId, userId, platform, now = Date.now()) {
+  stmt.createCreator.run(guildId, String(userId), platform, now);
+  return stmt.getCreator.get(guildId, String(userId), platform);
 }
 
-/** Gibt es den Kanal schon? (ohne ihn anzulegen) */
-function hasChannel(guildId, userId) {
-  return Boolean(stmt.getChannel.get(guildId, String(userId)));
+/** Alle Plattformen eines Spielers, die schon existieren. */
+function allCreator(guildId, userId) {
+  return stmt.allCreator.all(guildId, String(userId));
 }
 
-/** Schreibt den kompletten Kanalzustand in EINER Anweisung fort. */
-function saveChannel(guildId, userId, c) {
-  stmt.saveChannel.run(
+/** Schreibt eine Plattform in EINER Anweisung fort. */
+function saveCreator(guildId, userId, platform, c) {
+  stmt.saveCreator.run(
     Math.max(0, Math.round(c.followers)), Math.max(0, Math.round(c.subs)), c.hype,
-    c.streams, c.views_total, c.earned_total, c.peak_viewers, c.peak_followers,
-    c.last_stream_at, c.streams_today, c.day, guildId, String(userId));
+    c.actions, c.views_total, c.earned_total, c.peak_audience, c.peak_followers,
+    c.last_action_at, c.touched_at, c.stock, c.stock_paid_through,
+    guildId, String(userId), platform);
 }
 
-/** Die reichweitenstärksten Kanäle dieser Welt. */
-function topChannels(guildId, limit = 10) {
-  return stmt.topChannels.all(guildId, limit);
+/**
+ * Übertrag auf eine andere Plattform: `keep` ist der Anteil, der den Verfall
+ * seit der letzten Berührung überlebt hat (1 = kein Verfall).
+ */
+function addCreatorFollowers(guildId, userId, platform, delta, keep = 1, now = Date.now()) {
+  stmt.createCreator.run(guildId, String(userId), platform, now);
+  stmt.addCreatorFollowers.run(
+    keep, Math.round(delta), now, guildId, String(userId), platform);
 }
 
-/** Löscht einen Kanal (Tests, Admin). */
-function clearChannel(guildId, userId) {
-  stmt.clearChannel.run(guildId, String(userId));
+/** Der geteilte Zustand (Tagesbudget, Promo-Schub, Community). */
+function getCreatorState(guildId, userId, now = Date.now()) {
+  stmt.createCreatorState.run(guildId, String(userId), now);
+  return stmt.getCreatorState.get(guildId, String(userId));
+}
+
+function saveCreatorState(guildId, userId, s) {
+  stmt.saveCreatorState.run(
+    s.day, s.time_used, s.boost, s.boost_until, s.community, s.community_at,
+    guildId, String(userId));
+}
+
+/** Reichweiten-Rangliste einer Plattform. */
+function topCreator(guildId, platform, limit = 10) {
+  return stmt.topCreator.all(guildId, platform, limit);
+}
+
+/** Rangliste über alle Plattformen zusammen. */
+function topCreatorTotal(guildId, limit = 10) {
+  return stmt.topCreatorTotal.all(guildId, limit);
+}
+
+/** Löscht das ganze Netzwerk eines Spielers (Tests, Admin). */
+function clearCreator(guildId, userId) {
+  stmt.clearCreator.run(guildId, String(userId));
+  stmt.clearCreatorState.run(guildId, String(userId));
 }
 
 // -------------------------------------------------------- Staatskasse
@@ -2487,7 +2577,8 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
-  getChannel, hasChannel, saveChannel, topChannels, clearChannel,
+  getCreator, allCreator, saveCreator, addCreatorFollowers,
+  getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,

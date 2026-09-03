@@ -18,6 +18,20 @@
  */
 module.exports = [
   {
+    version: '1.10.0',
+    date: '2026-09-03',
+    title: 'YouTube, Instagram und Twitter',
+    lines: [
+      '📡 **Vier Plattformen statt einer:** Aus dem Twitch-Kanal wird ein ganzes Netzwerk. `/creator` oder 📡 unter Arbeit.',
+      '🔴 **YouTube:** Ein Video ist teuer in der Zeit, wandert dafür in den **Katalog** – und der bringt noch tagelang Aufrufe und Geld, ganz von allein.',
+      '📸 **Instagram:** Wächst am schnellsten und zahlt dir selbst **nichts**. Geld gibt es nur über **Kooperationen** – wie oft Marken anklopfen, hängt an deiner Reichweite im ganzen Netzwerk.',
+      '🐦 **Twitter:** Zahlt **keinen Cent**. Nie. Dafür schiebt ein Tweet deine nächste Aktion an und baut **Community** auf, die den Followerschwund in Pausen halbiert.',
+      '🔗 **Alles hängt zusammen:** Jede Aktion spült Follower zu den anderen Kanälen, fremde Reichweite zählt anteilig mit, und ein viraler Clip – oder ein Shitstorm – wirkt überall.',
+      '⏳ **Ein Tagesbudget:** 8 Zeiteinheiten für alles. Ein Stream kostet 2, ein Video 3, Post und Tweet je 1. Vier Streams sind ein voller Tag.',
+      '📉 **Auch vergessene Kanäle schrumpfen** – Reichweite lässt sich nicht parken.',
+    ],
+  },
+  {
     version: '1.9.0',
     date: '2026-09-03',
     title: 'Der eigene Kanal',
