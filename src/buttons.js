@@ -11,7 +11,7 @@ const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
-  buildFishingView, buildCreatorView, buildPlatformView, money,
+  buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -149,6 +149,34 @@ async function settle(interaction) {
   }
 
   return lines.length ? lines.join('\n\n') : null;
+}
+
+/**
+ * Rechnet alles Laufende des Creator-Netzwerks ab: YouTube-Katalog, Merch und
+ * abgelaufene Verträge. Läuft beim Öffnen der Ansichten (faule Abrechnung, §4)
+ * und gibt eine fertige Notiz zurück – oder null, wenn nichts passiert ist.
+ */
+async function settleCreator(guildId, userId) {
+  const creator = require('./creator');
+  const symbol = await getSymbol(guildId);
+  const lines = [];
+
+  const catalog = await creator.settle(guildId, userId).catch(() => null);
+  if (catalog) {
+    lines.push(`📼 Dein Katalog lief weiter: **${catalog.views.toLocaleString('de-DE')}** ` +
+      `Aufrufe, **${money(symbol, catalog.amount)}**.`);
+  }
+
+  const merch = await creator.settleMerch(guildId, userId).catch(() => null);
+  if (merch) lines.push(`👕 Merch verkauft: **${money(symbol, merch.amount)}**.`);
+
+  const deals = await creator.settleDeals(guildId, userId).catch(() => null);
+  if (deals?.failed) {
+    lines.push(`⚠️ Vertrag mit **${deals.failed.brand}** geplatzt – Frist gerissen. ` +
+      `Das kostet **${money(symbol, deals.failed.penalty)}**.`);
+  }
+
+  return lines.length ? lines.join('\n') : null;
 }
 
 /** Menüpunkte, bei denen Miete und Stellplätze relevant sind. */
@@ -1225,37 +1253,116 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
-  /** Creator: eine Plattform öffnen. */
-  async creator(interaction, [platformId]) {
+  /** Creator: eine Plattform öffnen (`t` = Modus für eigene Titel). */
+  async creator(interaction, [platformId, mode]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
 
-    // Beim Öffnen den YouTube-Katalog abrechnen – Aufrufe, die seit dem
-    // letzten Mal dazugekommen sind (faule Abrechnung, §4).
-    const settled = await require('./creator').settle(guildId, userId).catch(() => null);
-    await interaction.editReply(await buildPlatformView({ guildId, userId, key: platformId }));
-
-    if (settled) {
-      const symbol = await getSymbol(guildId);
-      await interaction.followUp({
-        content: `📼 Dein Katalog lief weiter: **${settled.views.toLocaleString('de-DE')}** ` +
-          `Aufrufe, **${money(symbol, settled.amount)}**.`,
-        flags: MessageFlags.Ephemeral,
-      }).catch(() => {});
+    const notes = await settleCreator(guildId, userId);
+    await interaction.editReply(await buildPlatformView({
+      guildId, userId, key: platformId, titleMode: mode === 't',
+    }));
+    if (notes) {
+      await interaction.followUp({ content: notes, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
     }
   },
 
+  /** Die Sponsorenverträge. */
+  async deals(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const notes = await settleCreator(guildId, userId);
+    await interaction.editReply(await buildDealsView({ guildId, userId }));
+    if (notes) {
+      await interaction.followUp({ content: notes, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
+  },
+
+  /** Ein Vertragsangebot annehmen. */
+  async dealok(interaction, [dealId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    const creator = require('./creator');
+
+    const res = creator.accept(guildId, userId, Number(dealId));
+    await interaction.editReply(await buildDealsView({ guildId, userId }));
+
+    const problems = {
+      not_found: '❌ Dieses Angebot gibt es nicht.',
+      gone: 'ℹ️ Das Angebot ist nicht mehr offen.',
+      expired: '⏳ Zu spät – das Angebot ist abgelaufen.',
+      busy: '📋 Du hast schon einen laufenden Vertrag. Erst liefern, dann der nächste.',
+    };
+    const p = creator.platform(res.deal?.platform);
+    const note = res.ok
+      ? `✍️ Unterschrieben: **${res.deal.brand}**.\n` +
+        `Liefere **${res.deal.quota}** ${p?.action ?? 'Beiträge'}` +
+        (res.deal.format
+          ? ` im Format **${creator.format(res.deal.platform, res.deal.format)?.name}**` : '') +
+        ` auf ${p?.name}. Dann gibt es **${money(symbol, res.deal.payout)}**.\n` +
+        `⚠️ Schaffst du es nicht bis zur Frist, kostet es **${money(symbol, res.deal.penalty)}**.`
+      : (problems[res.reason] ?? '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Ein Vertragsangebot ablehnen. */
+  async dealno(interaction, [dealId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./creator').decline(guildId, userId, Number(dealId));
+    await interaction.editReply(await buildDealsView({ guildId, userId }));
+    await interaction.followUp({
+      content: res.ok
+        ? `🚫 Abgelehnt. ${res.deal.brand} sucht sich jemand anderen.`
+        : 'ℹ️ Das Angebot ist nicht mehr offen.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /**
+   * Fragt nach einem eigenen Titel und führt die Aktion damit aus.
+   * Genau ein Eingabefeld – mehr kann der Fluxer-Ersatz für Modals nicht.
+   */
+  async ptitle(interaction, [platformId, formatId]) {
+    const userId = uid(interaction);
+    const creator = require('./creator');
+    const p = creator.platform(platformId);
+    const f = creator.format(platformId, formatId);
+    if (!p || !f) return;
+
+    const modal = new ModalBuilder()
+      .setCustomId(`ctitle|${platformId}|${formatId}|${userId}`)
+      .setTitle(`${p.action}-Titel (${f.name})`.slice(0, 45));
+    const input = new TextInputBuilder()
+      .setCustomId('title')
+      .setLabel(`Wie heißt dein ${p.action}?`.slice(0, 45))
+      .setPlaceholder(f.titles[0].slice(0, 100))
+      .setMaxLength(80)
+      .setStyle(TextInputStyle.Short).setRequired(true);
+    modal.addComponents(new ActionRowBuilder().addComponents(input));
+    await interaction.showModal(modal);
+  },
+
   /** Creator: eine Aktion auf einer Plattform (Stream, Video, Post, Tweet). */
-  async post(interaction, [platformId, formatId]) {
+  async post(interaction, [platformId, formatId], title = null) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const creator = require('./creator');
     const symbol = await getSymbol(guildId);
 
-    const res = await creator.act(guildId, userId, platformId, formatId);
-    await interaction.editReply(await buildPlatformView({ guildId, userId, key: platformId }));
+    const res = await creator.act(
+      guildId, userId, platformId, formatId, Date.now(), Math.random, title);
+    await interaction.editReply(await buildPlatformView({
+      guildId, userId, key: platformId, titleMode: Boolean(title),
+    }));
 
     let note;
     if (!res.ok) {
@@ -1275,6 +1382,22 @@ Object.assign(buttons, {
     } else {
       note = creator.describe(res, (n) => money(symbol, n)) +
         (res.balance ? `\n💰 Kontostand: ${money(symbol, res.balance.total)}` : '');
+
+      if (res.deal) {
+        note += res.deal.complete
+          ? `\n🤝 **Vertrag erfüllt!** ${res.deal.emoji} ${res.deal.brand} zahlt ` +
+            `**${money(symbol, res.deal.payout)}**.`
+          : `\n🤝 Zählt für ${res.deal.emoji} ${res.deal.brand}: ` +
+            `**${res.deal.done}/${res.deal.quota}**.`;
+      }
+      if (res.offer) {
+        note += `\n📬 ${res.offer.emoji} **${res.offer.brand}** hat angefragt – ` +
+          'siehe 🤝 Deals.';
+      }
+      if (res.tired) {
+        note += `\n🔋 Du wirkst müde: **${Math.round(res.energy * 100)} %** Reichweite. ` +
+          'Eine Pause hilft.';
+      }
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -1444,6 +1567,12 @@ function workshopFailure(result, symbol) {
 // -------------------------------------------------------- Modal-Handler
 
 const modals = {
+  /** Eigener Titel wurde getippt – dieselbe Aktion, nur mit Wunschtitel. */
+  async ctitle(interaction, [platformId, formatId]) {
+    const title = interaction.fields.getTextInputValue('title');
+    return buttons.post(interaction, [platformId, formatId], title);
+  },
+
   /** Eigener Einsatz wurde eingegeben. */
   async cbetset(interaction, [game]) {
     await interaction.deferUpdate();

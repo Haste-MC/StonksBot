@@ -401,12 +401,12 @@ und Twitter – und die hängen zusammen.
 
 #### Vier Plattformen, vier Geschäftsmodelle
 
-| | Aktion | Zeit | Verdient an | Charakter |
-|--|--|--|--|--|
-| 🟣 **Twitch** | Stream | 2 | Werbung + Spenden + **Abos** | live, sofort, das meiste Geld |
-| 🔴 **YouTube** | Video | 3 | Werbung auf Aufrufe | teuer in der Zeit, **zahlt tagelang nach** |
-| 📸 **Instagram** | Post | 1 | **nur Kooperationen** | wächst am schnellsten, zahlt selbst nichts |
-| 🐦 **Twitter** | Tweet | 1 | **gar nichts** | Promo und Community – und trotzdem unverzichtbar |
+| | Aktion | Zeit | Verdient an | Community | Charakter |
+|--|--|--|--|--|--|
+| 🟣 **Twitch** | Stream | 2 | Werbung + Spenden + **Abos** | stark | live, sofort, das meiste Geld |
+| 🔴 **YouTube** | Video | 3 | Werbung auf Aufrufe | mittel | teuer in der Zeit, **zahlt tagelang nach** |
+| 📸 **Instagram** | Post | 1 | **nur Kooperationen** | keine | wächst am schnellsten, zahlt selbst nichts |
+| 🐦 **Twitter** | Tweet | 1 | **gar nichts** | stark | Promo und Community – trotzdem unverzichtbar |
 
 Das ist bewusst so ungleich wie in Wirklichkeit:
 
@@ -418,8 +418,22 @@ Das ist bewusst so ungleich wie in Wirklichkeit:
   anklopft – und wie oft das passiert, hängt an deiner Reichweite im **ganzen**
   Netzwerk, nicht an diesem einen Post.
 - **Twitter** zahlt **nie**. Ein Tweet gibt der nächsten Aktion einen
-  Reichweitenschub (Promo) und baut **Community** auf, die den Schwund in
-  Pausen halbiert. Wer Twitter ignoriert, verliert schneller Follower.
+  Reichweitenschub (Promo) und ist pro Zeiteinheit die beste Community-Quelle.
+
+**Community ist nicht dasselbe wie Reichweite.** Sie entsteht dort, wo man
+miteinander redet – und genau deshalb nicht überall gleich:
+
+| | Community je Aktion | je Zeiteinheit |
+|--|--|--|
+| 🟣 Twitch (Just Chatting) | 2,9 | 1,5 |
+| 🐦 Twitter (Community-Tweet) | 3,1 | **3,1** |
+| 🔴 YouTube (Vlog) | 1,8 | 0,6 |
+| 📸 Instagram | **0** | 0 |
+
+Zwei Stunden Livechat sind zwei Stunden Beziehung, unter Videos wird noch
+diskutiert – im Instagram-Feed wird gesehen, geliked und weitergescrollt.
+Twitter bleibt die billigste Quelle, ist aber nicht mehr die einzige.
+Community halbiert den Followerschwund in Pausen und trägt den Merch-Umsatz.
 
 #### Wie sich die Plattformen gegenseitig tragen
 
@@ -450,18 +464,93 @@ kommt: Auch ein Kanal, auf dem man **nie** etwas macht, verfällt – der Verfal
 wird beim Übertrag mitgerechnet. Ohne das ließe sich Reichweite auf einem
 vergessenen Kanal parken und beliebig ansammeln.
 
-[`test/creator.test.js`](test/creator.test.js) rechnet das über **200 simulierte
-Karrieren** nach: Nach 200 Tagen hat ein Netzwerk keine 1,4-fache Reichweite
-gegenüber Tag 100, und der Tagesverdienst bleibt unter der Decke. Geprüft wird
-außerdem, dass Twitter über hunderte Tweets **exakt null** verdient und
-Instagram ohne Kooperation ebenfalls nichts.
+[`test/creator.test.js`](test/creator.test.js) rechnet das über **60 simulierte
+Karrieren à 800 Tage** nach. Entscheidend ist nicht ein einzelner Schwellwert,
+sondern dass jede Verdopplung der Spielzeit **weniger** bringt als die vorige:
+
+```
+Tag 100: 14.400 → Tag 200: 20.800 → Tag 400: 23.100 → Tag 800: 23.900
+Wachstum:      1,45×            1,11×            1,04×
+```
+
+Das ist ein Gleichgewicht, kein langsames Wachstum. Geprüft wird außerdem, dass
+Twitter über hunderte Tweets **exakt null** verdient und Instagram ohne
+Kooperation ebenfalls nichts.
+
+#### Eigene Titel ✏️
+
+Jede Plattform hat einen Schalter **🎲 Titel: zufällig / ✏️ Titel: eigener**.
+Im eigenen Modus fragt der Bot nach der Formatwahl nach dem Titel – auf Discord
+per Eingabefenster, auf Fluxer per Rückfrage im Chat.
+
+```
+🟣 Vollständig unvorbereitet: „Ich lese drei Stunden lang Steuerbescheide vor" (Gaming)
+```
+
+Der Titel steht danach unter 📌 **Zuletzt** an der Plattform. Entschärft wird
+er trotzdem: Erwähnungen, `@everyone`, Markdown und Zeilenumbrüche fliegen
+raus, bei 80 Zeichen ist Schluss – wer nur Leerzeichen tippt, bekommt wieder
+einen aus der Vorauswahl.
+
+#### Sponsorenverträge 🤝
+
+Ab etwa **3.000** Followern im Netzwerk melden sich Marken. Ein Vertrag ist
+eine Abmachung mit Frist:
+
+```
+"Liefere 3 Werbeposts auf Instagram in 4 Tagen → 6.400"
+```
+
+Angenommen wird im Menü unter 🤝 **Deals** (`!deals` auf Fluxer). Wer liefert,
+bekommt die Summe **nach der letzten Lieferung** ausgezahlt. Wer die Frist
+reißt, zahlt **30 % Vertragsstrafe**. Es läuft immer nur ein Vertrag; Angebote
+verfallen nach zwei Tagen von selbst.
+
+Die Summe hängt an der **Gesamtreichweite** – hier zahlt sich das Netzwerk
+wirklich aus. Auch das bleibt unterlinear (`reichweite^0,6`): Der zehnfache
+Kanal bekommt keine zehnfachen Verträge. Twitter wird nie beauftragt, dort
+läuft keine Werbung, die jemand bezahlen würde.
+
+#### Merch 👕
+
+Ab **5.000** Followern verkaufst du Merch. Das Besondere: Merch hängt an der
+**Community**, nicht an der Reichweite – Leute kaufen Pullis von Leuten, die
+sie mögen. Damit wird Twitter indirekt profitabel, ohne selbst einen Cent zu
+zahlen; ein Streamer, der viel im Livechat hängt, kommt aber genauso dorthin.
+Nur über Instagram allein läuft nichts: Der Feed baut keine Bindung auf.
+
+Abgerechnet wird faul (§4) beim Öffnen des Menüs, gedeckelt auf 7 Tage
+Rückstau und einen Tagesbetrag. Die Community klingt ohne Tweets ab – wer
+aufhört, verkauft bald nichts mehr.
+
+#### Burnout 🔋
+
+Wer jeden Tag das volle Zeitbudget raushaut, brennt aus: Jede Aktion kostet
+Kraft, jede Pause bringt sie zurück (55 % pro Tag).
+
+| Tempo | Dauerzustand |
+|--|--|
+| 8 von 8 Zeit, jeden Tag | 80 % Reichweite |
+| 6 von 8 | 85 % |
+| 4 von 8 | 90 % |
+| 2 von 8 | 95 % |
+
+Der Malus ist bei **−35 %** hart gedeckelt und trifft nur, wer dauerhaft am
+Anschlag fährt. Aus dem Zeitdeckel wird damit eine Entscheidung statt einer
+Wand – und nebenbei eine weitere Obergrenze für §3.
+
+#### Rangliste und Profil
+
+`/leaderboard` hat eine neue Ansicht **📡 Reichweite** – dort stehen nur
+Spieler mit Kanal. Im **Profil** taucht ein Netzwerk-Feld auf, sobald du
+überhaupt Follower hast: Gesamtzahl plus Aufteilung je Plattform.
 
 #### Was sich lohnt
 
 | Strategie | pro Tag | Reichweite |
 |--|--|--|
-| nur Twitch (4 Streams) | ~5.600 | ~4.400 |
-| gemischt (Tweet + 2 Streams + Video) | ~4.300 | ~7.900 |
+| nur Twitch (4 Streams) | ~7.200 | ~6.200 |
+| gemischt (Tweet + 2 Streams + Video) | ~4.800 | ~9.800 |
 
 Live bleibt die stärkste Geldquelle – wer nur streamt, verdient kurzfristig am
 meisten. Wer verteilt, hat die doppelte Reichweite, verliert bei einem

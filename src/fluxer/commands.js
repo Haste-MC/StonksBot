@@ -92,6 +92,12 @@ const COMMANDS = [
       ({ view: await ui.buildCreatorView({ guildId, userId }) }),
   },
   {
+    names: ['deals', 'deal', 'sponsor', 'vertrag'],
+    info: 'Sponsorenverträge deines Kanals',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildDealsView({ guildId, userId }) }),
+  },
+  {
     names: ['stream', 'streamen', 'live', 'twitch', 'youtube', 'yt',
       'instagram', 'insta', 'ig', 'twitter', 'x'],
     info: 'Direkt zu einer Plattform: !twitch, !youtube, !insta, !twitter',

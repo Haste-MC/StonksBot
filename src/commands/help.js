@@ -40,7 +40,8 @@ module.exports = {
         {
           name: '🧰 Ausrüstung, die etwas kann',
           value: '`/angeln` mit der Angelausrüstung · `/creator` baut dein Netzwerk aus ' +
-            'Twitch, YouTube, Instagram und Twitter auf (Setup und Kamera nötig) · ' +
+            'Twitch, YouTube, Instagram und Twitter auf (Setup und Kamera nötig) – ' +
+            'mit Sponsorenverträgen, Merch und Burnout · ' +
             'mit dem Werkzeugkasten reparierst du in der 🛠️ Werkstatt selbst und zahlst nur Material.',
         },
         {

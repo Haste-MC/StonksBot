@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.11.0',
+    date: '2026-09-03',
+    title: 'Verträge, Merch, Burnout und eigene Titel',
+    lines: [
+      '🤝 **Sponsorenverträge:** Ab 3.000 Followern melden sich Marken. Liefere die vereinbarten Beiträge in der Frist und kassiere – reiß sie, und es kostet 30 % Vertragsstrafe. Im Menü unter 🤝 Deals.',
+      '👕 **Merch:** Ab 5.000 Followern verkaufst du Pullis. Der Umsatz hängt an deiner **Community**, nicht an der Reichweite – die entsteht im Livechat, unter Videos und auf Twitter. Im Instagram-Feed dagegen gar nicht.',
+      '🔋 **Burnout:** Wer jeden Tag das volle Zeitbudget raushaut, verliert bis zu 35 % Reichweite. Pausen bringen sie zurück. Vollgas dauerhaft = 80 %.',
+      '✏️ **Eigene Titel:** Streams, Videos, Posts und Tweets kannst du selbst benennen – Schalter 🎲/✏️ in jeder Plattform-Ansicht. Der letzte Titel bleibt am Kanal stehen.',
+      '📡 **Reichweiten-Rangliste:** `/leaderboard` hat eine neue Ansicht – wer hat das größte Publikum?',
+      '👤 **Im Profil:** Sobald du Follower hast, zeigt dein Steckbrief das Netzwerk mit der Aufteilung je Plattform.',
+    ],
+  },
+  {
     version: '1.10.0',
     date: '2026-09-03',
     title: 'YouTube, Instagram und Twitter',

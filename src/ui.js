@@ -1266,6 +1266,8 @@ async function buildCreatorView({ guildId, userId }) {
 
   const extras = [
     `⏳ **Zeit heute:** ${s.budget.left} von ${s.budget.max} übrig`,
+    `🔋 **Energie:** ${progressBar(s.energy, 8)} ${Math.round(s.energy * 100)} %` +
+    (s.energy < 0.95 ? ' _(ausgebrannt – Pausen helfen)_' : ''),
   ];
   if (s.boost > 0) {
     extras.push(`🐦 **Promo läuft:** nächste Aktion +${Math.round(s.boost * 100)} % Reichweite`);
@@ -1273,6 +1275,18 @@ async function buildCreatorView({ guildId, userId }) {
   if (s.community > 0) {
     extras.push(`💞 **Community:** ${Math.round(s.community)} ` +
       `_(−${Math.round(s.churnCut * 100)} % Schwund in Pausen)_`);
+  }
+  if (s.merch.unlocked) {
+    extras.push(`👕 **Merch:** ~${money(symbol, s.merch.perDay)} am Tag ` +
+      '_(hängt an der Community)_');
+  }
+  if (s.deal) {
+    extras.push(`🤝 **Vertrag läuft:** ${s.deal.emoji} ${s.deal.brand} — ` +
+      `${s.deal.done}/${s.deal.quota} · ${money(symbol, s.deal.payout)}`);
+  }
+  if (s.offers.length > 0) {
+    extras.push(`📬 **${s.offers.length} ${s.offers.length === 1 ? 'Anfrage' : 'Anfragen'}** ` +
+      'von Marken warten.');
   }
   if (s.earned > 0) extras.push(`💰 **Bisher verdient:** ${money(symbol, s.earned)}`);
   embed.addFields({ name: '\u200b', value: extras.join('\n') });
@@ -1282,6 +1296,12 @@ async function buildCreatorView({ guildId, userId }) {
       + 'Twitter zahlt nichts und ist trotzdem wichtig',
   });
 
+  const dealButton = new ButtonBuilder()
+    .setCustomId(`deals|${userId}`)
+    .setLabel(s.offers.length > 0 ? `Deals (${s.offers.length})` : 'Deals')
+    .setEmoji('🤝')
+    .setStyle(s.offers.length > 0 ? ButtonStyle.Success : ButtonStyle.Secondary);
+
   const rows = [
     new ActionRowBuilder().addComponents(...s.platforms.map((p) =>
       new ButtonBuilder()
@@ -1289,14 +1309,100 @@ async function buildCreatorView({ guildId, userId }) {
         .setLabel(p.name).setEmoji(p.emoji)
         .setStyle(p.remainingMs <= 0 && p.hasGear && s.budget.left >= p.time
           ? ButtonStyle.Primary : ButtonStyle.Secondary))),
-    new ActionRowBuilder().addComponents(homeButton(userId)),
+    new ActionRowBuilder().addComponents(dealButton, homeButton(userId)),
   ];
 
   return { embeds: [embed], components: rows };
 }
 
-/** Eine einzelne Plattform mit ihren Formaten. */
-async function buildPlatformView({ guildId, userId, key }) {
+/**
+ * Sponsorenverträge: offene Anfragen, der laufende Vertrag und die Historie.
+ *
+ * Bewusst hier statt im Postfach: Ein Vertrag gehört zum Kanal, und im
+ * Postfach würde er zwischen Autoangeboten und Rechnungen untergehen.
+ */
+async function buildDealsView({ guildId, userId }) {
+  const creator = require('./creator');
+  const symbol = await getSymbol(guildId);
+  const s = creator.status(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🤝 Sponsorenverträge')
+    .setColor(0xf1c40f);
+
+  if (s.total < creator.DEAL_MIN_REACH) {
+    embed.setDescription(
+      `Marken melden sich ab etwa **${creator.DEAL_MIN_REACH.toLocaleString('de-DE')}** ` +
+      `Followern im Netzwerk. Du hast **${s.total.toLocaleString('de-DE')}**.`);
+  } else {
+    embed.setDescription(
+      'Eine Marke zahlt für vereinbarte Beiträge – **erst nach Lieferung**. ' +
+      'Wer die Frist reißt, zahlt Vertragsstrafe. Immer nur ein Vertrag gleichzeitig.');
+  }
+
+  if (s.deal) {
+    const left = Math.max(0, (s.deal.deadline ?? 0) - Date.now());
+    embed.addFields({
+      name: `📋 Läuft: ${s.deal.emoji} ${s.deal.brand}`,
+      value: `**${s.deal.done} von ${s.deal.quota}** Beiträgen ` +
+        `auf ${creator.platform(s.deal.platform)?.name ?? s.deal.platform}` +
+        (s.deal.format ? ` _(Format: ${creator.format(s.deal.platform, s.deal.format)?.name})_` : '') +
+        `\n💰 ${money(symbol, s.deal.payout)} bei Erfüllung · ` +
+        `⚠️ ${money(symbol, s.deal.penalty)} Strafe bei Fristablauf` +
+        `\n⏳ noch ${require('./income').formatRemaining(left)}`,
+    });
+  }
+
+  for (const offer of s.offers) {
+    const p = creator.platform(offer.platform);
+    embed.addFields({
+      name: `${offer.emoji} Anfrage von ${offer.brand}`,
+      value: `**${offer.quota}** ${p?.action ?? 'Beiträge'}` +
+        (offer.format ? ` _(${creator.format(offer.platform, offer.format)?.name})_` : '') +
+        ` auf ${p?.name ?? offer.platform}\n` +
+        `💰 ${money(symbol, offer.payout)} · ⚠️ ${money(symbol, offer.penalty)} Strafe\n` +
+        `_Angebot läuft in ${require('./income').formatRemaining(offer.expires_at - Date.now())} ab_`,
+    });
+  }
+
+  if (s.history.length > 0) {
+    embed.addFields({
+      name: '📜 Bisher',
+      value: s.history.map((d) => `${d.status === 'done' ? '✅' : '❌'} ${d.emoji} ${d.brand} — ` +
+        (d.status === 'done' ? money(symbol, d.payout) : `−${money(symbol, d.penalty)}`)).join('\n'),
+    });
+  }
+
+  const rows = [];
+  for (const offer of s.offers.slice(0, 2)) {
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId(`dealok|${offer.id}|${userId}`)
+        .setLabel(`Annehmen: ${offer.brand}`.slice(0, 78)).setEmoji('✍️')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(Boolean(s.deal)),
+      new ButtonBuilder()
+        .setCustomId(`dealno|${offer.id}|${userId}`)
+        .setLabel('Ablehnen').setEmoji('🚫')
+        .setStyle(ButtonStyle.Secondary)));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+      .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Eine einzelne Plattform mit ihren Formaten.
+ *
+ * `titleMode` schaltet um, ob ein Klick sofort loslegt (Titel per Zufall) oder
+ * vorher nach einem eigenen Titel fragt. Der Modus steckt in der Button-ID,
+ * nicht im Speicher (§6) – und funktioniert dadurch auch auf Fluxer, wo ein
+ * Eingabefenster nur ein einziges Feld haben kann.
+ */
+async function buildPlatformView({ guildId, userId, key, titleMode = false }) {
   const creator = require('./creator');
   const gear = require('./data/gear');
   const symbol = await getSymbol(guildId);
@@ -1314,6 +1420,12 @@ async function buildPlatformView({ guildId, userId, key }) {
   const back = new ButtonBuilder()
     .setCustomId(ID.menu('creator', 1, userId))
     .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary);
+
+  const titleToggle = new ButtonBuilder()
+    .setCustomId(`creator|${p.id}|${titleMode ? '' : 't'}|${userId}`)
+    .setLabel(titleMode ? 'Titel: eigener' : 'Titel: zufällig')
+    .setEmoji(titleMode ? '✏️' : '🎲')
+    .setStyle(titleMode ? ButtonStyle.Success : ButtonStyle.Secondary);
 
   if (!me.hasGear) {
     const item = gear.findGear(p.gear);
@@ -1368,6 +1480,13 @@ async function buildPlatformView({ guildId, userId, key }) {
     });
   }
 
+  if (me.lastTitle) {
+    embed.addFields({
+      name: `📌 Zuletzt`,
+      value: `„${me.lastTitle}"`,
+    });
+  }
+
   embed.addFields({
     name: '⏳ Bereit',
     value: `${readyIn(me.remainingMs)} · Zeit: **${p.time}** von ${s.budget.left} übrig` +
@@ -1377,12 +1496,18 @@ async function buildPlatformView({ guildId, userId, key }) {
 
   const ready = me.remainingMs <= 0 && s.budget.left >= p.time;
   embed.setFooter({
-    text: ready ? 'Wähle ein Format.' : 'Noch nicht bereit – Cooldown oder Zeit ist alle.',
+    text: ready
+      ? (titleMode
+        ? `Wähle ein Format – dann tippst du deinen eigenen ${p.action}-Titel.`
+        : 'Wähle ein Format. Für einen eigenen Titel: ✏️ unten.')
+      : 'Noch nicht bereit – Cooldown oder Zeit ist alle.',
   });
 
   const buttons = creator.formats(p.id).map((f) =>
     new ButtonBuilder()
-      .setCustomId(`post|${p.id}|${f.id}|${userId}`)
+      .setCustomId(titleMode
+        ? `ptitle|${p.id}|${f.id}|${userId}`
+        : `post|${p.id}|${f.id}|${userId}`)
       .setLabel(f.name).setEmoji(f.emoji)
       .setStyle(ButtonStyle.Secondary)
       .setDisabled(!ready));
@@ -1391,7 +1516,7 @@ async function buildPlatformView({ guildId, userId, key }) {
   for (let i = 0; i < buttons.length; i += 3) {
     rows.push(new ActionRowBuilder().addComponents(...buttons.slice(i, i + 3)));
   }
-  rows.push(new ActionRowBuilder().addComponents(back, homeButton(userId)));
+  rows.push(new ActionRowBuilder().addComponents(titleToggle, back, homeButton(userId)));
 
   return { embeds: [embed], components: rows };
 }
@@ -1973,6 +2098,18 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
       (next ? `\n\n_Als Nächstes: ${next.text}_` : '\n\n_Alles freigeschaltet._'),
   });
 
+  // Creator-Netzwerk, falls überhaupt ein Kanal existiert.
+  const net = require('./creator').status(guildId, owner);
+  if (net.total > 0) {
+    const active = net.platforms.filter((pl) => pl.followers > 0);
+    embed.addFields({
+      name: '📡 Reichweite',
+      value: `**${net.total.toLocaleString('de-DE')}** Follower insgesamt\n` +
+        active.map((pl) => `${pl.emoji} ${pl.followers.toLocaleString('de-DE')}`).join(' · '),
+      inline: true,
+    });
+  }
+
   // Depot, falls jemand an der Börse unterwegs ist.
   const depot = require('./wallstreet').portfolio(guildId, owner);
   if (depot.positions.length) {
@@ -2018,6 +2155,7 @@ const LB_METRICS = {
   income: { label: 'Einnahmen', emoji: '📈' },
   expense: { label: 'Ausgaben', emoji: '📉' },
   networth: { label: 'Networth', emoji: '💰' },
+  reach: { label: 'Reichweite', emoji: '📡' },
 };
 const LB_PAGE = 10;
 // Networth kostet je Spieler eine API-Abfrage – für die Networth-Sortierung
@@ -2030,14 +2168,34 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   const symbol = await getSymbol(guildId);
   if (!LB_METRICS[metric]) metric = 'level';
 
+  // Reichweite kommt nicht aus der Spielerstatistik, sondern aus dem
+  // Creator-Netzwerk – wer keinen Kanal hat, taucht dort gar nicht auf.
+  const reachByUser = new Map(
+    db.topCreatorTotal(guildId, 200).map((r) => [r.user_id, r.followers]));
+
   let roster = db.listStats(guildId).map((s) => ({
     userId: s.user_id,
     xp: s.xp,
     lvl: level.levelForXp(s.xp),
     income: s.income_total,
     expense: s.expense_total,
+    reach: reachByUser.get(s.user_id) ?? 0,
     networth: null,
   }));
+
+  if (metric === 'reach') {
+    // Wer einen Kanal hat, aber noch nie Geld bewegt hat (reiner Twitter-
+    // Account zum Beispiel), steht nicht in der Spielerstatistik – der muss
+    // hier trotzdem auftauchen.
+    const known = new Set(roster.map((r) => r.userId));
+    for (const [id, followers] of reachByUser) {
+      if (!known.has(id)) {
+        roster.push({ userId: id, xp: 0, lvl: 0, income: 0, expense: 0,
+          reach: followers, networth: null });
+      }
+    }
+    roster = roster.filter((r) => r.reach > 0);
+  }
 
   // Guthaben (und damit Networth) nur bei Bedarf holen – je Zeile eine Abfrage.
   const fillNetworth = (rows) => Promise.all(rows.map(async (r) => {
@@ -2053,7 +2211,9 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     .setColor(0xf1c40f);
 
   if (roster.length === 0) {
-    embed.setDescription('Noch keine Daten. Verdiene oder gib Geld aus, dann tauchst du hier auf!');
+    embed.setDescription(metric === 'reach'
+      ? 'Noch hat niemand einen Kanal. `/creator` ist der Anfang.'
+      : 'Noch keine Daten. Verdiene oder gib Geld aus, dann tauchst du hier auf!');
   }
 
   if (metric === 'networth') {
@@ -2061,7 +2221,7 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     await fillNetworth(roster);
     roster.sort((a, b) => b.networth - a.networth);
   } else {
-    const key = { level: 'lvl', income: 'income', expense: 'expense' }[metric];
+    const key = { level: 'lvl', income: 'income', expense: 'expense', reach: 'reach' }[metric];
     roster.sort((a, b) => (b[key] - a[key]) || (b.xp - a.xp));
   }
 
@@ -2076,9 +2236,13 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     embed.setDescription(slice.map((r, i) => {
       const rank = (p - 1) * LB_PAGE + i + 1;
       const you = r.userId === userId ? ' ⬅️ **du**' : '';
-      return `${medal(rank)} <@${r.userId}>${you}\n` +
-        `🏆 Lvl ${r.lvl} · 📈 ${money(symbol, r.income)} · ` +
-        `📉 ${money(symbol, r.expense)} · 💰 ${money(symbol, r.networth ?? 0)}`;
+      const line = metric === 'reach'
+        ? `📡 ${r.reach.toLocaleString('de-DE')} Follower · 🏆 Lvl ${r.lvl} · ` +
+          `💰 ${money(symbol, r.networth ?? 0)}`
+        : `🏆 Lvl ${r.lvl} · 📈 ${money(symbol, r.income)} · ` +
+          `📉 ${money(symbol, r.expense)} · 💰 ${money(symbol, r.networth ?? 0)}` +
+          (r.reach > 0 ? ` · 📡 ${r.reach.toLocaleString('de-DE')}` : '');
+      return `${medal(rank)} <@${r.userId}>${you}\n${line}`;
     }).join('\n\n'));
   }
 
@@ -2561,7 +2725,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
-  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
