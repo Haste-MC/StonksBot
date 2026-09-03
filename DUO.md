@@ -444,6 +444,10 @@ Community halbiert den Followerschwund in Pausen und trägt den Merch-Umsatz.
   null.
 - **Ereignisse wirken netzwerkweit:** Ein viraler Clip oder ein Presseartikel
   bringt überall Follower – ein **Shitstorm** kostet überall welche.
+- **Ein Schontag:** Der Verfall greift erst ab dem zweiten Tag ohne Aktion.
+  Ohne ihn bekäme jemand, der täglich zur selben Zeit sendet, jeden Tag einen
+  vollen Tag Inaktivitätsverfall aufgebrummt – 2,5 % gegen 0,16 % Schwund je
+  Aktion. Bestraft werden soll Abwesenheit, nicht Regelmäßigkeit.
 - **Ein Tagesbudget:** Alle Plattformen teilen sich **8 Zeiteinheiten** am Tag.
   Vier Streams sind ein voller Tag; zwei Videos plus zwei Posts auch. Damit ist
   „einfach alles machen" keine Option, sondern eine Entscheidung.
@@ -464,16 +468,25 @@ kommt: Auch ein Kanal, auf dem man **nie** etwas macht, verfällt – der Verfal
 wird beim Übertrag mitgerechnet. Ohne das ließe sich Reichweite auf einem
 vergessenen Kanal parken und beliebig ansammeln.
 
-[`test/creator.test.js`](test/creator.test.js) rechnet das über **60 simulierte
-Karrieren à 800 Tage** nach. Entscheidend ist nicht ein einzelner Schwellwert,
-sondern dass jede Verdopplung der Spielzeit **weniger** bringt als die vorige:
+[`test/creator.test.js`](test/creator.test.js) prüft das auf drei Wegen:
+
+1. **Analytisch**: Für jede Plattform gibt es einen Punkt, ab dem der Schwund
+   den Zuwachs überholt – deutlich oberhalb davon ist der Zuwachs nachweislich
+   kleiner. Das gilt unabhängig davon, wie lange jemand spielt; eine Simulation
+   kann so etwas nie beweisen. Die Obergrenzen: 🟣 1,96 Mio · 🔴 2,93 Mio ·
+   📸 0,87 Mio · 🐦 0,31 Mio.
+2. **Unterlinearität**: Zehnfache Reichweite bringt weniger als zehnfaches
+   Geld – bei Streams, bei Merch und bei Verträgen.
+3. **Simuliert** über 22 Karrieren à 1200 Tage: Jede Verdopplung der Spielzeit
+   bringt weniger als die vorige.
 
 ```
-Tag 100: 14.400 → Tag 200: 20.800 → Tag 400: 23.100 → Tag 800: 23.900
-Wachstum:      1,45×            1,11×            1,04×
+Tag 150: 165.000 → Tag 300: 611.000 → Tag 600: 2,01 Mio → Tag 1200: 5,06 Mio
+Wachstum:       3,7×             3,3×              2,5×
 ```
 
-Das ist ein Gleichgewicht, kein langsames Wachstum. Geprüft wird außerdem, dass
+Das Wachstum bremst durchgehend ab – und läuft gegen die Summe der
+Obergrenzen von rund 6 Millionen. Geprüft wird außerdem, dass
 Twitter über hunderte Tweets **exakt null** verdient und Instagram ohne
 Kooperation ebenfalls nichts.
 
@@ -507,20 +520,43 @@ reißt, zahlt **30 % Vertragsstrafe**. Es läuft immer nur ein Vertrag; Angebote
 verfallen nach zwei Tagen von selbst.
 
 Die Summe hängt an der **Gesamtreichweite** – hier zahlt sich das Netzwerk
-wirklich aus. Auch das bleibt unterlinear (`reichweite^0,6`): Der zehnfache
-Kanal bekommt keine zehnfachen Verträge. Twitter wird nie beauftragt, dort
-läuft keine Werbung, die jemand bezahlen würde.
+wirklich aus, und ab einer gewissen Größe knallt es:
+
+| Reichweite | Vertrag über 3 Beiträge |
+|--:|--:|
+| 10.000 | ~2.300 |
+| 50.000 | ~17.000 |
+| 250.000 | ~48.000 |
+| 1.000.000 | ~119.000 |
+| 3.000.000 | ~243.000 |
+
+Auch das bleibt unterlinear (`reichweite^0,65`): Der zehnfache Kanal bekommt
+keine zehnfachen Verträge. Twitter wird nie beauftragt, dort läuft keine
+Werbung, die jemand bezahlen würde.
 
 #### Merch 👕
 
-Ab **5.000** Followern verkaufst du Merch. Das Besondere: Merch hängt an der
-**Community**, nicht an der Reichweite – Leute kaufen Pullis von Leuten, die
-sie mögen. Damit wird Twitter indirekt profitabel, ohne selbst einen Cent zu
-zahlen; ein Streamer, der viel im Livechat hängt, kommt aber genauso dorthin.
-Nur über Instagram allein läuft nichts: Der Feed baut keine Bindung auf.
+Ab **5.000** Followern verkaufst du Merch:
 
-Abgerechnet wird faul (§4) beim Öffnen des Menüs, gedeckelt auf 7 Tage
-Rückstau und einen Tagesbetrag. Die Community klingt ohne Tweets ab – wer
+```
+pro Tag = (Community / 100) × Reichweite^0,62 × 4
+```
+
+Also **Anteil der Fans, der kauft × Zahl der Fans**. Die Community ist ein
+**Faktor**, kein Summand – ohne Bindung verkauft auch der größte Kanal
+nichts, und eine treue kleine Blase verdient nicht so viel wie ein Weltstar:
+
+| Reichweite | Merch/Tag (volle Community) |
+|--:|--:|
+| 5.000 | 786 |
+| 50.000 | 3.277 |
+| 250.000 | 8.888 |
+| 1.000.000 | 20.992 |
+| 3.000.000 | 41.483 |
+
+Bindung entsteht im Livechat, unter Videos und auf Twitter – im
+Instagram-Feed nicht. Abgerechnet wird faul (§4) beim Öffnen des Menüs,
+gedeckelt auf 7 Tage Rückstau. Die Community klingt ohne Aktivität ab – wer
 aufhört, verkauft bald nichts mehr.
 
 #### Burnout 🔋
@@ -545,17 +581,58 @@ Wand – und nebenbei eine weitere Obergrenze für §3.
 Spieler mit Kanal. Im **Profil** taucht ein Netzwerk-Feld auf, sobald du
 überhaupt Follower hast: Gesamtzahl plus Aufteilung je Plattform.
 
+Dazu zeigt das Profil oben rechts das **Profilbild** des Kontos (von Discord
+oder Fluxer, je nachdem woher es kommt; eine halbe Stunde gepuffert, damit
+nicht jeder Aufruf eine API-Abfrage ist) und darunter den
+**Bekanntheitsgrad** – zwischen Erwähnung und Angeber-Spruch:
+
+```
+@Kevin
+📺 Landesweit ein Begriff
+> Ich bin nur wegen der Autos hier
+```
+
+| Wert | Titel | erreichbar etwa |
+|--|--|--|
+| 0 | 🫥 Unbeschriebenes Blatt | – |
+| 1.000 | 🙂 Vom Sehen bekannt | erste Woche |
+| 10.000 | 📍 Lokalgröße | erster Monat |
+| 50.000 | 🏙️ Stadtbekannt | ~Tag 100 |
+| 250.000 | 📺 Landesweit ein Begriff | ~Tag 250 |
+| 1.000.000 | ✨ Prominenz | ~Tag 550 |
+| 5.000.000 | 🌟 Superstar | Jahre |
+| 20.000.000 | 👑 Legende | Fernziel |
+
+Die Leiter reicht bewusst bis in zweistellige Millionen: „Superstar" soll das
+sein, was es draußen auch ist – internationale Reichweite, kein Titel für den
+dritten Monat. Der Wert ist **Reichweite + 400 je Level**. Bekanntheit ist damit vor allem
+eine Frage des Publikums – aber wer lange dabei ist, kennt man auch ohne
+Kanal, und so hat jeder einen Titel statt nur die Creator.
+
 #### Was sich lohnt
 
-| Strategie | pro Tag | Reichweite |
-|--|--|--|
-| nur Twitch (4 Streams) | ~7.200 | ~6.200 |
-| gemischt (Tweet + 2 Streams + Video) | ~4.800 | ~9.800 |
+Ein Spieler, der täglich sein Zeitbudget nutzt (Tweet + 2 Streams + Video):
 
-Live bleibt die stärkste Geldquelle – wer nur streamt, verdient kurzfristig am
-meisten. Wer verteilt, hat die doppelte Reichweite, verliert bei einem
-schlechten Lauf weniger und verdient über Katalog und Kooperationen weiter,
-auch wenn er mal nicht sendet.
+| Tag | Reichweite | Geld/Tag | Einordnung |
+|--:|--:|--:|--|
+| 30 | 4.000 | 1.700 | Nebenverdienst |
+| 90 | 35.000 | 8.900 | halber Spitzenjob |
+| 180 | 138.000 | 24.000 | **Job kündigen** |
+| 365 | 546.000 | 57.000 | knapp 3 Spitzenjobs |
+| 730 | 1,7 Mio | 121.000 | – |
+| 1200 | 3,2 Mio | 194.000 | – |
+
+Zum Vergleich: Der bestbezahlte Job (Astronaut) bringt bei vier Schichten
+**20.000 am Tag**. Der Weg dahin ist lang, und genau deshalb darf es oben
+richtig knallen – ab einer gewissen Größe könnte man realistisch keinen
+Standardjob mehr nebenher machen.
+
+**Spezialisieren oder verteilen?** Das Gleichgewicht einer Plattform hängt
+*nicht* an der Zahl der Aktionen – Zuwachs und Schwund skalieren beide damit,
+nur das Tempo ändert sich. Wer alles auf einen Kanal wirft, ist deshalb früh
+vorn (Tag 120: 93.000 gegen 63.000 Follower); wer verteilt, hat am Ende vier
+Obergrenzen statt einer (Tag 900: 2,3 Mio gegen 1,7 Mio). Geld je Zeiteinheit
+bleibt live trotzdem am stärksten.
 
 ### Selbst schrauben 🔧
 

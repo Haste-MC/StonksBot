@@ -2031,11 +2031,22 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const emp = db.getEmployment(guildId, owner);
   const job = emp ? JOBS_BY_ID.get(emp.job_id) : null;
 
+  // Bekanntheit: vor allem Reichweite, dazu das Level – so hat auch jemand
+  // ohne Kanal einen Titel.
+  const creator = require('./creator');
+  const net = creator.status(guildId, owner);
+  const fame = creator.fameOf(net.total, prog.level);
+
+  // Das Profilbild des Kontos, wenn die Plattform es hergibt.
+  const avatar = await require('./names').avatar(owner).catch(() => null);
+
   const embed = new EmbedBuilder()
     .setTitle('👤 Profil')
     .setColor(0xf1c40f)
     .setDescription(
-      identity.mention(owner) + (stats.tagline ? `\n> _${stats.tagline}_` : ''));
+      `${identity.mention(owner)}\n` +
+      `${fame.emoji} **${fame.title}**` +
+      (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
   embed.addFields(
     {
@@ -2099,7 +2110,6 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   });
 
   // Creator-Netzwerk, falls überhaupt ein Kanal existiert.
-  const net = require('./creator').status(guildId, owner);
   if (net.total > 0) {
     const active = net.platforms.filter((pl) => pl.followers > 0);
     embed.addFields({
@@ -2134,7 +2144,9 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // Großes Foto der teuersten Immobilie (Flex!), kleines Thumbnail vom Auto.
   if (topProp && topProp.image_url) embed.setImage(topProp.image_url);
   else if (car && car.image_url) embed.setImage(car.image_url);
-  if (car && car.image_url) embed.setThumbnail(car.image_url);
+  // Miniaturbild oben rechts: das Profilbild des Spielers, sonst das Auto.
+  if (avatar) embed.setThumbnail(avatar);
+  else if (car && car.image_url) embed.setThumbnail(car.image_url);
 
   const row = new ActionRowBuilder();
   if (isSelf) {

@@ -42,7 +42,7 @@ const PLATFORMS = [
     // Reichweite: base + k · (eigene + Übertrag)^exp
     base: 12, k: 0.9, exp: 0.62,
     follow: 0.35,                 // Anteil des Publikums, der folgt
-    churnPerAction: 0.014,
+    churnPerAction: 0.0016,
     churnPerDay: 0.025,
     time: 2,
     cooldownMin: 90,
@@ -64,7 +64,7 @@ const PLATFORMS = [
     // fast niemand. Genau umgekehrt zu Twitch.
     base: 20, k: 6.0, exp: 0.58,
     follow: 0.06,
-    churnPerAction: 0.008,
+    churnPerAction: 0.0009,
     churnPerDay: 0.015,           // Abonnenten sind träge – im Guten wie im Schlechten
     time: 3,
     cooldownMin: 180,
@@ -84,7 +84,7 @@ const PLATFORMS = [
     followerName: 'Follower',
     base: 25, k: 1.2, exp: 0.58,
     follow: 0.26,                 // wächst am schnellsten
-    churnPerAction: 0.010,
+    churnPerAction: 0.0012,
     churnPerDay: 0.030,           // ... und vergisst am schnellsten
     time: 1,
     cooldownMin: 45,
@@ -104,7 +104,7 @@ const PLATFORMS = [
     followerName: 'Follower',
     base: 30, k: 1.1, exp: 0.55,
     follow: 0.22,
-    churnPerAction: 0.008,
+    churnPerAction: 0.0009,
     churnPerDay: 0.020,
     time: 1,
     cooldownMin: 30,
@@ -117,6 +117,11 @@ const PLATFORMS = [
 
 /**
  * Formate je Plattform – das Gegenstück zu den Kategorien beim Streamen.
+ *
+ * Der Schwund JE AKTION ist bewusst winzig (0,1 %): Er allein bestimmt, wo die
+ * Kurve kippt, und damit die Obergrenze der Reichweite. Bei 1,4 % lag sie bei
+ * 14.000 Followern – weniger, als ein Spitzenjob einbringt. Der Schwund je TAG
+ * bleibt dagegen kräftig: Wer nicht sendet, verliert weiterhin schnell.
  *
  *   reach   Reichweite dieses Formats
  *   money   Zahlungsbereitschaft (Spenden bei Twitch, Kooperationen bei Insta)
@@ -236,7 +241,7 @@ const EVENTS = [
   // ------------------------------------------------------------ ärgerlich
   { id: 'technik', weight: 8, on: ['twitch'], audience: 0.55, follow: 0.5, risky: true,
     text: '🔌 Technikprobleme. Die halbe Sendung war ein Standbild.' },
-  { id: 'troll', weight: 7, money: 0.6, loss: 0.02, risky: true,
+  { id: 'troll', weight: 5, money: 0.6, loss: 0.006, risky: true,
     text: '👹 Eine Trollwelle in den Kommentaren. Ein paar Stammgäste hatten keine Lust mehr.' },
   { id: 'lag', weight: 6, on: ['twitch'], audience: 0.7, follow: 0.7, risky: true,
     text: '🐌 Das Internet war heute... kreativ. Ruckeln in HD.' },
@@ -244,7 +249,7 @@ const EVENTS = [
     text: '🪦 Der Algorithmus hat es einfach nicht ausgespielt. Passiert.' },
   { id: 'strike', weight: 3, on: ['youtube'], audience: 0.4, money: 0.2, risky: true,
     text: '⚠️ Copyright-Claim. Die Einnahmen gehen erstmal woanders hin.' },
-  { id: 'shitstorm', weight: 4, loss: 0.05, spreadLoss: 0.03, money: 0.7, risky: true,
+  { id: 'shitstorm', weight: 1.5, loss: 0.04, spreadLoss: 0.02, money: 0.7, risky: true,
     text: '🌪️ Ein Satz, ein Screenshot, eine Welle. Das kostet auf allen Kanälen.' },
   { id: 'stromausfall', weight: 3, on: ['twitch'], audience: 0.35, follow: 0.4, money: 0.5, risky: true,
     text: '💡 Stromausfall mitten im Stream. Ende, aus, Sicherung.' },

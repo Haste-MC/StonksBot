@@ -173,8 +173,10 @@ Reichweite) und **Burnout** (wer täglich am Anschlag fährt, verliert Reichweit
 Pausen bringen sie zurück).
 
 Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Publikum wächst
-unterlinear zur Followerzahl (auch die übertragene), der Schwund linear.
-Details in [DUO.md](DUO.md#creator-netzwerk-).
+unterlinear zur Followerzahl (auch die übertragene), der Schwund linear. Die
+Obergrenzen liegen bei mehreren Millionen Followern je Plattform – der Weg
+dahin dauert Monate, dafür verdient ein großer Kanal ein Vielfaches des besten
+Jobs. Details in [DUO.md](DUO.md#creator-netzwerk-).
 
 ## Staatskasse
 
