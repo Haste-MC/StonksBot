@@ -102,6 +102,48 @@ const COMMUNITY_MAX = 100;
 const COMMUNITY_DECAY = 0.08;         // pro Tag
 const COMMUNITY_CHURN_CUT = 0.5;      // höchstens halber Schwund
 
+// --------------------------------------------------------------- Burnout
+/**
+ * Wer jeden Tag das volle Budget raushaut, brennt aus: Die Reichweite sinkt,
+ * bis er sich erholt. Das macht aus dem Zeitdeckel eine Entscheidung statt
+ * einer Wand – und ist nebenbei eine weitere Obergrenze (§3).
+ */
+const FATIGUE_PER_TIME = 4;            // je Zeiteinheit einer Aktion
+const FATIGUE_MAX = 100;              // ein voller Tag = 96
+const FATIGUE_RECOVERY = 0.55;        // Anteil, der pro Tag Pause abklingt
+const FATIGUE_MALUS = 0.35;           // höchstens −35 % Publikum
+
+// ----------------------------------------------------------------- Merch
+/**
+ * Merch hängt an der **Community**, nicht an der Reichweite: Leute kaufen
+ * Pullis von Leuten, die sie mögen. Dadurch wird Twitter indirekt profitabel,
+ * ohne dass Twitter selbst einen Cent zahlt.
+ *
+ * Die Community klingt ohne Tweets ab – wer aufhört, verkauft nichts mehr.
+ */
+const MERCH_MIN_REACH = 5000;
+const MERCH_PER_COMMUNITY = 10;       // je Community-Punkt und Tag
+const MERCH_PER_REACH = 4;            // je Wurzel der Gesamtfollower und Tag
+const MERCH_DAILY_CAP = 2500;
+const MERCH_MAX_DAYS = 7;
+const MERCH_MIN_SETTLE_MS = 60 * 60 * 1000;
+
+// ------------------------------------------------------ Sponsorenverträge
+/**
+ * Marken zahlen für Reichweite – aber erst nach Lieferung. Ein Vertrag ist
+ * eine Wette auf die eigene Ausdauer: Wer die Frist reißt, zahlt Strafe.
+ */
+const DEAL_MIN_REACH = 3000;
+const DEAL_CHANCE_MAX = 0.25;
+const DEAL_REACH_FULL = 60000;        // ab hier kommen Angebote am häufigsten
+const DEAL_FACTOR = 4.5;
+const DEAL_REACH_EXP = 0.6;           // auch hier unterlinear (§3)
+const DEAL_PENALTY = 0.3;             // Vertragsstrafe, Anteil der Summe
+const DEAL_OFFER_MS = 2 * DAY_MS;     // so lange steht ein Angebot
+const DEAL_MAX_OFFERS = 2;
+const DEAL_QUOTA = [2, 4];
+const DEAL_DAYS_PER_POST = 1;
+
 /** Grundrisiko, dass die Technik bei einer Aufnahme aufgibt. */
 const BREAK_CHANCE = 0.01;
 
@@ -117,6 +159,25 @@ function today(date = new Date()) {
   const m = String(date.getMonth() + 1).padStart(2, '0');
   const d = String(date.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
+}
+
+/**
+ * Bereinigt einen selbst getippten Titel.
+ *
+ * Titel landen in Meldungen und in der Kanalansicht, also darf hier nichts
+ * durchrutschen, was andere anpingt oder das Layout zerlegt. Bleibt nichts
+ * übrig, entscheidet wieder der Zufall.
+ */
+function cleanTitle(raw) {
+  const text = String(raw ?? '')
+    .replace(/[\r\n]+/g, ' ')            // eine Zeile, kein Layoutbruch
+    .replace(/<@[!&]?\d+>|<#\d+>/g, '')   // keine Erwähnungen durchreichen
+    .replace(/@(everyone|here)/gi, '@\u200bjeden')
+    .replace(/[`*_~|]/g, '')              // kein Markdown, das die Meldung zerreißt
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80);
+  return text || null;
 }
 
 /** Plattformdefinition per ID. */
@@ -192,6 +253,18 @@ function churnFactor(community) {
   return 1 - COMMUNITY_CHURN_CUT * clamp(0, 1, community / COMMUNITY_MAX);
 }
 
+/** Erschöpfung, nachdem sie seit der letzten Aktion abgeklungen ist. */
+function fatigueNow(state, now) {
+  if (!state.fatigue || !state.fatigue_at) return state.fatigue || 0;
+  const days = Math.max(0, (now - state.fatigue_at) / DAY_MS);
+  return clamp(0, FATIGUE_MAX, state.fatigue * Math.pow(1 - FATIGUE_RECOVERY, days));
+}
+
+/** Was die Erschöpfung von der Reichweite übrig lässt (1 = ausgeruht). */
+function energyFactor(fatigue) {
+  return 1 - FATIGUE_MALUS * clamp(0, 1, fatigue / FATIGUE_MAX);
+}
+
 /** Anteil der Follower, der die Untätigkeit überlebt hat (1 = kein Verfall). */
 function keepFactor(p, row, community, now) {
   const idle = idleDays(row?.touched_at || row?.last_action_at || 0, now);
@@ -245,7 +318,8 @@ function rollDonations(viewers, factor, random) {
  */
 function simulate(state, p, fmt, ctx = {}) {
   const {
-    cross = 0, community = 0, boost = 0, idleDays: idle = 0, random = Math.random,
+    cross = 0, community = 0, boost = 0, energy = 1,
+    idleDays: idle = 0, random = Math.random,
   } = ctx;
 
   // 1. Was die Pause gekostet hat – abgefedert durch die Community.
@@ -263,7 +337,7 @@ function simulate(state, p, fmt, ctx = {}) {
   // 3. Publikum.
   const audience = Math.max(1, Math.round(
     reachOf(p, startFollowers, cross) * quality * fmt.reach
-    * (event.audience ?? 1) * (1 + boost)));
+    * (event.audience ?? 1) * (1 + boost) * energy));
 
   // 4. Follower.
   const gained = Math.round(audience * p.follow * fmt.follow * (event.follow ?? 1));
@@ -324,8 +398,14 @@ function simulate(state, p, fmt, ctx = {}) {
     // Zahlt NIE. Wirkt stattdessen auf alles andere.
     result.money = 0;
     result.boost = clamp(0, BOOST_MAX, 0.12 * (fmt.boost ?? 1) * quality);
-    result.community = (fmt.community ?? 1) * (0.8 + quality * 0.6);
   }
+
+  /**
+   * Community entsteht überall dort, wo man miteinander redet: im Livechat
+   * am stärksten, unter Videos noch spürbar, auf Twitter billig und direkt.
+   * Im Instagram-Feed wird gescrollt, nicht geredet – dort ist der Faktor 0.
+   */
+  result.community = (p.community ?? 0) * (fmt.community ?? 1) * (0.8 + quality * 0.6);
 
   return result;
 }
@@ -367,16 +447,145 @@ async function settle(guildId, userId, now = Date.now()) {
 }
 
 /**
+ * Rechnet die Merch-Verkäufe ab.
+ *
+ * Faule Abrechnung wie beim Katalog (§4): Beim ersten Mal nur den Zeitstempel
+ * setzen, danach zählt die vergangene Zeit – gedeckelt, damit sich Wochen
+ * nicht aufstauen. Verkauft wird nur, solange die Community lebt.
+ */
+async function settleMerch(guildId, userId, now = Date.now()) {
+  const state = db.getCreatorState(guildId, userId, now);
+  const rows = db.allCreator(guildId, userId);
+  const reach = rows.reduce((sum, r) => sum + r.followers, 0);
+
+  if (!state.merch_at) {
+    db.saveCreatorState(guildId, userId, { ...state, merch_at: now });
+    return null;
+  }
+  if (reach < MERCH_MIN_REACH) return null;
+
+  const elapsed = now - state.merch_at;
+  if (elapsed < MERCH_MIN_SETTLE_MS) return null;
+
+  const community = communityNow(state, now);
+  const perDay = Math.min(MERCH_DAILY_CAP,
+    community * MERCH_PER_COMMUNITY + Math.sqrt(reach) * MERCH_PER_REACH);
+  const days = Math.min(MERCH_MAX_DAYS, elapsed / DAY_MS);
+  const amount = Math.round(perDay * days);
+
+  db.saveCreatorState(guildId, userId, { ...state, merch_at: now });
+  if (amount <= 0) return null;
+
+  const perk = require('./perks').perksOf(guildId, userId);
+  const paid = Math.max(0, Math.round(amount * perk.income));
+  const balance = await changeCash(guildId, userId, paid, 'Merch: Verkäufe');
+  return { amount: paid, perDay: Math.round(perDay), days, balance };
+}
+
+/** Ist dieser Kanal groß genug für Merch? */
+function merchUnlocked(reach) {
+  return reach >= MERCH_MIN_REACH;
+}
+
+/**
+ * Würfelt ein Vertragsangebot aus. Je größer das Netzwerk, desto öfter meldet
+ * sich jemand – aber nie mehr als DEAL_MAX_OFFERS gleichzeitig, und nie
+ * während ein Vertrag läuft.
+ */
+function rollDeal(guildId, userId, reach, now, random = Math.random) {
+  if (reach < DEAL_MIN_REACH) return null;
+  if (db.activeDeal(guildId, userId)) return null;
+  if (db.countOffers(guildId, userId, now) >= DEAL_MAX_OFFERS) return null;
+
+  const chance = clamp(0, DEAL_CHANCE_MAX, (reach / DEAL_REACH_FULL) * DEAL_CHANCE_MAX);
+  if (random() >= chance) return null;
+
+  // Auf welcher Plattform geliefert wird. Twitter fällt raus – dort läuft
+  // keine Werbung, die jemand bezahlen würde.
+  const target = pick(['instagram', 'twitch', 'youtube'], random);
+  const brand = pick(data.BRANDS, random);
+  const quota = DEAL_QUOTA[0] + Math.floor(random() * (DEAL_QUOTA[1] - DEAL_QUOTA[0] + 1));
+  const payout = Math.round(
+    Math.pow(reach, DEAL_REACH_EXP) * quota * DEAL_FACTOR * (0.8 + random() * 0.4));
+
+  return db.insertDeal({
+    guildId, userId,
+    brand: brand.name, emoji: brand.emoji,
+    platform: target,
+    // Auf Instagram will die Marke einen echten Werbepost sehen.
+    format: target === 'instagram' ? 'kooperation' : '',
+    quota,
+    payout,
+    penalty: Math.round(payout * DEAL_PENALTY),
+    createdAt: now,
+    expiresAt: now + DEAL_OFFER_MS,
+  });
+}
+
+/**
+ * Räumt Verträge auf: abgelaufene Angebote verfallen, gerissene Fristen
+ * kosten Vertragsstrafe.
+ *
+ * @returns {Promise<{failed:object|null, expired:number}>}
+ */
+async function settleDeals(guildId, userId, now = Date.now()) {
+  const expired = db.expireOffers(guildId, userId, now);
+
+  const active = db.activeDeal(guildId, userId);
+  if (!active || !active.deadline || active.deadline > now) return { failed: null, expired };
+
+  // Frist gerissen: Status zuerst setzen (§7), dann buchen.
+  db.setDealStatus(guildId, active.id, 'failed');
+  let balance = null;
+  if (active.penalty > 0) {
+    balance = await changeCash(
+      guildId, userId, -active.penalty, `Vertragsstrafe: ${active.brand}`);
+  }
+  return { failed: { ...active, balance }, expired };
+}
+
+/** Nimmt ein Angebot an. */
+function accept(guildId, userId, dealId, now = Date.now()) {
+  const deal = db.getDeal(guildId, dealId);
+  if (!deal || deal.user_id !== String(userId)) return { ok: false, reason: 'not_found' };
+  if (deal.status !== 'offer') return { ok: false, reason: 'gone', deal };
+  if (deal.expires_at <= now) {
+    db.setDealStatus(guildId, deal.id, 'expired');
+    return { ok: false, reason: 'expired', deal };
+  }
+  if (db.activeDeal(guildId, userId)) return { ok: false, reason: 'busy', deal };
+
+  const deadline = now + (deal.quota * DEAL_DAYS_PER_POST + 1) * DAY_MS;
+  if (!db.acceptDeal(guildId, deal.id, now, deadline)) return { ok: false, reason: 'gone', deal };
+  return { ok: true, deal: { ...deal, status: 'active', accepted_at: now, deadline } };
+}
+
+/** Lehnt ein Angebot ab. */
+function decline(guildId, userId, dealId) {
+  const deal = db.getDeal(guildId, dealId);
+  if (!deal || deal.user_id !== String(userId)) return { ok: false, reason: 'not_found' };
+  if (deal.status !== 'offer') return { ok: false, reason: 'gone', deal };
+  db.setDealStatus(guildId, deal.id, 'expired');
+  return { ok: true, deal };
+}
+
+/**
  * Eine Aktion auf einer Plattform.
  *
  * Der Zustand wird **vor** der Geldbuchung geschrieben (§7): Ein zweiter
  * schneller Klick findet den Cooldown vor. Ausgezahlt wird genau einmal (§9).
  */
-async function act(guildId, userId, platformId, formatId, now = Date.now(), random = Math.random) {
+async function act(
+  guildId, userId, platformId, formatId,
+  now = Date.now(), random = Math.random, wishTitle = null,
+) {
   const p = platform(platformId);
   if (!p) return { ok: false, reason: 'unknown_platform' };
   const fmt = format(platformId, formatId);
   if (!fmt) return { ok: false, reason: 'unknown_format', platform: p };
+
+  // Selbst getippter Titel schlägt die Vorauswahl.
+  const wish = cleanTitle(wishTitle);
 
   if (!hasGear(guildId, userId, p)) {
     const item = gearData.findGear(p.gear);
@@ -399,15 +608,18 @@ async function act(guildId, userId, platformId, formatId, now = Date.now(), rand
 
   const rows = new Map(db.allCreator(guildId, userId).map((r) => [r.platform, r]));
   const own = rows.get(platformId) ?? db.getCreator(guildId, userId, platformId, now);
+  const title = wish ?? pick(fmt.titles, random);
   const cross = [...rows.values()]
     .filter((r) => r.platform !== platformId)
     .reduce((sum, r) => sum + r.followers, 0);
 
   const community = communityNow(state, now);
   const boost = activeBoost(state, now);
+  const fatigue = fatigueNow(state, now);
+  const energy = energyFactor(fatigue);
 
   const sim = simulate(own, p, fmt, {
-    cross, community, boost,
+    cross, community, boost, energy,
     idleDays: idleDays(own.touched_at || own.last_action_at, now),
     random,
   });
@@ -429,6 +641,7 @@ async function act(guildId, userId, platformId, formatId, now = Date.now(), rand
     touched_at: now,
     stock: sim.stock,
     stock_paid_through: own.stock_paid_through || now,
+    last_title: title,
   });
 
   // Übertrag auf die anderen Plattformen (und ggf. der Schaden eines
@@ -456,19 +669,46 @@ async function act(guildId, userId, platformId, formatId, now = Date.now(), rand
     boost_until: p.id === 'twitter' ? now + BOOST_MS : 0,
     community: clamp(0, COMMUNITY_MAX, community + (sim.community ?? 0)),
     community_at: now,
+    // Jede Aktion kostet Kraft, im Verhältnis zu ihrer Länge.
+    fatigue: clamp(0, FATIGUE_MAX, fatigue + p.time * FATIGUE_PER_TIME),
+    fatigue_at: now,
+    merch_at: state.merch_at || now,
   });
 
   const broke = (sim.event.breaks || random() < BREAK_CHANCE) && p.gear
     ? db.consumeNamed(guildId, userId, p.gear) : false;
 
+  // --- Laufender Sponsorenvertrag: zählt diese Aktion? ---
+  let deal = null;
+  const active = db.activeDeal(guildId, userId);
+  if (active && active.platform === platformId
+      && (!active.format || active.format === fmt.id)) {
+    db.advanceDeal(guildId, active.id);
+    const done = active.done + 1;
+    if (done >= active.quota) db.setDealStatus(guildId, active.id, 'done');
+    deal = { ...active, done, complete: done >= active.quota };
+  }
+
   const balance = amount > 0
     ? await changeCash(guildId, userId, amount, `${p.name}: ${fmt.name}`)
     : null;
 
+  // Erfüllte Verträge werden sofort ausgezahlt – eigene Buchung, weil es ein
+  // eigener Vorgang ist (nicht der Ertrag dieser einen Aktion).
+  if (deal?.complete && deal.payout > 0) {
+    deal.balance = await changeCash(
+      guildId, userId, deal.payout, `Sponsor: ${deal.brand}`).catch(() => null);
+  }
+
+  // --- Meldet sich eine Marke? ---
+  const reachTotal = [...rows.values()].reduce((sum, r) => sum + r.followers, 0)
+    + sim.followers - own.followers;
+  const offer = rollDeal(guildId, userId, reachTotal, now, random);
+
   return {
     ok: true,
     platform: p, format: fmt,
-    title: pick(fmt.titles, random),
+    title, customTitle: Boolean(wish),
     intro: pick(data.INTROS, random),
     comment: pick(data.COMMENTS, random),
     event: sim.event.text ? sim.event : null,
@@ -480,6 +720,9 @@ async function act(guildId, userId, platformId, formatId, now = Date.now(), rand
     subIncome: sim.subIncome, coop: sim.coop,
     base: sim.money, amount, levelBonus: amount - sim.money, level: perk.level,
     boostUsed: boost, boost: sim.boost, community: sim.community,
+    fatigue: clamp(0, FATIGUE_MAX, fatigue + p.time * FATIGUE_PER_TIME),
+    energy, tired: energy < 0.95,
+    deal, offer,
     stock: sim.stock, hype: sim.hype, broke, balance,
     timeUsed: used + p.time, timeMax: TIME_PER_DAY,
   };
@@ -493,12 +736,13 @@ async function act(guildId, userId, platformId, formatId, now = Date.now(), rand
 function status(guildId, userId, now = Date.now()) {
   const state = db.getCreatorState(guildId, userId, now);
   const community = communityNow(state, now);
+  const fatigue = fatigueNow(state, now);
   const rows = new Map(db.allCreator(guildId, userId).map((r) => [r.platform, r]));
 
   const platforms = data.PLATFORMS.map((p) => {
     const row = rows.get(p.id) ?? { followers: 0, subs: 0, hype: 1, actions: 0,
       views_total: 0, earned_total: 0, peak_audience: 0, peak_followers: 0,
-      last_action_at: 0, touched_at: 0, stock: 0 };
+      last_action_at: 0, touched_at: 0, stock: 0, last_title: '' };
     const idle = idleDays(row.touched_at || row.last_action_at, now);
     const keep = keepFactor(p, row, community, now);
     const followers = Math.round(row.followers * keep);
@@ -516,6 +760,7 @@ function status(guildId, userId, now = Date.now()) {
       earnedTotal: row.earned_total,
       peakAudience: row.peak_audience,
       peakFollowers: row.peak_followers,
+      lastTitle: row.last_title ?? '',
       lostToIdle: Math.round(row.followers - followers),
       idleDays: idle,
       stock: Math.round(row.stock),
@@ -525,9 +770,11 @@ function status(guildId, userId, now = Date.now()) {
     };
   });
 
+  const total = platforms.reduce((s, p) => s + p.followers, 0);
+
   return {
     platforms,
-    total: platforms.reduce((s, p) => s + p.followers, 0),
+    total,
     earned: platforms.reduce((s, p) => s + p.earnedTotal, 0),
     actions: platforms.reduce((s, p) => s + p.actions, 0),
     community,
@@ -535,6 +782,17 @@ function status(guildId, userId, now = Date.now()) {
     boost: activeBoost(state, now),
     boostMs: Math.max(0, state.boost_until - now),
     budget: budget(guildId, userId, now),
+    fatigue,
+    energy: energyFactor(fatigue),
+    merch: {
+      unlocked: merchUnlocked(total),
+      minReach: MERCH_MIN_REACH,
+      perDay: Math.round(Math.min(MERCH_DAILY_CAP,
+        community * MERCH_PER_COMMUNITY + Math.sqrt(total) * MERCH_PER_REACH)),
+    },
+    deal: db.activeDeal(guildId, userId),
+    offers: db.listDeals(guildId, userId, 'offer').filter((d) => d.expires_at > now),
+    history: db.dealHistory(guildId, userId, 5),
   };
 }
 
@@ -603,7 +861,11 @@ module.exports = {
   TIME_PER_DAY, SPILL, CROSS_CONV, SPREAD, MAX_IDLE_DAYS,
   HYPE_MIN, HYPE_MAX, BOOST_MAX, BOOST_MS, COMMUNITY_MAX, COMMUNITY_CHURN_CUT,
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
-  platform, format, formats, reachOf, hasGear, remainingMs, budget, today,
+  platform, format, formats, reachOf, hasGear, remainingMs, budget, today, cleanTitle,
   idleDays, communityNow, churnFactor, keepFactor, activeBoost,
+  fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
+  accept, decline,
+  FATIGUE_MAX, FATIGUE_PER_TIME, FATIGUE_MALUS, FATIGUE_RECOVERY,
+  MERCH_MIN_REACH, MERCH_DAILY_CAP, DEAL_MIN_REACH, DEAL_PENALTY, DEAL_MAX_OFFERS,
   rollEvent, rollDonations, simulate, settle, act, status, describe,
 };

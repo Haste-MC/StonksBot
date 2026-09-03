@@ -489,6 +489,7 @@ db.exec(`
     touched_at         INTEGER NOT NULL DEFAULT 0,
     stock              REAL    NOT NULL DEFAULT 0,
     stock_paid_through INTEGER NOT NULL DEFAULT 0,
+    last_title         TEXT    NOT NULL DEFAULT '',
     created_at         INTEGER NOT NULL,
     PRIMARY KEY (guild_id, user_id, platform)
   );
@@ -501,6 +502,7 @@ const creatorColumns = new Set(
   db.prepare('PRAGMA table_info(creator_channels)').all().map((c) => c.name));
 for (const [column, definition] of [
   ['touched_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['last_title', "TEXT NOT NULL DEFAULT ''"],
 ]) {
   if (!creatorColumns.has(column)) {
     db.exec(`ALTER TABLE creator_channels ADD COLUMN ${column} ${definition}`);
@@ -520,9 +522,51 @@ db.exec(`
     boost_until  INTEGER NOT NULL DEFAULT 0,
     community    REAL    NOT NULL DEFAULT 0,
     community_at INTEGER NOT NULL DEFAULT 0,
+    fatigue      REAL    NOT NULL DEFAULT 0,
+    fatigue_at   INTEGER NOT NULL DEFAULT 0,
+    merch_at     INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (guild_id, user_id)
   );
+`);
+
+// Spalten nachrüsten (Erschöpfung und Merch kamen später dazu).
+const creatorStateColumns = new Set(
+  db.prepare('PRAGMA table_info(creator_state)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['fatigue', 'REAL NOT NULL DEFAULT 0'],
+  ['fatigue_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['merch_at', 'INTEGER NOT NULL DEFAULT 0'],
+]) {
+  if (!creatorStateColumns.has(column)) {
+    db.exec(`ALTER TABLE creator_state ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+// Sponsorenverträge: Eine Marke zahlt für eine vereinbarte Zahl von Beiträgen
+// innerhalb einer Frist. Wer liefert, kassiert; wer die Frist reißt, zahlt
+// Vertragsstrafe. Angebote verfallen von selbst.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS creator_deals (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL,
+    brand       TEXT    NOT NULL,
+    emoji       TEXT    NOT NULL DEFAULT '',
+    platform    TEXT    NOT NULL,
+    format      TEXT    NOT NULL DEFAULT '',   -- leer = jedes Format zählt
+    quota       INTEGER NOT NULL,
+    done        INTEGER NOT NULL DEFAULT 0,
+    payout      INTEGER NOT NULL,
+    penalty     INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL,              -- offer|active|done|failed|expired
+    created_at  INTEGER NOT NULL,
+    expires_at  INTEGER NOT NULL,
+    accepted_at INTEGER,
+    deadline    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_creator_deals
+    ON creator_deals (guild_id, user_id, status);
 `);
 
 // Die erste Fassung kannte nur Twitch (Tabelle `channels`, ein Eintrag je
@@ -1223,7 +1267,8 @@ const stmt = {
     `UPDATE creator_channels SET
        followers = ?, subs = ?, hype = ?, actions = ?, views_total = ?,
        earned_total = ?, peak_audience = ?, peak_followers = ?,
-       last_action_at = ?, touched_at = ?, stock = ?, stock_paid_through = ?
+       last_action_at = ?, touched_at = ?, stock = ?, stock_paid_through = ?,
+       last_title = ?
      WHERE guild_id = ? AND user_id = ? AND platform = ?`),
   // Übertrag auf eine andere Plattform: erst den aufgelaufenen Verfall
   // anwenden (Faktor), dann den Zuwachs – in EINER Anweisung.
@@ -1240,6 +1285,38 @@ const stmt = {
      GROUP BY user_id HAVING followers > 0 ORDER BY followers DESC LIMIT ?`),
   clearCreator: db.prepare('DELETE FROM creator_channels WHERE guild_id = ? AND user_id = ?'),
 
+  // --- Sponsorenverträge ---
+  insertDeal: db.prepare(
+    `INSERT INTO creator_deals
+       (guild_id, user_id, brand, emoji, platform, format, quota, payout, penalty,
+        status, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+  getDeal: db.prepare('SELECT * FROM creator_deals WHERE guild_id = ? AND id = ?'),
+  listDeals: db.prepare(
+    `SELECT * FROM creator_deals WHERE guild_id = ? AND user_id = ? AND status = ?
+     ORDER BY id DESC`),
+  activeDeal: db.prepare(
+    `SELECT * FROM creator_deals WHERE guild_id = ? AND user_id = ? AND status = 'active'
+     ORDER BY id DESC LIMIT 1`),
+  countOffers: db.prepare(
+    `SELECT COUNT(*) AS n FROM creator_deals
+     WHERE guild_id = ? AND user_id = ? AND status = 'offer' AND expires_at > ?`),
+  acceptDeal: db.prepare(
+    `UPDATE creator_deals SET status = 'active', accepted_at = ?, deadline = ?
+     WHERE guild_id = ? AND id = ? AND status = 'offer'`),
+  setDealStatus: db.prepare(
+    'UPDATE creator_deals SET status = ? WHERE guild_id = ? AND id = ?'),
+  advanceDeal: db.prepare(
+    'UPDATE creator_deals SET done = done + 1 WHERE guild_id = ? AND id = ?'),
+  expireOffers: db.prepare(
+    `UPDATE creator_deals SET status = 'expired'
+     WHERE guild_id = ? AND user_id = ? AND status = 'offer' AND expires_at <= ?`),
+  dealHistory: db.prepare(
+    `SELECT * FROM creator_deals WHERE guild_id = ? AND user_id = ?
+       AND status IN ('done', 'failed')
+     ORDER BY id DESC LIMIT ?`),
+  clearDeals: db.prepare('DELETE FROM creator_deals WHERE guild_id = ? AND user_id = ?'),
+
   getCreatorState: db.prepare(
     'SELECT * FROM creator_state WHERE guild_id = ? AND user_id = ?'),
   createCreatorState: db.prepare(
@@ -1247,7 +1324,7 @@ const stmt = {
      ON CONFLICT (guild_id, user_id) DO NOTHING`),
   saveCreatorState: db.prepare(
     `UPDATE creator_state SET day = ?, time_used = ?, boost = ?, boost_until = ?,
-       community = ?, community_at = ?
+       community = ?, community_at = ?, fatigue = ?, fatigue_at = ?, merch_at = ?
      WHERE guild_id = ? AND user_id = ?`),
   clearCreatorState: db.prepare('DELETE FROM creator_state WHERE guild_id = ? AND user_id = ?'),
 
@@ -2255,6 +2332,7 @@ function saveCreator(guildId, userId, platform, c) {
     Math.max(0, Math.round(c.followers)), Math.max(0, Math.round(c.subs)), c.hype,
     c.actions, c.views_total, c.earned_total, c.peak_audience, c.peak_followers,
     c.last_action_at, c.touched_at, c.stock, c.stock_paid_through,
+    String(c.last_title ?? '').slice(0, 120),
     guildId, String(userId), platform);
 }
 
@@ -2277,6 +2355,7 @@ function getCreatorState(guildId, userId, now = Date.now()) {
 function saveCreatorState(guildId, userId, s) {
   stmt.saveCreatorState.run(
     s.day, s.time_used, s.boost, s.boost_until, s.community, s.community_at,
+    s.fatigue ?? 0, s.fatigue_at ?? 0, s.merch_at ?? 0,
     guildId, String(userId));
 }
 
@@ -2290,10 +2369,63 @@ function topCreatorTotal(guildId, limit = 10) {
   return stmt.topCreatorTotal.all(guildId, limit);
 }
 
+// ------------------------------------------------------ Sponsorenverträge
+
+/** Legt ein Vertragsangebot an und gibt es zurück. */
+function insertDeal(d) {
+  return stmt.insertDeal.get(
+    d.guildId, String(d.userId), d.brand, d.emoji ?? '', d.platform, d.format ?? '',
+    d.quota, d.payout, d.penalty ?? 0, 'offer', d.createdAt, d.expiresAt);
+}
+
+function getDeal(guildId, id) {
+  return stmt.getDeal.get(guildId, Number(id)) ?? null;
+}
+
+/** Alle Verträge eines Spielers in einem Zustand. */
+function listDeals(guildId, userId, status = 'offer') {
+  return stmt.listDeals.all(guildId, String(userId), status);
+}
+
+/** Der laufende Vertrag, oder null. */
+function activeDeal(guildId, userId) {
+  return stmt.activeDeal.get(guildId, String(userId)) ?? null;
+}
+
+/** Wie viele Angebote gerade offen sind. */
+function countOffers(guildId, userId, now = Date.now()) {
+  return stmt.countOffers.get(guildId, String(userId), now).n;
+}
+
+/** Nimmt ein Angebot an. Gibt false zurück, wenn es kein Angebot mehr ist. */
+function acceptDeal(guildId, id, acceptedAt, deadline) {
+  return stmt.acceptDeal.run(acceptedAt, deadline, guildId, Number(id)).changes > 0;
+}
+
+function setDealStatus(guildId, id, status) {
+  stmt.setDealStatus.run(status, guildId, Number(id));
+}
+
+/** Zählt einen gelieferten Beitrag auf den laufenden Vertrag. */
+function advanceDeal(guildId, id) {
+  stmt.advanceDeal.run(guildId, Number(id));
+}
+
+/** Lässt abgelaufene Angebote verfallen. */
+function expireOffers(guildId, userId, now = Date.now()) {
+  return stmt.expireOffers.run(guildId, String(userId), now).changes;
+}
+
+/** Die letzten abgeschlossenen Verträge (für den Ruf). */
+function dealHistory(guildId, userId, limit = 10) {
+  return stmt.dealHistory.all(guildId, String(userId), limit);
+}
+
 /** Löscht das ganze Netzwerk eines Spielers (Tests, Admin). */
 function clearCreator(guildId, userId) {
   stmt.clearCreator.run(guildId, String(userId));
   stmt.clearCreatorState.run(guildId, String(userId));
+  stmt.clearDeals.run(guildId, String(userId));
 }
 
 // -------------------------------------------------------- Staatskasse
@@ -2579,6 +2711,8 @@ module.exports = {
   getLink, setLink, deleteLink, linksOf,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
+  insertDeal, getDeal, listDeals, activeDeal, countOffers, acceptDeal,
+  setDealStatus, advanceDeal, expireOffers, dealHistory,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,

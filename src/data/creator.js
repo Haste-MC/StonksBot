@@ -18,6 +18,15 @@
  * `time` ist der Anteil am Tagesbudget (siehe creator.js): Ein Stream kostet
  * einen halben Tag, ein Video den ganzen Nachmittag, ein Post fast nichts.
  * Dadurch wird aus "alles machen" eine Entscheidung.
+ *
+ * `community` sagt, wie stark eine Plattform **Bindung** aufbaut. Das ist
+ * nicht dasselbe wie Reichweite: Im Livechat und unter Videos redet man
+ * miteinander, im Instagram-Feed scrollt man vorbei. Deshalb:
+ *
+ *   Twitch     stark    zwei Stunden Livechat sind zwei Stunden Beziehung
+ *   Twitter    stark    billig und direkt – pro Zeiteinheit das Beste
+ *   YouTube    mittel   Kommentare, aber die Sendung läuft nur in eine Richtung
+ *   Instagram  gar nicht  gesehen, geliked, weitergescrollt
  */
 
 const PLATFORMS = [
@@ -39,6 +48,7 @@ const PLATFORMS = [
     cooldownMin: 90,
     gear: 'Streaming-Setup',
     subs: true,                   // hat Abos
+    community: 1.3,        // Livechat bindet am stärksten
     blurb: 'Live und in Farbe. Das meiste Geld, die meiste Arbeit.',
   },
   {
@@ -60,6 +70,7 @@ const PLATFORMS = [
     cooldownMin: 180,
     gear: 'Kameraausrüstung',
     subs: false,
+    community: 0.9,       // Kommentare, aber Einbahnstraße
     blurb: 'Ein Video ist Arbeit – läuft dafür noch tagelang weiter.',
   },
   {
@@ -79,6 +90,7 @@ const PLATFORMS = [
     cooldownMin: 45,
     gear: null,                   // ein Handy hat jeder
     subs: false,
+    community: 0,     // Feed baut keine Bindung auf
     blurb: 'Wächst am schnellsten. Zahlt selbst nichts – aber Marken zahlen.',
   },
   {
@@ -98,6 +110,7 @@ const PLATFORMS = [
     cooldownMin: 30,
     gear: null,
     subs: false,
+    community: 1.0,       // pro Zeiteinheit die beste Quelle
     blurb: 'Zahlt keinen Cent. Dafür hört dich hier jeder – auch beim Fehltritt.',
   },
 ];
@@ -113,42 +126,53 @@ const PLATFORMS = [
 const FORMATS = {
   twitch: [
     { id: 'chatting', name: 'Just Chatting', emoji: '💬', reach: 0.85, money: 1.6, follow: 1.0, risk: 1.0,
+      community: 1.6,
       titles: ['wir reden über alles außer dem Thema', 'Kaffee, Chaos und ein bisschen Selbstmitleid',
         'Fragerunde bis mir die Antworten ausgehen', 'Ich lese eure Nachrichten vor (mutig)'] },
     { id: 'gaming', name: 'Gaming', emoji: '🎮', reach: 1.15, money: 0.8, follow: 1.05, risk: 0.9,
+      community: 0.9,
       titles: ['Ranked bis zum Tilt', 'Wir schaffen das Level heute. Vermutlich.',
         'Blind durch ein Spiel, das ich nicht verstehe', 'Ein Versuch noch, dann ist Schluss (Lüge)'] },
     { id: 'speedrun', name: 'Speedrun', emoji: '⏱️', reach: 1.0, money: 1.0, follow: 1.25, risk: 1.15,
+      community: 1.1,
       titles: ['PB-Versuch #412', 'Any% bis die Hände weh tun',
         'Der Skip klappt heute. Ganz sicher.', 'World Record Pace (bis Level 3)'] },
     { id: 'musik', name: 'Musik', emoji: '🎧', reach: 0.9, money: 1.45, follow: 0.9, risk: 1.0,
+      community: 1.3,
       titles: ['Wunschkonzert – ihr sucht aus', 'Beats bauen, live und ohne Netz',
         'Cover-Abend mit fragwürdiger Tonlage', 'Lofi zum Lernen und Verzweifeln'] },
     { id: 'irl', name: 'IRL / Draußen', emoji: '🚶', reach: 1.25, money: 1.0, follow: 1.0, risk: 1.5,
+      community: 0.9,
       titles: ['Stadtbummel mit fragwürdiger Route', 'Wir suchen den besten Döner der Stadt',
         'Zug fahren und Leute anschauen', 'Ich laufe, bis das Handy leer ist'] },
     { id: 'kochen', name: 'Kochen', emoji: '🍳', reach: 0.8, money: 1.2, follow: 0.85, risk: 0.75,
+      community: 1.2,
       titles: ['Wir kochen etwas, das ich noch nie gekocht habe', 'Ein Rezept aus dem Chat (schlechte Idee)',
         'Meal Prep für die ganze Woche', 'Backen ohne Waage – Augenmaß ist alles'] },
   ],
   youtube: [
     { id: 'tutorial', name: 'Tutorial', emoji: '🛠️', reach: 1.0, money: 1.3, follow: 1.1, risk: 0.7,
+      community: 1.0,
       tail: 1.6,   // Tutorials werden noch in zwei Jahren geklickt
       titles: ['So machst du das in 8 Minuten', 'Der komplette Anfängerguide',
         'Die 5 Fehler, die alle machen', 'Ich erkläre es so lange, bis es sitzt'] },
     { id: 'vlog', name: 'Vlog', emoji: '🎬', reach: 0.9, money: 1.0, follow: 1.2, risk: 1.0,
+      community: 1.4,
       tail: 0.7,
       titles: ['Ein Tag in meinem Leben (spannend wie immer)', 'Umzugs-Vlog Teil 3',
         'Wir bauen das Studio um', 'Was diese Woche schiefging'] },
     { id: 'essay', name: 'Video-Essay', emoji: '📝', reach: 0.85, money: 1.4, follow: 1.3, risk: 0.9,
+      community: 1.2,
       tail: 1.9,
       titles: ['Warum das eigentlich niemand versteht', 'Eine 40-Minuten-Analyse von etwas Belanglosem',
         'Die ganze Geschichte, chronologisch', 'Das Problem mit dem Ding'] },
     { id: 'highlights', name: 'Stream-Highlights', emoji: '✂️', reach: 1.2, money: 0.8, follow: 0.9, risk: 0.8,
+      community: 0.8,
       tail: 0.5,   // schnell verbrannt
       titles: ['Die besten Momente der Woche', 'Ich reagiere auf meinen eigenen Stream',
         'Clips, die ihr gemeldet habt', 'Der Ausraster in voller Länge'] },
     { id: 'shorts', name: 'Shorts', emoji: '⚡', reach: 1.9, money: 0.35, follow: 0.6, risk: 0.9,
+      community: 0.3,
       tail: 0.35,  // enorme Reichweite, mieser Ertrag – wie im Original
       titles: ['15 Sekunden, die alles ändern', 'Das geht gerade überall rum',
         'Kurz und schmerzlos', 'Ein Clip ohne Kontext'] },
@@ -169,15 +193,15 @@ const FORMATS = {
   ],
   twitter: [
     { id: 'ankuendigung', name: 'Ankündigung', emoji: '📢', reach: 1.0, money: 0, follow: 0.9, risk: 0.6,
-      boost: 1.4,   // treibt gezielt zur nächsten Aktion
+      boost: 1.4, community: 0.6,   // treibt gezielt zur nächsten Aktion
       titles: ['gleich live, kommt vorbei', 'neues Video ist oben',
         'heute Abend passiert etwas Dummes', 'ihr wolltet es, hier ist es'] },
     { id: 'meinung', name: 'Meinung', emoji: '💭', reach: 1.5, money: 0, follow: 1.1, risk: 1.8,
-      boost: 0.8,
+      boost: 0.8, community: 0.8,
       titles: ['unpopular opinion:', 'niemand redet darüber, aber',
         'ich sage es, wie es ist', 'das wird mich Follower kosten'] },
     { id: 'witz', name: 'Witz', emoji: '😹', reach: 1.3, money: 0, follow: 1.0, risk: 0.9,
-      boost: 0.9,
+      boost: 0.9, community: 0.9,
       titles: ['ok das war lustiger in meinem Kopf', 'ein Wortspiel, für das ich mich entschuldige',
         'ich poste das und gehe', 'guten Morgen an alle außer einer Person'] },
     { id: 'community', name: 'Community', emoji: '💞', reach: 0.9, money: 0, follow: 0.8, risk: 0.5,

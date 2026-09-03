@@ -23,6 +23,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
 | `/creator [plattform]` | Dein Netzwerk: Twitch, YouTube, Instagram, Twitter. |
+| `/leaderboard` | Rangliste – jetzt auch nach **Reichweite**. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
 | `/removeitem <id>` | **Admin:** löscht einen Artikel. |
 
@@ -165,6 +166,11 @@ Sie hängen zusammen: Jede Aktion spült Follower zu den anderen Kanälen, fremd
 Reichweite zählt anteilig in die eigene hinein, und Ereignisse wie ein viraler
 Clip oder ein Shitstorm wirken überall. Alles teilt sich ein Tagesbudget an
 Zeit – ein Stream kostet 2, ein Video 3, ein Post oder Tweet 1.
+
+Dazu **Sponsorenverträge** (Marken zahlen für gelieferte Beiträge – wer die
+Frist reißt, zahlt Strafe), **Merch** (hängt an der Community, nicht an der
+Reichweite) und **Burnout** (wer täglich am Anschlag fährt, verliert Reichweite;
+Pausen bringen sie zurück).
 
 Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Publikum wächst
 unterlinear zur Followerzahl (auch die übertragene), der Schwund linear.

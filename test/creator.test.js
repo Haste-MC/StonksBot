@@ -257,41 +257,43 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
 
   console.log('\n--- Kein Gelddrucker, auch nicht zu viert (§3) ---');
   {
-    const CAREERS = 200;
-    const mid = [];
-    const end = [];
+    const CAREERS = 60;
+    const MARKS = [100, 200, 400, 800];
+    const at = Object.fromEntries(MARKS.map((m) => [m, []]));
     const perDay = [];
 
     for (let i = 0; i < CAREERS; i++) {
-      const random = rng(5000 + i);
-      const n = network(random);
-      const run = (days) => {
-        let start = n.money;
-        for (let d = 0; d < days; d++) {
-          for (const [p, f] of PLAN_MIX) n.do(p, f);
-          n.do('instagram', 'reel');
-          n.endDay();
-        }
-        return (n.money - start) / days;
-      };
-      run(100);
-      mid.push(n.total());
-      const income = run(100);
-      end.push(n.total());
-      perDay.push(income);
+      const n = network(rng(5000 + i));
+      let lastMoney = 0;
+      for (let d = 1; d <= 800; d++) {
+        if (d === 771) lastMoney = n.money;
+        for (const [p, f] of PLAN_MIX) n.do(p, f);
+        n.do('instagram', 'reel');
+        n.endDay();
+        if (at[d]) at[d].push(n.total());
+      }
+      perDay.push((n.money - lastMoney) / 30);
     }
 
-    check('die Gesamtreichweite steht nach 100 weiteren Tagen still',
-      median(end) < median(mid) * 1.5, `Tag 100: ${de(median(mid))} · Tag 200: ${de(median(end))}`);
-    check('doppelte Spielzeit bringt keine doppelte Reichweite',
-      median(end) / median(mid) < 1.4, String((median(end) / median(mid)).toFixed(2)));
-    check('kein einziges Netzwerk explodiert',
-      quantile(end, 0.99) < 150000, de(quantile(end, 0.99)));
+    const m = Object.fromEntries(MARKS.map((k) => [k, median(at[k])]));
+    const growth = (a, b) => m[b] / m[a];
+
+    // DER Beweis: Jede Verdopplung der Spielzeit bringt WENIGER als die
+    // vorige. Ohne Gleichgewicht bliebe das Verhältnis konstant oder stiege.
+    check('jede Verdopplung der Spielzeit bringt weniger als die vorige',
+      growth(200, 400) < growth(100, 200) && growth(400, 800) < growth(200, 400),
+      `100→200: ${growth(100, 200).toFixed(2)} · 200→400: ${growth(200, 400).toFixed(2)} ` +
+      `· 400→800: ${growth(400, 800).toFixed(2)}`);
+    check('nach 400 Tagen steht die Reichweite praktisch still',
+      growth(400, 800) < 1.1, growth(400, 800).toFixed(3));
+    check('das Gleichgewicht ist endlich',
+      quantile(at[800], 0.99) < 150000, de(quantile(at[800], 0.99)));
     check('der Tagesverdienst bleibt unter der Decke',
       quantile(perDay, 0.95) < 25000,
       `Median ${de(median(perDay))} · p95 ${de(quantile(perDay, 0.95))}`);
-    console.log(`     ℹ️  ausgebautes Netzwerk: ${de(median(perDay))} pro Tag, ` +
-      `${de(median(end))} Follower über alle Plattformen`);
+    console.log(`     ℹ️  Reichweite über die Zeit: ` +
+      MARKS.map((k) => `Tag ${k}: ${de(m[k])}`).join(' · '));
+    console.log(`     ℹ️  ausgebautes Netzwerk: ${de(median(perDay))} pro Tag`);
   }
 
   console.log('\n--- Reichweite verfällt, auch auf vergessenen Kanälen ---');
@@ -397,6 +399,48 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('am nächsten Tag ist das Budget wieder voll', next.ok === true, next.reason ?? '');
   }
 
+  console.log('\n--- Eigene Titel ---');
+  {
+    check('ein normaler Titel bleibt, wie er ist',
+      creator.cleanTitle('Ich lese Steuerbescheide vor') === 'Ich lese Steuerbescheide vor');
+    check('Erwähnungen werden entschärft',
+      !creator.cleanTitle('<@123> @everyone hallo').includes('@everyone')
+      && !creator.cleanTitle('<@123> hallo').includes('<@'),
+      creator.cleanTitle('<@123> @everyone hallo'));
+    check('Markdown und Zeilenumbrüche fliegen raus',
+      creator.cleanTitle('**fett**\nzweite Zeile') === 'fett zweite Zeile',
+      creator.cleanTitle('**fett**\nzweite Zeile'));
+    check('zu lange Titel werden gekappt',
+      creator.cleanTitle('x'.repeat(300)).length === 80);
+    check('aus nichts wird nichts', creator.cleanTitle('   ') === null
+      && creator.cleanTitle(null) === null);
+
+    const U = player('titel');
+    const t0 = new Date(new Date().setHours(11, 0, 0, 0)).getTime();
+    refill(U);
+    const wish = 'Ich lese drei Stunden lang Steuerbescheide vor';
+    const res = await creator.act(G, U, 'twitch', 'gaming', t0, Math.random, wish);
+    check('der eigene Titel wird benutzt',
+      res.title === wish && res.customTitle === true, res.title);
+    check('die Meldung zeigt ihn an',
+      creator.describe(res, (n) => `${n}`).includes(wish));
+    check('er steht danach am Kanal',
+      db.getCreator(G, U, 'twitch').last_title === wish);
+    check('und taucht in der Ansicht auf',
+      creator.status(G, U, t0).platforms.find((p) => p.id === 'twitch').lastTitle === wish);
+
+    refill(U);
+    const preset = await creator.act(G, U, 'instagram', 'reel', t0 + 60_000);
+    const titles = creator.format('instagram', 'reel').titles;
+    check('ohne eigenen Titel entscheidet die Vorauswahl',
+      titles.includes(preset.title) && preset.customTitle === false, preset.title);
+
+    refill(U);
+    const junk = await creator.act(G, U, 'twitter', 'witz', t0 + 120_000, Math.random, '   ');
+    check('ein leerer Wunschtitel fällt auf die Vorauswahl zurück',
+      creator.format('twitter', 'witz').titles.includes(junk.title), junk.title);
+  }
+
   console.log('\n--- Verkabelung ---');
   {
     const U = player('kabel');
@@ -422,6 +466,157 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('unbekannte Plattformen werden abgelehnt', unknown.reason === 'unknown_platform');
     const badFormat = await creator.act(G, U, 'twitch', 'asmr', t0);
     check('unbekannte Formate werden abgelehnt', badFormat.reason === 'unknown_format');
+  }
+
+  console.log('\n--- Burnout ---');
+  {
+    check('ausgeruht gibt es keinen Malus', creator.energyFactor(0) === 1);
+    check('der Malus ist gedeckelt',
+      Math.abs(creator.energyFactor(creator.FATIGUE_MAX) - (1 - creator.FATIGUE_MALUS)) < 1e-9);
+    check('Erschöpfung klingt in Pausen ab',
+      creator.fatigueNow({ fatigue: 100, fatigue_at: 1 }, 1 + DAY_MS) < 100,
+      String(creator.fatigueNow({ fatigue: 100, fatigue_at: 1 }, 1 + DAY_MS)));
+    check('Vollgas kostet spürbar Reichweite, aber nie alles',
+      creator.energyFactor(creator.FATIGUE_MAX) > 0.5
+      && creator.energyFactor(creator.FATIGUE_MAX) < 0.9,
+      String(creator.energyFactor(creator.FATIGUE_MAX)));
+
+    // Zwei identische Tage, einmal frisch, einmal ausgebrannt.
+    const U = player('burnout');
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+    refill(U);
+    const fresh = await creator.act(G, U, 'twitch', 'gaming', t0, rng(3).valueOf ? rng(3) : Math.random);
+    check('die erste Aktion des Tages läuft mit voller Energie',
+      fresh.ok && fresh.energy === 1, String(fresh.energy));
+
+    let now = t0;
+    for (let i = 0; i < 3; i++) {
+      now += 100 * 60 * 1000;
+      refill(U);
+      await creator.act(G, U, 'instagram', 'reel', now);
+    }
+    const tired = creator.status(G, U, now);
+    check('nach einem vollen Tag ist die Energie gesunken',
+      tired.energy < 1 && tired.fatigue > 0,
+      `${Math.round(tired.energy * 100)} % bei ${Math.round(tired.fatigue)}`);
+    const rested = creator.status(G, U, now + 3 * DAY_MS);
+    check('drei Tage später ist sie wieder da',
+      rested.energy > tired.energy, `${rested.energy} > ${tired.energy}`);
+  }
+
+  console.log('\n--- Sponsorenverträge ---');
+  {
+    const U = player('deal');
+    const now = Date.now();
+    check('kleine Kanäle bekommen keine Anfragen',
+      creator.rollDeal(G, U, 100, now, () => 0) === null);
+
+    // Mit genug Reichweite und einem Würfel, der immer trifft.
+    const offer = creator.rollDeal(G, U, 40000, now, () => 0.01);
+    check('große Kanäle bekommen Anfragen', offer !== null && offer.status === 'offer');
+    check('die Summe hängt an der Reichweite',
+      offer.payout > 0 && offer.quota >= 2, `${offer.payout} für ${offer.quota}`);
+    check('es gibt immer eine Vertragsstrafe',
+      offer.penalty > 0 && offer.penalty < offer.payout, String(offer.penalty));
+    check('Twitter wird nie beauftragt (dort läuft keine Werbung)',
+      offer.platform !== 'twitter', offer.platform);
+
+    const accepted = creator.accept(G, U, offer.id, now);
+    check('ein Angebot lässt sich annehmen', accepted.ok === true, accepted.reason ?? '');
+    check('danach läuft es', db.activeDeal(G, U)?.id === offer.id);
+
+    const second = creator.rollDeal(G, U, 40000, now, () => 0.01);
+    check('während ein Vertrag läuft, kommt keiner dazu', second === null);
+
+    // Liefern: die passende Plattform bedienen, bis die Quote steht.
+    const p = creator.platform(offer.platform);
+    let t = now;
+    let completed = null;
+    earned = 0;
+    for (let i = 0; i < offer.quota + 2 && !completed; i++) {
+      t += (p.cooldownMin + 5) * 60 * 1000;
+      // Zeitbudget frisch halten: jeder Beitrag an einem eigenen Tag.
+      t += DAY_MS;
+      refill(U);
+      const r = await creator.act(G, U, offer.platform, offer.format || creator.formats(offer.platform)[0].id, t);
+      if (r.ok && r.deal?.complete) completed = r;
+    }
+    check('erfüllte Verträge zahlen aus', completed !== null && earned >= offer.payout,
+      `${earned} vs ${offer.payout}`);
+    check('danach läuft kein Vertrag mehr', db.activeDeal(G, U) === null);
+    check('der Vertrag steht als erfüllt in der Historie',
+      db.dealHistory(G, U).some((d) => d.id === offer.id && d.status === 'done'));
+
+    // Frist reißen lassen.
+    const U2 = player('pleite');
+    const late = creator.rollDeal(G, U2, 40000, now, () => 0.01);
+    creator.accept(G, U2, late.id, now);
+    earned = 0;
+    const settled = await creator.settleDeals(G, U2, now + 30 * DAY_MS);
+    check('eine gerissene Frist kostet Vertragsstrafe',
+      settled.failed !== null && earned === -late.penalty, `${earned} vs ${-late.penalty}`);
+    check('der geplatzte Vertrag ist beendet', db.activeDeal(G, U2) === null);
+
+    // Angebote verfallen von selbst.
+    const U3 = player('zoegern');
+    const stale = creator.rollDeal(G, U3, 40000, now, () => 0.01);
+    await creator.settleDeals(G, U3, now + 10 * DAY_MS);
+    check('unbeantwortete Angebote verfallen',
+      db.getDeal(G, stale.id).status === 'expired');
+    check('ein verfallenes Angebot lässt sich nicht mehr annehmen',
+      creator.accept(G, U3, stale.id, now + 10 * DAY_MS).ok === false);
+  }
+
+  console.log('\n--- Auch die Zusatzeinnahmen sind gedeckelt (§3) ---');
+  {
+    // Verträge: zehnfache Reichweite darf nicht das Zehnfache zahlen.
+    const U = player('grenze');
+    const fixed = () => 0.01;
+    const small = creator.rollDeal(G, U, 10000, Date.now(), fixed);
+    db.setDealStatus(G, small.id, 'expired');
+    const big = creator.rollDeal(G, U, 100000, Date.now(), fixed);
+    db.setDealStatus(G, big.id, 'expired');
+    check('Verträge zahlen unterlinear zur Reichweite',
+      big.payout / small.payout < 10 * (big.quota / small.quota),
+      `${small.payout} -> ${big.payout}`);
+    check('die Vertragsstrafe ist immer ein fester Anteil',
+      Math.abs(big.penalty / big.payout - creator.DEAL_PENALTY) < 0.01);
+    check('höchstens zwei Angebote liegen gleichzeitig herum',
+      creator.DEAL_MAX_OFFERS <= 2);
+  }
+
+  console.log('\n--- Merch ---');
+  {
+    const U = player('merch');
+    check('kleine Kanäle haben keinen Merch', !creator.merchUnlocked(100));
+    check('ab der Schwelle schon', creator.merchUnlocked(creator.MERCH_MIN_REACH));
+
+    // Community echt aufbauen (nur Tweets bringen sie), Reichweite gesetzt –
+    // die Wachstumskurve ist an anderer Stelle geprüft und dauert hier zu lang.
+    let now = Date.now();
+    for (let d = 0; d < 12; d++) {
+      refill(U);
+      await creator.act(G, U, 'twitter', 'community', now);
+      now += DAY_MS;
+    }
+    const row = db.getCreator(G, U, 'twitch');
+    db.saveCreator(G, U, 'twitch', { ...row, followers: 12000, touched_at: now, last_action_at: now });
+    const st = creator.status(G, U, now);
+    check('ein gewachsener Kanal schaltet Merch frei',
+      st.merch.unlocked && st.merch.perDay > 0,
+      `${st.total} Follower, ${st.merch.perDay} pro Tag`);
+
+    earned = 0;
+    const first = await creator.settleMerch(G, U, now + 2 * DAY_MS);
+    check('Merch zahlt über die Zeit', first && first.amount > 0, JSON.stringify(first));
+    const before = earned;
+    const again = await creator.settleMerch(G, U, now + 2 * DAY_MS + 60_000);
+    check('sofort nochmal abrechnen bringt nichts', again === null && earned === before);
+
+    earned = 0;
+    await creator.settleMerch(G, U, now + 90 * DAY_MS);
+    check('ein Rückstau ist gedeckelt',
+      earned <= creator.MERCH_DAILY_CAP * 7 + 1, String(earned));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -14,8 +14,10 @@ module.exports = {
     await interaction.deferReply();
     const ctx = { guildId: interaction.guildId, userId: interaction.user.id };
 
-    // Beim Öffnen läuft die Katalog-Abrechnung mit (§4).
+    // Beim Öffnen laufen Katalog, Merch und Vertragsfristen mit (§4).
     await creator.settle(ctx.guildId, ctx.userId).catch(() => null);
+    await creator.settleMerch(ctx.guildId, ctx.userId).catch(() => null);
+    await creator.settleDeals(ctx.guildId, ctx.userId).catch(() => null);
 
     const key = interaction.options.getString('plattform');
     return interaction.editReply(key
