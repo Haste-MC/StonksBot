@@ -2753,6 +2753,18 @@ async function buildTreasuryView({ guildId, userId }) {
     });
   }
 
+  // Die eigene Flagge zuerst: Wohin fließen MEINE Steuern?
+  const own = treasury.countryOf(guildId, userId);
+  embed.addFields({
+    name: `${own.land.id ? own.land.flag : '🏳️'} ${own.land.id ? own.land.name : 'Ohne Heimat'}`,
+    value: own.land.id
+      ? `**${money(symbol, own.balance)}**` +
+        (own.rank ? ` · Platz **${own.rank}** von ${own.of}` : '') +
+        '\n_Dorthin fließen deine Steuern._'
+      : 'Du hast keine Heimat gewählt – deine Steuern landen im Topf der '
+        + 'Staatenlosen. Die erste Wahl ist kostenlos (🌍 Heimat).',
+  });
+
   embed.setFooter({
     text: state.bookings === 0
       ? 'Noch nichts drin – die Kasse füllt sich, sobald auf dem Server Geld bewegt wird.'
@@ -2760,7 +2772,89 @@ async function buildTreasuryView({ guildId, userId }) {
         `aus ${bookings(mine.bookings)}.`,
   });
 
-  return { embeds: [embed], components: [new ActionRowBuilder().addComponents(homeButton(userId))] };
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`laender|1|${userId}`)
+        .setLabel('Länder').setEmoji('🌍').setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(ID.menu('heimat', 1, userId))
+        .setLabel('Meine Heimat').setEmoji('🏠').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
+/** Wie viele Länder pro Seite in die Rangliste passen. */
+const TREASURY_COUNTRY_PAGE = 8;
+
+/**
+ * Die Rangliste der reichsten Staaten.
+ *
+ * Interessant ist hier nicht nur der Stand, sondern das Verhältnis: Ein Land
+ * mit zwei fleißigen Einwohnern kann ein Land mit zehn faulen überholen.
+ */
+async function buildCountryTreasuryView({ guildId, userId, page = 1 }) {
+  const treasury = require('./treasury');
+  const home = require('./home');
+  const symbol = await getSymbol(guildId);
+
+  const all = treasury.countries(guildId);
+  const world = treasury.state(guildId);
+  const assigned = all.reduce((sum, c) => sum + c.balance, 0);
+  const totalPages = Math.max(1, Math.ceil(all.length / TREASURY_COUNTRY_PAGE));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const slice = all.slice((p - 1) * TREASURY_COUNTRY_PAGE, p * TREASURY_COUNTRY_PAGE);
+  const mine = home.homeOf(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🌍 Die reichsten Staaten')
+    .setColor(0x1abc9c)
+    .setDescription(all.length === 0
+      ? 'Noch hat kein Land etwas eingenommen. Sobald Spieler mit Wohnsitz Geld '
+        + 'bewegen, füllen sich die Kassen.'
+      : 'Jeder Spieler zahlt in die Kasse **seines Wohnsitzlandes**. Wer viel '
+        + 'umsetzt, macht sein Land reich.');
+
+  const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] ?? `**#${rank}**`;
+
+  if (slice.length > 0) {
+    embed.addFields({
+      name: '🏆 Rangliste',
+      value: slice.map((c, i) => {
+        const rank = (p - 1) * TREASURY_COUNTRY_PAGE + i + 1;
+        const you = c.country === mine.id ? ' ⬅️ **du**' : '';
+        return `${medal(rank)} ${c.flag} **${c.name}**${you}\n` +
+          `${money(symbol, c.balance)} · ${Math.round(c.share * 100)} % · ` +
+          `${c.people} ${c.people === 1 ? 'Einwohner' : 'Einwohner'} · ` +
+          `${bookings(c.bookings)}`;
+      }).join('\n\n'),
+    });
+  }
+
+  // Ehrlich bleiben: Was vor der Aufteilung eingezahlt wurde, gehört niemandem.
+  const unassigned = world.balance - assigned;
+  if (unassigned > 0) {
+    embed.addFields({
+      name: '📦 Nicht zugeordnet',
+      value: `${money(symbol, unassigned)} stammen aus der Zeit vor der Aufteilung ` +
+        'und liegen im gemeinsamen Topf.',
+    });
+  }
+
+  embed.setFooter({ text: `Seite ${p} / ${totalPages} · Welttopf: ` +
+    `${plainSymbol(symbol)} ${world.balance.toLocaleString('de-DE')}` });
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`laender|${p - 1}|${userId}`)
+        .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+      new ButtonBuilder().setCustomId(`laender|${p + 1}|${userId}`)
+        .setLabel('Weiter').setEmoji('▶️').setStyle(ButtonStyle.Secondary)
+        .setDisabled(p >= totalPages),
+      new ButtonBuilder().setCustomId(ID.menu('staat', 1, userId))
+        .setLabel('Staatskasse').setEmoji('🏛️').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
 }
 
 // -------------------------------------------------------------- Auktionshaus
@@ -3125,7 +3219,7 @@ module.exports = {
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
-  buildHomeView, buildCountryView, buildCountryConfirm,
+  buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
   buildLanguageView, buildLanguageConfirm,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,

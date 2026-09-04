@@ -419,6 +419,23 @@ db.exec(`
     updated_at  INTEGER NOT NULL
   );
 
+  -- Aufteilung auf die Wohnsitzländer der Spieler. Der Welttopf oben bleibt
+  -- die Gesamtsumme; hier steht, welcher Staat davon was abbekommen hat.
+  -- Buchungen aus der Zeit vor der Aufteilung sind keinem Land zugeordnet –
+  -- die Summe der Länder ist deshalb kleiner als der Welttopf.
+  CREATE TABLE IF NOT EXISTS treasury_countries (
+    guild_id    TEXT    NOT NULL,
+    country     TEXT    NOT NULL,          -- '' = Spieler ohne Heimat
+    balance     INTEGER NOT NULL DEFAULT 0,
+    vat_total   INTEGER NOT NULL DEFAULT 0,
+    tax_total   INTEGER NOT NULL DEFAULT 0,
+    spend_base  INTEGER NOT NULL DEFAULT 0,
+    income_base INTEGER NOT NULL DEFAULT 0,
+    bookings    INTEGER NOT NULL DEFAULT 0,
+    updated_at  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, country)
+  );
+
   -- Woher das Geld kommt (Käufe, Arbeit, Börse …). Getrennt nach Art, damit
   -- sich Mehrwert- und Einkommensteuer je Bereich vergleichen lassen.
   CREATE TABLE IF NOT EXISTS treasury_sources (
@@ -1424,6 +1441,27 @@ const stmt = {
        income_base = income_base + excluded.income_base,
        bookings    = bookings    + 1,
        updated_at  = excluded.updated_at`),
+  addTreasuryCountry: db.prepare(
+    `INSERT INTO treasury_countries (guild_id, country, balance, vat_total, tax_total,
+                                     spend_base, income_base, bookings, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+     ON CONFLICT (guild_id, country) DO UPDATE SET
+       balance     = balance     + excluded.balance,
+       vat_total   = vat_total   + excluded.vat_total,
+       tax_total   = tax_total   + excluded.tax_total,
+       spend_base  = spend_base  + excluded.spend_base,
+       income_base = income_base + excluded.income_base,
+       bookings    = bookings    + 1,
+       updated_at  = excluded.updated_at`),
+  treasuryCountries: db.prepare(
+    'SELECT * FROM treasury_countries WHERE guild_id = ? ORDER BY balance DESC'),
+  treasuryCountry: db.prepare(
+    'SELECT * FROM treasury_countries WHERE guild_id = ? AND country = ?'),
+  clearTreasuryCountries: db.prepare('DELETE FROM treasury_countries WHERE guild_id = ?'),
+  countryPopulation: db.prepare(
+    `SELECT home_country AS country, COUNT(*) AS n FROM player_stats
+     WHERE guild_id = ? AND home_country <> '' GROUP BY home_country`),
+
   addTreasurySource: db.prepare(
     `INSERT INTO treasury_sources (guild_id, source, kind, amount, base, bookings)
      VALUES (?, ?, ?, ?, ?, 1)
@@ -2599,13 +2637,19 @@ function getTreasury(guildId) {
  * `await` dazwischen – der Stand kann dabei nicht auseinanderlaufen (§7).
  */
 function bookTreasury({
-  guildId, accountId, kind, base, amount, source = '', reason = '', at = Date.now(),
+  guildId, accountId, kind, base, amount, source = '', reason = '', country = '',
+  at = Date.now(),
 }) {
   const vat = kind === 'vat' ? amount : 0;
   const tax = kind === 'tax' ? amount : 0;
+  const spend = kind === 'vat' ? base : 0;
+  const income = kind === 'tax' ? base : 0;
 
-  stmt.addTreasury.run(guildId, amount, vat, tax,
-    kind === 'vat' ? base : 0, kind === 'tax' ? base : 0, at, at);
+  stmt.addTreasury.run(guildId, amount, vat, tax, spend, income, at, at);
+  // Derselbe Betrag noch einmal auf das Land des Spielers – der Welttopf
+  // bleibt die Summe, die Länderzeilen sind die Aufteilung.
+  stmt.addTreasuryCountry.run(guildId, String(country ?? ''), amount, vat, tax,
+    spend, income, at);
   stmt.addTreasurySource.run(guildId, source, kind, amount, base);
   stmt.addTreasuryPayer.run(guildId, String(accountId), amount, vat, tax);
   stmt.logTreasury.run(guildId, String(accountId), kind, base, amount, source, reason, at);
@@ -2616,6 +2660,24 @@ function bookTreasury({
     stmt.trimTreasuryLog.run(guildId, guildId, TREASURY_LOG_KEEP);
   }
   return row;
+}
+
+/** Die Staatskassen aller Länder, absteigend nach Stand. */
+function treasuryCountries(guildId) {
+  return stmt.treasuryCountries.all(guildId);
+}
+
+/** Die Kasse eines einzelnen Landes – nie null. */
+function treasuryCountry(guildId, country) {
+  return stmt.treasuryCountry.get(guildId, String(country ?? '')) ?? {
+    guild_id: guildId, country: String(country ?? ''), balance: 0, vat_total: 0,
+    tax_total: 0, spend_base: 0, income_base: 0, bookings: 0, updated_at: 0,
+  };
+}
+
+/** Wie viele Spieler in welchem Land leben. */
+function countryPopulation(guildId) {
+  return stmt.countryPopulation.all(guildId);
 }
 
 /** Die ergiebigsten Bereiche (Käufe, Arbeit, Börse …). */
@@ -2644,6 +2706,7 @@ function treasuryLog(guildId, limit = 5) {
 /** Setzt die Kasse einer Welt zurück (Tests, Admin). */
 function clearTreasury(guildId) {
   stmt.clearTreasury.run(guildId);
+  stmt.clearTreasuryCountries.run(guildId);
   stmt.clearTreasurySources.run(guildId);
   stmt.clearTreasuryPayers.run(guildId);
   stmt.clearTreasuryLog.run(guildId);
@@ -2869,6 +2932,7 @@ module.exports = {
   insertDeal, getDeal, listDeals, activeDeal, countOffers, acceptDeal,
   setDealStatus, advanceDeal, expireOffers, dealHistory,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,
+  treasuryCountries, treasuryCountry, countryPopulation,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,
   getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,

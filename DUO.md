@@ -447,6 +447,13 @@ bleibt. Das ist kein Zufall, sondern genau die Aussage des Rangs.
 Wer in der Sprache seines Landes sendet, bekommt **+15 % Tempo** – man kennt
 die Kultur, die Witze sitzen, die Leute bleiben eher hängen.
 
+### Wer noch keine Heimat hat, wird gefragt
+
+Ohne Wohnsitz produziert man für einen neutralen Markt und zahlt in den Topf
+der Staatenlosen – beides verschenkt. Deshalb weist der Bot **bei jedem
+Menüaufruf** darauf hin, solange nichts gewählt ist, auf Discord wie auf
+Fluxer. Der Hinweis verschwindet mit der ersten Wahl (die kostenlos ist).
+
 ### Umziehen kostet
 
 Die **erste Wahl ist kostenlos**, bei Land wie Sprache. Danach:
@@ -1159,6 +1166,32 @@ Ausgenommen sind:
 
 Fehlschläge der Kasse werden geschluckt: Eine Geldbuchung darf niemals daran
 scheitern, dass die Statistik danebengeht.
+
+### Aufgeteilt auf die Länder
+
+Jeder Spieler zahlt in die Kasse **seines Wohnsitzlandes** (siehe
+[Heimat und Sprache](#heimat-und-sprache-)). Wer keine Heimat gewählt hat,
+zahlt in den Topf der Staatenlosen.
+
+```
+!laender         Rangliste der reichsten Staaten (auch !staaten)
+🌍 Länder        Knopf in der Staatskasse
+```
+
+```
+🥇 🇩🇪 Deutschland   173.500 · 44 % · 2 Einwohner · 2 Buchungen
+🥈 🇺🇸 USA           117.800 · 30 % · 1 Einwohner · 1 Buchung
+🥉 🇯🇵 Japan          72.200 · 18 % · 1 Einwohner · 1 Buchung
+```
+
+Interessant ist dabei nicht der absolute Stand, sondern das Verhältnis: Ein
+Land mit zwei umsatzstarken Einwohnern überholt eines mit zehn sparsamen.
+
+Der **Welttopf bleibt die Gesamtsumme** – die Länderzeilen sind nur seine
+Aufteilung. Buchungen aus der Zeit *vor* dieser Aufteilung gehören keinem
+Land; sie stehen in der Ansicht offen als „nicht zugeordnet". Ein **Umzug**
+ändert nur, wohin künftige Steuern fließen: Was ein Land eingenommen hat,
+behält es.
 
 ### Was die Ansicht zeigt
 

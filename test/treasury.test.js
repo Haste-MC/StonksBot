@@ -215,6 +215,65 @@ const acc = (name) => `fx:${name}`;
       typeof treasury.payout !== 'function' && typeof treasury.spend !== 'function');
   }
 
+  console.log('\n--- Aufteilung auf die Länder ---');
+  {
+    const home = require('../src/home');
+    const G = freshGuild();
+    const kevin = acc('kevin');
+    const mara = acc('mara');
+    const yuki = acc('yuki');
+    const heimatlos = acc('heimatlos');
+
+    await home.setHome(G, kevin, 'de');
+    await home.setHome(G, mara, 'de');
+    await home.setHome(G, yuki, 'jp');
+
+    await unb.changeCash(G, kevin, -100000, 'Kauf: Auto');   // 19.000 -> DE
+    await unb.changeCash(G, mara, 50000, 'Schicht: Job');    // 20.000 -> DE
+    await unb.changeCash(G, yuki, -80000, 'Kauf: Auto');     // 15.200 -> JP
+    await unb.changeCash(G, heimatlos, -10000, 'Kauf: Rad'); //  1.900 -> ohne
+
+    const list = treasury.countries(G);
+    const byId = Object.fromEntries(list.map((c) => [c.country, c]));
+
+    check('jeder zahlt in sein eigenes Land',
+      byId.de.balance === 39000 && byId.jp.balance === 15200,
+      `de ${byId.de?.balance} · jp ${byId.jp?.balance}`);
+    check('ohne Heimat landet es im Topf der Staatenlosen',
+      byId[''].balance === 1900, String(byId['']?.balance));
+    check('die Summe der Länder ist der Welttopf',
+      list.reduce((s, c) => s + c.balance, 0) === treasury.state(G).balance);
+    check('die Rangliste ist absteigend sortiert',
+      list.every((c, i) => i === 0 || list[i - 1].balance >= c.balance));
+    check('Länder tragen Flagge und Namen',
+      byId.de.flag === '🇩🇪' && byId.de.name === 'Deutschland' && byId[''].name === 'Ohne Heimat');
+    check('die Einwohner werden gezählt',
+      byId.de.people === 2 && byId.jp.people === 1, `${byId.de?.people}/${byId.jp?.people}`);
+    check('die Anteile ergeben zusammen 100 %',
+      Math.abs(list.reduce((s, c) => s + c.share, 0) - 1) < 0.001);
+
+    const view = treasury.countryOf(G, kevin);
+    check('ein Spieler sieht sein Land und dessen Platz',
+      view.land.id === 'de' && view.rank === 1 && view.balance === 39000,
+      JSON.stringify({ rank: view.rank, balance: view.balance }));
+
+    // Umzug: Neues Geld fließt woandershin, altes bleibt liegen.
+    // Erst Geld besorgen – ein Umzug will bezahlt werden. Die Gutschrift läuft
+    // steuerfrei, damit sie die Länderzahlen oben nicht verschiebt.
+    await unb.changeCash(G, kevin, 500000, 'Testkapital', { tax: false });
+    const moved = await home.setHome(G, kevin, 'jp');
+    check('der Umzug klappt', moved.ok === true, moved.reason ?? '');
+    const jpBefore = treasury.countries(G).find((c) => c.country === 'jp').balance;
+    await unb.changeCash(G, kevin, -100000, 'Kauf: Auto');
+    const after = Object.fromEntries(treasury.countries(G).map((c) => [c.country, c]));
+    check('nach dem Umzug zahlt man ins neue Land',
+      after.jp.balance === jpBefore + 19000, `${jpBefore} -> ${after.jp.balance}`);
+    check('das alte Land behält, was es hat',
+      after.de.balance === 39000, String(after.de.balance));
+    check('auch Rumänien lässt sich wählen',
+      (await home.setHome(G, acc('radu'), 'ro')).ok === true);
+  }
+
   console.log('\n--- Zusammenführen von Konten ---');
   {
     const G = freshGuild();

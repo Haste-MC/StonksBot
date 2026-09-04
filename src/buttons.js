@@ -13,6 +13,7 @@ const {
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
   buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
   buildDecisionView, buildHomeView, buildCountryView, buildCountryConfirm,
+  buildCountryTreasuryView,
   buildLanguageView, buildLanguageConfirm, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
@@ -187,6 +188,22 @@ async function settleCreator(guildId, userId) {
   return lines.length ? lines.join('\n') : null;
 }
 
+/**
+ * Erinnerung an die Heimatwahl.
+ *
+ * Ohne Wohnsitz zahlt der Spieler in den Topf der Staatenlosen und produziert
+ * für einen neutralen Markt – beides verschenkt. Die erste Wahl kostet nichts,
+ * deshalb wird sie aktiv angeboten statt versteckt.
+ */
+function homeNudge(guildId, userId) {
+  try {
+    if (require('./home').settled(guildId, userId)) return null;
+  } catch { return null; }
+  return '🌍 **Du hast noch keine Heimat gewählt.** Land und Inhaltssprache '
+    + 'entscheiden, für welchen Markt du produzierst und in welche Staatskasse '
+    + 'deine Steuern fließen – die erste Wahl ist **kostenlos** (`/heimat`).';
+}
+
 /** Menüpunkte, bei denen Miete und Stellplätze relevant sind. */
 const RENT_RELEVANT = new Set([
   'property', 'estate', 'garage', 'werkstatt', 'new', 'used', 'inbox', 'listings', 'auktion',
@@ -320,6 +337,12 @@ const buttons = {
   async home(interaction) {
     await interaction.update(
       buildMainMenu({ userId: interaction.user.id, isAdmin: isAdmin(interaction) }));
+
+    const nudge = homeNudge(gid(interaction), uid(interaction));
+    if (nudge) {
+      await interaction.followUp({ content: nudge, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
   },
 
   /** Eine Kategorie des Hauptmenüs öffnen (z.B. 🚗 Fahrzeuge). */
@@ -344,7 +367,8 @@ const buttons = {
     const settled = RENT_RELEVANT.has(entryId) ? await settle(interaction) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
-    const notice = [news, settled].filter(Boolean).join('\n\n') || null;
+    const nudge = homeNudge(gid(interaction), uid(interaction));
+    const notice = [news, settled, nudge].filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1358,6 +1382,14 @@ Object.assign(buttons, {
     await interaction.showModal(modal);
   },
 
+  /** Rangliste der reichsten Staaten. */
+  async laender(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildCountryTreasuryView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
   /** Länderliste. */
   async land(interaction, [page]) {
     await interaction.deferUpdate();
@@ -1799,4 +1831,5 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
+  homeNudge,
 };
