@@ -33,7 +33,10 @@ const FORCED_SALE_MAX = 0.95;
  *            owned: number, rented: number}}
  */
 function capacity(guildId, userId) {
-  const owned = db.ownedGarageSlots(guildId, userId);
+  // Nur Immobilien im eigenen Land geben Platz: Wer umgezogen ist, kann in
+  // seiner alten Wohnung weder wohnen noch parken (siehe home.js).
+  const owned = db.ownedGarageSlots(
+    guildId, userId, require('./home').homeOf(guildId, userId).id);
   const rental = db.getRental(guildId, userId);
   const rented = rental ? rental.garage : 0;
   // Erfahrung bringt Platz: ab bestimmten Leveln gibt es einen Stellplatz
@@ -245,6 +248,9 @@ async function buy(guildId, userId, itemId) {
 
   const reserved = db.reservePurchase(guildId, userId, itemId, 1);
   if (!reserved.ok) return { ...reserved, item };
+
+  // Wo das Objekt steht. Ohne diesen Stempel wäre ein Umzug folgenlos.
+  db.stampCountry(guildId, userId, itemId, require('./home').homeOf(guildId, userId).id);
 
   const hadStock = item.stock !== null;
   let movedFromBank = 0;

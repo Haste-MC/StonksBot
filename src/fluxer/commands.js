@@ -86,6 +86,12 @@ const COMMANDS = [
     },
   },
   {
+    names: ['heimat', 'land', 'sprache', 'wohnsitz'],
+    info: 'Wohnsitz und Inhaltssprache',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildHomeView({ guildId, userId }) }),
+  },
+  {
     names: ['creator', 'netzwerk', 'social'],
     info: 'Dein Creator-Netzwerk (alle Plattformen)',
     run: async ({ guildId, userId }) =>

@@ -1271,6 +1271,9 @@ async function buildCreatorView({ guildId, userId }) {
   }
 
   const extras = [
+    `🌍 **Markt:** ${s.market.country.id ? `${s.market.country.flag} ` : ''}` +
+    `${s.market.language.id ? `${s.market.language.emoji} ${s.market.language.name}` : '_keine Sprache gewählt_'}` +
+    (s.market.atHome ? ' 🏡' : ''),
     `⏳ **Zeit heute:** ${s.budget.left} von ${s.budget.max} übrig`,
     `🔋 **Energie:** ${progressBar(s.energy, 8)} ${Math.round(s.energy * 100)} %` +
     (s.energy < 0.95 ? ' _(ausgebrannt – Pausen helfen)_' : ''),
@@ -1407,6 +1410,299 @@ async function buildDealsView({ guildId, userId }) {
 
   return { embeds: [embed], components: rows };
 }
+
+// ------------------------------------------------------------------ Heimat
+
+const HOME_PAGE = 5;
+
+/** Kurzbeschreibung eines Marktes für die Anzeige. */
+function marketLine(market) {
+  const size = market.pool >= 2 ? 'riesig' : market.pool >= 1 ? 'groß'
+    : market.pool >= 0.5 ? 'mittel' : 'klein';
+  return `Publikum **${size}** · Tempo **${market.speed.toFixed(2)}×** · ` +
+    `Werbepreis **${market.money.toFixed(2)}×** · Kaufkraft **${market.deal.toFixed(2)}×**`;
+}
+
+/**
+ * Heimat und Inhaltssprache.
+ *
+ * Beides einmal gratis, danach teuer – deshalb steht hier ausführlich, was
+ * die Wahl bedeutet, bevor man sie trifft.
+ */
+async function buildHomeView({ guildId, userId }) {
+  const home = require('./home');
+  const symbol = await getSymbol(guildId);
+  const land = home.homeOf(guildId, userId);
+  const lang = home.languageOf(guildId, userId);
+  const market = home.marketOf(guildId, userId);
+  const stats = db.getStats(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🌍 Heimat & Sprache')
+    .setColor(0x1abc9c)
+    .setDescription(
+      'Wo du lebst und in welcher Sprache du sendest, entscheidet, **für wen** '
+      + 'du überhaupt Inhalte machst:\n'
+      + '🥨 **Landessprache** – enger Markt, treues Publikum, früh gutes Geld, '
+      + 'aber die Decke kommt schnell.\n'
+      + '🌍 **Englisch** – riesiger Topf, zäher Start, praktisch keine Grenze.')
+    .addFields(
+      {
+        name: '🏠 Wohnsitz',
+        value: land.id
+          ? `${land.flag} **${land.name}**\n_Kaufkraft ${land.market.toFixed(2)}×_`
+          : '_noch nicht gewählt_ – die erste Wahl ist kostenlos.',
+        inline: true,
+      },
+      {
+        name: '🗣️ Inhaltssprache',
+        value: lang.id
+          ? `${lang.emoji} **${lang.name}**\n_${lang.blurb}_`
+          : '_noch nicht gewählt_ – die erste Wahl ist kostenlos.',
+        inline: true,
+      },
+      { name: '📊 Dein Markt', value: marketLine(market) },
+    );
+
+  if (market.atHome) {
+    embed.addFields({
+      name: '🏡 Heimvorteil',
+      value: 'Du sendest in der Sprache deines Landes – du kennst die Kultur, '
+        + 'das Publikum bleibt eher hängen (+15 % Tempo).',
+    });
+  }
+
+  if (land.id) {
+    embed.addFields({
+      name: '📦 Umzug',
+      value: `Bisher ${stats.moves ?? 0}× umgezogen. Der nächste Umzug kostet je nach Ziel ab `
+        + `**${money(symbol, home.moveCost(guildId, userId, 'tr'))}** – und deine Wohnung `
+        + 'bleibt im alten Land zurück.',
+    });
+  }
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`land|1|${userId}`)
+        .setLabel(land.id ? 'Umziehen' : 'Land wählen').setEmoji('🗺️')
+        .setStyle(land.id ? ButtonStyle.Secondary : ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`spr|1|${userId}`)
+        .setLabel(lang.id ? 'Sprache wechseln' : 'Sprache wählen').setEmoji('🗣️')
+        .setStyle(lang.id ? ButtonStyle.Secondary : ButtonStyle.Success),
+      homeButton(userId))],
+  };
+}
+
+/** Die Länderliste, seitenweise. */
+async function buildCountryView({ guildId, userId, page = 1 }) {
+  const home = require('./home');
+  const symbol = await getSymbol(guildId);
+  const current = home.homeOf(guildId, userId);
+  const all = home.COUNTRIES;
+  const totalPages = Math.max(1, Math.ceil(all.length / HOME_PAGE));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const slice = all.slice((p - 1) * HOME_PAGE, p * HOME_PAGE);
+
+  const embed = new EmbedBuilder()
+    .setTitle(current.id ? '📦 Wohin ziehst du?' : '🗺️ Wo lebst du?')
+    .setColor(0x1abc9c)
+    .setDescription(current.id
+      ? `Du lebst in ${current.flag} **${current.name}**. Ein Umzug kostet Geld, `
+        + 'beendet deinen Mietvertrag und lässt deine Wohnung dort zurück.'
+      : 'Die erste Wahl ist **kostenlos**. Das Land bestimmt die Kaufkraft deines '
+        + 'Heimatmarkts – davon hängen Werbedeals und Merch ab.')
+    .setFooter({ text: `Seite ${p} / ${totalPages}` });
+
+  for (const c of slice) {
+    const lang = home.language(c.language);
+    embed.addFields({
+      name: `${c.flag} ${c.name}${c.id === current.id ? ' ⬅️ hier' : ''}`,
+      value: `Kaufkraft **${c.market.toFixed(2)}×** · Sprache ${lang.emoji} ${lang.name}`
+        + (c.id === current.id ? '' : `\n_Umzug: ${money(symbol, home.moveCost(guildId, userId, c.id))}_`),
+      inline: true,
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(...slice.map((c) =>
+    new ButtonBuilder()
+      .setCustomId(`landw|${c.id}|${userId}`)
+      .setLabel(c.name.slice(0, 40)).setEmoji(c.flag)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(c.id === current.id)))];
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`land|${p - 1}|${userId}`)
+      .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`land|${p + 1}|${userId}`)
+      .setLabel('Weiter').setEmoji('▶️').setStyle(ButtonStyle.Secondary)
+      .setDisabled(p >= totalPages),
+    new ButtonBuilder().setCustomId(ID.menu('heimat', 1, userId))
+      .setLabel('Übersicht').setEmoji('🌍').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Nachfrage vor einem Umzug – das kostet zu viel für einen Fehlklick. */
+async function buildCountryConfirm({ guildId, userId, key }) {
+  const home = require('./home');
+  const symbol = await getSymbol(guildId);
+  const target = home.country(key);
+  const current = home.homeOf(guildId, userId);
+  if (!target.id) return buildCountryView({ guildId, userId });
+
+  const first = !current.id;
+  const cost = first ? 0 : home.moveCost(guildId, userId, target.id);
+  const rental = db.getRental(guildId, userId);
+  const leaving = db.listOwnedProperties(guildId, userId)
+    .filter((x) => (x.country || current.id) === current.id && current.id);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${target.flag} ${target.name}`)
+    .setColor(first ? 0x2ecc71 : 0xe67e22)
+    .setDescription(first
+      ? 'Deine erste Heimat – kostenlos. Später ist jeder Wechsel ein Umzug.'
+      : `Umzug von ${current.flag} ${current.name}. Das ist teuer und nicht umsonst zu haben.`)
+    .addFields(
+      { name: '💰 Kosten', value: first ? '—' : money(symbol, cost), inline: true },
+      {
+        name: '🏪 Kaufkraft',
+        value: `${target.market.toFixed(2)}× _(Werbedeals & Merch)_`,
+        inline: true,
+      },
+      {
+        name: '🗣️ Landessprache',
+        value: `${home.language(target.language).emoji} ${home.language(target.language).name}`,
+        inline: true,
+      },
+    );
+
+  if (!first) {
+    const folgen = [];
+    if (rental) folgen.push(`🔑 Dein Mietvertrag (**${rental.name}**) endet.`);
+    if (leaving.length) {
+      folgen.push(`🏠 **${leaving.length}** eigene Immobilie(n) bleiben zurück – sie gehören `
+        + 'dir weiter und behalten ihren Wert, geben dir dort aber keinen Stellplatz mehr.');
+    }
+    folgen.push('🚗 Ohne Wohnung drüben zählt nur noch die Straße – zu viele Autos '
+      + 'bringen dich in die Gnadenfrist.');
+    embed.addFields({ name: '📦 Was der Umzug bedeutet', value: folgen.join('\n') });
+  }
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`landok|${target.id}|${userId}`)
+        .setLabel(first ? 'Hier leben' : `Umziehen für ${plainSymbol(symbol)} ${cost.toLocaleString('de-DE')}`.slice(0, 78))
+        .setEmoji(first ? '🏠' : '📦')
+        .setStyle(first ? ButtonStyle.Success : ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`land|1|${userId}`)
+        .setLabel('Doch nicht').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
+/** Die Sprachliste, seitenweise. */
+async function buildLanguageView({ guildId, userId, page = 1 }) {
+  const home = require('./home');
+  const current = home.languageOf(guildId, userId);
+  const land = home.homeOf(guildId, userId);
+  const all = home.LANGUAGES;
+  const totalPages = Math.max(1, Math.ceil(all.length / HOME_PAGE));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const slice = all.slice((p - 1) * HOME_PAGE, p * HOME_PAGE);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🗣️ In welcher Sprache sendest du?')
+    .setColor(0x9146ff)
+    .setDescription(current.id
+      ? `Aktuell ${current.emoji} **${current.name}**. Ein Wechsel kostet **`
+        + `${Math.round(home.LANGUAGE_LOSS * 100)} % deiner Follower** – ein Publikum zieht `
+        + 'nicht in eine andere Sprache mit.'
+      : 'Die erste Wahl ist **kostenlos**. Sie entscheidet, wie groß dein Publikum '
+        + 'überhaupt werden kann – und wie schnell du dorthin kommst.')
+    .setFooter({ text: `Seite ${p} / ${totalPages}` });
+
+  for (const l of slice) {
+    const ceiling = l.pool >= 2 ? 'riesig' : l.pool >= 1 ? 'groß'
+      : l.pool >= 0.5 ? 'mittel' : 'klein';
+    embed.addFields({
+      name: `${l.emoji} ${l.name}${l.id === current.id ? ' ⬅️ aktuell' : ''}`
+        + (l.id === land.language ? ' 🏡' : ''),
+      value: `Publikum **${ceiling}** · Tempo ${l.speed.toFixed(2)}× · `
+        + `Werbepreis ${l.money.toFixed(2)}×\n_${l.blurb}_`,
+      inline: true,
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(...slice.map((l) =>
+    new ButtonBuilder()
+      .setCustomId(`sprw|${l.id}|${userId}`)
+      .setLabel(l.name.slice(0, 40)).setEmoji(l.emoji)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(l.id === current.id)))];
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`spr|${p - 1}|${userId}`)
+      .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`spr|${p + 1}|${userId}`)
+      .setLabel('Weiter').setEmoji('▶️').setStyle(ButtonStyle.Secondary)
+      .setDisabled(p >= totalPages),
+    new ButtonBuilder().setCustomId(ID.menu('heimat', 1, userId))
+      .setLabel('Übersicht').setEmoji('🌍').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Nachfrage vor einem Sprachwechsel. */
+async function buildLanguageConfirm({ guildId, userId, key }) {
+  const home = require('./home');
+  const creator = require('./creator');
+  const target = home.language(key);
+  const current = home.languageOf(guildId, userId);
+  if (!target.id) return buildLanguageView({ guildId, userId });
+
+  const first = !current.id;
+  const reach = creator.status(guildId, userId).total;
+  const losing = first ? 0 : Math.round(reach * home.LANGUAGE_LOSS);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${target.emoji} ${target.name}`)
+    .setColor(first ? 0x2ecc71 : 0xe67e22)
+    .setDescription(`_${target.blurb}_`)
+    .addFields(
+      {
+        name: '👥 Erreichbares Publikum',
+        value: `**${target.pool.toFixed(2)}×** _(so viel höher liegt deine Decke)_`,
+        inline: true,
+      },
+      { name: '⚡ Tempo', value: `${target.speed.toFixed(2)}×`, inline: true },
+      { name: '💰 Werbepreis', value: `${target.money.toFixed(2)}×`, inline: true },
+    );
+
+  if (!first) {
+    embed.addFields({
+      name: '📉 Was der Wechsel kostet',
+      value: `**${losing.toLocaleString('de-DE')}** Follower `
+        + `(${Math.round(home.LANGUAGE_LOSS * 100)} %) verschwinden sofort – und `
+        + `${Math.round(home.LANGUAGE_COOLDOWN_MS / (24 * 60 * 60 * 1000))} Tage lang `
+        + 'kannst du nicht noch einmal wechseln.',
+    });
+  }
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`sprok|${target.id}|${userId}`)
+        .setLabel(first ? 'So sende ich' : 'Wechseln')
+        .setEmoji(first ? '🗣️' : '🔁')
+        .setStyle(first ? ButtonStyle.Success : ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`spr|1|${userId}`)
+        .setLabel('Doch nicht').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
 
 /**
  * Ein Vorfall, der eine Entscheidung verlangt.
@@ -2124,6 +2420,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const creator = require('./creator');
   const net = creator.status(guildId, owner);
   const fame = creator.fameOf(net.total, prog.level);
+  const home = require('./home').homeOf(guildId, owner);
+  const lang = require('./home').languageOf(guildId, owner);
 
   // Das Profilbild des Kontos, wenn die Plattform es hergibt.
   const avatar = await require('./names').avatar(owner).catch(() => null);
@@ -2133,7 +2431,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
     .setColor(0xf1c40f)
     .setDescription(
       `${identity.mention(owner)}\n` +
-      `${fame.emoji} **${fame.title}**` +
+      `${home.id ? `${home.flag} ` : ''}${fame.emoji} **${fame.title}**` +
+      (lang.id ? ` · ${lang.emoji} ${lang.name}` : '') +
       (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
   embed.addFields(
@@ -2826,6 +3125,8 @@ module.exports = {
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
+  buildHomeView, buildCountryView, buildCountryConfirm,
+  buildLanguageView, buildLanguageConfirm,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

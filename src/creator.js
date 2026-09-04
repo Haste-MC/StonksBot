@@ -126,9 +126,17 @@ const MON_FULL = 1_700_000;           // ab hier ist alles ausgereizt
 const MON_EXP = 0.73;
 const MON_MIN = 0.06;                 // ganz umsonst ist es nie – der Boden gilt bis ~36.000
 
-/** Vermarktungsgrad eines Netzwerks dieser Größe (0,03 … 1). */
-function monetization(reach) {
-  return clamp(MON_MIN, 1, Math.pow(Math.max(0, reach) / MON_FULL, MON_EXP));
+/**
+ * Vermarktungsgrad eines Netzwerks dieser Größe (0,06 … 1).
+ *
+ * `pool` ist die Größe des Sprachmarkts (siehe home.js): In einem kleinen
+ * Markt ist man mit 300.000 Followern schon eine Größe, im englischsprachigen
+ * Raum ist man damit niemand. Deshalb wandert der Punkt der vollen
+ * Vermarktung mit dem Markt mit.
+ */
+function monetization(reach, pool = 1) {
+  const full = MON_FULL * Math.max(0.05, pool);
+  return clamp(MON_MIN, 1, Math.pow(Math.max(0, reach) / full, MON_EXP));
 }
 
 // --------------------------------------------------------------- Burnout
@@ -369,10 +377,24 @@ function simulate(state, p, fmt, ctx = {}) {
   const {
     cross = 0, community = 0, boost = 0, energy = 1,
     idleDays: idle = 0, random = Math.random,
+    market = { pool: 1, speed: 1, money: 1, deal: 1 },
   } = ctx;
 
+  /*
+   * Der Markt greift an genau drei Stellen an:
+   *
+   *   pool   skaliert die Obergrenze – über den Schwund, mit dem Exponenten
+   *          so verrechnet, dass die Grenze LINEAR mit dem Topf wächst.
+   *   speed  multipliziert Zuwachs UND Schwund: derselbe Endpunkt, nur
+   *          schneller erreicht. Enge Sprachräume binden besser.
+   *   money  ist der Werbepreis dieses Sprachmarkts.
+   */
+  const poolShift = Math.pow(Math.max(0.05, market.pool), -(1 - p.exp));
+  const churnPerAction = p.churnPerAction * market.speed * poolShift;
+  const followRate = p.follow * market.speed;
+
   // 1. Was die Pause gekostet hat – abgefedert durch die Community.
-  const dayLoss = p.churnPerDay * churnFactor(community);
+  const dayLoss = p.churnPerDay * churnFactor(community) * market.speed;
   const keep = idle > 0 ? Math.pow(1 - dayLoss, Math.min(idle, MAX_IDLE_DAYS)) : 1;
   const startFollowers = state.followers * keep;
   const startSubs = (state.subs ?? 0) * keep;
@@ -389,12 +411,13 @@ function simulate(state, p, fmt, ctx = {}) {
     * (event.audience ?? 1) * (1 + boost) * energy));
 
   // 4. Follower.
-  const gained = Math.round(audience * p.follow * fmt.follow * (event.follow ?? 1));
-  const lost = Math.round(startFollowers * (p.churnPerAction + (event.loss ?? 0)));
+  const gained = Math.round(audience * followRate * fmt.follow * (event.follow ?? 1));
+  const lost = Math.round(startFollowers * (churnPerAction + (event.loss ?? 0)));
   const followers = Math.max(0, startFollowers - lost + gained);
 
   // Übertrag auf die anderen Plattformen – der Kern des Netzwerks.
-  const spill = Math.round(audience * CROSS_CONV * (SPREAD[p.id] ?? 1) * fmt.follow);
+  const spill = Math.round(
+    audience * CROSS_CONV * (SPREAD[p.id] ?? 1) * fmt.follow * market.speed);
   const spillLoss = event.spreadLoss ?? 0;
 
   const result = {
@@ -410,8 +433,9 @@ function simulate(state, p, fmt, ctx = {}) {
   // 5. Geld – jede Plattform auf ihre Art, mal dem Vermarktungsgrad des
   //    GESAMTEN Netzwerks: Marken und Werbekunden schauen auf die Person,
   //    nicht auf den einzelnen Kanal.
-  const mon = monetization(startFollowers + cross);
+  const mon = monetization(startFollowers + cross, market.pool);
   result.monetization = mon;
+  result.market = market;
 
   if (p.id === 'twitch') {
     const views = Math.round(
@@ -422,14 +446,14 @@ function simulate(state, p, fmt, ctx = {}) {
 
     result.views = views;
     result.subs = subs;
-    result.ads = Math.round(views * TWITCH_RPV * (event.money ?? 1) * mon);
-    result.donations = Math.round(donations.total * mon);
+    result.ads = Math.round(views * TWITCH_RPV * (event.money ?? 1) * mon * market.money);
+    result.donations = Math.round(donations.total * mon * market.deal);
     result.donationList = donations.entries;
-    result.subIncome = Math.round(subs * SUB_REVENUE * mon);
+    result.subIncome = Math.round(subs * SUB_REVENUE * mon * market.money);
     result.money = result.ads + result.donations + result.subIncome;
 
   } else if (p.id === 'youtube') {
-    result.ads = Math.round(audience * YT_RPV * fmt.money * (event.money ?? 1) * mon);
+    result.ads = Math.round(audience * YT_RPV * fmt.money * (event.money ?? 1) * mon * market.money);
     result.money = result.ads;
     // Der Katalog: Aufrufe, die erst in den nächsten Tagen entstehen.
     result.stock = (state.stock ?? 0) + audience * YT_TAIL * (fmt.tail ?? 1);
@@ -443,7 +467,7 @@ function simulate(state, p, fmt, ctx = {}) {
       const reachTotal = startFollowers + cross;
       const value = Math.round(
         (audience * COOP_PER_VIEWER + Math.pow(Math.max(0, reachTotal), COOP_REACH_EXP))
-        * fmt.money * (0.6 + random()) * mon);
+        * fmt.money * (0.6 + random()) * mon * market.deal);
       result.coop = { brand, value };
       result.money = value;
     }
@@ -484,7 +508,8 @@ async function settle(guildId, userId, now = Date.now()) {
   const released = row.stock * (1 - Math.pow(YT_TAIL_KEEP, days));
   // Auch Katalogaufrufe zahlen nach dem heutigen Vermarktungsgrad.
   const reach = db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0);
-  const amount = Math.round(released * YT_RPV * monetization(reach));
+  const market = require('./home').marketOf(guildId, userId);
+  const amount = Math.round(released * YT_RPV * monetization(reach, market.pool) * market.money);
 
   // Erst schreiben, dann buchen (§7).
   db.saveCreator(guildId, userId, 'youtube', {
@@ -524,7 +549,7 @@ async function settleMerch(guildId, userId, now = Date.now()) {
   if (elapsed < MERCH_MIN_SETTLE_MS) return null;
 
   const community = communityNow(state, now);
-  const perDay = merchPerDay(reach, community);
+  const perDay = merchPerDay(reach, community, require('./home').marketOf(guildId, userId).deal);
   const days = Math.min(MERCH_MAX_DAYS, elapsed / DAY_MS);
   const amount = Math.round(perDay * days);
 
@@ -537,12 +562,16 @@ async function settleMerch(guildId, userId, now = Date.now()) {
   return { amount: paid, perDay: Math.round(perDay), days, balance };
 }
 
-/** Merch-Umsatz pro Tag: Bindung × Reichweite. */
-function merchPerDay(reach, community) {
+/**
+ * Merch-Umsatz pro Tag: Bindung × Reichweite × Kaufkraft der Heimat.
+ * Pullis verkauft man an Menschen, und die haben je nach Land sehr
+ * unterschiedlich viel Geld übrig.
+ */
+function merchPerDay(reach, community, deal = 1) {
   if (reach < MERCH_MIN_REACH) return 0;
   const share = clamp(0, 1, community / COMMUNITY_MAX);
   return Math.min(MERCH_DAILY_CAP,
-    Math.round(share * Math.pow(Math.max(0, reach), MERCH_REACH_EXP) * MERCH_FACTOR));
+    Math.round(share * Math.pow(Math.max(0, reach), MERCH_REACH_EXP) * MERCH_FACTOR * deal));
 }
 
 /** Ist dieser Kanal groß genug für Merch? */
@@ -573,9 +602,10 @@ function rollDeal(guildId, userId, reach, now, random = Math.random) {
    * Vermarktungsgrad hier nur zur Hälfte (Wurzel). Ein kleiner Kanal bekommt
    * schlechte Konditionen, aber keine Almosen.
    */
+  const market = require('./home').marketOf(guildId, userId);
   const payout = Math.round(
     Math.pow(reach, DEAL_REACH_EXP) * quota * DEAL_FACTOR * (0.8 + random() * 0.4)
-    * Math.sqrt(monetization(reach)));
+    * Math.sqrt(monetization(reach, market.pool)) * market.deal);
 
   return db.insertDeal({
     guildId, userId,
@@ -854,8 +884,10 @@ function status(guildId, userId, now = Date.now()) {
   });
 
   const total = platforms.reduce((s, p) => s + p.followers, 0);
+  const market = require('./home').marketOf(guildId, userId);
 
   return {
+    market,
     platforms,
     total,
     earned: platforms.reduce((s, p) => s + p.earnedTotal, 0),
@@ -870,7 +902,7 @@ function status(guildId, userId, now = Date.now()) {
     merch: {
       unlocked: merchUnlocked(total),
       minReach: MERCH_MIN_REACH,
-      perDay: merchPerDay(total, community),
+      perDay: merchPerDay(total, community, market.deal),
     },
     incident: require('./decisions').pending(guildId, userId, now),
     incidents: require('./decisions').history(guildId, userId, 3),

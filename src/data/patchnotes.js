@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.14.0',
+    date: '2026-09-04',
+    title: 'Heimat und Sprache',
+    lines: [
+      '🌍 **Wohnsitz wählen:** 20 Länder, jedes mit eigener Kaufkraft – davon hängen Werbedeals, Merch und Spenden ab. `/heimat`',
+      '🗣️ **Inhaltssprache wählen:** 14 Sprachen. Sie entscheidet, wie groß dein Publikum überhaupt werden kann – und wie schnell du dorthin kommst.',
+      '⚖️ **Die Abwägung:** Landessprache = kleiner Topf, schnelles Wachstum, gute Werbepreise, frühe Decke. Englisch = riesiger Topf, zäher Start, keine Grenze. Auf Deutsch kommst du bis ✨ Prominenz, 🌟 Superstar wird man nur international.',
+      '🏡 **Heimvorteil:** Wer in der Sprache seines Landes sendet, wächst 15 % schneller.',
+      '📦 **Umziehen kostet:** Die erste Wahl ist gratis. Danach kostet jeder Umzug Geld (und wird jedes Mal teurer), beendet deinen Mietvertrag – und deine eigene Wohnung bleibt im alten Land zurück. Sie gehört dir weiter, gibt dir dort aber keinen Stellplatz mehr.',
+      '🔁 **Sprachwechsel kostet 45 % deiner Follower** und sperrt 30 Tage. Ein Publikum zieht nicht in eine andere Sprache mit.',
+    ],
+  },
+  {
     version: '1.13.0',
     date: '2026-09-03',
     title: 'Vorfälle: jetzt musst du dich entscheiden',

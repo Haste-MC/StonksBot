@@ -55,6 +55,12 @@ module.exports = {
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
         },
         {
+          name: '🌍 Heimat & Sprache',
+          value: '`/heimat` – wo du lebst und in welcher Sprache du sendest. Landessprache ' +
+            'wächst schnell und deckelt früh, Englisch ist zäh und grenzenlos. ' +
+            'Erste Wahl gratis, danach kostet der Umzug.',
+        },
+        {
           name: '🏛️ Staatskasse',
           value: '`/staat` – der gemeinsame Topf des Servers. Er wächst bei jeder Geldbewegung mit, ' +
             '**ohne dass du etwas abgibst**: 19 % deiner Ausgaben und 40 % deiner Einnahmen werden ' +
