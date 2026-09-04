@@ -838,6 +838,37 @@ async function act(
 }
 
 /**
+ * Bucht Zeit aus dem gemeinsamen Tagesbudget ab.
+ *
+ * Musik und Kanäle teilen sich denselben Tag (siehe src/music.js): Wer
+ * vormittags im Studio war, kann abends nicht mehr vier Stunden streamen.
+ * Genau deshalb liegt der Zähler hier und nicht doppelt.
+ *
+ * @returns {{ok:boolean, used:number, left:number, max:number, resetMs:number}}
+ */
+function useTime(guildId, userId, cost, now = Date.now()) {
+  const state = db.getCreatorState(guildId, userId, now);
+  const day = today(new Date(now));
+  const used = state.day === day ? state.time_used : 0;
+  const resetMs = new Date(new Date(now).setHours(24, 0, 0, 0)).getTime() - now;
+
+  if (used + cost > TIME_PER_DAY) {
+    return { ok: false, used, left: TIME_PER_DAY - used, max: TIME_PER_DAY, resetMs };
+  }
+
+  const fatigue = fatigueNow(state, now);
+  db.saveCreatorState(guildId, userId, {
+    ...state,
+    day,
+    time_used: used + cost,
+    fatigue: clamp(0, FATIGUE_MAX, fatigue + cost * FATIGUE_PER_TIME),
+    fatigue_at: now,
+    merch_at: state.merch_at || now,
+  });
+  return { ok: true, used: used + cost, left: TIME_PER_DAY - used - cost, max: TIME_PER_DAY, resetMs };
+}
+
+/**
  * Der Zustand des ganzen Netzwerks für die Anzeige.
  *
  * Reine Vorschau: schreibt nichts, rechnet den Verfall nur vor (§4).
@@ -1021,7 +1052,7 @@ module.exports = {
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
   platform, format, formats, reachOf, hasGear, remainingMs, budget, today, cleanTitle,
   monetization, MON_FULL, MON_EXP, MON_MIN,
-  idleDays, communityNow, churnFactor, keepFactor, activeBoost,
+  idleDays, communityNow, churnFactor, keepFactor, activeBoost, useTime,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
   accept, decline,
   FATIGUE_MAX, FATIGUE_PER_TIME, FATIGUE_MALUS, FATIGUE_RECOVERY,

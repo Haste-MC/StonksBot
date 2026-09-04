@@ -260,6 +260,35 @@ function ceiling(platformId, market) {
       JSON.stringify({ pool: m2.pool, money: m2.money, deal: m2.deal }));
   }
 
+  console.log('\n--- Das Profilbild landet dort, wo Fluxer es zeigt ---');
+  {
+    const relay = require('../src/relay');
+    const ui = require('../src/ui');
+    const identity = require('../src/identity');
+    const render = require('../src/fluxer/render');
+
+    // Bewusst ein Fluxer-Konto (fx:): Nur dafür greift der Fluxer-Client.
+    const U = `fx:${player('bild')}`;
+    identity.remember(U, 'Testspieler');
+    db.addStats(G, U, { xp: 500 });
+    relay.register('fluxer', {
+      users: { fetch: async (id) => ({ displayAvatarURL: () => `https://cdn.test/${id}.webp` }) },
+    });
+
+    const view = await ui.buildProfileView({ guildId: G, userId: U });
+    const embed = view.embeds[0].data;
+    check('das Profilbild steht im Autorblock',
+      embed.author?.icon_url?.startsWith('https://cdn.test/'), JSON.stringify(embed.author));
+    check('mit dem Anzeigenamen daneben', embed.author?.name === 'Testspieler');
+    check('das Miniaturbild bleibt für das Auto frei',
+      embed.thumbnail === undefined || !embed.thumbnail?.url?.includes('cdn.test'));
+
+    // Der Autorblock ist genau das Feld, das die Fluxer-Ansicht überträgt.
+    const message = render.toMessage(view, { userId: U });
+    check('und übersteht die Fluxer-Übersetzung',
+      Boolean(embed.author) && message.embed.author?.icon_url === embed.author?.icon_url);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

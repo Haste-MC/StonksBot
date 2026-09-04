@@ -18,6 +18,28 @@
  */
 module.exports = [
   {
+    version: '1.16.0',
+    date: '2026-09-05',
+    title: 'Musik',
+    lines: [
+      '🎵 **Musikkarriere:** Songs aufnehmen, veröffentlichen, Konzerte spielen. Statt Followern sammelst du **monatliche Hörer** – und die zahlen Tantiemen, auch wenn du schläfst. `/musik`',
+      '🌍 **Das Land zählt mehr als überall sonst:** Szene, Tantiemen und Strenge unterscheiden sich massiv. Japan zahlt je Abruf das Siebenfache Indiens, Korea vergisst dich am schnellsten.',
+      '🎭 **Zwei Wege:** Mit Gesicht wachsen deine Kanäle kräftig mit und Konzerte zahlen voll. **Anonym** (wie Ado) bringt mehr Abrufe je Hörer und schützt vor Skandalen – dafür bleiben die Socials klein. Einmal enthüllen geht, zurück nie.',
+      '📜 **Idol-Verträge** in Japan und Südkorea: Vorschuss und doppeltes Tempo gegen die Hälfte deiner Einnahmen, ein Umzugsverbot und doppelt teure Skandale. 90 Tage Laufzeit.',
+      '🔗 **Musik macht Socials:** Jede Veröffentlichung bringt Follower auf allen vier Plattformen, und deine Hörer zählen als Publikum für die Kanäle.',
+      '⏳ **Ein Tag, ein Budget:** Studio, Releases und Konzerte kosten dieselbe Zeit wie Streams – wer im Studio war, streamt abends nicht mehr.',
+    ],
+  },
+  {
+    version: '1.15.1',
+    date: '2026-09-05',
+    title: 'Profilbild auf Fluxer',
+    lines: [
+      '🖼️ **Das Profilbild war auf Fluxer unsichtbar.** Es hing im Miniaturbild des Embeds – das stellt Fluxer nicht dar. Jetzt sitzt es im Autorblock neben deinem Namen, wo es auf beiden Plattformen erscheint.',
+      '🚗 Das Miniaturbild gehört damit wieder deinem dicksten Auto.',
+    ],
+  },
+  {
     version: '1.15.0',
     date: '2026-09-04',
     title: 'Staatskassen der Länder',

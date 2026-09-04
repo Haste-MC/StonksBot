@@ -625,6 +625,68 @@ if (legacyChannels) {
   if (!cols.has('platform')) db.exec('ALTER TABLE channels RENAME TO channels_v1');
 }
 
+// ---------------------------------------------------------------- MUSIK
+// Künstler: Der Zustand ist dauerhaft wie beim Creator, rechnet aber in
+// **monatlichen Hörern** statt Followern. `buzz` ist der Vorrat an Abrufen
+// aus frischen Veröffentlichungen (klingt schnell ab), `songs` sind
+// aufgenommene, noch unveröffentlichte Titel.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS artists (
+    guild_id       TEXT    NOT NULL,
+    user_id        TEXT    NOT NULL,
+    genre          TEXT    NOT NULL DEFAULT '',
+    persona        TEXT    NOT NULL DEFAULT '',   -- face | anon
+    listeners      INTEGER NOT NULL DEFAULT 0,
+    buzz           REAL    NOT NULL DEFAULT 0,
+    songs          INTEGER NOT NULL DEFAULT 0,
+    releases       INTEGER NOT NULL DEFAULT 0,
+    shows          INTEGER NOT NULL DEFAULT 0,
+    streams_total  INTEGER NOT NULL DEFAULT 0,
+    earned_total   INTEGER NOT NULL DEFAULT 0,
+    peak_listeners INTEGER NOT NULL DEFAULT 0,
+    best_chart     INTEGER NOT NULL DEFAULT 0,    -- beste Platzierung (0 = nie)
+    hype           REAL    NOT NULL DEFAULT 1,
+    last_action_at INTEGER NOT NULL DEFAULT 0,
+    -- Je Aktion ein eigener Zeitstempel: Sonst blockierte die kurze Pause
+    -- des Studios die lange Pause zwischen zwei Veröffentlichungen.
+    last_record_at  INTEGER NOT NULL DEFAULT 0,
+    last_release_at INTEGER NOT NULL DEFAULT 0,
+    last_show_at    INTEGER NOT NULL DEFAULT 0,
+    touched_at     INTEGER NOT NULL DEFAULT 0,
+    paid_through   INTEGER NOT NULL DEFAULT 0,
+    started_at     INTEGER NOT NULL DEFAULT 0,
+    created_at     INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_artists_reach ON artists (guild_id, listeners);
+
+  -- Plattenverträge. Bisher gibt es nur den Idol-Vertrag (Japan, Südkorea).
+  CREATE TABLE IF NOT EXISTS artist_contracts (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,
+    agency     TEXT    NOT NULL DEFAULT '',
+    country    TEXT    NOT NULL DEFAULT '',
+    status     TEXT    NOT NULL,              -- offer | active | done | broken | expired
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    signed_at  INTEGER,
+    ends_at    INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_artist_contracts
+    ON artist_contracts (guild_id, user_id, status);
+`);
+
+// Eigene Zeitstempel je Aktionsart nachrüsten.
+const artistColumns = new Set(
+  db.prepare('PRAGMA table_info(artists)').all().map((c) => c.name));
+for (const column of ['last_record_at', 'last_release_at', 'last_show_at']) {
+  if (!artistColumns.has(column)) {
+    db.exec(`ALTER TABLE artists ADD COLUMN ${column} INTEGER NOT NULL DEFAULT 0`);
+  }
+}
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -1325,6 +1387,45 @@ const stmt = {
   countGarages: db.prepare(
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
+
+  // --- Musik ---
+  getArtist: db.prepare('SELECT * FROM artists WHERE guild_id = ? AND user_id = ?'),
+  createArtist: db.prepare(
+    `INSERT INTO artists (guild_id, user_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  // Eine Aktion = EINE Anweisung (§7).
+  saveArtist: db.prepare(
+    `UPDATE artists SET
+       genre = ?, persona = ?, listeners = ?, buzz = ?, songs = ?, releases = ?,
+       shows = ?, streams_total = ?, earned_total = ?, peak_listeners = ?,
+       best_chart = ?, hype = ?, last_action_at = ?, last_record_at = ?,
+       last_release_at = ?, last_show_at = ?, touched_at = ?,
+       paid_through = ?, started_at = ?
+     WHERE guild_id = ? AND user_id = ?`),
+  topArtists: db.prepare(
+    `SELECT * FROM artists WHERE guild_id = ? AND listeners > 0
+     ORDER BY listeners DESC LIMIT ?`),
+  clearArtist: db.prepare('DELETE FROM artists WHERE guild_id = ? AND user_id = ?'),
+
+  insertContract: db.prepare(
+    `INSERT INTO artist_contracts (guild_id, user_id, kind, agency, country, status,
+                                   created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, 'offer', ?, ?) RETURNING *`),
+  getContract: db.prepare('SELECT * FROM artist_contracts WHERE guild_id = ? AND id = ?'),
+  openContract: db.prepare(
+    `SELECT * FROM artist_contracts WHERE guild_id = ? AND user_id = ? AND status = 'offer'
+       AND expires_at > ? ORDER BY id DESC LIMIT 1`),
+  activeContract: db.prepare(
+    `SELECT * FROM artist_contracts WHERE guild_id = ? AND user_id = ? AND status = 'active'
+     ORDER BY id DESC LIMIT 1`),
+  setContractStatus: db.prepare(
+    `UPDATE artist_contracts SET status = ?, signed_at = ?, ends_at = ?
+     WHERE guild_id = ? AND id = ?`),
+  contractHistory: db.prepare(
+    `SELECT * FROM artist_contracts WHERE guild_id = ? AND user_id = ?
+       AND status IN ('done', 'broken')
+     ORDER BY id DESC LIMIT ?`),
+  clearContracts: db.prepare('DELETE FROM artist_contracts WHERE guild_id = ? AND user_id = ?'),
 
   // --- Creator-Netzwerk ---
   getCreator: db.prepare(
@@ -2460,6 +2561,67 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// ----------------------------------------------------------------- Musik
+
+/** Der Künstler eines Spielers – legt ihn beim ersten Zugriff an. */
+function getArtist(guildId, userId, now = Date.now()) {
+  stmt.createArtist.run(guildId, String(userId), now);
+  return stmt.getArtist.get(guildId, String(userId));
+}
+
+/** Gibt es diesen Künstler schon? (ohne ihn anzulegen) */
+function hasArtist(guildId, userId) {
+  return Boolean(stmt.getArtist.get(guildId, String(userId)));
+}
+
+/** Schreibt den Künstler in EINER Anweisung fort. */
+function saveArtist(guildId, userId, a) {
+  stmt.saveArtist.run(
+    a.genre ?? '', a.persona ?? '', Math.max(0, Math.round(a.listeners)), a.buzz,
+    Math.max(0, a.songs), a.releases, a.shows, a.streams_total, a.earned_total,
+    a.peak_listeners, a.best_chart, a.hype, a.last_action_at,
+    a.last_record_at ?? 0, a.last_release_at ?? 0, a.last_show_at ?? 0, a.touched_at,
+    a.paid_through, a.started_at ?? 0,
+    guildId, String(userId));
+}
+
+/** Die größten Künstler dieser Welt. */
+function topArtists(guildId, limit = 10) {
+  return stmt.topArtists.all(guildId, limit);
+}
+
+function insertContract(d) {
+  return stmt.insertContract.get(
+    d.guildId, String(d.userId), d.kind, d.agency ?? '', d.country ?? '',
+    d.createdAt, d.expiresAt);
+}
+
+function getContract(guildId, id) {
+  return stmt.getContract.get(guildId, Number(id)) ?? null;
+}
+
+function openContract(guildId, userId, now = Date.now()) {
+  return stmt.openContract.get(guildId, String(userId), now) ?? null;
+}
+
+function activeContract(guildId, userId) {
+  return stmt.activeContract.get(guildId, String(userId)) ?? null;
+}
+
+function setContractStatus(guildId, id, status, { signedAt = null, endsAt = null } = {}) {
+  stmt.setContractStatus.run(status, signedAt, endsAt, guildId, Number(id));
+}
+
+function contractHistory(guildId, userId, limit = 5) {
+  return stmt.contractHistory.all(guildId, String(userId), limit);
+}
+
+/** Löscht Künstler und Verträge (Tests, Admin). */
+function clearArtist(guildId, userId) {
+  stmt.clearArtist.run(guildId, String(userId));
+  stmt.clearContracts.run(guildId, String(userId));
+}
+
 // ------------------------------------------------------- Creator-Netzwerk
 
 /** Eine Plattform eines Spielers – legt sie beim ersten Zugriff an. */
@@ -2925,6 +3087,9 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion, setHome, stampCountry,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
+  getArtist, hasArtist, saveArtist, topArtists, clearArtist,
+  insertContract, getContract, openContract, activeContract, setContractStatus,
+  contractHistory,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,

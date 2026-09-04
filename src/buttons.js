@@ -13,7 +13,8 @@ const {
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
   buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
   buildDecisionView, buildHomeView, buildCountryView, buildCountryConfirm,
-  buildCountryTreasuryView,
+  buildCountryTreasuryView, buildMusicView, buildMusicSetupView, buildPersonaView,
+  buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
@@ -183,6 +184,32 @@ async function settleCreator(guildId, userId) {
   if (deals?.failed) {
     lines.push(`⚠️ Vertrag mit **${deals.failed.brand}** geplatzt – Frist gerissen. ` +
       `Das kostet **${money(symbol, deals.failed.penalty)}**.`);
+  }
+
+  return lines.length ? lines.join('\n') : null;
+}
+
+/**
+ * Rechnet die laufenden Tantiemen ab und beendet abgelaufene Verträge.
+ * Läuft beim Öffnen des Studios (faule Abrechnung, §4).
+ */
+async function settleMusic(guildId, userId) {
+  const music = require('./music');
+  const symbol = await getSymbol(guildId);
+  const lines = [];
+
+  const royalties = await music.settle(guildId, userId).catch(() => null);
+  if (royalties) {
+    lines.push(`🎵 Tantiemen: **${money(symbol, royalties.amount)}** für ` +
+      `${royalties.streams.toLocaleString('de-DE')} Abrufe` +
+      (royalties.cut > 0 ? ` _(nach ${money(symbol, royalties.cut)} Agenturanteil)_` : '') +
+      '.');
+  }
+
+  const contract = music.settleContracts(guildId, userId);
+  if (contract.ended) {
+    lines.push(`📜 Dein Vertrag mit **${contract.ended.agency}** ist ausgelaufen – ` +
+      'du bist wieder frei.');
   }
 
   return lines.length ? lines.join('\n') : null;
@@ -1382,6 +1409,251 @@ Object.assign(buttons, {
     await interaction.showModal(modal);
   },
 
+  /** Das Musikstudio. */
+  async musik(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const note = await settleMusic(guildId, userId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+  },
+
+  /** Genrewahl. */
+  async msetup(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildMusicSetupView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
+  /** Genre gewählt – jetzt die Auftrittsform. */
+  async mgenre(interaction, [key]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildPersonaView({
+      guildId: gid(interaction), userId: uid(interaction), key,
+    }));
+  },
+
+  /** Karriere starten. */
+  async mperson(interaction, [genreId, personaId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./music').setup(guildId, userId, genreId, personaId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    const note = res.ok
+      ? `${res.genre.emoji} **${res.genre.name}**, ${res.persona.emoji} ` +
+        `**${res.persona.name}**.\n_${res.persona.blurb}_\n\n` +
+        'Jetzt fehlen nur noch Songs: ab ins 🎙️ Studio.'
+      : (res.reason === 'already_started'
+        ? 'ℹ️ Deine Karriere läuft schon.' : '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Eine Studiosession. */
+  async mstudio(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const music = require('./music');
+    const symbol = await getSymbol(guildId);
+
+    const res = music.record(guildId, userId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    const problems = {
+      not_started: '🎤 Starte zuerst deine Karriere.',
+      no_gear: `🎙️ Ohne **${music.GEAR}** nimmt niemand etwas auf (🧰 Ausrüstung).`,
+      cooldown: null,
+      no_time: null,
+    };
+    let note;
+    if (!res.ok) {
+      if (res.reason === 'cooldown') {
+        note = `⏳ Die Ohren brauchen Pause – wieder in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'no_time') {
+        note = `😴 Eine Session kostet **${res.need}** Zeit, übrig sind **${res.left}**. ` +
+          'Morgen wieder.';
+      } else note = problems[res.reason] ?? '❌ Das ging nicht.';
+    } else {
+      note = `🎙️ _${res.text}_\n**${res.songs}** ${res.songs === 1 ? 'Titel' : 'Titel'} ` +
+        `im Kasten${res.quality > 1.2 ? ' – und der hier sitzt.' : '.'}`;
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Auswahl der Veröffentlichungsart. */
+  async mrel(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildReleaseView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Veröffentlichen. */
+  async mpub(interaction, [typeId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const music = require('./music');
+    const symbol = await getSymbol(guildId);
+
+    const res = music.publish(guildId, userId, typeId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      if (res.reason === 'no_songs') {
+        note = `🎼 Ein ${res.release.name} braucht **${res.need}** Titel – du hast ` +
+          `**${res.have}**. Ab ins Studio.`;
+      } else if (res.reason === 'cooldown') {
+        note = '⏳ Zu früh. Zwei Veröffentlichungen am selben Tag nimmt dir niemand ab – ' +
+          `wieder in **${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'no_time') {
+        note = `😴 Dafür fehlt die Zeit (**${res.need}** nötig, **${res.left}** übrig).`;
+      } else note = '❌ Das ging nicht.';
+    } else {
+      const delta = res.listeners - res.listenersBefore;
+      note = `${res.release.emoji} **${res.release.name}** ist draußen.\n` +
+        `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · ` +
+        `Hörer: **${res.listeners.toLocaleString('de-DE')}** ` +
+        `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+      if (res.position) note += `\n🏆 **Charts: Platz ${res.position}** – _${res.text}_`;
+      if (res.spill > 0) {
+        note += `\n🔗 Deine Kanäle wachsen mit: **+${res.spill}** je Plattform.`;
+      }
+      if (res.lostToIdle > 0) {
+        note += `\n📉 Die Pause davor hat **${res.lostToIdle.toLocaleString('de-DE')}** ` +
+          'Hörer gekostet.';
+      }
+      if (res.offer) {
+        note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
+      }
+      note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Ein Konzert spielen. */
+  async mshow(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const music = require('./music');
+    const symbol = await getSymbol(guildId);
+
+    const res = await music.show(guildId, userId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      if (res.reason === 'too_small') {
+        note = `🎤 Für eine Halle brauchst du **${res.need.toLocaleString('de-DE')}** Hörer – ` +
+          `du hast **${res.have.toLocaleString('de-DE')}**.`;
+      } else if (res.reason === 'cooldown') {
+        note = `⏳ Die Tour braucht Pause – wieder in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'no_time') {
+        note = `😴 Ein Konzert kostet **${res.need}** Zeit, übrig sind **${res.left}**.`;
+      } else note = '🎤 Starte zuerst deine Karriere.';
+    } else {
+      note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
+        (res.cut > 0 ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : '') +
+        `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Das Gesicht zeigen. */
+  async mreveal(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./music').reveal(guildId, userId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    const problems = {
+      not_started: '🎤 Starte zuerst deine Karriere.',
+      already_face: 'ℹ️ Dich kennt man längst.',
+      contract: '📜 Solange der Vertrag läuft, entscheidet das die Agentur.',
+    };
+    const note = res.ok
+      ? '🎭 **Du hast dein Gesicht gezeigt.**\nDas Netz dreht durch: ' +
+        `**+${res.gained.toLocaleString('de-DE')}** Hörer und ein gewaltiger Schub an ` +
+        'Abrufen. Zurück geht es jetzt nicht mehr.'
+      : (problems[res.reason] ?? '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Vertrag ansehen. */
+  async mdeal(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildMusicDealView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Vertrag unterschreiben. */
+  async mdealok(interaction, [id]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    const res = await require('./music').sign(guildId, userId, Number(id));
+    await interaction.editReply(await buildMusicDealView({ guildId, userId }));
+
+    const problems = {
+      not_found: '❌ Dieses Angebot gibt es nicht.',
+      gone: 'ℹ️ Das Angebot ist nicht mehr offen.',
+      expired: '⏳ Zu spät – die Agentur hat jemand anderen genommen.',
+      busy: '📜 Du stehst schon unter Vertrag.',
+    };
+    const note = res.ok
+      ? `✍️ Unterschrieben bei **${res.contract.agency}**.\n` +
+        `💰 Vorschuss: **${money(symbol, res.advance)}**\n` +
+        `${require('./music').IDOL.rules.join('\n')}`
+      : (problems[res.reason] ?? '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Vertrag ablehnen. */
+  async mdealno(interaction, [id]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./music').decline(guildId, userId, Number(id));
+    await interaction.editReply(await buildMusicDealView({ guildId, userId }));
+    await interaction.followUp({
+      content: res.ok
+        ? `🚫 Abgelehnt. **${res.contract.agency}** sucht sich jemand anderen – ` +
+          'deine Freiheit behältst du.'
+        : 'ℹ️ Das Angebot ist nicht mehr offen.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /** Vertrag brechen. */
+  async mleave(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    const res = await require('./music').leave(guildId, userId);
+    await interaction.editReply(await buildMusicView({ guildId, userId }));
+
+    const note = res.ok
+      ? `💔 Vertrag mit **${res.contract.agency}** gebrochen.\n` +
+        `⚠️ Das kostet **${money(symbol, res.penalty)}** und einen Teil deiner Hörer – ` +
+        'und die Branche erzählt es weiter.'
+      : 'ℹ️ Du stehst unter keinem Vertrag.';
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
   /** Rangliste der reichsten Staaten. */
   async laender(interaction, [page]) {
     await interaction.deferUpdate();
@@ -1423,6 +1695,8 @@ Object.assign(buttons, {
         already_there: 'ℹ️ Da lebst du bereits.',
         too_poor: `❌ Ein Umzug nach ${res.country?.name} kostet ` +
           `**${money(symbol, res.cost ?? 0)}** – du hast ${money(symbol, res.have ?? 0)}.`,
+        contract: `📜 Dein Vertrag mit **${res.contract?.agency}** verbietet den Umzug. ` +
+          'Erst auslaufen lassen – oder brechen.',
       };
       note = problems[res.reason] ?? '❌ Das ging nicht.';
     } else if (res.first) {

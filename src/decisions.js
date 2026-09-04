@@ -141,7 +141,18 @@ async function apply(guildId, userId, row, effect, now = Date.now(), ignored = f
    * Verluste werden verstärkt, Gewinne nicht – Größe schützt nicht, und
    * Nichtstun erst recht nicht.
    */
-  const weight = severity * (ignored ? IGNORE_PENALTY : 1);
+  /*
+   * Unter Idol-Vertrag duldet die Agentur nichts: Jeder Fehltritt kostet das
+   * Doppelte. Genau dafür gibt es den Vertragspunkt – ohne diese Stelle wäre
+   * er nur ein Satz im Angebot.
+   */
+  let contractFactor = 1;
+  try {
+    const music = require('./music');
+    if (music.contractOf(guildId, userId)) contractFactor = music.IDOL.scandalFactor;
+  } catch { /* egal */ }
+
+  const weight = severity * (ignored ? IGNORE_PENALTY : 1) * contractFactor;
   const scaled = (v) => (v < 0 ? v * weight : v);
 
   // --- Follower ---

@@ -1423,6 +1423,341 @@ function marketLine(market) {
     `Werbepreis **${market.money.toFixed(2)}×** · Kaufkraft **${market.deal.toFixed(2)}×**`;
 }
 
+// ------------------------------------------------------------------- Musik
+
+/** Große Zahlen kurz: 1.2 Mio statt 1.234.567. */
+function short(n) {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1).replace('.', ',')} Mio`;
+  if (n >= 10_000) return `${Math.round(n / 1000)}k`;
+  return n.toLocaleString('de-DE');
+}
+
+/**
+ * Das Studio: der Überblick über die Musikkarriere.
+ *
+ * Musik ist die längste Strecke im Spiel – deshalb steht hier immer, was der
+ * nächste sinnvolle Schritt wäre.
+ */
+async function buildMusicView({ guildId, userId }) {
+  const music = require('./music');
+  const symbol = await getSymbol(guildId);
+  const s = music.status(guildId, userId);
+
+  if (!s.started) {
+    const embed = new EmbedBuilder()
+      .setTitle('🎵 Musik')
+      .setColor(0xe91e63)
+      .setDescription(
+        'Die längste Strecke im Spiel – und am Ende die stärkste Einnahme ohne '
+        + 'eigene Firma. Du veröffentlichst Musik, sammelst **monatliche Hörer**, '
+        + 'und die zahlen Tantiemen, während du schläfst.\n\n'
+        + 'Zwei Dinge legst du am Anfang fest: dein **Genre** und ob du mit '
+        + '**Gesicht** oder **anonym** auftrittst.')
+      .addFields(
+        {
+          name: '🌍 Dein Markt',
+          value: s.market.country.id
+            ? `${s.market.country.flag} ${s.market.country.name} · Szene `
+              + `${s.market.scene.toFixed(2)}× · Tantiemen ${s.market.royalty.toFixed(2)}×`
+            : '_Wähle zuerst eine Heimat (🌍) – ohne Land kein Musikmarkt._',
+        },
+        {
+          name: '🎙️ Was du brauchst',
+          value: s.hasGear ? `**${music.GEAR}** ✅` : `**${music.GEAR}** ❌ (🧰 Ausrüstung)`,
+        },
+      );
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`msetup|1|${userId}`)
+          .setLabel('Karriere starten').setEmoji('🎤').setStyle(ButtonStyle.Success),
+        homeButton(userId))],
+    };
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${s.genre.emoji} ${s.persona.emoji} Dein Studio`)
+    .setColor(0xe91e63)
+    .setDescription(
+      `**${s.listeners.toLocaleString('de-DE')}** monatliche Hörer · `
+      + `${s.genre.name} · ${s.persona.name}`
+      + (s.best_chart ? `\n🏆 Beste Platzierung: **#${s.best_chart}**` : ''));
+
+  embed.addFields(
+    {
+      name: '💰 Tantiemen',
+      value: `~${money(symbol, s.perDay)} am Tag\n_${short(s.streams_total)} Abrufe bisher_`,
+      inline: true,
+    },
+    {
+      name: '🎼 Im Kasten',
+      value: `**${s.songs}** ${s.songs === 1 ? 'Titel' : 'Titel'}\n`
+        + `_${s.releases} Veröffentlichungen_`,
+      inline: true,
+    },
+    {
+      name: '🎤 Konzerte',
+      value: `${s.shows}\n_${s.showMs > 0
+        ? `nächstes in ${require('./income').formatRemaining(s.showMs)}`
+        : s.listeners >= music.SHOW_MIN_LISTENERS ? '**jetzt möglich**' : 'zu wenig Hörer'}_`,
+      inline: true,
+    },
+  );
+
+  if (s.contract) {
+    embed.addFields({
+      name: `📜 Unter Vertrag: ${s.contract.agency}`,
+      value: `Noch **${require('./income').formatRemaining(s.contractEndsMs)}**. `
+        + `Die Agentur nimmt ${Math.round(music.IDOL.cut * 100)} % deiner Einnahmen, `
+        + 'dafür wächst alles schneller und die Hallen sind größer.',
+    });
+  } else if (s.offer) {
+    embed.addFields({
+      name: `📬 Anfrage von ${s.offer.agency}`,
+      value: 'Eine Agentur will dich unter Vertrag nehmen. '
+        + `Noch **${require('./income').formatRemaining(s.offerEndsMs)}** Bedenkzeit.`,
+    });
+  }
+
+  if (s.lostToIdle > 0) {
+    embed.addFields({
+      name: '📉 Vergessen',
+      value: `**${s.lostToIdle.toLocaleString('de-DE')}** Hörer sind abgesprungen, weil `
+        + `lange nichts kam. ${s.market.strict >= 0.8
+          ? 'Dein Markt ist besonders ungeduldig.' : ''}`,
+    });
+  }
+
+  embed.addFields({
+    name: '⏳ Heute',
+    value: `Zeit: **${s.budget.left}** von ${s.budget.max} · `
+      + `Studio ${s.recordMs > 0 ? `in ${require('./income').formatRemaining(s.recordMs)}` : '**frei**'} · `
+      + `Release ${s.releaseMs > 0 ? `in ${require('./income').formatRemaining(s.releaseMs)}` : '**frei**'}`,
+  });
+
+  embed.setFooter({
+    text: `${s.market.country.flag} ${s.market.country.name} · Szene `
+      + `${s.market.scene.toFixed(2)}× · Tantiemen ${s.market.royalty.toFixed(2)}× · `
+      + `Strenge ${Math.round(s.market.strict * 100)} %`,
+  });
+
+  const ready = (ms, cost) => ms <= 0 && s.budget.left >= cost;
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`mstudio|${userId}`)
+        .setLabel(`Studio (${music.RECORD_TIME})`).setEmoji('🎙️')
+        .setStyle(ButtonStyle.Primary)
+        .setDisabled(!ready(s.recordMs, music.RECORD_TIME) || !s.hasGear),
+      new ButtonBuilder().setCustomId(`mrel|1|${userId}`)
+        .setLabel('Veröffentlichen').setEmoji('💿')
+        .setStyle(ButtonStyle.Success)
+        .setDisabled(s.songs < 1 || s.releaseMs > 0),
+      new ButtonBuilder().setCustomId(`mshow|${userId}`)
+        .setLabel(`Konzert (${music.SHOW_TIME})`).setEmoji('🎤')
+        .setStyle(ButtonStyle.Secondary)
+        .setDisabled(!ready(s.showMs, music.SHOW_TIME) || s.listeners < music.SHOW_MIN_LISTENERS)),
+  ];
+
+  const extra = [];
+  if (s.offer || s.contract) {
+    extra.push(new ButtonBuilder().setCustomId(`mdeal|${userId}`)
+      .setLabel(s.contract ? 'Vertrag' : 'Anfrage').setEmoji('📜')
+      .setStyle(s.offer ? ButtonStyle.Success : ButtonStyle.Secondary));
+  }
+  if (s.persona.id === 'anon' && !s.contract) {
+    extra.push(new ButtonBuilder().setCustomId(`mreveal|${userId}`)
+      .setLabel('Gesicht zeigen').setEmoji('🎭').setStyle(ButtonStyle.Danger));
+  }
+  extra.push(homeButton(userId));
+  rows.push(new ActionRowBuilder().addComponents(...extra));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Genre wählen – Schritt eins der Karriere. */
+async function buildMusicSetupView({ guildId, userId, page = 1 }) {
+  const music = require('./music');
+  const all = music.GENRES;
+  const perPage = 4;
+  const totalPages = Math.max(1, Math.ceil(all.length / perPage));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const slice = all.slice((p - 1) * perPage, p * perPage);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎼 Welche Musik machst du?')
+    .setColor(0xe91e63)
+    .setDescription('Das Genre bestimmt, wie viele Leute du erreichst, was ein Abruf '
+      + 'abwirft und wie voll deine Konzerte werden. Später wechseln kostet Hörer.')
+    .setFooter({ text: `Seite ${p} / ${totalPages}` });
+
+  for (const g of slice) {
+    embed.addFields({
+      name: `${g.emoji} ${g.name}`,
+      value: `Reichweite ${g.reach.toFixed(2)}× · Tantiemen ${g.royalty.toFixed(2)}× · `
+        + `Live ${g.live.toFixed(2)}×\n_${g.blurb}_`,
+      inline: true,
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(...slice.map((g) =>
+    new ButtonBuilder().setCustomId(`mgenre|${g.id}|${userId}`)
+      .setLabel(g.name.slice(0, 40)).setEmoji(g.emoji).setStyle(ButtonStyle.Secondary)))];
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`msetup|${p - 1}|${userId}`)
+      .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`msetup|${p + 1}|${userId}`)
+      .setLabel('Weiter').setEmoji('▶️').setStyle(ButtonStyle.Secondary)
+      .setDisabled(p >= totalPages),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Auftrittsform wählen – Schritt zwei, und die folgenreichere. */
+async function buildPersonaView({ guildId, userId, key }) {
+  const music = require('./music');
+  const g = music.genre(key);
+  if (!g) return buildMusicSetupView({ guildId, userId });
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎭 Mit Gesicht oder anonym?')
+    .setColor(0xe91e63)
+    .setDescription(`Genre: ${g.emoji} **${g.name}**\n\n`
+      + 'Die folgenreichste Entscheidung deiner Karriere. Anonym kannst du später '
+      + 'dein Gesicht zeigen – zurück geht es nie.');
+
+  for (const p of music.PERSONAS) {
+    embed.addFields({
+      name: `${p.emoji} ${p.name}`,
+      value: `Abrufe ${p.plays.toFixed(2)}× · Wachstum ${p.growth.toFixed(2)}× · `
+        + `Live ${p.live.toFixed(2)}× · Socials ${p.social.toFixed(2)}×\n_${p.blurb}_`,
+    });
+  }
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      ...music.PERSONAS.map((p) => new ButtonBuilder()
+        .setCustomId(`mperson|${g.id}|${p.id}|${userId}`)
+        .setLabel(p.name).setEmoji(p.emoji)
+        .setStyle(p.id === 'face' ? ButtonStyle.Primary : ButtonStyle.Secondary)),
+      new ButtonBuilder().setCustomId(`msetup|1|${userId}`)
+        .setLabel('Anderes Genre').setEmoji('↩️').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
+/** Veröffentlichungsart wählen. */
+async function buildReleaseView({ guildId, userId }) {
+  const music = require('./music');
+  const s = music.status(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('💿 Was veröffentlichst du?')
+    .setColor(0xe91e63)
+    .setDescription(`Du hast **${s.songs}** ${s.songs === 1 ? 'Titel' : 'Titel'} im Kasten. `
+      + 'Je größer die Veröffentlichung, desto größer der Schub – und desto mehr '
+      + 'Titel kostet sie.');
+
+  for (const r of music.RELEASES) {
+    embed.addFields({
+      name: `${r.emoji} ${r.name}`,
+      value: `**${r.songs}** ${r.songs === 1 ? 'Titel' : 'Titel'} · Zeit ${r.time} · `
+        + `Schub ${r.spike.toFixed(1)}× · Hörer ${r.growth.toFixed(1)}×\n_${r.blurb}_`,
+      inline: true,
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(...music.RELEASES.map((r) =>
+    new ButtonBuilder().setCustomId(`mpub|${r.id}|${userId}`)
+      .setLabel(`${r.name} (${r.songs})`).setEmoji(r.emoji)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(s.songs < r.songs || s.budget.left < r.time)))];
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`musik|${userId}`)
+      .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Der Idol-Vertrag: Angebot oder laufende Bindung. */
+async function buildMusicDealView({ guildId, userId }) {
+  const music = require('./music');
+  const symbol = await getSymbol(guildId);
+  const s = music.status(guildId, userId);
+
+  if (s.contract) {
+    const embed = new EmbedBuilder()
+      .setTitle(`📜 ${s.contract.agency}`)
+      .setColor(0x9b59b6)
+      .setDescription(music.IDOL.blurb)
+      .addFields(
+        {
+          name: '⏳ Laufzeit',
+          value: `Noch **${require('./income').formatRemaining(s.contractEndsMs)}**.`,
+        },
+        { name: '📋 Die Regeln', value: music.IDOL.rules.join('\n') },
+      )
+      .setFooter({ text: 'Vorzeitiger Ausstieg kostet 30 Tage Einnahmen und Hörer.' });
+
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`mleave|${userId}`)
+          .setLabel('Vertrag brechen').setEmoji('💔').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`musik|${userId}`)
+          .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary),
+        homeButton(userId))],
+    };
+  }
+
+  if (!s.offer) {
+    const embed = new EmbedBuilder()
+      .setTitle('📜 Verträge')
+      .setColor(0x95a5a6)
+      .setDescription(s.canIdol
+        ? `In ${s.market.country.flag} ${s.market.country.name} gibt es Idol-Agenturen. `
+          + `Ab **${music.IDOL.minListeners.toLocaleString('de-DE')}** Hörern melden sie sich – `
+          + 'aber nur bei Künstlern, die ihr Gesicht zeigen.'
+        : 'In deinem Land gibt es kein Idol-System. Solche Verträge werden nur in '
+          + 'Japan und Südkorea angeboten.');
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`musik|${userId}`)
+          .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary),
+        homeButton(userId))],
+    };
+  }
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📬 ${s.offer.agency} will dich`)
+    .setColor(0x9b59b6)
+    .setDescription(music.IDOL.blurb)
+    .addFields(
+      { name: '📋 Was im Vertrag steht', value: music.IDOL.rules.join('\n') },
+      {
+        name: '⏳ Bedenkzeit',
+        value: `**${require('./income').formatRemaining(s.offerEndsMs)}**`,
+      },
+    )
+    .setFooter({ text: 'Ein Vorschuss kommt sofort – der Rest ist eine Wette auf dich.' });
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`mdealok|${s.offer.id}|${userId}`)
+        .setLabel('Unterschreiben').setEmoji('✍️').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`mdealno|${s.offer.id}|${userId}`)
+        .setLabel('Ablehnen').setEmoji('🚫').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`musik|${userId}`)
+        .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
+
 /**
  * Heimat und Inhaltssprache.
  *
@@ -2435,6 +2770,14 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
       (lang.id ? ` · ${lang.emoji} ${lang.name}` : '') +
       (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
+  /*
+   * Das Profilbild gehört in den Autorblock, nicht ins Miniaturbild:
+   * Fluxer nennt `icon_url` dort ausdrücklich "Author avatar image URL" und
+   * stellt es dar – ein `thumbnail` dagegen nicht. Auf Discord sieht es
+   * genauso aus, wie man es von einem Profil erwartet: Bild neben dem Namen.
+   */
+  if (avatar) embed.setAuthor({ name: identity.display(owner), iconURL: avatar });
+
   embed.addFields(
     {
       name: '🏆 Level',
@@ -2531,9 +2874,8 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // Großes Foto der teuersten Immobilie (Flex!), kleines Thumbnail vom Auto.
   if (topProp && topProp.image_url) embed.setImage(topProp.image_url);
   else if (car && car.image_url) embed.setImage(car.image_url);
-  // Miniaturbild oben rechts: das Profilbild des Spielers, sonst das Auto.
-  if (avatar) embed.setThumbnail(avatar);
-  else if (car && car.image_url) embed.setThumbnail(car.image_url);
+  // Das Miniaturbild bleibt beim Auto – Fluxer stellt `thumbnail` nicht dar.
+  if (car && car.image_url) embed.setThumbnail(car.image_url);
 
   const row = new ActionRowBuilder();
   if (isSelf) {
@@ -3220,6 +3562,8 @@ module.exports = {
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
+  buildMusicView, buildMusicSetupView, buildPersonaView, buildReleaseView,
+  buildMusicDealView,
   buildLanguageView, buildLanguageConfirm,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
