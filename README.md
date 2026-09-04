@@ -204,6 +204,10 @@ berechnet und zusätzlich in die Kasse gelegt – ein Auto für 10 000 kostet
 weiterhin genau 10 000, die Kasse notiert dazu 1 900. Preise und Verdienste
 ändern sich durch das Feature an keiner Stelle.
 
+Die Kasse ist **auf die Wohnsitzländer der Spieler aufgeteilt**: Jeder zahlt in
+den Topf seines Landes, und `!laender` zeigt die Rangliste der reichsten
+Staaten.
+
 Aus der Kasse fließt nichts an Spieler zurück; sie ist eine reine Senke und
 damit kein Gelddrucker im Sinne von [ARCHITEKTUR §3](ARCHITEKTUR.md). `/staat`
 zeigt Stand, Aufteilung, die stärksten Bereiche, die größten Beitragszahler und

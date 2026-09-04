@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.15.0',
+    date: '2026-09-04',
+    title: 'Staatskassen der Länder',
+    lines: [
+      '🌍 **Die Staatskasse ist aufgeteilt:** Deine Steuern fließen ab jetzt in die Kasse deines **Wohnsitzlandes**. Wer keine Heimat gewählt hat, zahlt in den Topf der Staatenlosen.',
+      '🏆 **Rangliste der reichsten Staaten:** `!laender` oder 🌍 in der Staatskasse – mit Stand, Anteil, Einwohnerzahl und Buchungen. Zwei umsatzstarke Einwohner schlagen zehn sparsame.',
+      '📢 **Aufforderung zur Heimatwahl:** Wer noch kein Land hat, wird bei jedem Menüaufruf daran erinnert – die erste Wahl ist kostenlos.',
+      '🇷🇴 **Rumänien** ist als Land dazugekommen, mitsamt Rumänisch als Inhaltssprache.',
+      '🚩 **Flaggen statt Symbolen:** Die Sprachen tragen jetzt die Flagge ihres Hauptmarkts statt Brezel, Croissant und Drache.',
+    ],
+  },
+  {
     version: '1.14.0',
     date: '2026-09-04',
     title: 'Heimat und Sprache',

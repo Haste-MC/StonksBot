@@ -111,6 +111,11 @@ function collect(guildId, accountId, amount, reason = '', now = Date.now()) {
   const kind = kindOf(value);
   const source = categoryOf(reason).id;
 
+  // In welches Land der Anteil fließt: dorthin, wo der Spieler lebt.
+  // Wer keine Heimat gewählt hat, zahlt in den Topf der Staatenlosen.
+  let country = '';
+  try { country = require('./home').homeOf(guildId, accountId).id; } catch { /* egal */ }
+
   const row = db.bookTreasury({
     guildId,
     accountId,
@@ -119,6 +124,7 @@ function collect(guildId, accountId, amount, reason = '', now = Date.now()) {
     amount: share,
     source,
     reason: String(reason ?? '').slice(0, 80),
+    country,
     at: now,
   });
 
@@ -144,6 +150,47 @@ function state(guildId) {
       vat: row.balance > 0 ? row.vat_total / row.balance : 0,
       tax: row.balance > 0 ? row.tax_total / row.balance : 0,
     },
+  };
+}
+
+/**
+ * Die Staatskassen der Länder, absteigend – mit Flagge, Einwohnerzahl und
+ * Anteil am Gesamttopf.
+ *
+ * Die Summe der Länder ist kleiner als der Welttopf: Buchungen aus der Zeit
+ * vor der Aufteilung sind keinem Land zugeordnet.
+ */
+function countries(guildId) {
+  const home = require('./home');
+  const people = new Map(db.countryPopulation(guildId).map((r) => [r.country, r.n]));
+  const rows = db.treasuryCountries(guildId);
+  const assigned = rows.reduce((s, r) => s + r.balance, 0);
+
+  return rows.map((row) => {
+    const land = home.country(row.country);
+    return {
+      ...row,
+      name: row.country ? land.name : 'Ohne Heimat',
+      flag: row.country ? land.flag : '🏳️',
+      market: land.market,
+      people: people.get(row.country) ?? 0,
+      share: assigned > 0 ? row.balance / assigned : 0,
+    };
+  });
+}
+
+/** Was das Land dieses Spielers bisher eingenommen hat. */
+function countryOf(guildId, accountId) {
+  const home = require('./home');
+  const land = home.homeOf(guildId, accountId);
+  const row = db.treasuryCountry(guildId, land.id);
+  const all = countries(guildId);
+  const rank = all.findIndex((c) => c.country === land.id);
+  return {
+    ...row,
+    land,
+    rank: rank >= 0 ? rank + 1 : null,
+    of: all.length,
   };
 }
 
@@ -179,5 +226,5 @@ function reset(guildId) {
 module.exports = {
   VAT_RATE, TAX_RATE, CATEGORIES, FALLBACK,
   categoryOf, category, kindOf, rateFor, shareOf,
-  collect, state, sources, payers, contribution, recent, reset,
+  collect, state, sources, payers, contribution, recent, reset, countries, countryOf,
 };

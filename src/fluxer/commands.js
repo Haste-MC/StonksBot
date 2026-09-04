@@ -41,7 +41,11 @@ const COMMANDS = [
     info: 'Das Hauptmenü',
     run: ({ userId, guildId }) => {
       const news = patchnotes.deliver(guildId, userId);
-      return { view: buildMainMenu({ userId }), note: news };
+      const nudge = require('../buttons').homeNudge(guildId, userId);
+      return {
+        view: buildMainMenu({ userId }),
+        note: [news, nudge].filter(Boolean).join('\n\n') || null,
+      };
     },
   },
   {
@@ -122,6 +126,12 @@ const COMMANDS = [
       }[name] ?? 'twitch';
       return { view: await ui.buildPlatformView({ guildId, userId, key }) };
     },
+  },
+  {
+    names: ['laender', 'länder', 'staaten'],
+    info: 'Rangliste der reichsten Staaten',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildCountryTreasuryView({ guildId, userId }) }),
   },
   {
     names: ['staat', 'staatskasse', 'staatskonto', 'kasse'],
