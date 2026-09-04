@@ -67,29 +67,35 @@ const LANGUAGES = [
  * Länder.
  *   market   Kaufkraft des Heimatmarkts – wirkt auf Werbedeals und Merch
  *   language die dort übliche Sprache (Heimvorteil, wenn du sie sprichst)
+ *   music    Musikmarkt (siehe src/music.js):
+ *     scene    Größe der Szene – Hörerpotenzial und Konzertgagen
+ *     royalty  was ein Abruf abwirft (Japan zahlt das Siebenfache Indiens)
+ *     idol     ob es hier Idol-Verträge gibt (Japan, Südkorea)
+ *     strict   wie streng dein Markt urteilt: Skandale treffen härter, und
+ *              wer sich zu lange nicht meldet, wird schneller vergessen
  */
 const COUNTRIES = [
-  { id: 'de', name: 'Deutschland', flag: '🇩🇪', market: 1.30, language: 'deutsch' },
-  { id: 'at', name: 'Österreich', flag: '🇦🇹', market: 1.20, language: 'deutsch' },
-  { id: 'ch', name: 'Schweiz', flag: '🇨🇭', market: 1.60, language: 'deutsch' },
-  { id: 'us', name: 'USA', flag: '🇺🇸', market: 1.50, language: 'englisch' },
-  { id: 'gb', name: 'Vereinigtes Königreich', flag: '🇬🇧', market: 1.30, language: 'englisch' },
-  { id: 'ca', name: 'Kanada', flag: '🇨🇦', market: 1.25, language: 'englisch' },
-  { id: 'au', name: 'Australien', flag: '🇦🇺', market: 1.20, language: 'englisch' },
-  { id: 'fr', name: 'Frankreich', flag: '🇫🇷', market: 1.05, language: 'franzoesisch' },
-  { id: 'es', name: 'Spanien', flag: '🇪🇸', market: 0.85, language: 'spanisch' },
-  { id: 'it', name: 'Italien', flag: '🇮🇹', market: 0.85, language: 'italienisch' },
-  { id: 'nl', name: 'Niederlande', flag: '🇳🇱', market: 1.20, language: 'niederlaendisch' },
-  { id: 'pl', name: 'Polen', flag: '🇵🇱', market: 0.60, language: 'polnisch' },
-  { id: 'tr', name: 'Türkei', flag: '🇹🇷', market: 0.45, language: 'tuerkisch' },
-  { id: 'br', name: 'Brasilien', flag: '🇧🇷', market: 0.50, language: 'portugiesisch' },
-  { id: 'mx', name: 'Mexiko', flag: '🇲🇽', market: 0.50, language: 'spanisch' },
-  { id: 'jp', name: 'Japan', flag: '🇯🇵', market: 1.40, language: 'japanisch' },
-  { id: 'kr', name: 'Südkorea', flag: '🇰🇷', market: 1.10, language: 'koreanisch' },
-  { id: 'in', name: 'Indien', flag: '🇮🇳', market: 0.25, language: 'hindi' },
-  { id: 'ae', name: 'Vereinigte Arabische Emirate', flag: '🇦🇪', market: 1.35, language: 'arabisch' },
-  { id: 'ro', name: 'Rumänien', flag: '🇷🇴', market: 0.55, language: 'rumaenisch' },
-  { id: 'ng', name: 'Nigeria', flag: '🇳🇬', market: 0.30, language: 'englisch' },
+  { id: 'de', name: 'Deutschland', flag: '🇩🇪', market: 1.30, language: 'deutsch', music: { scene: 1.00, royalty: 1.15, idol: false, strict: 0.35 } },
+  { id: 'at', name: 'Österreich', flag: '🇦🇹', market: 1.20, language: 'deutsch', music: { scene: 0.75, royalty: 1.10, idol: false, strict: 0.35 } },
+  { id: 'ch', name: 'Schweiz', flag: '🇨🇭', market: 1.60, language: 'deutsch', music: { scene: 0.70, royalty: 1.30, idol: false, strict: 0.30 } },
+  { id: 'us', name: 'USA', flag: '🇺🇸', market: 1.50, language: 'englisch', music: { scene: 1.90, royalty: 1.00, idol: false, strict: 0.20 } },
+  { id: 'gb', name: 'Vereinigtes Königreich', flag: '🇬🇧', market: 1.30, language: 'englisch', music: { scene: 1.55, royalty: 1.05, idol: false, strict: 0.25 } },
+  { id: 'ca', name: 'Kanada', flag: '🇨🇦', market: 1.25, language: 'englisch', music: { scene: 1.15, royalty: 1.00, idol: false, strict: 0.20 } },
+  { id: 'au', name: 'Australien', flag: '🇦🇺', market: 1.20, language: 'englisch', music: { scene: 1.05, royalty: 1.00, idol: false, strict: 0.20 } },
+  { id: 'fr', name: 'Frankreich', flag: '🇫🇷', market: 1.05, language: 'franzoesisch', music: { scene: 1.10, royalty: 0.95, idol: false, strict: 0.40 } },
+  { id: 'es', name: 'Spanien', flag: '🇪🇸', market: 0.85, language: 'spanisch', music: { scene: 1.00, royalty: 0.80, idol: false, strict: 0.30 } },
+  { id: 'it', name: 'Italien', flag: '🇮🇹', market: 0.85, language: 'italienisch', music: { scene: 0.95, royalty: 0.80, idol: false, strict: 0.35 } },
+  { id: 'nl', name: 'Niederlande', flag: '🇳🇱', market: 1.20, language: 'niederlaendisch', music: { scene: 0.85, royalty: 1.10, idol: false, strict: 0.25 } },
+  { id: 'pl', name: 'Polen', flag: '🇵🇱', market: 0.60, language: 'polnisch', music: { scene: 0.70, royalty: 0.60, idol: false, strict: 0.35 } },
+  { id: 'tr', name: 'Türkei', flag: '🇹🇷', market: 0.45, language: 'tuerkisch', music: { scene: 0.90, royalty: 0.45, idol: false, strict: 0.55 } },
+  { id: 'br', name: 'Brasilien', flag: '🇧🇷', market: 0.50, language: 'portugiesisch', music: { scene: 1.25, royalty: 0.45, idol: false, strict: 0.20 } },
+  { id: 'mx', name: 'Mexiko', flag: '🇲🇽', market: 0.50, language: 'spanisch', music: { scene: 1.10, royalty: 0.45, idol: false, strict: 0.25 } },
+  { id: 'jp', name: 'Japan', flag: '🇯🇵', market: 1.40, language: 'japanisch', music: { scene: 1.30, royalty: 1.50, idol: true, strict: 0.90 } },
+  { id: 'kr', name: 'Südkorea', flag: '🇰🇷', market: 1.10, language: 'koreanisch', music: { scene: 1.45, royalty: 1.20, idol: true, strict: 1.00 } },
+  { id: 'in', name: 'Indien', flag: '🇮🇳', market: 0.25, language: 'hindi', music: { scene: 1.15, royalty: 0.20, idol: false, strict: 0.55 } },
+  { id: 'ae', name: 'Vereinigte Arabische Emirate', flag: '🇦🇪', market: 1.35, language: 'arabisch', music: { scene: 0.65, royalty: 0.90, idol: false, strict: 0.75 } },
+  { id: 'ro', name: 'Rumänien', flag: '🇷🇴', market: 0.55, language: 'rumaenisch', music: { scene: 0.60, royalty: 0.50, idol: false, strict: 0.35 } },
+  { id: 'ng', name: 'Nigeria', flag: '🇳🇬', market: 0.30, language: 'englisch', music: { scene: 1.20, royalty: 0.30, idol: false, strict: 0.30 } },
 ];
 
 /** Solange nichts gewählt ist: neutral, damit bestehende Kanäle gleich bleiben. */

@@ -96,6 +96,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildCreatorView(ctx),
   },
   {
+    id: 'musik',
+    group: 'work',
+    label: 'Musik',
+    emoji: '🎵',
+    description: 'Songs, Releases, Konzerte, Tantiemen',
+    style: 'primary',
+    build: (ctx) => ui.buildMusicView(ctx),
+  },
+  {
     id: 'gear',
     group: 'work',
     label: 'Ausrüstung',

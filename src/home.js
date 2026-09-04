@@ -127,6 +127,14 @@ async function setHome(guildId, userId, targetId, now = Date.now()) {
     return { ok: true, first: true, country: target, cost: 0 };
   }
 
+  // Unter Idol-Vertrag bleibt man im Land – so steht es im Vertrag.
+  try {
+    const contract = require('./music').contractOf(guildId, userId);
+    if (contract) {
+      return { ok: false, reason: 'contract', country: target, contract };
+    }
+  } catch { /* Musik nicht geladen: dann gibt es auch keinen Vertrag */ }
+
   const cost = moveCost(guildId, userId, target.id);
   const balance = await require('./unb').getBalance(guildId, userId).catch(() => null);
   if (!balance || balance.total < cost) {

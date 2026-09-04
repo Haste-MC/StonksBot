@@ -96,6 +96,16 @@ const COMMANDS = [
       ({ view: await ui.buildHomeView({ guildId, userId }) }),
   },
   {
+    names: ['musik', 'music', 'studio', 'artist'],
+    info: 'Deine Musikkarriere',
+    run: async ({ guildId, userId }) => {
+      const music = require('../music');
+      await music.settle(guildId, userId).catch(() => null);
+      music.settleContracts(guildId, userId);
+      return { view: await ui.buildMusicView({ guildId, userId }) };
+    },
+  },
+  {
     names: ['creator', 'netzwerk', 'social'],
     info: 'Dein Creator-Netzwerk (alle Plattformen)',
     run: async ({ guildId, userId }) =>

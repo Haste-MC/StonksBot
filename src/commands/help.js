@@ -55,6 +55,12 @@ module.exports = {
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
         },
         {
+          name: '🎵 Musik',
+          value: '`/musik` – die längste Strecke im Spiel: Songs, Releases, Konzerte und ' +
+            'Tantiemen, die von allein weiterlaufen. Mit Gesicht oder anonym, in Japan und ' +
+            'Korea mit Idol-Verträgen.',
+        },
+        {
           name: '🌍 Heimat & Sprache',
           value: '`/heimat` – wo du lebst und in welcher Sprache du sendest. Landessprache ' +
             'wächst schnell und deckelt früh, Englisch ist zäh und grenzenlos. ' +

@@ -475,6 +475,102 @@ englischen Videos, nur weil derselbe Mensch davor sitzt.
 Ohne diese Kosten wäre beides eine Optimierungsaufgabe, die man einmal löst und
 danach vergisst. Mit ihnen ist es eine Weichenstellung.
 
+## Musik 🎵
+
+```
+!musik           (auch !studio, !artist)
+/musik           auf Discord, oder 🎵 im Menü unter Arbeit
+```
+
+Die längste Strecke im Spiel und die stärkste Einnahme ohne eigene Firma. Statt
+Followern sammelt man **monatliche Hörer**, und die zahlen **Tantiemen**, auch
+wenn man nichts tut.
+
+### Der Kreislauf
+
+| Aktion | Zeit | Pause | Was sie bringt |
+|--|--:|--|--|
+| 🎙️ **Studio** | 3 | 6 h | ein Titel im Kasten |
+| 💿 **Veröffentlichen** | 1–3 | 20 h | Hörer, ein Schub an Abrufen, vielleicht die Charts |
+| 🎤 **Konzert** | 4 | 3 Tage | eine große Summe sofort, ab 5.000 Hörern |
+
+Zeit kommt aus **demselben Tagesbudget wie die Kanäle** – wer vormittags im
+Studio war, streamt abends nicht mehr vier Stunden. Veröffentlichungsarten
+reichen von der Single (1 Titel) bis zum Album (6 Titel, 5,5-facher Schub).
+
+### Das Land entscheidet mit – strenger als überall sonst
+
+| | Szene | Tantiemen | Idol | Strenge |
+|--|--:|--:|--|--:|
+| 🇺🇸 USA | 1,90 | 1,00 | – | 20 % |
+| 🇰🇷 Südkorea | 1,45 | 1,20 | ✅ | 100 % |
+| 🇯🇵 Japan | 1,30 | 1,50 | ✅ | 90 % |
+| 🇩🇪 Deutschland | 1,00 | 1,15 | – | 35 % |
+| 🇮🇳 Indien | 1,15 | 0,20 | – | 55 % |
+| 🇷🇴 Rumänien | 0,60 | 0,50 | – | 35 % |
+
+- **Szene** skaliert die Obergrenze an Hörern (linear).
+- **Tantiemen** bestimmen, was ein Abruf abwirft – Japan zahlt das Siebenfache
+  Indiens.
+- **Strenge** heißt: Wer sich lange nicht meldet, wird schneller vergessen.
+
+Dazu kommt die **Sprache** aus der Heimat: Sie verschiebt wie überall den Punkt
+der vollen Vermarktung. Ein rumänischer Künstler, der auf Englisch singt, hat
+eine viel höhere Decke als einer, der bei Rumänisch bleibt – dafür dauert es
+Jahre statt Monate.
+
+### Zwei Wege: Gesicht oder Anonymität
+
+| | Abrufe | Wachstum | Live | Socials | Skandale |
+|--|--:|--:|--:|--:|--:|
+| 🎭 **Mit Gesicht** | 1,00× | 1,00× | 1,00× | 1,00× | voll |
+| 🕶️ **Anonym** | 1,25× | 0,90× | 0,75× | 0,35× | 0,45× |
+
+Anonym (Vorbild: **Ado**) zieht das Rätsel mehr Abrufe je Hörer und schützt vor
+dem meisten Ärger – dafür bleiben die Kanäle klein und Konzerte sind zäh. Wer
+anonym gestartet ist, kann **einmal sein Gesicht zeigen**: ein gewaltiger
+einmaliger Schub. Zurück geht es nie.
+
+### Idol-Verträge 📜
+
+Nur in **Japan und Südkorea**, nur **mit Gesicht**, ab **100.000** Hörern:
+Irgendwann klopft eine Agentur an.
+
+| Dafür bekommst du | Dafür gibst du |
+|--|--|
+| 💰 Vorschuss: 25 Tage Tantiemen sofort | 💴 die Hälfte aller Musikeinnahmen |
+| 📈 Karriere wächst 2,2× so schnell | 🚫 kein Umzug ins Ausland |
+| 🎤 60 % größere Konzertgagen | 🚫 kein Wechsel zu anonym |
+| | ⚠️ Skandale kosten **doppelt** |
+
+90 Tage Laufzeit, vorzeitiger Ausstieg kostet 30 Tage Einnahmen und Hörer. Die
+Regeln gelten wirklich: Der Umzug wird abgelehnt, und die Vorfälle aus
+[Vorfälle](#vorfälle-entscheidungen-mit-folgen-️) treffen doppelt so hart.
+
+### Musik und Kanäle hängen zusammen
+
+Jeder erfolgreiche Künstler hat auch Socials – im Spiel ist das keine Behauptung:
+
+- Jede Veröffentlichung spült Follower auf **alle vier Plattformen** (mal
+  Persona: mit Gesicht dreimal so viel wie anonym).
+- **Hörer zählen als Publikum** für die Kanäle (18 %) – Musik macht die Kanäle
+  größer, ohne dass man dort Zeit investiert.
+- Umgekehrt hilft Kanalreichweite der Musik (8 %).
+
+### Warum das kein Gelddrucker ist (§3)
+
+Dieselbe Form wie überall: Zuwachs `hörer^0,6`, Verlust linear. Beim Bauen sind
+mir dabei **zwei Fehler unterlaufen**, die der Test aufgedeckt hat:
+
+1. Der Agenturschub lag zuerst nur auf dem Zuwachs – das hätte das
+   Gleichgewicht nicht verdoppelt, sondern **versiebenfacht**.
+2. Das Sprachtempo ebenso.
+
+Beide wirken jetzt auf Zuwachs **und** Abgang: schneller, nicht größer. Nur
+Szene und Genre verschieben die Decke. [`test/music.test.js`](test/music.test.js)
+prüft genau das – und rechnet über 8.000 Veröffentlichungen nach, dass jede
+Verdopplung weniger bringt als die vorige.
+
 ## Creator-Netzwerk 📡
 
 Das **Streaming-Setup** war früher Voraussetzung für den Job „Streamer". Der
@@ -758,16 +854,22 @@ sondern einer, den man hält.
 Spieler mit Kanal. Im **Profil** taucht ein Netzwerk-Feld auf, sobald du
 überhaupt Follower hast: Gesamtzahl plus Aufteilung je Plattform.
 
-Dazu zeigt das Profil oben rechts das **Profilbild** des Kontos (von Discord
-oder Fluxer, je nachdem woher es kommt; eine halbe Stunde gepuffert, damit
-nicht jeder Aufruf eine API-Abfrage ist) und darunter den
-**Bekanntheitsgrad** – zwischen Erwähnung und Angeber-Spruch:
+Dazu zeigt das Profil das **Profilbild** des Kontos (von Discord oder Fluxer,
+je nachdem woher es kommt; eine halbe Stunde gepuffert, damit nicht jeder
+Aufruf eine API-Abfrage ist) und den **Bekanntheitsgrad** zwischen Erwähnung
+und Angeber-Spruch:
 
 ```
 @Kevin
 📺 Landesweit ein Begriff
 > Ich bin nur wegen der Autos hier
 ```
+
+**Wo das Bild steht, ist kein Zufall:** Es sitzt im **Autorblock** des Embeds,
+nicht im Miniaturbild. Fluxer beschreibt `icon_url` dort ausdrücklich als
+Avatar-Feld und stellt es dar – ein `thumbnail` dagegen nicht, weshalb das
+Profilbild dort zuerst unsichtbar blieb. Das Miniaturbild gehört weiterhin dem
+dicksten Auto.
 
 | Wert | Titel | erreichbar etwa |
 |--|--|--|

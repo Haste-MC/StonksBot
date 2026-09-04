@@ -23,6 +23,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
 | `/heimat` | Wohnsitz und Inhaltssprache – für welchen Markt du produzierst. |
+| `/musik` | Deine Musikkarriere: Songs, Releases, Konzerte, Tantiemen. |
 | `/creator [plattform]` | Dein Netzwerk: Twitch, YouTube, Instagram, Twitter. |
 | `/leaderboard` | Rangliste – jetzt auch nach **Reichweite**. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
@@ -168,6 +169,19 @@ Die erste Wahl ist kostenlos. Danach kostet ein **Umzug** Geld, beendet den
 Mietvertrag und lässt die eigene Wohnung im alten Land zurück (sie bleibt dein
 Eigentum, gibt dir dort aber keinen Stellplatz mehr). Ein **Sprachwechsel**
 kostet 45 % deiner Follower. `/heimat`
+
+## Musik
+
+Die längste Strecke im Spiel: Songs aufnehmen, veröffentlichen, Konzerte
+spielen – und **monatliche Hörer** sammeln, die Tantiemen zahlen, während du
+schläfst. Das Land entscheidet strenger mit als überall sonst (Szene,
+Tantiemen, wie schnell man vergessen wird), und du wählst einmal, ob du **mit
+Gesicht** oder **anonym** auftrittst.
+
+In Japan und Südkorea klopfen ab 100.000 Hörern **Idol-Agenturen** an: doppeltes
+Tempo und ein Vorschuss gegen die Hälfte der Einnahmen, ein Umzugsverbot und
+doppelt teure Skandale. Jede Veröffentlichung lässt außerdem deine Kanäle
+mitwachsen. `/musik`
 
 ## Creator-Netzwerk
 
