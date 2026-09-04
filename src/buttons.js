@@ -12,7 +12,8 @@ const {
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
   buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
-  buildDecisionView, money,
+  buildDecisionView, buildHomeView, buildCountryView, buildCountryConfirm,
+  buildLanguageView, buildLanguageConfirm, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1355,6 +1356,103 @@ Object.assign(buttons, {
       .setStyle(TextInputStyle.Short).setRequired(true);
     modal.addComponents(new ActionRowBuilder().addComponents(input));
     await interaction.showModal(modal);
+  },
+
+  /** Länderliste. */
+  async land(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildCountryView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
+  /** Nachfrage vor dem Umzug. */
+  async landw(interaction, [key]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildCountryConfirm({
+      guildId: gid(interaction), userId: uid(interaction), key,
+    }));
+  },
+
+  /** Umzug wirklich durchführen. */
+  async landok(interaction, [key]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await require('./home').setHome(guildId, userId, key);
+    await interaction.editReply(await buildHomeView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      const problems = {
+        unknown_country: '❌ Das Land gibt es nicht.',
+        already_there: 'ℹ️ Da lebst du bereits.',
+        too_poor: `❌ Ein Umzug nach ${res.country?.name} kostet ` +
+          `**${money(symbol, res.cost ?? 0)}** – du hast ${money(symbol, res.have ?? 0)}.`,
+      };
+      note = problems[res.reason] ?? '❌ Das ging nicht.';
+    } else if (res.first) {
+      note = `${res.country.flag} Willkommen in **${res.country.name}**. ` +
+        'Die erste Heimat war kostenlos – der nächste Wechsel ist ein Umzug.';
+    } else {
+      const folgen = [];
+      if (res.rental) folgen.push(`🔑 Mietvertrag **${res.rental.name}** beendet.`);
+      if (res.leftBehind?.length) {
+        folgen.push(`🏠 ${res.leftBehind.length} Immobilie(n) bleiben in ` +
+          `${res.from.name} zurück – sie gehören dir weiter, geben dir hier aber ` +
+          'keinen Stellplatz.');
+      }
+      note = `📦 Umgezogen nach ${res.country.flag} **${res.country.name}** für ` +
+        `**${money(symbol, res.cost)}**.` + (folgen.length ? `\n${folgen.join('\n')}` : '');
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Sprachliste. */
+  async spr(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildLanguageView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
+  /** Nachfrage vor dem Sprachwechsel. */
+  async sprw(interaction, [key]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildLanguageConfirm({
+      guildId: gid(interaction), userId: uid(interaction), key,
+    }));
+  },
+
+  /** Sprache wirklich wechseln. */
+  async sprok(interaction, [key]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+
+    const res = require('./home').setLanguage(guildId, userId, key);
+    await interaction.editReply(await buildHomeView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      const problems = {
+        unknown_language: '❌ Diese Sprache gibt es nicht.',
+        already_set: 'ℹ️ Darin sendest du schon.',
+        cooldown: '⏳ Zu früh – nach einem Sprachwechsel musst du erst einmal ' +
+          `dabeibleiben. Noch **${require('./income').formatRemaining(res.remainingMs ?? 0)}**.`,
+      };
+      note = problems[res.reason] ?? '❌ Das ging nicht.';
+    } else if (res.first) {
+      note = `${res.language.emoji} Du sendest ab jetzt auf **${res.language.name}**. ` +
+        `_${res.language.blurb}_`;
+    } else {
+      note = `🔁 Umgestellt von ${res.from.emoji} **${res.from.name}** auf ` +
+        `${res.language.emoji} **${res.language.name}**.\n` +
+        `📉 **${res.lost.toLocaleString('de-DE')}** Follower sind nicht mitgekommen.`;
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Den offenen Vorfall ansehen. */

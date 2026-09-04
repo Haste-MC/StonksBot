@@ -527,6 +527,8 @@ db.exec(`
     fatigue      REAL    NOT NULL DEFAULT 0,
     fatigue_at   INTEGER NOT NULL DEFAULT 0,
     merch_at     INTEGER NOT NULL DEFAULT 0,
+    language     TEXT    NOT NULL DEFAULT '',
+    language_at  INTEGER NOT NULL DEFAULT 0,
     created_at   INTEGER NOT NULL,
     PRIMARY KEY (guild_id, user_id)
   );
@@ -539,6 +541,8 @@ for (const [column, definition] of [
   ['fatigue', 'REAL NOT NULL DEFAULT 0'],
   ['fatigue_at', 'INTEGER NOT NULL DEFAULT 0'],
   ['merch_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['language', "TEXT NOT NULL DEFAULT ''"],
+  ['language_at', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   if (!creatorStateColumns.has(column)) {
     db.exec(`ALTER TABLE creator_state ADD COLUMN ${column} ${definition}`);
@@ -639,6 +643,31 @@ db.exec(`
     PRIMARY KEY (guild_id, user_id, kind)
   );
 `);
+
+// Heimat: In welchem Land der Spieler lebt und wie oft er schon umgezogen
+// ist. Beides hängt am Spieler, nicht am Kanal – der Umzug betrifft ja auch
+// Wohnung und Stellplätze (siehe src/home.js).
+const homeColumns = new Set(
+  db.prepare('PRAGMA table_info(player_stats)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['home_country', "TEXT NOT NULL DEFAULT ''"],
+  ['moves', 'INTEGER NOT NULL DEFAULT 0'],
+  ['home_at', 'INTEGER NOT NULL DEFAULT 0'],
+]) {
+  if (!homeColumns.has(column)) {
+    db.exec(`ALTER TABLE player_stats ADD COLUMN ${column} ${definition}`);
+  }
+}
+
+// In welchem Land ein Besitz steht. Immobilien im Ausland bleiben dein
+// Eigentum und behalten ihren Wert – Wohnen und Parken kann man darin aber
+// nicht mehr, wenn man weggezogen ist. Leer = "war schon immer da", zählt
+// deshalb als Inland (Bestandsdaten).
+const inventoryCountry = new Set(
+  db.prepare('PRAGMA table_info(inventory)').all().map((c) => c.name));
+if (!inventoryCountry.has('country')) {
+  db.exec("ALTER TABLE inventory ADD COLUMN country TEXT NOT NULL DEFAULT ''");
+}
 
 // Zuletzt gesehene Patchnotes-Version nachrüsten ('' = noch nie welche gesehen).
 const statsColumns = new Set(
@@ -748,6 +777,7 @@ const stmt = {
     `SELECT COALESCE(SUM(i.garage * inv.quantity), 0) AS slots
      FROM inventory inv JOIN items i ON i.id = inv.item_id
      WHERE inv.guild_id = ? AND inv.user_id = ? AND i.kind = 'property' AND inv.quantity > 0
+       AND (inv.country = ? OR inv.country = '')
        AND NOT EXISTS (
          SELECT 1 FROM rentals r
          WHERE r.guild_id = inv.guild_id AND r.item_id = inv.item_id
@@ -764,7 +794,8 @@ const stmt = {
      WHERE inv.guild_id = ? AND inv.user_id = ? AND inv.quantity > 0 AND i.kind = ?
      ORDER BY i.brand ASC, i.name ASC`),
   listOwnedProperties: db.prepare(
-    `SELECT i.*, inv.quantity, inv.condition FROM inventory inv JOIN items i ON i.id = inv.item_id
+    `SELECT i.*, inv.quantity, inv.condition, inv.country
+     FROM inventory inv JOIN items i ON i.id = inv.item_id
      WHERE inv.guild_id = ? AND inv.user_id = ? AND i.kind = 'property' AND inv.quantity > 0
      ORDER BY i.price DESC`),
 
@@ -1373,7 +1404,8 @@ const stmt = {
      ON CONFLICT (guild_id, user_id) DO NOTHING`),
   saveCreatorState: db.prepare(
     `UPDATE creator_state SET day = ?, time_used = ?, boost = ?, boost_until = ?,
-       community = ?, community_at = ?, fatigue = ?, fatigue_at = ?, merch_at = ?
+       community = ?, community_at = ?, fatigue = ?, fatigue_at = ?, merch_at = ?,
+       language = ?, language_at = ?
      WHERE guild_id = ? AND user_id = ?`),
   clearCreatorState: db.prepare('DELETE FROM creator_state WHERE guild_id = ? AND user_id = ?'),
 
@@ -1481,8 +1513,15 @@ function allItemsOfKind(guildId, kind) {
 // -------------------------------------------------------- Immobilien & Miete
 
 /** Stellplätze aus gekauften Immobilien. */
-function ownedGarageSlots(guildId, userId) {
-  return stmt.ownedGarage.get(guildId, userId).slots;
+/**
+ * Stellplätze aus eigenen Immobilien – nur die im angegebenen Land.
+ *
+ * Wer umzieht, kann seine Wohnung im alten Land nicht mitnehmen: Sie bleibt
+ * sein Eigentum und behält ihren Wert, aber wohnen und parken lässt sich dort
+ * nicht mehr. Bestandsdaten ohne Land zählen als Inland.
+ */
+function ownedGarageSlots(guildId, userId, country = '') {
+  return stmt.ownedGarage.get(guildId, userId, country).slots;
 }
 
 /** Wie viele Autos der Spieler besitzt. */
@@ -1876,6 +1915,13 @@ function listDamaged(guildId, userId, page = 1) {
   return { items, total, totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)), page };
 }
 
+function stampCountry(guildId, userId, itemId, country) {
+  db.prepare(
+    `UPDATE inventory SET country = ?
+     WHERE guild_id = ? AND user_id = ? AND item_id = ? AND country = ''`
+  ).run(String(country ?? ''), guildId, String(userId), itemId);
+}
+
 function reservePurchase(guildId, userId, itemId, quantity) {
   return transaction(() => {
     const item = stmt.getItem.get(guildId, itemId);
@@ -1936,7 +1982,7 @@ function getStats(guildId, userId) {
   return stmt.getStats.get(guildId, userId)
     ?? {
       guild_id: guildId, user_id: userId, xp: 0, income_total: 0, expense_total: 0,
-      tagline: '', seen_version: '',
+      tagline: '', seen_version: '', home_country: '', moves: 0, home_at: 0,
     };
 }
 
@@ -1953,6 +1999,20 @@ function listStats(guildId) {
 /** Setzt den Angeber-Spruch fürs Profil. */
 function setTagline(guildId, userId, text) {
   stmt.setTagline.run(guildId, userId, text);
+}
+
+// ---------------------------------------------------------------- Heimat
+
+/** Setzt das Wohnsitzland und zählt Umzüge mit. */
+function setHome(guildId, userId, country, { move = false, at = Date.now() } = {}) {
+  db.prepare(
+    `INSERT INTO player_stats (guild_id, user_id, home_country, moves, home_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET
+       home_country = excluded.home_country,
+       moves = moves + ?,
+       home_at = excluded.home_at`
+  ).run(guildId, String(userId), String(country), move ? 1 : 0, at, move ? 1 : 0);
 }
 
 // ----------------------------------------------------------- Storage-Wars
@@ -2405,6 +2465,7 @@ function saveCreatorState(guildId, userId, s) {
   stmt.saveCreatorState.run(
     s.day, s.time_used, s.boost, s.boost_until, s.community, s.community_at,
     s.fatigue ?? 0, s.fatigue_at ?? 0, s.merch_at ?? 0,
+    s.language ?? '', s.language_at ?? 0,
     guildId, String(userId));
 }
 
@@ -2798,7 +2859,7 @@ module.exports = {
   listItems, listBrands, getItem, createItem, deleteItem, updateItemImage, allItemsOfKind,
   listInventory, listDamaged, reservePurchase, releasePurchase,
   getOwned, getMostValuable, garageValue, propertyValue, ownsNamed, bestCarValue,
-  addStats, getStats, listStats, setTagline, setSeenVersion,
+  addStats, getStats, listStats, setTagline, setSeenVersion, setHome, stampCountry,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
   getCreator, allCreator, saveCreator, addCreatorFollowers,

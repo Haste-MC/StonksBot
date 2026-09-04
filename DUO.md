@@ -384,7 +384,91 @@ mögliche Fänge vom alten Stiefel über Hecht und Wels bis zur versunkenen
 Geldkassette. Der Wert hängt an der **Größe** – derselbe Karpfen ist mal 4,
 mal 18 Kilo schwer. Manchmal beißt nichts, und die Rute kann brechen.
 
-### Creator-Netzwerk 📡
+### Heimat und Sprache 🌍
+
+```
+!heimat          (auch !land, !sprache, !wohnsitz)
+/heimat          auf Discord, oder 🌍 im Menü unter „Ich"
+```
+
+Zwei Entscheidungen, die zusammen bestimmen, **für wen** man eigentlich
+Inhalte macht:
+
+| | bestimmt | wirkt auf |
+|--|--|--|
+| 🏠 **Wohnsitz** | Kaufkraft deines Heimatmarkts | Werbedeals, Merch, Spenden |
+| 🗣️ **Inhaltssprache** | Größe des erreichbaren Publikums | Obergrenze, Tempo, Werbepreis |
+
+### Die Abwägung
+
+```
+🥨 Landessprache   kleiner Topf · bindet schnell · gute Werbepreise · Decke kommt früh
+🌍 Englisch        riesiger Topf · zäher Start · keine Decke in Sicht
+```
+
+Technisch stecken dahinter zwei getrennte Größen, und die Trennung ist der
+ganze Trick:
+
+- **`pool`** skaliert die Obergrenze der Reichweite **linear**. Deutsch (0,55)
+  deckelt Twitch bei rund 1,08 Mio Followern, Englisch (3,0) bei 5,88 Mio.
+- **`speed`** multipliziert Zuwachs **und** Schwund. Der Endpunkt bleibt damit
+  exakt gleich, nur der Weg dorthin wird kürzer: Bis zur halben Decke braucht
+  ein deutscher Kanal **1.365** Aktionen, ein englischer **4.322**.
+
+Wäre `speed` nur auf den Zuwachs gegangen, wäre die schnelle Wahl auch die
+größere gewesen – und es gäbe nichts zu entscheiden. Genau das prüft
+[`test/home.test.js`](test/home.test.js) ausdrücklich nach.
+
+Dazu wandert der Punkt der **vollen Vermarktung** mit dem Markt: Mit 500.000
+Followern ist man im deutschsprachigen Raum eine Größe und verdient
+entsprechend, im englischsprachigen ist man damit niemand.
+
+### Was welcher Rang noch hergibt
+
+Weil die Decke an der Sprache hängt, ist auch die Bekanntheitsleiter nicht für
+jeden offen:
+
+| Sprache | Netzwerk-Decke | höchster erreichbarer Rang |
+|--|--:|--|
+| 🌍 Englisch | 18,2 Mio | 🌟 Superstar |
+| 🐉 Mandarin | 12,2 Mio | 🌟 Superstar |
+| 💃 Spanisch | 10,9 Mio | 🌟 Superstar |
+| 🪷 Hindi | 9,1 Mio | 🌟 Superstar |
+| 🥨 Deutsch | 3,3 Mio | ✨ Prominenz |
+| 🗾 Japanisch | 3,6 Mio | ✨ Prominenz |
+| 🌷 Niederländisch | 1,1 Mio | ✨ Prominenz |
+
+**Superstar wird man nur international.** Wer auf Deutsch sendet, kommt bis
+Prominenz – dafür schneller, mit besseren Werbepreisen und einem Publikum, das
+bleibt. Das ist kein Zufall, sondern genau die Aussage des Rangs.
+
+### Heimvorteil
+
+Wer in der Sprache seines Landes sendet, bekommt **+15 % Tempo** – man kennt
+die Kultur, die Witze sitzen, die Leute bleiben eher hängen.
+
+### Umziehen kostet
+
+Die **erste Wahl ist kostenlos**, bei Land wie Sprache. Danach:
+
+**Umzug** — Grundkosten mal Kaufkraft des Ziels (nach Japan 70.000, in die
+Schweiz 80.000), und jeder weitere Umzug wird 50 % teurer. Dazu:
+
+- 🔑 Dein **Mietvertrag endet** – die Wohnung steht im alten Land.
+- 🏠 **Eigene Immobilien bleiben zurück.** Sie gehören dir weiter und zählen
+  voll zum Vermögen, geben dir am neuen Ort aber **keinen Stellplatz**.
+- 🚗 Ohne Wohnung zählt nur noch die Straße – zu viele Autos bringen dich in
+  die Gnadenfrist. Wer umzieht, muss sich drüben erst wieder eine Bleibe
+  kaufen oder mieten.
+
+**Sprachwechsel** — kostet **45 % aller Follower** auf allen Plattformen und
+sperrt weitere Wechsel für 30 Tage. Ein deutschsprachiges Publikum schaut keine
+englischen Videos, nur weil derselbe Mensch davor sitzt.
+
+Ohne diese Kosten wäre beides eine Optimierungsaufgabe, die man einmal löst und
+danach vergisst. Mit ihnen ist es eine Weichenstellung.
+
+## Creator-Netzwerk 📡
 
 Das **Streaming-Setup** war früher Voraussetzung für den Job „Streamer". Der
 Job ist raus – stattdessen hängt daran die komplexeste Tätigkeit im Spiel, und

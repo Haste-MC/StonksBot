@@ -22,6 +22,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/showcase [id] [user]` | Zeigt ein Auto aus der Garage groß her (ohne ID: das teuerste). |
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
+| `/heimat` | Wohnsitz und Inhaltssprache – für welchen Markt du produzierst. |
 | `/creator [plattform]` | Dein Netzwerk: Twitch, YouTube, Instagram, Twitter. |
 | `/leaderboard` | Rangliste – jetzt auch nach **Reichweite**. |
 | `/additem …` | **Admin:** legt einen Neuwagen an (Name, Preis, Marke, Bild, Lager …). |
@@ -154,6 +155,19 @@ Miete und für beschädigte Fahrzeuge:
 
 Konfiguration in [`src/data/npc.js`](src/data/npc.js), Logik in
 [`src/npc.js`](src/npc.js).
+
+## Heimat und Sprache
+
+Wo du lebst und in welcher Sprache du sendest, entscheidet, für wen du Inhalte
+machst: Die **Landessprache** hat einen kleinen Topf, bindet aber schnell und
+zahlt gut – die Decke kommt früh. **Englisch** hat einen riesigen Topf, dafür
+einen zähen Start. Superstar wird man nur international; auf Deutsch reicht es
+bis Prominenz.
+
+Die erste Wahl ist kostenlos. Danach kostet ein **Umzug** Geld, beendet den
+Mietvertrag und lässt die eigene Wohnung im alten Land zurück (sie bleibt dein
+Eigentum, gibt dir dort aber keinen Stellplatz mehr). Ein **Sprachwechsel**
+kostet 45 % deiner Follower. `/heimat`
 
 ## Creator-Netzwerk
 

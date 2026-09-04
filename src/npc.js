@@ -194,6 +194,9 @@ async function buy(guildId, userId, npcId) {
   // Erst lokal übereignen, dann buchen – bei Fehlschlag ist der lokale
   // Schritt zuverlässig zurückzurollen.
   db.reservePurchase(guildId, userId, listing.id, 1);
+  if (listing.kind === 'property') {
+    db.stampCountry(guildId, userId, listing.id, require('./home').homeOf(guildId, userId).id);
+  }
   db.setCondition(guildId, userId, listing.id, listing.npc_condition);
   db.deleteNpcListing(guildId, npcId);
 

@@ -195,6 +195,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildDepotView(ctx),
   },
   {
+    id: 'heimat',
+    group: 'me',
+    label: 'Heimat',
+    emoji: '🌍',
+    description: 'Wohnsitz und Inhaltssprache',
+    style: 'secondary',
+    build: (ctx) => ui.buildHomeView(ctx),
+  },
+  {
     id: 'staat',
     group: 'me',
     label: 'Staatskasse',
@@ -234,7 +243,7 @@ const GROUPS = [
   { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
   { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
   { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino und Auktionshaus' },
-  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Staatskasse' },
+  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Heimat' },
 ];
 
 const groupById = new Map(GROUPS.map((g) => [g.id, g]));
