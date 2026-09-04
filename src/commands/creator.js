@@ -18,6 +18,7 @@ module.exports = {
     await creator.settle(ctx.guildId, ctx.userId).catch(() => null);
     await creator.settleMerch(ctx.guildId, ctx.userId).catch(() => null);
     await creator.settleDeals(ctx.guildId, ctx.userId).catch(() => null);
+    await require('../decisions').settle(ctx.guildId, ctx.userId).catch(() => []);
 
     const key = interaction.options.getString('plattform');
     return interaction.editReply(key

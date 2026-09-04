@@ -168,9 +168,11 @@ Clip oder ein Shitstorm wirken überall. Alles teilt sich ein Tagesbudget an
 Zeit – ein Stream kostet 2, ein Video 3, ein Post oder Tweet 1.
 
 Dazu **Sponsorenverträge** (Marken zahlen für gelieferte Beiträge – wer die
-Frist reißt, zahlt Strafe), **Merch** (hängt an der Community, nicht an der
-Reichweite) und **Burnout** (wer täglich am Anschlag fährt, verliert Reichweite;
-Pausen bringen sie zurück).
+Frist reißt, zahlt Strafe), **Merch** (hängt an Community *und* Reichweite),
+**Burnout** (wer täglich am Anschlag fährt, verliert Reichweite) und
+**Vorfälle mit Entscheidung**: Der Sponsor ist ein Betrüger, ein alter Clip
+taucht auf, das Finanzamt schreibt. Keine Option ist sicher, mit der Größe wird
+es gefährlicher – und wer nicht reagiert, fährt am schlechtesten.
 
 Der Ertrag wächst mit der Reichweite, bleibt aber gedeckelt: Publikum wächst
 unterlinear zur Followerzahl (auch die übertragene), der Schwund linear. Die

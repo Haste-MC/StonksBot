@@ -534,12 +534,42 @@ Auch das bleibt unterlinear (`reichweite^0,65`): Der zehnfache Kanal bekommt
 keine zehnfachen Verträge. Twitter wird nie beauftragt, dort läuft keine
 Werbung, die jemand bezahlen würde.
 
+#### Vermarktung: Reichweite ist nicht gleich Geld
+
+Wie gut sich Reichweite überhaupt zu Geld machen lässt, hängt davon ab, wie
+groß man ist. Das ist keine Strafe für kleine Kanäle, sondern die
+Wirklichkeit: kein Partnerprogramm, miese Tausenderkontaktpreise, keine
+Verhandlungsmacht, keine Marke, die einen kennt.
+
+```
+Vermarktungsgrad = (Reichweite / 1.700.000)^0,73      gedeckelt bei 100 %
+```
+
+| Reichweite | Vermarktung | Geld/Tag | Einordnung |
+|--:|--:|--:|--|
+| bis 36.000 | 6 % | – | Taschengeld |
+| 50.000 | 8 % | ~1.700 | Nebenverdienst |
+| 250.000 | 25 % | ~11.000 | halber Spitzenjob |
+| 450.000 | 38 % | ~24.000 | **Job kündigen** |
+| 850.000 | 60 % | ~53.000 | drei Spitzenjobs |
+| 1.700.000 | 100 % | ~128.000 | volle Vermarktung |
+| 3.200.000 | 100 % | ~196.000 | – |
+
+Der Ertrag wächst im Aufstieg damit **schneller** als die Reichweite – das ist
+so gewollt: Der Weg ist lang, und ab einer gewissen Größe soll es knallen.
+Zum Vergleich: Der bestbezahlte Job (Astronaut) bringt bei vier Schichten
+20.000 am Tag; ab etwa 450.000 Followern lohnt sich das Arbeitsamt nicht mehr.
+
+Auf Sponsorenverträge wirkt die Kurve nur zur Hälfte (Wurzel) – Verträge
+werden verhandelt, nicht nach Tarif bezahlt. Ein kleiner Kanal bekommt
+schlechte Konditionen, aber keine Almosen.
+
 #### Merch 👕
 
 Ab **5.000** Followern verkaufst du Merch:
 
 ```
-pro Tag = (Community / 100) × Reichweite^0,62 × 4
+pro Tag = (Community / 100) × Reichweite^0,92 × 0,05
 ```
 
 Also **Anteil der Fans, der kauft × Zahl der Fans**. Die Community ist ein
@@ -548,11 +578,14 @@ nichts, und eine treue kleine Blase verdient nicht so viel wie ein Weltstar:
 
 | Reichweite | Merch/Tag (volle Community) |
 |--:|--:|
-| 5.000 | 786 |
-| 50.000 | 3.277 |
-| 250.000 | 8.888 |
-| 1.000.000 | 20.992 |
-| 3.000.000 | 41.483 |
+| 5.000 | 126 |
+| 50.000 | 1.052 |
+| 250.000 | 4.625 |
+| 1.000.000 | 17.000 |
+| 3.000.000 | 45.500 |
+
+Der Exponent ist bewusst steil: Unter 250.000 Followern ist Merch ein Zubrot,
+darüber eine tragende Säule.
 
 Bindung entsteht im Livechat, unter Videos und auf Twitter – im
 Instagram-Feed nicht. Abgerechnet wird faul (§4) beim Öffnen des Menüs,
@@ -575,6 +608,59 @@ Der Malus ist bei **−35 %** hart gedeckelt und trifft nur, wer dauerhaft am
 Anschlag fährt. Aus dem Zeitdeckel wird damit eine Entscheidung statt einer
 Wand – und nebenbei eine weitere Obergrenze für §3.
 
+#### Vorfälle: Entscheidungen mit Folgen ⚠️
+
+Bis hierher war der Aufstieg eine Fleißaufgabe – wer täglich sendet, kommt an.
+Genau daran krankt jede Aktivität, die sich durchoptimieren lässt: Man spielt
+sie nicht mehr, man arbeitet sie ab.
+
+**Zwölf Vorfälle** brechen das auf. Der Sponsor entpuppt sich als Betrug, ein
+sechs Jahre alter Clip taucht auf, ein Netzwerk will dich exklusiv, das
+Finanzamt schreibt, jemand steht vor deiner Tür. Jeder hat zwei bis drei
+Optionen, jede Option **mehrere gewichtete Ausgänge**:
+
+```
+🪙 Dein Sponsor ist ein Problem
+   ✂️ Öffentlich distanzieren   → meist Community, manchmal Spott
+   🤐 Aussitzen                 → meist Schaden, manchmal Ruhe
+   🔥 Nachlegen                 → selten viel Geld, meist ein Desaster
+```
+
+Bewusst **ohne Zahlen in der Anzeige**: Was eine Option kostet oder bringt,
+steht nirgends – sonst wäre es Rechnen statt Entscheiden.
+
+**Drei Regeln machen den Unterschied:**
+
+1. **Keine Option ist sicher.** Die brave Wahl kostet meistens ein wenig, die
+   mutige kann alles kosten – und manchmal ist es umgekehrt.
+2. **Mit der Größe wird es gefährlicher.** Große Kanäle stehen unter
+   Beobachtung: mehr Vorfälle (2 % → 4 % je Aktion) und **härtere Ausgänge**
+   (Verluste bis ×1,6). Verstärkt werden nur Verluste, nie Gewinne.
+3. **Wegklicken hilft nicht.** Wer 24 Stunden nicht reagiert, bekommt den
+   Ausgang, den Schweigen eben hat – mit **60 % Aufschlag** auf den Schaden.
+
+Der härteste Ausgang ist eine **Sperre**: Nach einem Copyright-Strike liegt
+der Kanal Tage still, während die Follower weiter verfallen.
+
+#### Warum die Spitze nicht sicher ist
+
+Das ist der eigentliche Zweck der Vorfälle. Über 40 simulierte Karrieren mit
+Drama:
+
+| Spielweise | Tag 365 | Tag 730 |
+|--|--:|--:|
+| überlegt entschieden | 484.000 | 1.221.000 |
+| zufällig geklickt | 415.000 | 915.000 |
+| nie reagiert | 345.000 | 774.000 |
+
+Dazu eine Streuung von **p10 zu p90 um den Faktor 2** – zwei Spieler mit
+identischem Fleiß landen ein Jahr später weit auseinander. Wer gut entscheidet,
+ist rund **40 % weiter** als wer wegklickt; garantiert ist beides nicht.
+
+Damit ist der Weg an die Spitze kein Countdown mehr, sondern etwas, das
+schiefgehen kann – und ein großer Kanal ist kein Zustand, den man erreicht,
+sondern einer, den man hält.
+
 #### Rangliste und Profil
 
 `/leaderboard` hat eine neue Ansicht **📡 Reichweite** – dort stehen nur
@@ -595,11 +681,11 @@ nicht jeder Aufruf eine API-Abfrage ist) und darunter den
 | Wert | Titel | erreichbar etwa |
 |--|--|--|
 | 0 | 🫥 Unbeschriebenes Blatt | – |
-| 1.000 | 🙂 Vom Sehen bekannt | erste Woche |
-| 10.000 | 📍 Lokalgröße | erster Monat |
-| 50.000 | 🏙️ Stadtbekannt | ~Tag 100 |
-| 250.000 | 📺 Landesweit ein Begriff | ~Tag 250 |
-| 1.000.000 | ✨ Prominenz | ~Tag 550 |
+| 10.000 | 🙂 Vom Sehen bekannt | erster Monat |
+| 25.000 | 📍 Lokalgröße | ~Tag 70 |
+| 50.000 | 🏙️ Stadtbekannt | ~Tag 110 |
+| 250.000 | 📺 Landesweit ein Begriff | ~Tag 230 |
+| 1.000.000 | ✨ Prominenz | ~Tag 520 |
 | 5.000.000 | 🌟 Superstar | Jahre |
 | 20.000.000 | 👑 Legende | Fernziel |
 

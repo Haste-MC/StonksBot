@@ -11,7 +11,8 @@ const {
   buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
-  buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, money,
+  buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
+  buildDecisionView, money,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -169,6 +170,12 @@ async function settleCreator(guildId, userId) {
 
   const merch = await creator.settleMerch(guildId, userId).catch(() => null);
   if (merch) lines.push(`👕 Merch verkauft: **${money(symbol, merch.amount)}**.`);
+
+  // Abgelaufene Entscheidungen wirken jetzt – Schweigen ist auch eine Wahl.
+  for (const gone of await require('./decisions').settle(guildId, userId).catch(() => [])) {
+    lines.push(`⚠️ **${gone.decision.emoji} ${gone.decision.title}** – du hast nicht ` +
+      `reagiert.\n_${gone.outcome.text}_`);
+  }
 
   const deals = await creator.settleDeals(guildId, userId).catch(() => null);
   if (deals?.failed) {
@@ -1350,6 +1357,59 @@ Object.assign(buttons, {
     await interaction.showModal(modal);
   },
 
+  /** Den offenen Vorfall ansehen. */
+  async vorfall(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const notes = await settleCreator(guildId, userId);
+    await interaction.editReply(await buildDecisionView({ guildId, userId }));
+    if (notes) {
+      await interaction.followUp({ content: notes, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
+  },
+
+  /** Eine Entscheidung treffen. */
+  async wahl(interaction, [eventId, optionId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await require('./decisions').choose(guildId, userId, Number(eventId), optionId);
+    await interaction.editReply(await buildDecisionView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      note = res.reason === 'expired'
+        ? `⏱️ Zu spät – die Frist ist abgelaufen.\n_${res.result?.outcome?.text ?? ''}_`
+        : 'ℹ️ Diese Entscheidung ist nicht mehr offen.';
+    } else {
+      const e = res.effect;
+      const parts = [];
+      if (e.followers) {
+        parts.push(`${e.followers > 0 ? '📈 +' : '📉 '}` +
+          `${e.followers.toLocaleString('de-DE')} Follower`);
+      }
+      if (e.community) parts.push(`💞 ${e.community > 0 ? '+' : ''}${e.community} Community`);
+      if (e.cash) parts.push(`💰 ${e.cash > 0 ? '+' : ''}${money(symbol, e.cash)}`);
+      if (e.hype) {
+        parts.push(`📈 Form ${e.hype > 1 ? '+' : ''}${Math.round((e.hype - 1) * 100)} %`);
+      }
+      if (e.fatigue) parts.push(`🔋 ${e.fatigue > 0 ? '+' : ''}${e.fatigue} Erschöpfung`);
+      if (e.gear) parts.push(`💥 ${e.gear} kaputt`);
+      if (e.locked?.length) {
+        parts.push(`⛔ gesperrt: ${e.locked.map((id) =>
+          require('./creator').platform(id)?.name ?? id).join(', ')}`);
+      }
+
+      note = `${res.decision.emoji} **${res.option.label}**\n_${res.outcome.text}_` +
+        (parts.length ? `\n\n${parts.join(' · ')}` : '\n\n_Ohne Folgen. Diesmal._');
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
   /** Creator: eine Aktion auf einer Plattform (Stream, Video, Post, Tweet). */
   async post(interaction, [platformId, formatId], title = null) {
     await interaction.deferUpdate();
@@ -1373,6 +1433,9 @@ Object.assign(buttons, {
         note = `😴 Der Tag hat nur ${res.max} Stunden Kreativzeit. ` +
           `Für ${res.platform.action} brauchst du **${res.need}**, übrig sind **${res.left}**. ` +
           `Morgen wieder (in **${require('./income').formatRemaining(res.resetMs)}**).`;
+      } else if (res.reason === 'locked') {
+        note = `⛔ ${res.platform.name} ist nach dem Vorfall gesperrt – noch ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
       } else if (res.reason === 'no_gear') {
         note = `${res.platform.emoji} Dafür brauchst du **${res.gear}** ` +
           `(🧰 Ausrüstung, ${money(symbol, res.price ?? 0)}).`;
@@ -1393,6 +1456,11 @@ Object.assign(buttons, {
       if (res.offer) {
         note += `\n📬 ${res.offer.emoji} **${res.offer.brand}** hat angefragt – ` +
           'siehe 🤝 Deals.';
+      }
+      if (res.incident) {
+        const d = require('./decisions').decision(res.incident.kind);
+        note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+          'du musst dich entscheiden (⚠️ im Netzwerk).';
       }
       if (res.tired) {
         note += `\n🔋 Du wirkst müde: **${Math.round(res.energy * 100)} %** Reichweite. ` +

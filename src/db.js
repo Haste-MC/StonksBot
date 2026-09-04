@@ -487,6 +487,7 @@ db.exec(`
     peak_followers     INTEGER NOT NULL DEFAULT 0,
     last_action_at     INTEGER NOT NULL DEFAULT 0,
     touched_at         INTEGER NOT NULL DEFAULT 0,
+    locked_until       INTEGER NOT NULL DEFAULT 0,
     stock              REAL    NOT NULL DEFAULT 0,
     stock_paid_through INTEGER NOT NULL DEFAULT 0,
     last_title         TEXT    NOT NULL DEFAULT '',
@@ -503,6 +504,7 @@ const creatorColumns = new Set(
 for (const [column, definition] of [
   ['touched_at', 'INTEGER NOT NULL DEFAULT 0'],
   ['last_title', "TEXT NOT NULL DEFAULT ''"],
+  ['locked_until', 'INTEGER NOT NULL DEFAULT 0'],
 ]) {
   if (!creatorColumns.has(column)) {
     db.exec(`ALTER TABLE creator_channels ADD COLUMN ${column} ${definition}`);
@@ -542,6 +544,29 @@ for (const [column, definition] of [
     db.exec(`ALTER TABLE creator_state ADD COLUMN ${column} ${definition}`);
   }
 }
+
+// Vorfälle mit Entscheidung: Ein Ereignis liegt offen, bis der Spieler wählt
+// oder die Frist abläuft. Zustand gehört in die Datenbank, damit eine offene
+// Entscheidung einen Neustart überlebt – sonst wäre Wegklicken die beste
+// Strategie.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS creator_events (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,            -- ID aus data/decisions.js
+    platform   TEXT    NOT NULL DEFAULT '', -- leer = netzwerkweit
+    status     TEXT    NOT NULL,            -- open | done | expired
+    choice     TEXT    NOT NULL DEFAULT '',
+    outcome    TEXT    NOT NULL DEFAULT '',
+    effect     TEXT    NOT NULL DEFAULT '', -- angewandte Wirkung als JSON
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    decided_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_creator_events
+    ON creator_events (guild_id, user_id, status);
+`);
 
 // Sponsorenverträge: Eine Marke zahlt für eine vereinbarte Zahl von Beiträgen
 // innerhalb einer Frist. Wer liefert, kassiert; wer die Frist reißt, zahlt
@@ -1268,7 +1293,7 @@ const stmt = {
        followers = ?, subs = ?, hype = ?, actions = ?, views_total = ?,
        earned_total = ?, peak_audience = ?, peak_followers = ?,
        last_action_at = ?, touched_at = ?, stock = ?, stock_paid_through = ?,
-       last_title = ?
+       last_title = ?, locked_until = ?
      WHERE guild_id = ? AND user_id = ? AND platform = ?`),
   // Übertrag auf eine andere Plattform: erst den aufgelaufenen Verfall
   // anwenden (Faktor), dann den Zuwachs – in EINER Anweisung.
@@ -1284,6 +1309,30 @@ const stmt = {
      FROM creator_channels WHERE guild_id = ?
      GROUP BY user_id HAVING followers > 0 ORDER BY followers DESC LIMIT ?`),
   clearCreator: db.prepare('DELETE FROM creator_channels WHERE guild_id = ? AND user_id = ?'),
+
+  // --- Vorfälle mit Entscheidung ---
+  insertEvent: db.prepare(
+    `INSERT INTO creator_events (guild_id, user_id, kind, platform, status, created_at, expires_at)
+     VALUES (?, ?, ?, ?, 'open', ?, ?) RETURNING *`),
+  getEvent: db.prepare('SELECT * FROM creator_events WHERE guild_id = ? AND id = ?'),
+  openEvent: db.prepare(
+    `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status = 'open'
+     ORDER BY id DESC LIMIT 1`),
+  overdueEvents: db.prepare(
+    `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status = 'open'
+       AND expires_at <= ?`),
+  resolveEvent: db.prepare(
+    `UPDATE creator_events SET status = ?, choice = ?, outcome = ?, effect = ?, decided_at = ?
+     WHERE guild_id = ? AND id = ? AND status = 'open'`),
+  eventHistory: db.prepare(
+    `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status <> 'open'
+     ORDER BY id DESC LIMIT ?`),
+  lastEvent: db.prepare(
+    `SELECT MAX(created_at) AS at FROM creator_events WHERE guild_id = ? AND user_id = ?`),
+  clearEvents: db.prepare('DELETE FROM creator_events WHERE guild_id = ? AND user_id = ?'),
+  lockCreator: db.prepare(
+    `UPDATE creator_channels SET locked_until = ?
+     WHERE guild_id = ? AND user_id = ? AND platform = ?`),
 
   // --- Sponsorenverträge ---
   insertDeal: db.prepare(
@@ -2332,7 +2381,7 @@ function saveCreator(guildId, userId, platform, c) {
     Math.max(0, Math.round(c.followers)), Math.max(0, Math.round(c.subs)), c.hype,
     c.actions, c.views_total, c.earned_total, c.peak_audience, c.peak_followers,
     c.last_action_at, c.touched_at, c.stock, c.stock_paid_through,
-    String(c.last_title ?? '').slice(0, 120),
+    String(c.last_title ?? '').slice(0, 120), c.locked_until ?? 0,
     guildId, String(userId), platform);
 }
 
@@ -2367,6 +2416,48 @@ function topCreator(guildId, platform, limit = 10) {
 /** Rangliste über alle Plattformen zusammen. */
 function topCreatorTotal(guildId, limit = 10) {
   return stmt.topCreatorTotal.all(guildId, limit);
+}
+
+// ------------------------------------------------- Vorfälle (Entscheidungen)
+
+/** Legt einen offenen Vorfall an. */
+function insertEvent({ guildId, userId, kind, platform = '', createdAt, expiresAt }) {
+  return stmt.insertEvent.get(guildId, String(userId), kind, platform, createdAt, expiresAt);
+}
+
+function getEvent(guildId, id) {
+  return stmt.getEvent.get(guildId, Number(id)) ?? null;
+}
+
+/** Der offene Vorfall eines Spielers, oder null. */
+function openEvent(guildId, userId) {
+  return stmt.openEvent.get(guildId, String(userId)) ?? null;
+}
+
+/** Offene Vorfälle, deren Frist abgelaufen ist. */
+function overdueEvents(guildId, userId, now = Date.now()) {
+  return stmt.overdueEvents.all(guildId, String(userId), now);
+}
+
+/** Schließt einen Vorfall ab. false, wenn er nicht mehr offen war. */
+function resolveEvent(guildId, id, { status, choice = '', outcome = '', effect = '', at }) {
+  return stmt.resolveEvent.run(
+    status, choice, outcome, effect, at, guildId, Number(id)).changes > 0;
+}
+
+/** Die letzten erledigten Vorfälle. */
+function eventHistory(guildId, userId, limit = 5) {
+  return stmt.eventHistory.all(guildId, String(userId), limit);
+}
+
+/** Wann zuletzt überhaupt ein Vorfall auftrat (0 = noch nie). */
+function lastEventAt(guildId, userId) {
+  return stmt.lastEvent.get(guildId, String(userId))?.at ?? 0;
+}
+
+/** Sperrt eine Plattform bis zu einem Zeitpunkt. */
+function lockCreator(guildId, userId, platform, until) {
+  stmt.lockCreator.run(until, guildId, String(userId), platform);
 }
 
 // ------------------------------------------------------ Sponsorenverträge
@@ -2426,6 +2517,7 @@ function clearCreator(guildId, userId) {
   stmt.clearCreator.run(guildId, String(userId));
   stmt.clearCreatorState.run(guildId, String(userId));
   stmt.clearDeals.run(guildId, String(userId));
+  stmt.clearEvents.run(guildId, String(userId));
 }
 
 // -------------------------------------------------------- Staatskasse
@@ -2711,6 +2803,8 @@ module.exports = {
   getLink, setLink, deleteLink, linksOf,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
+  insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,
+  lastEventAt, lockCreator,
   insertDeal, getDeal, listDeals, activeDeal, countOffers, acceptDeal,
   setDealStatus, advanceDeal, expireOffers, dealHistory,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,

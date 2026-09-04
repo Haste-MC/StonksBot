@@ -18,16 +18,30 @@
  */
 module.exports = [
   {
+    version: '1.13.0',
+    date: '2026-09-03',
+    title: 'Vorfälle: jetzt musst du dich entscheiden',
+    lines: [
+      '⚠️ **Zwölf Vorfälle** können deinen Kanal treffen: Der Sponsor entpuppt sich als Betrug, ein sechs Jahre alter Clip taucht auf, ein Netzwerk will dich exklusiv, das Finanzamt schreibt.',
+      '🎲 **Keine Option ist sicher.** Jede Wahl hat mehrere Ausgänge – die brave kostet meistens ein wenig, die mutige kann alles kosten. Zahlen siehst du nicht: Das soll eine Entscheidung sein, keine Rechenaufgabe.',
+      '📈 **Mit der Größe wird es gefährlicher:** mehr Vorfälle und härtere Ausgänge. Verstärkt werden nur Verluste, nie Gewinne.',
+      '🤫 **Wegklicken hilft nicht.** Wer 24 Stunden nicht reagiert, bekommt den Ausgang des Schweigens – mit 60 % Aufschlag auf den Schaden.',
+      '⛔ **Sperren:** Nach einem Copyright-Strike liegt der Kanal tagelang still, während die Follower weiter verfallen.',
+      '🎯 **Der Sinn dahinter:** Die Spitze ist nicht mehr garantiert. Wer gut entscheidet, ist nach einem Jahr rund 40 % weiter als wer wegklickt – aber zwei Spieler mit gleichem Fleiß landen trotzdem weit auseinander.',
+    ],
+  },
+  {
     version: '1.12.0',
     date: '2026-09-03',
     title: 'Creator-Balance: die Decke fällt',
     lines: [
       '📈 **Reichweite kann jetzt wirklich groß werden.** Bisher war bei ~14.000 Followern Schluss – weniger, als ein Spitzenjob einbringt. Die Obergrenze liegt jetzt bei mehreren Millionen je Plattform.',
       '🛌 **Der Grund war ein Fehler:** Wer täglich zur selben Zeit sendete, bekam jeden Tag einen vollen Tag „Inaktivitätsverfall" aufgebrummt. Jetzt gibt es einen **Schontag** – bestraft wird Abwesenheit, nicht Regelmäßigkeit.',
-      '💰 **Entsprechend zahlt es sich aus:** ~24.000 am Tag nach einem halben Jahr, sechsstellig für die ganz Großen. Zum Vergleich: Der beste Job bringt 20.000.',
-      '👕 **Merch neu gerechnet:** (Community / 100) × Reichweite^0,62 × 4 – also Anteil der Fans, der kauft, mal Zahl der Fans. Ohne Bindung verkauft auch der größte Kanal nichts.',
+      '💰 **Entsprechend zahlt es sich aus:** ~1.700 am Tag bei 50.000 Followern, ~24.000 bei 450.000, sechsstellig ab 1,7 Millionen. Zum Vergleich: Der beste Job bringt 20.000.',
+      '👕 **Merch neu gerechnet:** (Community / 100) × Reichweite^0,92 × 0,05 – Anteil der Fans, der kauft, mal Zahl der Fans. Unter 250.000 Followern ein Zubrot, darüber eine tragende Säule. Ohne Bindung verkauft auch der größte Kanal nichts.',
       '🤝 **Werbedeals knallen:** Bei einer Million Reichweite bringt ein Dreier-Vertrag ~119.000.',
-      '🌟 **Bekanntheitsleiter gestreckt:** „Superstar" liegt jetzt bei 5 Millionen Followern statt 100.000 – international, nicht nach drei Monaten.',
+      '🌟 **Bekanntheitsleiter gestreckt:** „Superstar" liegt bei 5 Millionen Followern statt 100.000 – international, nicht nach drei Monaten.',
+      '💸 **Vermarktung:** Reichweite allein ist kein Geld. Wer klein ist, hat kein Partnerprogramm und miese Preise – erst ab ~450.000 Followern lohnt sich das Arbeitsamt nicht mehr. Dafür knallt es oben richtig.',
       '🌪️ **Shitstorms sind seltener, aber härter** – vorher fraß alle 40 Aktionen einer 5 % der Follower und deckelte damit heimlich den ganzen Kanal.',
     ],
   },
