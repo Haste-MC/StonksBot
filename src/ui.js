@@ -1242,19 +1242,25 @@ async function buildCreatorView({ guildId, userId }) {
 
   const embed = new EmbedBuilder()
     .setTitle('📡 Dein Netzwerk')
-    .setColor(0x9146ff)
+    .setColor(s.incident ? 0xe74c3c : 0x9146ff)
     .setDescription(
-      s.actions === 0
+      (s.incident
+        ? `⚠️ **${s.incident.decision.emoji} ${s.incident.decision.title}** – du musst dich `
+          + `entscheiden. Noch **${require('./income').formatRemaining(s.incident.remainingMs)}**.\n\n`
+        : '') +
+      (s.actions === 0
         ? 'Vier Plattformen, ein Publikum. Wer auf einer wächst, startet auf den ' +
           'anderen nicht bei null – und **Twitter zahlt nie**, schiebt aber alles an.\n' +
           'Wähle unten, wo du anfängst.'
-        : `**${s.total.toLocaleString('de-DE')}** Follower insgesamt · _${reachLabel(s.total)}_`);
+        : `**${s.total.toLocaleString('de-DE')}** Follower insgesamt · _${reachLabel(s.total)}_`));
 
   for (const p of s.platforms) {
     const lines = [
       `**${p.followers.toLocaleString('de-DE')}** ${p.followerName}` +
       (p.subs && p.subs > 0 ? ` · ⭐ ${p.subs}` : ''),
-      `${p.action}: ${p.hasGear ? readyIn(p.remainingMs) : `🔒 ${p.gear}`}` +
+      p.lockedMs > 0
+        ? `⛔ gesperrt, noch ${require('./income').formatRemaining(p.lockedMs)}`
+        : `${p.action}: ${p.hasGear ? readyIn(p.remainingMs) : `🔒 ${p.gear}`}` +
       ` · ⏱️ ${p.time}`,
     ];
     if (p.id === 'youtube' && p.stock > 0) {
@@ -1296,6 +1302,13 @@ async function buildCreatorView({ guildId, userId }) {
       + 'Twitter zahlt nichts und ist trotzdem wichtig',
   });
 
+  const incidentButton = s.incident
+    ? new ButtonBuilder()
+      .setCustomId(`vorfall|${userId}`)
+      .setLabel('Entscheidung').setEmoji('⚠️')
+      .setStyle(ButtonStyle.Danger)
+    : null;
+
   const dealButton = new ButtonBuilder()
     .setCustomId(`deals|${userId}`)
     .setLabel(s.offers.length > 0 ? `Deals (${s.offers.length})` : 'Deals')
@@ -1309,7 +1322,8 @@ async function buildCreatorView({ guildId, userId }) {
         .setLabel(p.name).setEmoji(p.emoji)
         .setStyle(p.remainingMs <= 0 && p.hasGear && s.budget.left >= p.time
           ? ButtonStyle.Primary : ButtonStyle.Secondary))),
-    new ActionRowBuilder().addComponents(dealButton, homeButton(userId)),
+    new ActionRowBuilder().addComponents(
+      ...(incidentButton ? [incidentButton] : []), dealButton, homeButton(userId)),
   ];
 
   return { embeds: [embed], components: rows };
@@ -1386,6 +1400,71 @@ async function buildDealsView({ guildId, userId }) {
         .setLabel('Ablehnen').setEmoji('🚫')
         .setStyle(ButtonStyle.Secondary)));
   }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+      .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Ein Vorfall, der eine Entscheidung verlangt.
+ *
+ * Bewusst ohne Zahlen: Was eine Option kostet oder bringt, steht nirgends –
+ * sonst wäre es Rechnen statt Entscheiden. Sichtbar ist nur die Frist.
+ */
+async function buildDecisionView({ guildId, userId }) {
+  const creator = require('./creator');
+  const decisions = require('./decisions');
+  const open = decisions.pending(guildId, userId);
+
+  if (!open) {
+    const past = decisions.history(guildId, userId, 5);
+    const embed = new EmbedBuilder()
+      .setTitle('⚠️ Vorfälle')
+      .setColor(0x95a5a6)
+      .setDescription(past.length
+        ? 'Gerade ist alles ruhig. Was bisher passiert ist:'
+        : 'Noch ist nichts passiert. Das bleibt nicht so – je größer du wirst, '
+          + 'desto öfter musst du dich entscheiden.');
+    for (const p of past) {
+      embed.addFields({
+        name: `${p.decision.emoji} ${p.decision.title}`,
+        value: `${p.status === 'expired' ? '⏱️ _nicht reagiert_' : '✅ entschieden'}\n`
+          + `_${p.outcome}_`,
+      });
+    }
+    return {
+      embeds: [embed],
+      components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+          .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
+        homeButton(userId))],
+    };
+  }
+
+  const d = open.decision;
+  const platform = open.platform ? creator.platform(open.platform) : null;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${d.emoji} ${d.title}`)
+    .setColor(0xe74c3c)
+    .setDescription(d.text)
+    .addFields({
+      name: '⏳ Zeit',
+      value: `Du hast noch **${require('./income').formatRemaining(open.remainingMs)}**. `
+        + 'Wer nicht entscheidet, bekommt das Ergebnis, das Schweigen eben hat.',
+    })
+    .setFooter({
+      text: platform ? `Betrifft ${platform.name}` : 'Betrifft dein ganzes Netzwerk',
+    });
+
+  const rows = [new ActionRowBuilder().addComponents(...d.options.map((o) =>
+    new ButtonBuilder()
+      .setCustomId(`wahl|${open.id}|${o.id}|${userId}`)
+      .setLabel(o.label.slice(0, 78)).setEmoji(o.emoji)
+      .setStyle(ButtonStyle.Secondary)))];
   rows.push(new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
       .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
@@ -1494,7 +1573,16 @@ async function buildPlatformView({ guildId, userId, key, titleMode = false }) {
         ? `\n🐦 Promo aktiv: **+${Math.round(s.boost * 100)} %** Reichweite` : ''),
   });
 
-  const ready = me.remainingMs <= 0 && s.budget.left >= p.time;
+  if (me.lockedMs > 0) {
+    embed.addFields({
+      name: '⛔ Kanal gesperrt',
+      value: 'Nach dem Vorfall liegt hier alles still – noch '
+        + `**${require('./income').formatRemaining(me.lockedMs)}**. `
+        + 'Deine Follower warten so lange nicht: Sie verfallen weiter.',
+    });
+  }
+
+  const ready = me.remainingMs <= 0 && s.budget.left >= p.time && me.lockedMs <= 0;
   embed.setFooter({
     text: ready
       ? (titleMode
@@ -2737,7 +2825,7 @@ module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
-  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
+  buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildListingsView, buildBalanceView,
   buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,

@@ -102,6 +102,35 @@ const COMMUNITY_MAX = 100;
 const COMMUNITY_DECAY = 0.08;         // pro Tag
 const COMMUNITY_CHURN_CUT = 0.5;      // höchstens halber Schwund
 
+// ------------------------------------------------------- Monetarisierung
+/**
+ * Wie gut sich Reichweite überhaupt zu Geld machen lässt – abhängig davon,
+ * wie groß man ist.
+ *
+ * Das ist keine Strafe für kleine Kanäle, sondern die Wirklichkeit: Wer klein
+ * ist, hat kein Partnerprogramm, miese Tausenderkontaktpreise, keine
+ * Verhandlungsmacht und keine Marke, die ihn kennt. Erst ab einer gewissen
+ * Größe zahlt derselbe Aufruf ein Vielfaches.
+ *
+ * Ohne diese Kurve verdiente ein Kanal mit 50.000 Followern schon so viel wie
+ * ein Spitzenjob – der Aufstieg wäre nach ein paar Wochen erledigt. Mit ihr
+ * wandert derselbe Betrag dorthin, wo die Arbeit dafür auch steckt:
+ *
+ *     50.000 Follower   →   ~7 %    Nebenverdienst
+ *    250.000            →  ~25 %    halber Spitzenjob
+ *    450.000            →  ~38 %    man kann den Job kündigen
+ *    850.000            →  ~60 %    drei Spitzenjobs
+ *  1.700.000            →   100 %   volle Vermarktung
+ */
+const MON_FULL = 1_700_000;           // ab hier ist alles ausgereizt
+const MON_EXP = 0.73;
+const MON_MIN = 0.06;                 // ganz umsonst ist es nie – der Boden gilt bis ~36.000
+
+/** Vermarktungsgrad eines Netzwerks dieser Größe (0,03 … 1). */
+function monetization(reach) {
+  return clamp(MON_MIN, 1, Math.pow(Math.max(0, reach) / MON_FULL, MON_EXP));
+}
+
 // --------------------------------------------------------------- Burnout
 /**
  * Wer jeden Tag das volle Budget raushaut, brennt aus: Die Reichweite sinkt,
@@ -126,10 +155,12 @@ const MERCH_MIN_REACH = 5000;
  * Umsatz = **Anteil der Fans, der kauft × Zahl der Fans**. Die Community ist
  * deshalb ein Faktor, kein Summand: Ohne Bindung verkauft auch der größte
  * Kanal nichts, und ein kleiner Kanal mit treuer Blase verdient nicht plötzlich
- * so viel wie ein Weltstar. Der Exponent hält es unterlinear (§3).
+ * so viel wie ein Weltstar. Der Exponent hält es unterlinear (§3) – bleibt
+ * aber steil: Unter 250.000 Followern ist Merch ein Zubrot, darüber eine
+ * tragende Säule.
  */
-const MERCH_FACTOR = 4;
-const MERCH_REACH_EXP = 0.62;
+const MERCH_FACTOR = 0.05;
+const MERCH_REACH_EXP = 0.92;
 const MERCH_DAILY_CAP = 100000;       // reine Notbremse, greift nie im Normalbetrieb
 const MERCH_MAX_DAYS = 7;
 const MERCH_MIN_SETTLE_MS = 60 * 60 * 1000;
@@ -376,7 +407,12 @@ function simulate(state, p, fmt, ctx = {}) {
     event, roll, quality,
   };
 
-  // 5. Geld – jede Plattform auf ihre Art.
+  // 5. Geld – jede Plattform auf ihre Art, mal dem Vermarktungsgrad des
+  //    GESAMTEN Netzwerks: Marken und Werbekunden schauen auf die Person,
+  //    nicht auf den einzelnen Kanal.
+  const mon = monetization(startFollowers + cross);
+  result.monetization = mon;
+
   if (p.id === 'twitch') {
     const views = Math.round(
       audience * (TWITCH_VIEWS[0] + random() * (TWITCH_VIEWS[1] - TWITCH_VIEWS[0])));
@@ -386,14 +422,14 @@ function simulate(state, p, fmt, ctx = {}) {
 
     result.views = views;
     result.subs = subs;
-    result.ads = Math.round(views * TWITCH_RPV * (event.money ?? 1));
-    result.donations = donations.total;
+    result.ads = Math.round(views * TWITCH_RPV * (event.money ?? 1) * mon);
+    result.donations = Math.round(donations.total * mon);
     result.donationList = donations.entries;
-    result.subIncome = Math.round(subs * SUB_REVENUE);
+    result.subIncome = Math.round(subs * SUB_REVENUE * mon);
     result.money = result.ads + result.donations + result.subIncome;
 
   } else if (p.id === 'youtube') {
-    result.ads = Math.round(audience * YT_RPV * fmt.money * (event.money ?? 1));
+    result.ads = Math.round(audience * YT_RPV * fmt.money * (event.money ?? 1) * mon);
     result.money = result.ads;
     // Der Katalog: Aufrufe, die erst in den nächsten Tagen entstehen.
     result.stock = (state.stock ?? 0) + audience * YT_TAIL * (fmt.tail ?? 1);
@@ -407,7 +443,7 @@ function simulate(state, p, fmt, ctx = {}) {
       const reachTotal = startFollowers + cross;
       const value = Math.round(
         (audience * COOP_PER_VIEWER + Math.pow(Math.max(0, reachTotal), COOP_REACH_EXP))
-        * fmt.money * (0.6 + random()));
+        * fmt.money * (0.6 + random()) * mon);
       result.coop = { brand, value };
       result.money = value;
     }
@@ -446,7 +482,9 @@ async function settle(guildId, userId, now = Date.now()) {
 
   const days = Math.min(YT_MAX_SETTLE_DAYS, elapsed / DAY_MS);
   const released = row.stock * (1 - Math.pow(YT_TAIL_KEEP, days));
-  const amount = Math.round(released * YT_RPV);
+  // Auch Katalogaufrufe zahlen nach dem heutigen Vermarktungsgrad.
+  const reach = db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0);
+  const amount = Math.round(released * YT_RPV * monetization(reach));
 
   // Erst schreiben, dann buchen (§7).
   db.saveCreator(guildId, userId, 'youtube', {
@@ -530,8 +568,14 @@ function rollDeal(guildId, userId, reach, now, random = Math.random) {
   const target = pick(['instagram', 'twitch', 'youtube'], random);
   const brand = pick(data.BRANDS, random);
   const quota = DEAL_QUOTA[0] + Math.floor(random() * (DEAL_QUOTA[1] - DEAL_QUOTA[0] + 1));
+  /*
+   * Verträge werden verhandelt, nicht nach Tarif bezahlt – deshalb wirkt der
+   * Vermarktungsgrad hier nur zur Hälfte (Wurzel). Ein kleiner Kanal bekommt
+   * schlechte Konditionen, aber keine Almosen.
+   */
   const payout = Math.round(
-    Math.pow(reach, DEAL_REACH_EXP) * quota * DEAL_FACTOR * (0.8 + random() * 0.4));
+    Math.pow(reach, DEAL_REACH_EXP) * quota * DEAL_FACTOR * (0.8 + random() * 0.4)
+    * Math.sqrt(monetization(reach)));
 
   return db.insertDeal({
     guildId, userId,
@@ -619,6 +663,13 @@ async function act(
 
   const left = remainingMs(guildId, userId, platformId, now);
   if (left > 0) return { ok: false, reason: 'cooldown', platform: p, remainingMs: left };
+
+  // Nach einem Strike liegt der Kanal still – das ist der härteste Ausgang,
+  // den ein Vorfall haben kann (siehe decisions.js).
+  const locked = db.getCreator(guildId, userId, platformId, now).locked_until ?? 0;
+  if (locked > now) {
+    return { ok: false, reason: 'locked', platform: p, until: locked, remainingMs: locked - now };
+  }
 
   const state = db.getCreatorState(guildId, userId, now);
   const day = today(new Date(now));
@@ -730,6 +781,9 @@ async function act(
     + sim.followers - own.followers;
   const offer = rollDeal(guildId, userId, reachTotal, now, random);
 
+  // ... und ob heute etwas passiert, das eine Entscheidung verlangt.
+  const incident = require('./decisions').roll(guildId, userId, reachTotal, now, random);
+
   return {
     ok: true,
     platform: p, format: fmt,
@@ -747,7 +801,7 @@ async function act(
     boostUsed: boost, boost: sim.boost, community: sim.community,
     fatigue: clamp(0, FATIGUE_MAX, fatigue + p.time * FATIGUE_PER_TIME),
     energy, tired: energy < 0.95,
-    deal, offer,
+    deal, offer, incident,
     stock: sim.stock, hype: sim.hype, broke, balance,
     timeUsed: used + p.time, timeMax: TIME_PER_DAY,
   };
@@ -793,6 +847,8 @@ function status(guildId, userId, now = Date.now()) {
       stock: Math.round(row.stock),
       expected: Math.round(reachOf(p, followers, cross) * row.hype),
       remainingMs: remainingMs(guildId, userId, p.id, now),
+      lockedUntil: row.locked_until ?? 0,
+      lockedMs: Math.max(0, (row.locked_until ?? 0) - now),
       hasGear: hasGear(guildId, userId, p),
     };
   });
@@ -816,6 +872,8 @@ function status(guildId, userId, now = Date.now()) {
       minReach: MERCH_MIN_REACH,
       perDay: merchPerDay(total, community),
     },
+    incident: require('./decisions').pending(guildId, userId, now),
+    incidents: require('./decisions').history(guildId, userId, 3),
     deal: db.activeDeal(guildId, userId),
     offers: db.listDeals(guildId, userId, 'offer').filter((d) => d.expires_at > now),
     history: db.dealHistory(guildId, userId, 5),
@@ -930,6 +988,7 @@ module.exports = {
   IDLE_GRACE_DAYS,
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
   platform, format, formats, reachOf, hasGear, remainingMs, budget, today, cleanTitle,
+  monetization, MON_FULL, MON_EXP, MON_MIN,
   idleDays, communityNow, churnFactor, keepFactor, activeBoost,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
   accept, decline,

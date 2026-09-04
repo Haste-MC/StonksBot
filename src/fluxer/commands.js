@@ -92,6 +92,12 @@ const COMMANDS = [
       ({ view: await ui.buildCreatorView({ guildId, userId }) }),
   },
   {
+    names: ['vorfall', 'vorfaelle', 'entscheidung', 'drama'],
+    info: 'Offene Entscheidung deines Kanals',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildDecisionView({ guildId, userId }) }),
+  },
+  {
     names: ['deals', 'deal', 'sponsor', 'vertrag'],
     info: 'Sponsorenverträge deines Kanals',
     run: async ({ guildId, userId }) =>

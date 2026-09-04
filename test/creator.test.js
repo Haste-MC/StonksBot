@@ -296,17 +296,31 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     console.log('     ℹ️  Obergrenzen: ' +
       fixedPoints.map((x) => `${x.p.emoji} ${de(x.F)}`).join(' · '));
 
-    // 2. Ertrag wächst langsamer als Reichweite – zehnfaches Publikum ist
-    //    nicht zehnfaches Geld.
+    /*
+     * 2. Der Ertrag wächst im Aufstieg ABSICHTLICH schneller als die
+     *    Reichweite – erst ab einer gewissen Größe lässt sich Reichweite
+     *    überhaupt vermarkten (monetization()). Das ist kein Gelddrucker,
+     *    solange zwei Dinge gelten: Der Vermarktungsgrad ist bei 1 gedeckelt,
+     *    und OBERHALB dieses Deckels wächst das Geld wieder langsamer als die
+     *    Reichweite. Beides wird hier geprüft.
+     */
     const p = creator.platform('twitch');
     const f = creator.format('twitch', 'gaming');
     const fixed = () => 0.5;
-    const small = creator.simulate({ followers: 100000, subs: 0, hype: 1, stock: 0 }, p, f, { random: fixed });
-    const big = creator.simulate({ followers: 1000000, subs: 0, hype: 1, stock: 0 }, p, f, { random: fixed });
-    check('zehnfache Reichweite bringt weniger als zehnfaches Geld',
-      big.money < small.money * 10, `${de(small.money)} -> ${de(big.money)}`);
-    check('das gilt auch für Merch',
-      creator.merchPerDay(1000000, 100) < creator.merchPerDay(100000, 100) * 10);
+    const money = (F) => creator.simulate(
+      { followers: F, subs: 0, hype: 1, stock: 0 }, p, f, { random: fixed }).money;
+
+    check('der Vermarktungsgrad ist bei 100 % gedeckelt',
+      creator.monetization(creator.MON_FULL * 50) === 1
+      && creator.monetization(Number.MAX_SAFE_INTEGER) === 1);
+    check('im Aufstieg wächst das Geld schneller als die Reichweite (so gewollt)',
+      money(1_000_000) > money(100_000) * 10,
+      `${de(money(100_000))} -> ${de(money(1_000_000))}`);
+    check('oberhalb des Deckels wächst es wieder langsamer als die Reichweite',
+      money(creator.MON_FULL * 10) < money(creator.MON_FULL) * 10,
+      `${de(money(creator.MON_FULL))} -> ${de(money(creator.MON_FULL * 10))}`);
+    check('dasselbe gilt für Merch oberhalb des Deckels',
+      creator.merchPerDay(20_000_000, 100) < creator.merchPerDay(2_000_000, 100) * 10);
     check('und für Vertragssummen', creator.DEAL_REACH_EXP < 1);
 
     // 3. Simuliert: Jede Verdopplung der Spielzeit bringt weniger als die
@@ -388,6 +402,11 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
   {
     const U = player('katalog');
     const t0 = new Date(new Date().setHours(9, 0, 0, 0)).getTime();
+    // Mit echter Reichweite, sonst zahlt der Katalog nur Centbeträge: Ein
+    // frischer Kanal ist kaum vermarktbar (siehe monetization()).
+    const seed = db.getCreator(G, U, 'youtube');
+    db.saveCreator(G, U, 'youtube',
+      { ...seed, followers: 400_000, touched_at: t0, last_action_at: 0 });
     refill(U);
     await creator.act(G, U, 'youtube', 'tutorial', t0);
     const stock = db.getCreator(G, U, 'youtube').stock;
@@ -463,9 +482,11 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
         .map((r) => creator.FAME_RANKS.indexOf(
           creator.FAME_RANKS.find((x) => x.title === creator.fameOf(r, 0).title)))
         .every((v, i, a) => i === 0 || v >= a[i - 1]));
-    check('auch ohne Kanal bekommt man einen Titel',
-      creator.fameOf(0, 20).title !== creator.FAME_RANKS[0].title,
-      creator.fameOf(0, 20).title);
+    // Ohne Kanal trägt nur das Level bei – irgendwann reicht auch das.
+    const byLevel = Math.ceil(creator.FAME_RANKS[1].at / creator.FAME_PER_LEVEL);
+    check('auch ohne Kanal bekommt man irgendwann einen Titel',
+      creator.fameOf(0, byLevel).title !== creator.FAME_RANKS[0].title,
+      `Level ${byLevel}: ${creator.fameOf(0, byLevel).title}`);
     const beyond = creator.FAME_RANKS.at(-1).at * 5;
     check('der höchste Rang hat kein "als Nächstes" mehr',
       creator.fameOf(beyond, 0).next === null
