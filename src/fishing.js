@@ -102,7 +102,8 @@ async function fish(guildId, userId, now = Date.now(), random = Math.random) {
 
   let balance = null;
   if (amount > 0) {
-    balance = await changeCash(guildId, userId, amount, `Fang: ${entry.name}`);
+    balance = await changeCash(
+      guildId, userId, amount, `Fang: ${entry.name}`, { kind: 'fishing' });
   }
 
   return {

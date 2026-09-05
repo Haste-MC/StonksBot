@@ -68,6 +68,7 @@ async function changeCash(guildId, accountId, amount, reason, opts = {}) {
     // Das lokale Wallet vergibt die Erfahrung bereits selbst.
     const local = await wallet.changeCash(guildId, accountId, amount, reason, opts);
     collectTax(guildId, accountId, amount, reason, opts);
+    countActivity(guildId, accountId, opts);
     return local;
   }
 
@@ -78,7 +79,20 @@ async function changeCash(guildId, accountId, amount, reason, opts = {}) {
     try { require('./level').award(guildId, accountId, amount); } catch { /* egal */ }
   }
   collectTax(guildId, accountId, amount, reason, opts);
+  countActivity(guildId, accountId, opts);
   return balance;
+}
+
+/**
+ * Führt Strichliste darüber, was jemand tut – daraus entsteht der Titel im
+ * Profil (siehe activity.js). Gezählt wird nur, was ein `kind` mitbringt;
+ * Storno- und Rückerstattungsbuchungen (`{ xp: false }`) zählen nie mit,
+ * sonst stünde für eine abgebrochene Aktion ein Strich in der Liste.
+ */
+function countActivity(guildId, accountId, opts = {}) {
+  if (!opts.kind || opts.xp === false) return;
+  try { require('./activity').record(guildId, accountId, opts.kind); }
+  catch { /* ein Strich in der Liste darf keine Buchung scheitern lassen */ }
 }
 
 /**
@@ -121,5 +135,5 @@ async function leaderboard({ sort = 'total', limit = 25 } = {}) {
 
 module.exports = {
   unb, getBalance, changeCash, withdrawFromBank, leaderboard, viaUnb, UNB_GUILD,
-  collectTax,
+  collectTax, countActivity,
 };

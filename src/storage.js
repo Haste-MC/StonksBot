@@ -346,7 +346,7 @@ async function resolveLot(guildId, lot) {
     if (balance.cash < price) {
       await withdrawFromBank(guildId, winner, price - balance.cash, `Auktion: ${label}`);
     }
-    await changeCash(guildId, winner, -price, `Auktion: ${label}`);
+    await changeCash(guildId, winner, -price, `Auktion: ${label}`, { kind: 'auction' });
   } catch (err) {
     db.finishLot(guildId, lot.id, 'void');
     return { lotId: lot.id, status: 'void', winner, label, error: true };

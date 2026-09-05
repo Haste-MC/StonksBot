@@ -212,7 +212,8 @@ async function work(guildId, userId, now = new Date()) {
   const base = Math.max(1, Math.round(job.pay * variance));
   const amount = Math.max(1, Math.round(base * perk.income * rank.pay));
 
-  const balance = await changeCash(guildId, userId, amount, `Schicht: ${job.title}`);
+  const balance = await changeCash(
+    guildId, userId, amount, `Schicht: ${job.title}`, { kind: 'job' });
   db.recordShift(guildId, userId, amount, day);
 
   // Erst nach erfolgreicher Schicht Verschleiß abrechnen – so verliert

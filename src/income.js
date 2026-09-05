@@ -61,7 +61,8 @@ async function daily(guildId, userId, now = Date.now(), random = Math.random) {
   db.setClaim(guildId, userId, 'daily', now);
 
   try {
-    const balance = await changeCash(guildId, userId, amount, 'Täglicher Bonus');
+    const balance = await changeCash(
+      guildId, userId, amount, 'Täglicher Bonus', { kind: 'daily' });
     return { ok: true, amount, base, bonus: amount - base, level: perk.level, balance, flavor };
   } catch (err) {
     // Buchung fehlgeschlagen -> Anspruch zurückgeben, sonst wäre der Tag verloren.

@@ -224,6 +224,7 @@ src/
   street.js        Straßenrisiko (Kratzer/Schaden/Diebstahl)
   condition.js     Fahrzeugzustand 0–100 + Wertformel
   currency.js      Serverwährungssymbol (gecacht)
+  activity.js      Strichliste "was tust du am häufigsten" -> Titel im Profil
   networth.js      Vermögen an EINER Stelle: Geld + Autos + Immobilien
                    + Depot + Sammlung (alle Ranglisten/Ansichten nutzen es)
   toplist.js       Reichen-Rangliste: UnbelievaBoat + lokale Geldbeutel + Besitz

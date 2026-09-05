@@ -475,7 +475,8 @@ async function buy(guildId, userId, symbol, sharesWanted, now = Date.now(), allo
       await withdrawFromBank(guildId, userId, movedFromBank, `Börse: ${q.name}`);
     }
     const newBalance = await changeCash(
-      guildId, userId, -total, `Börse: ${shares}× ${q.symbol} @ ${q.price}`);
+      guildId, userId, -total, `Börse: ${shares}× ${q.symbol} @ ${q.price}`,
+      { kind: 'market' });
 
     return {
       ok: true, quote: q, shares, price: q.price, gross, fee, total,
@@ -519,7 +520,8 @@ async function sell(guildId, userId, symbol, sharesWanted = null, now = Date.now
 
   try {
     const newBalance = await changeCash(
-      guildId, userId, net, `Börse: Verkauf ${shares}× ${q.symbol} @ ${q.price}`);
+      guildId, userId, net, `Börse: Verkauf ${shares}× ${q.symbol} @ ${q.price}`,
+      { kind: 'market' });
     return {
       ok: true, quote: q, shares, price: q.price, gross, fee, net,
       invested: investedOut, profit: net - investedOut, newBalance,

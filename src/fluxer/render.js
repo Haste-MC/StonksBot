@@ -163,8 +163,24 @@ function forFluxer(text) {
   return localizeEmoji(resolveMentions(text));
 }
 
+/**
+ * Fluxer stellt `thumbnail` nicht dar – ein Profilbild dort wäre schlicht weg
+ * (genau das ist schon einmal passiert). Die einzige Bildstelle, die
+ * ankommt, ist das Autorbild. Also wandert das Miniaturbild dorthin, sofern
+ * ein Autor ohne eigenes Bild bereitsteht.
+ *
+ * Auf Discord bleibt es unangetastet: Dort steht es groß oben rechts.
+ */
+function moveThumbnailToAuthor(embed) {
+  if (!embed.thumbnail?.url) return embed;
+  if (!embed.author?.name || embed.author.icon_url) return embed;
+
+  const { thumbnail, ...rest } = embed;
+  return { ...rest, author: { ...embed.author, icon_url: thumbnail.url } };
+}
+
 function humanize(embed) {
-  const out = { ...embed };
+  const out = moveThumbnailToAuthor({ ...embed });
   if (out.title) out.title = forFluxer(out.title);
   if (out.description) out.description = forFluxer(out.description);
   if (Array.isArray(out.fields)) {

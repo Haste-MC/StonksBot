@@ -119,6 +119,9 @@ async function settleLandlord(guildId, landlordId, now = Date.now(), random = Ma
             `Mieteinnahme: ${offer.name}`).catch(() => {});
           income += first;
 
+          // Ein neuer Mieter ist der Moment, der den Vermieter ausmacht –
+          // die Tagesmieten danach laufen von allein (siehe activity.js).
+          require('./activity').record(guildId, landlordId, 'landlord');
           movedIn.push({ name: offer.name, tenant: name });
           db.createMessage({
             guildId, userId: landlordId, type: 'info',

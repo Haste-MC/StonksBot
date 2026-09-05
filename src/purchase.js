@@ -70,9 +70,11 @@ async function buy(guildId, userId, itemId, quantity = 1, allowBank = true) {
       await withdrawFromBank(guildId, userId, movedFromBank, `Kauf: ${quantity}x ${item.name}`);
     }
 
-    // 3) Preis abbuchen.
+    // 3) Preis abbuchen. Nur Autos zählen für den Titel „Autohändler" –
+    //    Ausrüstung und Immobilien sind kein Handel (siehe activity.js).
     const newBalance = await changeCash(
-      guildId, userId, -totalPrice, `Kauf: ${quantity}x ${item.name}`);
+      guildId, userId, -totalPrice, `Kauf: ${quantity}x ${item.name}`,
+      { kind: item.kind === 'car' ? 'cars' : undefined });
 
     return { ok: true, item, quantity, totalPrice, movedFromBank, newBalance };
   } catch (err) {
@@ -126,7 +128,8 @@ async function buyUsed(guildId, buyerId, listingId) {
     }
 
     // 3) Käufer belasten.
-    const newBalance = await changeCash(guildId, buyerId, -price, `Kauf: ${listing.name}`);
+    const newBalance = await changeCash(guildId, buyerId, -price, `Kauf: ${listing.name}`,
+      { kind: listing.kind === 'car' ? 'cars' : undefined });
     charged = true;
 
     // 4) Verkäufer gutschreiben.

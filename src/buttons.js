@@ -8,7 +8,8 @@ const casinoUi = require('./casinoUi');
 const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
-  buildDetailView, buildPropertyDetailView, buildProfileView, buildLeaderboardView,
+  buildDetailView, buildPropertyDetailView, buildProfileView, buildTitleView,
+  buildLeaderboardView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildInboxView,
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
   buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
@@ -1063,6 +1064,23 @@ Object.assign(buttons, {
       guildId: gid(interaction), userId: uid(interaction),
       metric, page: Number(page) || 1,
     }));
+  },
+
+  /** Titel-Auswahl öffnen. */
+  async title(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(
+      await buildTitleView({ guildId: gid(interaction), userId: uid(interaction) }));
+  },
+
+  /** Titel setzen: eine Aktivität, 'auto' oder 'none'. */
+  async titleset(interaction, [wish]) {
+    await interaction.deferUpdate();
+    const activity = require('./activity');
+    // 'auto' ist nach außen sprechender als der leere Wunsch in der Datenbank.
+    activity.choose(gid(interaction), uid(interaction), wish === 'auto' ? '' : wish);
+    await interaction.editReply(
+      await buildTitleView({ guildId: gid(interaction), userId: uid(interaction) }));
   },
 
   /** Angeber-Spruch bearbeiten (öffnet ein Modal). */

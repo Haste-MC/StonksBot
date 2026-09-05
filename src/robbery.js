@@ -100,6 +100,10 @@ async function rob(guildId, robberId, victimId, now = Date.now(), random = Math.
 
   const moved = await transfer(guildId, victimId, robberId, loot, 'Überfall');
   if (!moved) return { ok: false, reason: 'failed_transfer' };
+
+  // Für den Titel im Profil: Ein Überfall ist eine Umverteilung, deshalb hängt
+  // an der Buchung kein `kind` – gezählt wird er hier von Hand (activity.js).
+  require('./activity').record(guildId, robberId, 'rob');
   return { ok: true, success: true, amount: loot, chance };
 }
 

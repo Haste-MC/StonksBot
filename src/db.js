@@ -215,6 +215,26 @@ db.exec(`
   );
 `);
 
+/*
+ * Wie oft jemand welche Aktivität gemacht hat.
+ *
+ * Daraus entsteht der automatische Titel im Profil ("Ganove", "Angler" …).
+ * Gezählt wird die HÄUFIGKEIT, nicht der Verdienst: Was eine Aktivität
+ * einbringt, ist quer über die Spielarten nicht vergleichbar – ein
+ * Aktienverkauf bucht den ganzen Erlös, eine Schicht nur den Lohn. Die Zahl
+ * der Male dagegen ist überall dasselbe.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS player_activity (
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    kind     TEXT    NOT NULL,
+    count    INTEGER NOT NULL DEFAULT 0,
+    last_at  INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, kind)
+  );
+`);
+
 // Storage-Wars-Auktion (serverweit): eine Runde besteht aus mehreren Losen,
 // die nacheinander live gehen. Zustand liegt komplett in der DB, damit die
 // Auktion auch nach einem Neustart weiterläuft und faul abgerechnet werden kann.
@@ -810,6 +830,12 @@ if (!statsColumns.has('seen_version')) {
   db.exec("ALTER TABLE player_stats ADD COLUMN seen_version TEXT NOT NULL DEFAULT ''");
 }
 
+// Selbst gewählter Titel: '' = automatisch (häufigste Aktivität),
+// 'none' = keiner, sonst die Kennung der Aktivität (siehe activity.js).
+if (!statsColumns.has('title')) {
+  db.exec("ALTER TABLE player_stats ADD COLUMN title TEXT NOT NULL DEFAULT ''");
+}
+
 // Seltenheit & Zustand an Fundstücken nachrüsten (für Anzeige/Flex).
 const lootColumns = new Set(
   db.prepare('PRAGMA table_info(storage_loot)').all().map((c) => c.name));
@@ -1250,6 +1276,20 @@ const stmt = {
   setSeenVersion: db.prepare(
     `INSERT INTO player_stats (guild_id, user_id, seen_version) VALUES (?, ?, ?)
      ON CONFLICT (guild_id, user_id) DO UPDATE SET seen_version = excluded.seen_version`),
+  setTitle: db.prepare(
+    `INSERT INTO player_stats (guild_id, user_id, title) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET title = excluded.title`),
+
+  // --- Aktivitätszählung (automatischer Titel) ---
+  bumpActivity: db.prepare(
+    `INSERT INTO player_activity (guild_id, user_id, kind, count, last_at)
+     VALUES (?, ?, ?, 1, ?)
+     ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET
+       count = count + 1, last_at = excluded.last_at`),
+  activityOf: db.prepare(
+    `SELECT kind, count, last_at FROM player_activity
+     WHERE guild_id = ? AND user_id = ? AND count > 0
+     ORDER BY count DESC, last_at DESC`),
   // Kaufwert aller eigenen Immobilien – fürs Profil/Networth, analog garageValue.
   totalPropertyValue: db.prepare(
     `SELECT COALESCE(SUM(i.price * inv.quantity), 0) AS value
@@ -2252,6 +2292,21 @@ function listStats(guildId) {
 /** Setzt den Angeber-Spruch fürs Profil. */
 function setTagline(guildId, userId, text) {
   stmt.setTagline.run(guildId, userId, text);
+}
+
+/** Setzt den Titel-Wunsch ('' = automatisch, 'none' = keiner). */
+function setTitle(guildId, userId, kind) {
+  stmt.setTitle.run(guildId, userId, String(kind ?? ''));
+}
+
+/** Zählt eine gemachte Aktivität mit (siehe activity.js). */
+function bumpActivity(guildId, userId, kind, at = Date.now()) {
+  stmt.bumpActivity.run(guildId, String(userId), String(kind), at);
+}
+
+/** Alle Aktivitäten eines Spielers, häufigste zuerst. */
+function activityOf(guildId, userId) {
+  return stmt.activityOf.all(guildId, String(userId));
 }
 
 // ---------------------------------------------------------------- Heimat
@@ -3307,6 +3362,7 @@ module.exports = {
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners,
+  setTitle, bumpActivity, activityOf,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,

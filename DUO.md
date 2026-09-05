@@ -1036,6 +1036,65 @@ Preis, Zustand und Werkzeugpark. Bei Pfusch steigt der Zustand nur teilweise,
 das Material ist trotzdem bezahlt – und der Werkzeugkasten kann dabei
 draufgehen.
 
+## Titel: was du am häufigsten tust
+
+Über dem Profil steht ein Titel – **Ganove**, **Angler**, **Börsenhai**. Er
+kommt nicht aus dem Nichts, sondern aus einer Strichliste: Jede Aktion, die
+Geld bewegt, macht einen Strich ([`activity.js`](src/activity.js)).
+
+```
+🕵️ Ganove
+🇯🇵 😀 Unbeschriebenes Blatt · 🇯🇵 Japanisch
+> „Ich verkaufe nur, was mir nicht gehört."
+```
+
+Zwölf Aktivitäten mit je drei Stufen (ab dem 1., dem 26. und dem 101. Mal):
+
+| | 1. Stufe | 2. Stufe | 3. Stufe |
+|--|--|--|--|
+| 💼 Schichten | Aushilfe | Malocher | Arbeitstier |
+| 🎣 Angeln | Sonntagsangler | Angler | Fischerkönig |
+| 📡 Creator | Hobby-Creator | Content-Creator | Internet-Größe |
+| 🎵 Musik | Straßenmusiker | Musiker | Bühnenlegende |
+| 🕵️ Heists | Kleinkrimineller | Ganove | Meisterdieb |
+| 🎭 Überfälle | Taschendieb | Straßenräuber | Schrecken der Straße |
+| 🎰 Casino | Gelegenheitsspieler | Zocker | Hochroller |
+| 📈 Börse | Kleinanleger | Börsianer | Börsenhai |
+| 🏠 Vermieten | Zimmerwirt | Vermieter | Immobilienmogul |
+| 🏬 Auktionen | Schnäppchenjäger | Trödelprofi | Schatzmeister |
+| 🚗 Autohandel | Schrauber | Gebrauchtwagenhändler | Autobaron |
+| ☀️ Tagesbonus | Frühaufsteher | Stammgast | Uhrwerk |
+
+### Warum die Häufigkeit und nicht der Verdienst
+
+Weil Verdienste über die Spielarten hinweg **nicht vergleichbar** sind: Ein
+Aktienverkauf bucht den kompletten Erlös (der größtenteils das eigene Geld von
+vorhin ist), eine Schicht nur den Lohn, ein Casino-Abend eine Netto-Differenz.
+Ein Ranking daraus wäre keine Erfolgsliste, sondern eine Liste der Aktivitäten
+mit den größten Zahlen. Die Zahl der Male dagegen bedeutet überall dasselbe:
+**das hier machst du ständig.**
+
+### Selbst wählen
+
+Über 🏅 **Titel** im Profil lässt sich jeder freigespielte Titel anlegen,
+„Automatisch" (die häufigste Aktivität) oder „Keiner". Wählbar ist nur, was man
+auch getan hat – und wer einen Titel wählt und die Aktivität nie macht, trägt
+ihn nicht: Dann greift wieder die Automatik.
+
+### Wie gezählt wird
+
+Zwei Wege, beide „ein Strich je Aktion" (§9):
+
+- **An der Buchung.** Wer Geld bucht, hängt ein `kind` an den Aufruf
+  (`changeCash(…, { kind: 'job' })`); `unb.changeCash` zählt es zentral mit.
+  Storno- und Rückerstattungsbuchungen (`{ xp: false }`) zählen nie.
+- **Von Hand.** Wo eine Aktion gar kein Geld bucht, ruft das Modul selbst
+  `activity.record(…)` – ein Tweet bringt nichts ein, ein Song im Studio auch
+  nicht, und ein Überfall ist nur eine Umverteilung.
+
+Käufe von Ausrüstung, Rechnungen und Mieten zählen bewusst nicht: Das ist kein
+Beruf, das ist Alltag.
+
 ## Level-Vorteile: wofür man überhaupt levelt
 
 Erfahrung sammelte man bisher nebenbei, ohne dass sie etwas bewirkt hätte.

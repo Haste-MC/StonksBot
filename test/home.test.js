@@ -277,16 +277,24 @@ function ceiling(platformId, market) {
 
     const view = await ui.buildProfileView({ guildId: G, userId: U });
     const embed = view.embeds[0].data;
-    check('das Profilbild steht im Autorblock',
-      embed.author?.icon_url?.startsWith('https://cdn.test/'), JSON.stringify(embed.author));
-    check('mit dem Anzeigenamen daneben', embed.author?.name === 'Testspieler');
-    check('das Miniaturbild bleibt für das Auto frei',
-      embed.thumbnail === undefined || !embed.thumbnail?.url?.includes('cdn.test'));
+    // Auf Discord gehört das Profilbild groß in die Ecke – das ist das
+    // Miniaturbild. Der Autor steht daneben, aber ohne eigenes Bild.
+    check('das Profilbild steht oben rechts',
+      embed.thumbnail?.url?.startsWith('https://cdn.test/'), JSON.stringify(embed.thumbnail));
+    check('mit dem Anzeigenamen im Autorblock', embed.author?.name === 'Testspieler');
+    check('und dort ohne zweites Bild', !embed.author?.icon_url, JSON.stringify(embed.author));
 
-    // Der Autorblock ist genau das Feld, das die Fluxer-Ansicht überträgt.
+    /*
+     * Fluxer stellt `thumbnail` nicht dar. Die Übersetzung schiebt das Bild
+     * deshalb in den Autorblock – die einzige Bildstelle, die dort ankommt.
+     * Ohne diesen Schritt wäre das Profilbild auf Fluxer wieder weg.
+     */
     const message = render.toMessage(view, { userId: U });
-    check('und übersteht die Fluxer-Übersetzung',
-      Boolean(embed.author) && message.embed.author?.icon_url === embed.author?.icon_url);
+    check('auf Fluxer wandert es zum Autor',
+      message.embed.author?.icon_url === embed.thumbnail?.url,
+      JSON.stringify(message.embed.author));
+    check('und steht dort nicht doppelt', !message.embed.thumbnail,
+      JSON.stringify(message.embed.thumbnail));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -22,6 +22,10 @@ async function playRound(guildId, userId, bet, reason, play) {
   const gross = Math.round(bet * outcome.multiplier);
   const net = gross - bet;
 
+  // Für den Titel im Profil zählt die gespielte Runde – auch die, bei der der
+  // Einsatz zurückkommt und deshalb gar nichts gebucht wird (activity.js).
+  require('./activity').record(guildId, userId, 'casino');
+
   // Ein Netto von 0 (z.B. Slots-Paar = Einsatz zurück) darf NICHT gebucht
   // werden: die UnbelievaBoat-API lehnt eine Nulländerung mit
   // "Invalid cash and bank parameter provided" ab. Dann bleibt das Guthaben
@@ -56,6 +60,7 @@ async function blackjackDeal(guildId, userId, bet, random = Math.random) {
   }
 
   await changeCash(guildId, userId, -bet, 'Blackjack: Einsatz');
+  require('./activity').record(guildId, userId, 'casino');
 
   // Naturblackjack bei Spieler oder Dealer beendet die Runde sofort.
   if (casino.isBlackjack(state.player) || casino.isBlackjack(state.dealer)) {

@@ -795,6 +795,10 @@ async function act(
     deal = { ...active, done, complete: done >= active.quota };
   }
 
+  // Zählt für den Titel im Profil. Von Hand, weil ein Tweet nichts einbringt
+  // und ohne Buchung sonst nie gezählt würde (siehe activity.js).
+  require('./activity').record(guildId, userId, 'creator', now);
+
   const balance = amount > 0
     ? await changeCash(guildId, userId, amount, `${p.name}: ${fmt.name}`)
     : null;

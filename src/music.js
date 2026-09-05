@@ -329,6 +329,9 @@ function record(guildId, userId, now = Date.now(), random = Math.random) {
     last_action_at: now, last_record_at: now, touched_at: now,
   });
 
+  // Zählt für den Titel im Profil – ein Song ist Arbeit, auch ohne Buchung.
+  require('./activity').record(guildId, userId, 'music', now);
+
   return {
     ok: true, songs: row.songs + 1, quality,
     text: pick(data.STUDIO, random), time,
@@ -442,6 +445,8 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   // 7. Klopft eine Agentur an?
   const offer = rollContract(guildId, userId, listeners, market, now, random);
 
+  require('./activity').record(guildId, userId, 'music', now);
+
   return {
     ok: true, release: type, genre: g, persona: p,
     audience, gained, lost, lostToIdle: sim.lostToIdle,
@@ -504,7 +509,8 @@ async function show(guildId, userId, now = Date.now(), random = Math.random) {
   const cut = idol ? Math.round(gross * idol.cut) : 0;
   // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
   const net = require('./perks').payout(guildId, userId, gross - cut);
-  const balance = await changeCash(guildId, userId, net, `Konzert: ${g.name}`);
+  const balance = await changeCash(
+    guildId, userId, net, `Konzert: ${g.name}`, { kind: 'music' });
 
   return {
     ok: true, gross, cut, amount: net, gained, quality, genre: g,

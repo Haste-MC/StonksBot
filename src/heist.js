@@ -455,7 +455,8 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
     const balance = amount !== 0
       ? await changeCash(
         guildId, member.user_id, amount,
-        success ? `Beute: ${loc.name}` : `Strafe: ${loc.name}`).catch(() => null)
+        success ? `Beute: ${loc.name}` : `Strafe: ${loc.name}`,
+        { kind: 'heist' }).catch(() => null)
       : null;
 
     members.push({

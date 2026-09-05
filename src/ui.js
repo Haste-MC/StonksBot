@@ -3025,22 +3025,32 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // Das Profilbild des Kontos, wenn die Plattform es hergibt.
   const avatar = await require('./names').avatar(owner).catch(() => null);
 
+  // Der Titel: entweder selbst gewählt oder die häufigste Aktivität.
+  const worn = require('./activity').titleOf(guildId, owner);
+
   const embed = new EmbedBuilder()
     .setTitle('👤 Profil')
     .setColor(0xf1c40f)
     .setDescription(
       `${identity.mention(owner)}\n` +
-      `${home.id ? `${home.flag} ` : ''}${fame.emoji} **${fame.title}**` +
+      (worn ? `${worn.emoji} **${worn.title}**\n` : '') +
+      `${home.id ? `${home.flag} ` : ''}${fame.emoji} ${fame.title}` +
       (lang.id ? ` · ${lang.emoji} ${lang.name}` : '') +
       (stats.tagline ? `\n> _${stats.tagline}_` : ''));
 
   /*
-   * Das Profilbild gehört in den Autorblock, nicht ins Miniaturbild:
-   * Fluxer nennt `icon_url` dort ausdrücklich "Author avatar image URL" und
-   * stellt es dar – ein `thumbnail` dagegen nicht. Auf Discord sieht es
-   * genauso aus, wie man es von einem Profil erwartet: Bild neben dem Namen.
+   * Das Profilbild kommt ins **Miniaturbild**: Auf Discord steht es damit
+   * groß oben rechts in der Ecke, so wie man ein Profil kennt.
+   *
+   * Fluxer stellt `thumbnail` nicht dar – dort wandert es beim Rendern in den
+   * Autorblock (`icon_url`), die einzige Bildstelle, die es zeigt. Das
+   * passiert in fluxer/render.js, damit hier nicht zwei Plattformen
+   * durcheinandergehen; der Autor steht deshalb ohne Bild schon bereit.
    */
-  if (avatar) embed.setAuthor({ name: identity.display(owner), iconURL: avatar });
+  if (avatar) {
+    embed.setThumbnail(avatar);
+    embed.setAuthor({ name: identity.display(owner) });
+  }
 
   embed.addFields(
     {
@@ -3136,23 +3146,95 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
       : 'Guthaben gerade nicht abrufbar',
   });
 
-  // Großes Foto der teuersten Immobilie (Flex!), kleines Thumbnail vom Auto.
+  // Großes Foto der teuersten Immobilie (Flex!), sonst vom Auto. Das
+  // Miniaturbild ist für das Profilbild reserviert – ohne Profilbild darf das
+  // Auto dorthin, aber nie dasselbe Foto zweimal.
   const bigPicture = topProp?.image_url || car?.image_url || null;
   if (bigPicture) embed.setImage(bigPicture);
-  // Das Miniaturbild bleibt beim Auto – aber nur, wenn oben die Immobilie
-  // hängt. Sonst stand dasselbe Autofoto zweimal im Profil.
-  if (car?.image_url && bigPicture !== car.image_url) embed.setThumbnail(car.image_url);
+  if (!avatar && car?.image_url && bigPicture !== car.image_url) {
+    embed.setThumbnail(car.image_url);
+  }
 
   const row = new ActionRowBuilder();
   if (isSelf) {
-    row.addComponents(new ButtonBuilder()
-      .setCustomId(`flexedit|${userId}`)
-      .setLabel('Spruch setzen').setEmoji('✏️')
-      .setStyle(ButtonStyle.Secondary));
+    row.addComponents(
+      new ButtonBuilder()
+        .setCustomId(`flexedit|${userId}`)
+        .setLabel('Spruch setzen').setEmoji('✏️')
+        .setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder()
+        .setCustomId(`title|${userId}`)
+        .setLabel('Titel').setEmoji('🏅')
+        .setStyle(ButtonStyle.Secondary));
   }
   row.addComponents(homeButton(userId));
 
   return { embeds: [embed], components: [row] };
+}
+
+/**
+ * Titel-Auswahl: alles, was dieser Spieler auch wirklich gemacht hat.
+ *
+ * Erklärt wird dabei, woher die Titel kommen – sonst wirkt es wie Zufall,
+ * dass da plötzlich „Ganove" steht.
+ */
+async function buildTitleView({ guildId, userId }) {
+  const activity = require('./activity');
+  const list = activity.unlocked(guildId, userId);
+  const current = activity.titleOf(guildId, userId);
+  const wish = String(db.getStats(guildId, userId).title ?? '');
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏅 Dein Titel')
+    .setColor(0xf1c40f)
+    .setDescription(list.length
+      ? `Aktuell: ${current ? `${current.emoji} **${current.title}**` : '_keiner_'}` +
+        (wish === '' && current ? ' _(automatisch)_' : '') +
+        '\n\nDer Titel richtet sich sonst danach, **was du am häufigsten machst**. ' +
+        'Wählen kannst du nur, was du auch getan hast – und je öfter, desto ' +
+        'dicker der Titel.'
+      : 'Noch nichts getan, noch kein Titel. Arbeite, angle, dreh ein Ding – '
+        + 'der Titel kommt von selbst.');
+
+  if (list.length) {
+    embed.addFields({
+      name: 'Freigespielt',
+      value: list.map((t) => {
+        const k = activity.kind(t.id);
+        const next = activity.TIERS[t.tier + 1];
+        const missing = next ? ` · noch ${next - t.count + 1} bis „${k.titles[t.tier + 1]}"` : '';
+        return `${t.emoji} **${t.title}** — ${t.count}× ${k.label}${missing}`;
+      }).join('\n'),
+    });
+  }
+
+  const rows = [];
+  const buttons = list.slice(0, 8).map((t) => new ButtonBuilder()
+    .setCustomId(`titleset|${t.id}|${userId}`)
+    .setLabel(t.title.slice(0, 40)).setEmoji(t.emoji)
+    .setStyle(wish === t.id ? ButtonStyle.Primary : ButtonStyle.Secondary));
+
+  for (let i = 0; i < buttons.length; i += 4) {
+    rows.push(new ActionRowBuilder().addComponents(...buttons.slice(i, i + 4)));
+  }
+
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`titleset|auto|${userId}`)
+      .setLabel('Automatisch').setEmoji('🎲')
+      .setStyle(wish === '' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(`titleset|none|${userId}`)
+      .setLabel('Keiner').setEmoji('🚫')
+      .setStyle(wish === 'none' ? ButtonStyle.Primary : ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId(ID.menu('profil', 1, userId))
+      .setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary),
+    homeButton(userId),
+  ));
+
+  return { embeds: [embed], components: rows };
 }
 
 // ---------------------------------------------------------------- Rangliste
@@ -3885,7 +3967,7 @@ module.exports = {
   buildMusicDealView,
   buildLanguageView, buildLanguageConfirm,
   buildListingsView, buildBalanceView,
-  buildInboxView, buildProfileView, buildLeaderboardView, buildTreasuryView,
+  buildInboxView, buildProfileView, buildTitleView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money,

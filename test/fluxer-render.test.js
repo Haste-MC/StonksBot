@@ -205,6 +205,31 @@ function view(buttons) {
   check('die Erwähnung bleibt erhalten (soll pingen)',
     sent.every((m) => m.content.startsWith('<@FX1>')), sent[0]?.content);
 
+  console.log('--- Profilbild: Fluxer zeigt nur das Autorbild ---');
+  /*
+   * Auf Discord steht das Profilbild groß oben rechts (thumbnail). Fluxer
+   * stellt thumbnail nicht dar – dort muss es in den Autorblock wandern,
+   * sonst ist es schlicht weg (genau das ist schon einmal passiert).
+   */
+  const profil = new EmbedBuilder().setTitle('👤 Profil').setDescription('D')
+    .setThumbnail('https://cdn.example/avatar.png')
+    .setAuthor({ name: 'Kevin' })
+    .setImage('https://cdn.example/haus.png');
+  const fluxerProfil = render.toMessage({ embeds: [profil], components: [] }).embed;
+  check('das Bild landet beim Autor',
+    fluxerProfil.author?.icon_url === 'https://cdn.example/avatar.png',
+    JSON.stringify(fluxerProfil.author));
+  check('und steht nicht doppelt da', !fluxerProfil.thumbnail,
+    JSON.stringify(fluxerProfil.thumbnail));
+  check('das große Foto bleibt, wo es war',
+    fluxerProfil.image?.url === 'https://cdn.example/haus.png');
+
+  const autoEmbed = new EmbedBuilder().setTitle('Auto').setDescription('D')
+    .setThumbnail('https://cdn.example/auto.png');
+  check('ohne Autor bleibt das Miniaturbild unangetastet',
+    render.toMessage({ embeds: [autoEmbed], components: [] }).embed.thumbnail?.url
+      === 'https://cdn.example/auto.png');
+
   console.log('--- Rohe IDs stehen bleiben lassen wir nicht ---');
   /*
    * Fluxer kann eine Discord-ID nicht auflösen. Kennen wir den Namen, steht

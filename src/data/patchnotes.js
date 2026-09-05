@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.20.0',
+    date: '2026-09-06',
+    title: 'Titel und ein größeres Profilbild',
+    lines: [
+      '🏅 **Jeder bekommt einen Titel.** Er richtet sich danach, was du am häufigsten machst: Ganove, Angler, Börsenhai, Immobilienmogul … Zwölf Aktivitäten mit je drei Stufen – ab dem 1., dem 26. und dem 101. Mal.',
+      '✍️ **Oder du wählst selbst:** Im Profil unter 🏅 Titel. Zur Auswahl steht, was du auch wirklich getan hast – dazu „Automatisch" und „Keiner".',
+      '🖼️ **Das Profilbild ist zurück in der Ecke** und wieder groß, oben rechts. Auf Fluxer bleibt es beim Namen, weil dort nur diese Stelle Bilder zeigt.',
+      '_Gezählt wird ab jetzt – alte Aktionen kennt die Strichliste nicht._',
+    ],
+  },
+  {
     version: '1.19.0',
     date: '2026-09-06',
     title: 'Level zählt jetzt überall',

@@ -547,8 +547,12 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     const t0 = new Date(new Date().setHours(10, 0, 0, 0)).getTime();
     earned = 0; bookings = 0;
     refill(U);
-    const res = await creator.act(G, U, 'twitch', 'chatting', t0);
-    check('genau EINE Geldbuchung je Aktion (§9)', bookings === 1, String(bookings));
+    // Fester Würfel: Ohne ihn kann eine Aktion zufällig auf 0 Auszahlung
+    // fallen (kleiner Kanal, schlechter Ausgang) – dann wird korrekterweise
+    // gar nicht gebucht, und die Prüfung darunter wäre grundlos rot.
+    const res = await creator.act(G, U, 'twitch', 'chatting', t0, rng(4242));
+    check('genau EINE Geldbuchung je Aktion (§9)',
+      bookings === 1 && res.amount > 0, `${bookings} Buchungen, ${res.amount}`);
     check('gebucht wird genau der ausgewiesene Betrag', earned === res.amount);
     check('der Kanal steht danach in der Datenbank',
       db.getCreator(G, U, 'twitch').followers === res.followers
