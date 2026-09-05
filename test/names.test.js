@@ -81,6 +81,45 @@ const FLUXER = 'fx:1543693306263769088';
   }, { world });
   check('API-Fehler werden geschluckt', kaputt.learned === 0, JSON.stringify(kaputt));
 
+  console.log('--- Namen bei Bedarf nachtragen (Ranglisten) ---');
+  /*
+   * In der Rangliste stehen inzwischen auch Leute, die den Bot nie benutzt
+   * haben – ihr Geld kennt nur UnbelievaBoat. Ohne diesen Nachtrag stünde
+   * dort eine nackte 19-stellige ID.
+   */
+  // Frische IDs je Lauf: `account_names` ist weltübergreifend, ein gemerkter
+  // Name aus einem früheren Lauf würde den Test sonst leer laufen lassen.
+  const FREMD = `999888777${String(Date.now()).slice(-10)}`;
+  let abfragen = 0;
+  const fremdClients = {
+    discord: { users: { async fetch(id) { abfragen++; return { id, displayName: 'Fremder' }; } } },
+  };
+  const gelernt = await names.ensure([FREMD], { clients: fremdClients });
+  check('der Name wird geholt', identity.nameOf(FREMD) === 'Fremder', String(identity.nameOf(FREMD)));
+  check('und gemeldet', gelernt === 1, String(gelernt));
+
+  await names.ensure([FREMD], { clients: fremdClients });
+  check('beim zweiten Mal kostet es nichts mehr', abfragen === 1, String(abfragen));
+
+  console.log('--- Unauffindbare werden nicht endlos gefragt ---');
+  const WEG = `111222333${String(Date.now() + 1).slice(-10)}`;
+  let versuche = 0;
+  const leer = {
+    discord: { users: { async fetch() { versuche++; throw new Error('gibt es nicht'); } } },
+  };
+  await names.ensure([WEG], { clients: leer });
+  await names.ensure([WEG], { clients: leer });
+  check('nur einmal nachgefragt', versuche === 1, String(versuche));
+  check('nach Ablauf der Schonfrist wieder',
+    await names.ensure([WEG], { clients: leer, now: Date.now() + names.MISS_TTL_MS + 1 }) === 0
+    && versuche === 2, String(versuche));
+
+  console.log('--- Grenzen und Ausfälle ---');
+  check('ohne Clients passiert nichts', await names.ensure(['123456789012345678']) === 0);
+  check('leere Liste ist harmlos', await names.ensure([], { clients: fremdClients }) === 0);
+  check('bekannte Konten werden übersprungen',
+    await names.ensure([FREMD], { clients: fremdClients }) === 0);
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

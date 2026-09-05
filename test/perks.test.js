@@ -178,6 +178,31 @@ function makeLevel(userId, lvl) {
     { channelId: 'C3', author: { id: 'UNB', bot: true }, content: 'You earned 1.000!' }, credit, t + 1000);
   check('Level 0 bekommt keinen Zuschlag', none === null);
 
+  console.log('--- Der Zuschlag gilt für JEDE Einnahme ---');
+  check('eine Einnahme wächst mit dem Level', perks.payout(G, HIGH, 1000) === 1400,
+    String(perks.payout(G, HIGH, 1000)));
+  check('Level 0 bekommt genau den Betrag', perks.payout(G, LOW, 1000) === 1000,
+    String(perks.payout(G, LOW, 1000)));
+  check('Strafen wachsen NICHT mit', perks.payout(G, HIGH, -1000) === -1000,
+    String(perks.payout(G, HIGH, -1000)));
+  check('null bleibt null', perks.payout(G, HIGH, 0) === 0);
+  check('nie weniger als der Grundbetrag', perks.payout(G, HIGH, 1) >= 1);
+  check('Unsinn wird zu null', perks.payout(G, HIGH, undefined) === 0);
+
+  console.log('--- ... nur nicht dort, wo er ein Gelddrucker wäre ---');
+  /*
+   * Diese vier zahlen aus, was ein anderer verloren oder eingesetzt hat.
+   * Ein Zuschlag würde dort Geld aus dem Nichts erzeugen (§3) – deshalb darf
+   * in ihnen gar kein Level vorkommen.
+   */
+  const quelle = (datei) => require('node:fs').readFileSync(`src/${datei}`, 'utf8');
+  for (const [datei, was] of [
+    ['casinoPlay.js', 'Casino'], ['robbery.js', 'Überfall'],
+    ['buyers.js', 'Autoverkauf an NPCs'], ['npc.js', 'NPC-Markt'],
+  ]) {
+    check(`${was} kennt keinen Level-Zuschlag`, !quelle(datei).includes('perks'));
+  }
+
   console.log('--- Anzeige ---');
   check('Zusammenfassung nennt alle aktiven Vorteile',
     perks.summary(20).length === 4, String(perks.summary(20).length));

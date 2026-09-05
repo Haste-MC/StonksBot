@@ -419,7 +419,10 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
     let lostGear = null;
 
     if (success) {
-      amount = Math.round(gross * (shares[i] / total));
+      // Der Level-Zuschlag gilt für jede Einnahme – auch für die Beute.
+      // Die Strafe im else-Zweig bleibt unangetastet (siehe perks.payout).
+      amount = require('./perks').payout(
+        guildId, member.user_id, Math.round(gross * (shares[i] / total)));
     } else {
       const factor = outcome === 'disaster' ? 1.5 : 1;
       amount = -Math.round(loc.fine * factor * (1 + (memberHeat / HEAT_MAX) * HEAT_FINE));

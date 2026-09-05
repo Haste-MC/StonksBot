@@ -205,6 +205,22 @@ function view(buttons) {
   check('die Erwähnung bleibt erhalten (soll pingen)',
     sent.every((m) => m.content.startsWith('<@FX1>')), sent[0]?.content);
 
+  console.log('--- Rohe IDs stehen bleiben lassen wir nicht ---');
+  /*
+   * Fluxer kann eine Discord-ID nicht auflösen. Kennen wir den Namen, steht
+   * er da; kennen wir ihn nicht, war es bisher eine nackte 19-stellige Zahl –
+   * genau das war in der Rangliste zu sehen.
+   */
+  identity.remember('112233445566778899', 'Bekannter');
+  check('bekannter Name gewinnt',
+    render.forFluxer('<@112233445566778899> hat geboten') === '**Bekannter** hat geboten',
+    render.forFluxer('<@112233445566778899> hat geboten'));
+  const unbekannt = render.forFluxer('<@987654321098765432> führt');
+  check('unbekannt wird lesbar statt roh', unbekannt === '**Spieler #5432** führt', unbekannt);
+  check('keine rohe ID mehr im Text', !unbekannt.includes('987654321098765432'), unbekannt);
+  check('andere Klammern bleiben unangetastet',
+    render.forFluxer('<@nicht-eine-id> hallo') === '<@nicht-eine-id> hallo');
+
   console.log('--- Modal-Ersatz: die Antwort muss ankommen ---');
   /*
    * Der Fehler: `ask` merkte sich die Frage unter dem KONTO (fx:FX2 oder die

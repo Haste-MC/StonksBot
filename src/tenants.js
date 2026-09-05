@@ -84,10 +84,12 @@ async function settleLandlord(guildId, landlordId, now = Date.now(), random = Ma
 
     for (let d = 0; d < days; d++) {
       if (tenant) {
-        // Tagesmiete an den Vermieter.
-        await changeCash(guildId, landlordId, offer.offer_price,
+        // Tagesmiete an den Vermieter – mit Level-Zuschlag, das Geld kommt
+        // vom NPC-Mieter und nicht aus einer fremden Tasche (perks.js).
+        const rent = require('./perks').payout(guildId, landlordId, offer.offer_price);
+        await changeCash(guildId, landlordId, rent,
           `Mieteinnahme: ${offer.name}`).catch(() => {});
-        income += offer.offer_price;
+        income += rent;
 
         if (random() < moveOutChancePerDay(ratio)) {
           db.endRental(guildId, npcUser);
@@ -112,9 +114,10 @@ async function settleLandlord(guildId, landlordId, now = Date.now(), random = Ma
           tenant = { user_id: npcUser, tenant_name: name };
 
           // Erste Tagesmiete direkt bei Einzug.
-          await changeCash(guildId, landlordId, offer.offer_price,
+          const first = require('./perks').payout(guildId, landlordId, offer.offer_price);
+          await changeCash(guildId, landlordId, first,
             `Mieteinnahme: ${offer.name}`).catch(() => {});
-          income += offer.offer_price;
+          income += first;
 
           movedIn.push({ name: offer.name, tenant: name });
           db.createMessage({

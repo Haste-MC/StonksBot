@@ -802,8 +802,10 @@ async function act(
   // Erfüllte Verträge werden sofort ausgezahlt – eigene Buchung, weil es ein
   // eigener Vorgang ist (nicht der Ertrag dieser einen Aktion).
   if (deal?.complete && deal.payout > 0) {
+    // Auch die Vertragsprämie ist eine Einnahme – Level zählt (perks.js).
+    deal.paid = require('./perks').payout(guildId, userId, deal.payout);
     deal.balance = await changeCash(
-      guildId, userId, deal.payout, `Sponsor: ${deal.brand}`).catch(() => null);
+      guildId, userId, deal.paid, `Sponsor: ${deal.brand}`).catch(() => null);
   }
 
   // --- Meldet sich eine Marke? ---

@@ -3265,6 +3265,10 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   const slice = roster.slice((p - 1) * LB_PAGE, p * LB_PAGE);
   if (metric !== 'networth') await fillNetworth(slice);
 
+  // Namen der angezeigten Zeilen nachtragen – hier stehen inzwischen auch
+  // Leute, die den Bot nie benutzt haben (siehe names.js).
+  await require('./names').ensure(slice.map((r) => r.userId)).catch(() => {});
+
   const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] ?? `**#${rank}**`;
 
   if (roster.length > 0) {
@@ -3691,6 +3695,10 @@ async function buildTopView({ guildId, userId, sort = 'networth' }) {
   const symbol = await getSymbol(guildId);
   const key = toplist.parseSort(sort);
   const entries = await toplist.fetch({ sort: key, limit: 15 });
+
+  // Namen nachtragen: In dieser Liste stehen Leute, die den Bot nie benutzt
+  // haben – ohne das stünden dort rohe IDs (siehe names.js).
+  await require('./names').ensure(entries.map((e) => e.userId)).catch(() => {});
 
   const titles = {
     networth: 'Vermögen', total: 'Gesamtguthaben', cash: 'Bargeld', bank: 'Bank',

@@ -145,7 +145,12 @@ function resolveMentions(text) {
   if (typeof text !== 'string' || !text.includes('<@')) return text;
   return text.replace(/<@!?([^>]+)>/g, (whole, id) => {
     const name = identity.nameOf(id);
-    return name ? `**${name}**` : whole;
+    if (name) return `**${name}**`;
+    // Kennen wir den Namen nicht, ist eine 19-stellige Zahl das Schlechteste,
+    // was hier stehen kann: Fluxer löst sie nicht auf, und lesbar ist sie
+    // auch nicht. „Spieler #4322" sagt wenigstens, dass es ein Mensch ist,
+    // und unterscheidet zwei Unbekannte in derselben Liste.
+    return /^\d{15,}$/.test(id) ? `**${identity.display(id)}**` : whole;
   });
 }
 

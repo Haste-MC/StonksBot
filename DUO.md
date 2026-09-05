@@ -1044,7 +1044,7 @@ man beim Balancing nicht durch zehn Dateien sucht.
 
 | Vorteil | Wirkung | Deckel |
 |--|--|--|
-| 💰 **Einkommen** | +2 % je Level auf `!daily`, jede Schicht und `!work` | +60 % (Level 30) |
+| 💰 **Einkommen** | +2 % je Level auf **jede Einnahme** | +60 % (Level 30) |
 | 📉 **Börsengebühr** | −2 % je Level | −50 % |
 | 🅿️ **Stellplätze** | je einer ab Level 10, 20 und 35 | +3 |
 | 🛡️ **Straße** | geringeres Diebstahlrisiko, −2 % je Level | −40 % |
@@ -1052,6 +1052,20 @@ man beim Balancing nicht durch zehn Dateien sucht.
 Sichtbar sind sie im **Profil** (`/profil`) samt nächstem Meilenstein – ohne
 diese Anzeige wäre das Levelsystem eine Zahl ohne Wirkung. Beim Tagesbonus und
 bei jeder Schicht steht der Zuschlag in der Antwort.
+
+#### Was „jede Einnahme" heißt
+
+Gerechnet wird an einer Stelle (`perks.payout`), aufgerufen an jeder Quelle,
+die das Spiel selbst speist:
+
+> Schichten · Tagesbonus · Rollen-Einkommen · Angeln · Creator (Aufrufe,
+> Katalog, Merch, Sponsorenprämie) · Musik (Tantiemen, Konzerte, Idol-Vorschuss)
+> · Heist-Beute · Mieteinnahmen von NPC-Mietern · gute Ausgänge bei Vorfällen
+> · und als Aufschlag UnbelievaBoats `!work` & Co.
+
+**Strafen wachsen nicht mit.** `payout` lässt negative Beträge unangetastet –
+sonst würde ein hohes Level die Bußgelder eines misslungenen Heists mit
+hochziehen.
 
 ### Zuschlag auf UnbelievaBoats `!work`
 
@@ -1076,15 +1090,27 @@ WORK_BONUS_COOLDOWN_MIN=20
 Braucht wie die Nudges das **Message Content Intent** und den Präfix
 (`!work`) – UnbelievaBoats Slash-Befehle sind für uns unsichtbar.
 
-### Was bewusst KEINEN Rabatt bekommt
+### Was bewusst KEINEN Zuschlag und keinen Rabatt bekommt
 
-Zwei Systeme bleiben unangetastet, weil dort der Aufschlag knapp über der
+Diese Systeme bleiben unangetastet, weil dort der Aufschlag knapp über der
 Grenze liegt, die den Bot vor einem Gelddrucker schützt (ARCHITEKTUR §3):
 
 - **Werkstatt** – der Preis liegt nur wenige Prozent über dem Wertzuwachs. Ein
   Level-Rabatt machte daraus ein Geschäft: reparieren, verkaufen, Gewinn.
 - **Auktionshaus** – der Startpreis liegt knapp über dem Erwartungswert des
   Inhalts. Jeder Nachlass drehte den Erwartungswert ins Plus.
+- **Casino** – der Hausvorteil ist hauchdünn; +60 % auf Gewinne drehen jedes
+  Spiel ins sichere Plus.
+- **Börse** – die Kurse sind ein Martingal. Ein Aufschlag auf den Verkauf
+  machte aus Kaufen-und-Verkaufen eine Gelddruckmaschine.
+- **Verkäufe** (Auto, Immobilie, Fundstück) – gekauft für X, verkauft für
+  X · 1,6 wäre eine Schleife ohne Boden.
+- **Überfall und Miete unter Spielern** – dort wechselt Geld nur den Besitzer.
+  Ein Zuschlag erzeugte die Differenz aus dem Nichts.
+
+Der Test liest diese Dateien und prüft, dass in ihnen gar kein `perks`
+vorkommt – die Ausnahme ist damit nicht bloß aufgeschrieben, sondern
+abgesichert.
 
 Die **Börsengebühr** darf sinken, aber nie auf null: Sie ist der Grund, warum
 die Börse unterm Strich eine Geldsenke ist. Das Einkommen zu erhöhen ist

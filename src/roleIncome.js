@@ -65,7 +65,10 @@ function amountFor(roleIds) {
 async function claim(guildId, accountId, roleIds, now = Date.now()) {
   if (!enabled) return { ok: false, reason: 'disabled' };
 
-  const { total, parts } = amountFor(roleIds);
+  const base = amountFor(roleIds);
+  const parts = base.parts;
+  // Wie überall: Das Level legt auf jede Einnahme drauf (perks.js).
+  const total = require('./perks').payout(guildId, accountId, base.total);
   if (total <= 0) return { ok: false, reason: 'no_roles' };
 
   const left = remainingMs(guildId, accountId, now);

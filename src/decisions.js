@@ -215,7 +215,10 @@ async function apply(guildId, userId, row, effect, now = Date.now(), ignored = f
 
   // --- Geld: genau eine Buchung ---
   if (effect.cash) {
-    const amount = scaleMoney(reach, effect.cash < 0 ? scaled(effect.cash) : effect.cash);
+    // Der Zuschlag greift nur nach oben – eine Strafe wächst nicht mit dem
+    // Level mit (perks.payout lässt negative Beträge in Ruhe).
+    const amount = require('./perks').payout(guildId, userId,
+      scaleMoney(reach, effect.cash < 0 ? scaled(effect.cash) : effect.cash));
     if (amount !== 0) {
       const title = decision(row.kind)?.title ?? 'Vorfall';
       done.cash = amount;

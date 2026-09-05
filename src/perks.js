@@ -12,8 +12,8 @@ const level = require('./level');
  *
  * Fünf Vorteile, bewusst unterschiedlich in ihrer Art:
  *
- *   💰 Einkommen     mehr Geld bei `!daily`, bei jeder Schicht und als
- *                    Zuschlag auf UnbelievaBoats `!work`
+ *   💰 Einkommen     mehr Geld bei **jeder Einnahme** – eigene Aktivitäten
+ *                    ebenso wie als Zuschlag auf UnbelievaBoats `!work`
  *   📉 Börsengebühr  sinkt (aber nie auf null – siehe unten)
  *   🅿️ Stellplätze   zusätzliche Garagenplätze
  *   🛡️ Straße        geringeres Diebstahlrisiko für Autos draußen
@@ -30,10 +30,38 @@ const level = require('./level');
  *    Aufschlag knapp über dem Wertzuwachs bzw. dem Erwartungswert; jeder
  *    Rabatt würde die Regel kippen.
  *
- * Das Einkommen zu erhöhen ist dagegen unbedenklich: `!daily`, Schichten und
- * `!work` sind ohnehin die geplanten Geldquellen des Spiels. Der Zuschlag ist
- * gedeckelt, damit er nicht mit dem Level davonläuft.
+ * Das Einkommen zu erhöhen ist dagegen unbedenklich: Arbeit, Angeln, Creator,
+ * Musik, Beute und Mieten sind ohnehin die geplanten Geldquellen des Spiels.
+ * Der Zuschlag ist gedeckelt, damit er nicht mit dem Level davonläuft.
  * =======================================================================
+ *
+ * ================== WAS DER ZUSCHLAG ANFASST ==================
+ * Grundsatz: **jede Einnahme**, die das Spiel selbst erzeugt.
+ *
+ *   Schichten · Tagesbonus · Rollen-Einkommen · Angeln · Creator (Aufrufe,
+ *   Katalog, Merch, Sponsoren) · Musik (Tantiemen, Konzerte, Vorschuss) ·
+ *   Heist-Beute · Mieteinnahmen von NPC-Mietern · gute Ausgänge bei
+ *   Vorfällen · und als Aufschlag UnbelievaBoats `!work` & Co.
+ *
+ * Nicht angefasst wird, wo Geld nur den Besitzer wechselt oder wo eine
+ * Gegenwette im Spiel ist – dort wäre der Zuschlag kein Bonus, sondern ein
+ * Gelddrucker (§3):
+ *
+ *   ❌ Casino          Der Hausvorteil ist hauchdünn; +60 % auf Gewinne
+ *                      drehen jedes Spiel ins sichere Plus.
+ *   ❌ Börse           Kurse sind ein Martingal – ein Aufschlag auf den
+ *                      Verkauf macht Kaufen-und-Verkaufen zur Gelddruckerei.
+ *   ❌ Verkäufe        Auto, Immobilie, Fundstück: gekauft für X, verkauft
+ *                      für X · 1,6 wäre eine Schleife ohne Boden.
+ *   ❌ Auktionshaus    Die Beute liegt bewusst knapp unter dem Startpreis;
+ *                      jeder Aufschlag kippt genau diese Rechnung.
+ *   ❌ Überfall        Was der eine verliert, bekommt der andere – ein
+ *                      Zuschlag würde Geld aus dem Nichts erzeugen.
+ *   ❌ Miete unter Spielern, Rückerstattungen, Entschädigungen: dasselbe.
+ *
+ * Strafen bleiben ebenfalls unangetastet: `payout` rührt negative Beträge
+ * nicht an, sonst würde ein hohes Level die Strafen mit erhöhen.
+ * ==============================================================
  */
 
 /** Je Level mehr Einkommen (2 %) – gedeckelt bei +60 %. */
@@ -82,6 +110,20 @@ function perksOf(guildId, userId) {
   return perks(levelOf(guildId, userId));
 }
 
+/**
+ * Der Level-Zuschlag auf eine Einnahme – die einzige Stelle, die ihn rechnet.
+ *
+ * Negative Beträge (Strafen, Gebühren, Verluste) kommen unverändert zurück,
+ * und der Zuschlag kann eine Einnahme nie kleiner machen als sie war.
+ *
+ * @returns {number} der auszuzahlende Betrag, gerundet
+ */
+function payout(guildId, userId, amount) {
+  const value = Math.round(Number(amount) || 0);
+  if (value <= 0) return value;
+  return Math.max(value, Math.round(value * perksOf(guildId, userId).income));
+}
+
 /** Nächster Meilenstein: Was bringt das nächste Level? */
 function nextMilestone(lvl = 0) {
   const l = Math.max(0, Math.floor(lvl));
@@ -105,7 +147,7 @@ function nextMilestone(lvl = 0) {
 function summary(lvl = 0) {
   const p = perks(lvl);
   const lines = [
-    `💰 Einkommen **+${Math.round(p.incomeBonus * 100)} %** (Tagesbonus, Schichten, \`!work\`)`,
+    `💰 Einkommen **+${Math.round(p.incomeBonus * 100)} %** auf jede Einnahme`,
     `📉 Börsengebühr **−${Math.round((1 - p.fee) * 100)} %**`,
   ];
   if (p.slots > 0) lines.push(`🅿️ **+${p.slots}** ${p.slots === 1 ? 'Stellplatz' : 'Stellplätze'}`);
@@ -238,6 +280,6 @@ module.exports = {
   INCOME_PER_LEVEL, INCOME_CAP, FEE_CUT_PER_LEVEL, FEE_CUT_CAP,
   SLOT_LEVELS, THEFT_CUT_PER_LEVEL, THEFT_CUT_CAP,
   enabled, PREFIX, EARN_COMMANDS, WINDOW_MS, COOLDOWN_MS, MAX_PAYOUT,
-  levelOf, perks, perksOf, nextMilestone, summary,
+  levelOf, perks, perksOf, payout, nextMilestone, summary,
   parsePayout, handleMessage, reset,
 };

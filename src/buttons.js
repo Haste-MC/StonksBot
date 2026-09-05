@@ -2042,8 +2042,9 @@ Object.assign(buttons, {
 
       if (res.deal) {
         note += res.deal.complete
+          // Ausgezahlt wird mit Level-Zuschlag – die Zahl muss die echte sein.
           ? `\n🤝 **Vertrag erfüllt!** ${res.deal.emoji} ${res.deal.brand} zahlt ` +
-            `**${money(symbol, res.deal.payout)}**.`
+            `**${money(symbol, res.deal.paid ?? res.deal.payout)}**.`
           : `\n🤝 Zählt für ${res.deal.emoji} ${res.deal.brand}: ` +
             `**${res.deal.done}/${res.deal.quota}**.`;
       }

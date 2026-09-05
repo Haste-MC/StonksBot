@@ -231,6 +231,20 @@ const loc = (id) => heist.location(id);
     check('nicht sofort das nächste Ding',
       heist.plan(G, U, 'kiosk', t0 + HOUR).reason === 'cooldown');
 
+    // Der Level-Zuschlag gilt für jede Einnahme – auch für die Beute.
+    // Strafen dagegen dürfen NICHT mit dem Level wachsen.
+    const perks = require('../src/perks');
+    const level = require('../src/level');
+    const R = player();
+    db.addStats(G, R, { xp: level.xpForLevel(20) });
+    const faktor = perks.perks(perks.levelOf(G, R)).income;
+    heist.plan(G, R, 'kiosk', t0);
+    const reich = await heist.execute(G, R, t0, () => 0);
+    check('der Zuschlag ist überhaupt spürbar', faktor > 1, String(faktor));
+    check('die Beute bekommt den Level-Zuschlag',
+      reich.members[0].amount === Math.round(reich.gross * faktor),
+      `${reich.members[0].amount} statt ${Math.round(reich.gross * faktor)}`);
+
     // Fehlschlag erzwingen: Würfel liefert 1 → immer der schlechteste Ausgang.
     const V = player();
     heist.plan(G, V, 'juwelier', t0);
@@ -240,6 +254,17 @@ const loc = (id) => heist.location(id);
     const bust = await heist.execute(G, V, t0, () => 0.999);
     check('ein Fehlschlag kostet', bust.ok && !bust.success && cash < 0, de(cash));
     check('beide zahlen', bust.members.length === 2 && bust.members.every((m) => m.amount < 0));
+
+    // Gleiche Umstände, unterschiedliches Level – die Strafe muss gleich sein.
+    const S = player();
+    db.addStats(G, S, { xp: level.xpForLevel(20) });
+    const T = player();
+    heist.plan(G, S, 'juwelier', t0);
+    heist.join(G, T, db.crewMembership(G, S).heist_id, t0);
+    const strafe = await heist.execute(G, S, t0, () => 0.999);
+    check('die Strafe wächst nicht mit dem Level',
+      strafe.members[0].amount === strafe.members[1].amount,
+      strafe.members.map((m) => m.amount).join(' vs '));
     check('beide sitzen',
       heist.recordOf(G, V, t0).jailedMs > 0 && heist.recordOf(G, W, t0).jailedMs > 0);
     check('im Knast geht gar nichts',

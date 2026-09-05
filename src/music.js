@@ -502,7 +502,8 @@ async function show(guildId, userId, now = Date.now(), random = Math.random) {
   });
 
   const cut = idol ? Math.round(gross * idol.cut) : 0;
-  const net = gross - cut;
+  // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
+  const net = require('./perks').payout(guildId, userId, gross - cut);
   const balance = await changeCash(guildId, userId, net, `Konzert: ${g.name}`);
 
   return {
@@ -609,8 +610,8 @@ async function sign(guildId, userId, contractId, now = Date.now()) {
   // nur ein Abzug mit Zusatzregeln – niemand würde ihn nehmen.
   const artist = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
-  const advance = Math.round(
-    artist.listeners * PLAYS_PER_LISTENER * ROYALTY * market.royalty * IDOL_ADVANCE_DAYS);
+  const advance = require('./perks').payout(guildId, userId, Math.round(
+    artist.listeners * PLAYS_PER_LISTENER * ROYALTY * market.royalty * IDOL_ADVANCE_DAYS));
   const balance = advance > 0
     ? await changeCash(guildId, userId, advance, `Vorschuss: ${row.agency}`) : null;
 

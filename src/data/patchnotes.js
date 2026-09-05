@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.19.0',
+    date: '2026-09-06',
+    title: 'Level zählt jetzt überall',
+    lines: [
+      '💰 **Der Level-Zuschlag gilt für jede Einnahme**, nicht mehr nur für Schichten, Tagesbonus und `!work`: Heist-Beute, Konzerte, Idol-Vorschuss, Sponsorenprämien, Mieteinnahmen, Rollen-Einkommen und gute Ausgänge bei Vorfällen bekommen ihn jetzt auch. Bis zu **+60 %** ab Level 30.',
+      '⚖️ **Strafen wachsen nicht mit.** Ein hohes Level macht das Bußgeld nach einem misslungenen Ding kein Stück teurer.',
+      '🎰 **Nicht überall, und das mit Absicht:** Casino, Börse, Verkäufe, Auktionsfunde und Überfälle bleiben außen vor – dort wäre der Zuschlag kein Bonus, sondern eine Gelddruckmaschine.',
+      '👤 **Namen statt Zahlenkolonnen:** In der Rangliste standen Spieler, die den Bot nie benutzt haben, als nackte ID da. Ihre Namen werden jetzt bei Bedarf nachgeschlagen – und wo wirklich keiner zu finden ist, steht „Spieler #1234" statt einer 19-stelligen Zahl.',
+    ],
+  },
+  {
     version: '1.18.0',
     date: '2026-09-06',
     title: 'Vermögen zählt jetzt alles',
