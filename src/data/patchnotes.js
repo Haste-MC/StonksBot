@@ -18,6 +18,16 @@
  */
 module.exports = [
   {
+    version: '1.17.1',
+    date: '2026-09-06',
+    title: 'Heist-Ausrüstung war unsichtbar',
+    lines: [
+      '🧰 **Die neue Ausrüstung stand nicht im Shop.** Sturmmaske, Brecheisen, Funkgeräte, Dietrich-Set, Störsender und Sprengsatz gab es im Katalog, aber nicht zu kaufen – der Laden liest aus der Datenbank, und die kannte sie noch nicht.',
+      '🔄 **Behoben, und zwar dauerhaft:** Der Bot gleicht neue Artikel jetzt bei jedem Start selbst ab. Nur Fehlendes wird angelegt – geänderte Preise und gelöschte Artikel bleiben, wie sie sind.',
+      '🕵️ Zu finden unter 🧰 Ausrüstung in der Kategorie **Untergrund**.',
+    ],
+  },
+  {
     version: '1.17.0',
     date: '2026-09-05',
     title: 'Heists',

@@ -79,5 +79,33 @@ console.log('--- Server-Trennung ---');
 check('anderer Server sieht nichts', db.listItems('ANDERERSERVER', 1).total === 0);
 
 cleanup();
+console.log('--- Katalog-Abgleich ---');
+{
+  const seed = require('../src/seed');
+  const gearData = require('../src/data/gear');
+  const G2 = `SEED_${Date.now()}`;
+
+  const first = seed.ensureGear(G2);
+  check('ein leerer Server bekommt den ganzen Katalog',
+    first.added.length === gearData.length, `${first.added.length}/${gearData.length}`);
+  check('ein zweiter Lauf legt nichts doppelt an',
+    seed.ensureGear(G2).added.length === 0);
+
+  // Der Fall, der die Heist-Werkzeuge unsichtbar gemacht hat: Der Katalog
+  // wächst, die Datenbank kennt die neuen Sachen noch nicht.
+  const one = db.allItemsOfKind(G2, 'gear').find((i) => i.name === 'Sturmmaske');
+  db.deleteItem(G2, one.id);
+  const again = seed.ensureGear(G2);
+  check('fehlende Artikel werden nachgetragen',
+    again.added.length === 1 && again.added[0] === 'Sturmmaske', again.added.join());
+
+  check('Heist-Ausrüstung ist im Shop auffindbar',
+    require('../src/data/heists').TIERS.at(-1).items
+      .every((name) => db.allItemsOfKind(G2, 'gear').some((i) => i.name === name)));
+  check('sie hat eine eigene Kategorie',
+    db.allItemsOfKind(G2, 'gear')
+      .some((i) => i.brand === 'Untergrund' && i.name === 'Brecheisen'));
+}
+
 console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
 process.exit(fail === 0 ? 0 : 1);

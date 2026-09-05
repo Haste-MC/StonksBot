@@ -24,26 +24,10 @@ if (reset) {
   console.log(`🗑️  ${existing.length} vorhandene Ausrüstungsartikel gelöscht.\n`);
 }
 
-let added = 0, skipped = 0;
-for (const item of gear) {
-  try {
-    db.createItem({
-      guildId,
-      name: item.name,
-      price: item.price,
-      description: item.description,
-      emoji: item.emoji,
-      brand: item.category,
-      kind: 'gear',
-      stock: null,
-      createdBy: 'seed',
-    });
-    added++;
-  } catch (err) {
-    if (String(err.message).includes('UNIQUE')) { skipped++; continue; }
-    throw err;
-  }
-}
+// Derselbe Abgleich, den auch der Bot beim Start macht: nur Fehlendes anlegen.
+const result = require('./seed').ensureGear(guildId);
+const added = result.added.length;
+const skipped = gear.length - added;
 
 // Gegenprüfung: Verlangt ein Job Ausrüstung, die es gar nicht zu kaufen gibt?
 const available = new Set(db.allItemsOfKind(guildId, 'gear').map((i) => i.name.toLowerCase()));

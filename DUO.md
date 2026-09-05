@@ -498,6 +498,23 @@ einziger Wurf über alles.
 | 🎰 Kasino-Tresor | 4–6 | 🔓 Stufe 3 | 7 | 450.000–1,1 Mio | 500.000 + 48 h |
 | 🚚 Goldtransport | 4–6 | 💣 Stufe 4 | 8 | 900.000–2,4 Mio | 900.000 + 72 h |
 
+### Woher die Ausrüstung kommt
+
+Die vier Stufen (🧤 Sturmmaske → 🔧 Brecheisen → 🔓 Dietrich-Set und 📻 Funk →
+🚨 Störsender und 💣 Sprengsatz) stehen in der 🧰 **Ausrüstung** unter der
+Kategorie **Untergrund**.
+
+Der Shop liest seine Artikel aus der **Datenbank**, nicht aus den
+Katalogdateien – Admins sollen Preise ändern und eigene Sachen anlegen können.
+Neue Ausrüstung aus einem Update landete dadurch bisher nicht von allein im
+Laden. Seit [`src/seed.js`](src/seed.js) gleicht der Bot das **beim Start**
+selbst ab: Fehlendes wird angelegt, Vorhandenes nicht angefasst, Gelöschtes
+bleibt gelöscht. Wer nicht neu starten will, kann es von Hand nachziehen:
+
+```bash
+node src/seed-gear.js <deine-server-id>
+```
+
 ### Die Erfolgschance ist offen einsehbar
 
 ```

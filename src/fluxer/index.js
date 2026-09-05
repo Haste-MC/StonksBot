@@ -50,6 +50,8 @@ client.on(Events.Ready, () => {
   // Taktgeber im Bot – warum, steht in wallstreet.js).
   require('../wallstreet').startTicker(identity.world());
 
+  require('../seed').syncCatalogs(identity.world());
+
   relay.register('fluxer', client);
   if (relay.enabled) {
     console.log('🔗 Kanal-Brücke: Fluxer-Seite bereit.');

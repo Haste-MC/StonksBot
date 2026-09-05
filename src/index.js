@@ -36,6 +36,9 @@ client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
 
+  // Neue Ausrüstung aus einem Update in den Shop nachtragen (nur additiv).
+  require('./seed').syncCatalogs(identity.world());
+
   // Börsenticker: Kurse bewegen sich auch, wenn niemand zusieht (der einzige
   // Taktgeber im Bot – warum, steht in wallstreet.js).
   require('./wallstreet').startTicker(identity.world());
