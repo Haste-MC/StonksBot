@@ -164,23 +164,28 @@ function forFluxer(text) {
 }
 
 /**
- * Fluxer stellt `thumbnail` nicht dar – ein Profilbild dort wäre schlicht weg
- * (genau das ist schon einmal passiert). Die einzige Bildstelle, die
- * ankommt, ist das Autorbild. Also wandert das Miniaturbild dorthin, sofern
- * ein Autor ohne eigenes Bild bereitsteht.
+ * Das Miniaturbild zusätzlich in den Autorblock legen.
  *
- * Auf Discord bleibt es unangetastet: Dort steht es groß oben rechts.
+ * Fluxers API nimmt `thumbnail` entgegen, gezeichnet hat es der Client bisher
+ * nicht – ein Profilbild dort war schlicht weg. Sicher ankommt nur das
+ * Autorbild, also steht es dort. Das Miniaturbild bleibt trotzdem an der
+ * Nachricht: Zeigt eine neue Fluxer-Version es doch, steht das Bild groß in
+ * der Ecke, ohne dass hier etwas geändert werden muss.
+ *
+ * Sollte es dadurch irgendwann doppelt zu sehen sein, ist das die Stelle:
+ * `thumbnail` entfernen statt kopieren.
+ *
+ * Auf Discord passiert das alles nicht – dort steht es ohnehin groß rechts.
  */
-function moveThumbnailToAuthor(embed) {
+function copyThumbnailToAuthor(embed) {
   if (!embed.thumbnail?.url) return embed;
   if (!embed.author?.name || embed.author.icon_url) return embed;
 
-  const { thumbnail, ...rest } = embed;
-  return { ...rest, author: { ...embed.author, icon_url: thumbnail.url } };
+  return { ...embed, author: { ...embed.author, icon_url: embed.thumbnail.url } };
 }
 
 function humanize(embed) {
-  const out = moveThumbnailToAuthor({ ...embed });
+  const out = copyThumbnailToAuthor({ ...embed });
   if (out.title) out.title = forFluxer(out.title);
   if (out.description) out.description = forFluxer(out.description);
   if (Array.isArray(out.fields)) {

@@ -1290,6 +1290,13 @@ const stmt = {
     `SELECT kind, count, last_at FROM player_activity
      WHERE guild_id = ? AND user_id = ? AND count > 0
      ORDER BY count DESC, last_at DESC`),
+  setActivity: db.prepare(
+    `INSERT INTO player_activity (guild_id, user_id, kind, count, last_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET
+       count = excluded.count, last_at = excluded.last_at`),
+  // Nur lesen, nichts anlegen – für den einmaligen Nachtrag (activity.js).
+  peekCriminal: db.prepare('SELECT * FROM criminals WHERE guild_id = ? AND user_id = ?'),
   // Kaufwert aller eigenen Immobilien – fürs Profil/Networth, analog garageValue.
   totalPropertyValue: db.prepare(
     `SELECT COALESCE(SUM(i.price * inv.quantity), 0) AS value
@@ -2307,6 +2314,16 @@ function bumpActivity(guildId, userId, kind, at = Date.now()) {
 /** Alle Aktivitäten eines Spielers, häufigste zuerst. */
 function activityOf(guildId, userId) {
   return stmt.activityOf.all(guildId, String(userId));
+}
+
+/** Setzt einen Zählerstand absolut (statt ihn zu erhöhen). */
+function setActivity(guildId, userId, kind, count, at = Date.now()) {
+  stmt.setActivity.run(guildId, String(userId), String(kind), Math.round(count), at);
+}
+
+/** Die Verbrecherakte – ohne sie anzulegen (null, wenn es keine gibt). */
+function peekCriminal(guildId, userId) {
+  return stmt.peekCriminal.get(guildId, String(userId)) ?? null;
 }
 
 // ---------------------------------------------------------------- Heimat
@@ -3362,7 +3379,7 @@ module.exports = {
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners,
-  setTitle, bumpActivity, activityOf,
+  setTitle, bumpActivity, activityOf, setActivity, peekCriminal,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,

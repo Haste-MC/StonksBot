@@ -1095,6 +1095,12 @@ Zwei Wege, beide „ein Strich je Aktion" (§9):
 Käufe von Ausrüstung, Rechnungen und Mieten zählen bewusst nicht: Das ist kein
 Beruf, das ist Alltag.
 
+**Bestandsspieler** verlieren ihre Vorgeschichte nicht: Beim ersten Blick aufs
+Profil übernimmt `backfill` einmalig die Zähler, die es schon länger gibt –
+Schichten aus der Anstellung, Heists aus der Verbrecherakte, Creator-Aktionen,
+Songs/Releases/Konzerte und Fundstücke. Danach fasst der Nachtrag nichts mehr
+an; ein einziger neuer Strich schaltet ihn dauerhaft ab.
+
 ## Level-Vorteile: wofür man überhaupt levelt
 
 Erfahrung sammelte man bisher nebenbei, ohne dass sie etwas bewirkt hätte.

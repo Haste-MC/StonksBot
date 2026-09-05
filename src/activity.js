@@ -58,6 +58,9 @@ function kind(id) {
 /** Zählt eine Aktivität mit. Unbekannte Kennungen werden still ignoriert. */
 function record(guildId, userId, id, at = Date.now()) {
   if (!byId.has(String(id ?? ''))) return false;
+  // Erst den Bestand übernehmen, dann den neuen Strich: Sonst wäre die Liste
+  // nach der ersten Aktion nicht mehr leer und der Nachtrag käme nie.
+  backfill(guildId, userId, at);
   db.bumpActivity(guildId, userId, String(id), at);
   return true;
 }
@@ -78,10 +81,47 @@ function titleFor(id, count = 1) {
 }
 
 /**
+ * Einmaliger Nachtrag für Bestandsspieler.
+ *
+ * Die Strichliste beginnt bei null – wer vorher 56 Schichten geschoben hat,
+ * stünde ohne Titel da, bis er wieder arbeitet. Ein paar Zähler gibt es aber
+ * schon länger, und die werden hier einmalig übernommen: Schichten, Heists,
+ * Creator-Aktionen, Musik (Songs, Releases, Konzerte) und Fundstücke.
+ *
+ * Nur, solange die Liste **leer** ist – sobald ein einziger Strich drinsteht,
+ * fasst der Nachtrag nichts mehr an und überschreibt nichts. Faul wie alles
+ * andere (§4): Er läuft beim ersten Blick aufs Profil, nicht in einem Job.
+ *
+ * @returns {number} wie viele Aktivitäten nachgetragen wurden
+ */
+function backfill(guildId, userId, now = Date.now()) {
+  if (db.activityOf(guildId, userId).length > 0) return 0;
+
+  const job = db.getEmployment(guildId, userId)?.shifts ?? 0;
+  const crime = db.peekCriminal(guildId, userId)?.heists ?? 0;
+  const creator = db.allCreator(guildId, userId)
+    .reduce((sum, row) => sum + (row.actions ?? 0), 0);
+  const artist = db.hasArtist(guildId, userId)
+    ? db.getArtist(guildId, userId, now) : null;
+  const music = artist ? (artist.songs ?? 0) + (artist.releases ?? 0) + (artist.shows ?? 0) : 0;
+  const auction = db.lootSummary(guildId, userId).n ?? 0;
+
+  let added = 0;
+  for (const [id, count] of [
+    ['job', job], ['heist', crime], ['creator', creator],
+    ['music', music], ['auction', auction],
+  ]) {
+    if (count > 0) { db.setActivity(guildId, userId, id, count, now); added++; }
+  }
+  return added;
+}
+
+/**
  * Alle Titel, die dieser Spieler tragen darf – häufigste Aktivität zuerst.
  * Wer etwas nie gemacht hat, kann den Titel auch nicht wählen.
  */
 function unlocked(guildId, userId) {
+  backfill(guildId, userId);
   return db.activityOf(guildId, userId)
     .map((row) => titleFor(row.kind, row.count))
     .filter(Boolean);
@@ -117,4 +157,6 @@ function choose(guildId, userId, wish) {
   return true;
 }
 
-module.exports = { TIERS, KINDS, kind, record, tierOf, titleFor, unlocked, titleOf, choose };
+module.exports = {
+  TIERS, KINDS, kind, record, tierOf, titleFor, backfill, unlocked, titleOf, choose,
+};

@@ -293,7 +293,8 @@ function ceiling(platformId, market) {
     check('auf Fluxer wandert es zum Autor',
       message.embed.author?.icon_url === embed.thumbnail?.url,
       JSON.stringify(message.embed.author));
-    check('und steht dort nicht doppelt', !message.embed.thumbnail,
+    check('das Miniaturbild bleibt für spätere Fluxer-Versionen dran',
+      message.embed.thumbnail?.url === embed.thumbnail?.url,
       JSON.stringify(message.embed.thumbnail));
   }
 

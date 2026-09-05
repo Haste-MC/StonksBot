@@ -219,7 +219,10 @@ function view(buttons) {
   check('das Bild landet beim Autor',
     fluxerProfil.author?.icon_url === 'https://cdn.example/avatar.png',
     JSON.stringify(fluxerProfil.author));
-  check('und steht nicht doppelt da', !fluxerProfil.thumbnail,
+  // Das Miniaturbild bleibt zusätzlich dran: Zeigt eine neue Fluxer-Version
+  // es doch, steht das Bild groß in der Ecke – ohne Codeänderung.
+  check('das Miniaturbild bleibt für später dran',
+    fluxerProfil.thumbnail?.url === 'https://cdn.example/avatar.png',
     JSON.stringify(fluxerProfil.thumbnail));
   check('das große Foto bleibt, wo es war',
     fluxerProfil.image?.url === 'https://cdn.example/haus.png');

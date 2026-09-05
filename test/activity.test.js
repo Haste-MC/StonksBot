@@ -114,6 +114,38 @@ const countOf = (u, kind) =>
   check('Automatisch und Keiner stehen zur Wahl',
     labels.includes('Automatisch') && labels.includes('Keiner'), labels.join(' | '));
 
+  console.log('--- Bestandsspieler bekommen ihre Vorgeschichte angerechnet ---');
+  /*
+   * Die Strichliste ist neu. Wer vorher 40 Schichten geschoben hat, stünde
+   * ohne Titel da – deshalb übernimmt der Nachtrag einmalig die Zähler, die
+   * es schon länger gibt (Anstellung, Verbrecherakte, Creator, Musik, Funde).
+   */
+  const ALT = player();
+  db.setEmployment(W, ALT, 'kellner');
+  for (let i = 0; i < 40; i++) db.recordShift(W, ALT, 100, '2026-09-01');
+  db.addLoot(W, ALT, 'Alte Kiste', 1000, 'common');
+
+  check('vorher steht nichts in der Liste', db.activityOf(W, ALT).length === 0);
+  const nachgetragen = activity.backfill(W, ALT);
+  check('der Nachtrag greift', nachgetragen === 2, String(nachgetragen));
+  check('die Schichten sind da', countOf(ALT, 'job') === 40, String(countOf(ALT, 'job')));
+  check('die Fundstücke auch', countOf(ALT, 'auction') === 1);
+  check('und daraus entsteht sofort ein Titel', activity.titleOf(W, ALT).id === 'job',
+    JSON.stringify(activity.titleOf(W, ALT)));
+
+  for (let i = 0; i < 5; i++) db.recordShift(W, ALT, 100, '2026-09-02');
+  check('ein zweiter Nachtrag fasst nichts mehr an', activity.backfill(W, ALT) === 0);
+  check('und überschreibt den Zählerstand nicht', countOf(ALT, 'job') === 40,
+    String(countOf(ALT, 'job')));
+
+  const ALT2 = player();
+  db.setEmployment(W, ALT2, 'kellner');
+  for (let i = 0; i < 7; i++) db.recordShift(W, ALT2, 100, '2026-09-01');
+  activity.record(W, ALT2, 'fishing');
+  check('auch die erste neue Aktion löst den Nachtrag aus',
+    countOf(ALT2, 'job') === 7 && countOf(ALT2, 'fishing') === 1,
+    JSON.stringify(db.activityOf(W, ALT2)));
+
   console.log('--- Wer noch nichts getan hat ---');
   const NEU = player();
   check('bekommt keinen Titel', activity.titleOf(W, NEU) === null);
