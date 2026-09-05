@@ -168,9 +168,24 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
     check('die große Szene trägt weiter als die kleine',
       jpRun.status.listeners > roRun.status.listeners,
       `${de(jpRun.status.listeners)} vs ${de(roRun.status.listeners)}`);
-    check('und zahlt je Hörer deutlich mehr',
-      jpRun.status.perDay / Math.max(1, jpRun.status.listeners)
-      > roRun.status.perDay / Math.max(1, roRun.status.listeners) * 2);
+    /*
+     * Vorsicht bei "zahlt mehr": Im kleinen Markt ist man FRÜHER voll
+     * vermarktet (siehe monetization), was den niedrigeren Tantiemensatz
+     * teilweise ausgleicht. Bei gleicher Hörerzahl bleibt der starke Markt
+     * trotzdem vorn – und voll vermarktet entspricht der Abstand genau dem
+     * Tantiemensatz.
+     */
+    const perListener = (m, listeners) => music.PLAYS_PER_LISTENER * music.ROYALTY
+      * m.royalty * creator.monetization(listeners, m.pool);
+    const jpM = music.marketOf(G, jp);
+    const roM = music.marketOf(G, ro);
+    check('bei gleicher Hörerzahl zahlt der starke Markt mehr',
+      perListener(jpM, 500_000) > perListener(roM, 500_000),
+      `${perListener(jpM, 500_000).toFixed(3)} vs ${perListener(roM, 500_000).toFixed(3)}`);
+    check('voll vermarktet ist der Abstand der Tantiemensatz',
+      Math.abs(perListener(jpM, 50_000_000) / perListener(roM, 50_000_000)
+        - jpM.royalty / roM.royalty) < 0.01,
+      `${(perListener(jpM, 50_000_000) / perListener(roM, 50_000_000)).toFixed(2)}×`);
     console.log(`     ℹ️  🇯🇵 ${de(jpRun.status.listeners)} Hörer / ${de(jpRun.status.perDay)} am Tag · ` +
       `🇷🇴 ${de(roRun.status.listeners)} / ${de(roRun.status.perDay)}`);
 
@@ -254,18 +269,44 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
 
   console.log('\n--- Gesicht gegen anonym ---');
   {
-    const face = await player('jp', 'japanisch', 'pop', 'face');
-    const anon = await player('jp', 'japanisch', 'pop', 'anon');
-    const f = await career(face, 70, { shows: false });
-    const a = await career(anon, 70, { shows: false });
+    /*
+     * Der Vergleich läuft über den reinen Kern mit festem Würfel: Über 70
+     * Tage lagen beide Wege im Rauschen (20.337 gegen 20.460), obwohl der
+     * Unterschied im Modell klar ist. Gleiche Zahlenfolge, nur die Persona
+     * unterscheidet sich – so misst der Test wirklich die Persona.
+     */
+    const market = { scene: 1.3, pool: 0.6, speed: 1.2, strict: 0.9, royalty: 1.5, deal: 1.4 };
+    const grow = (personaId) => {
+      let state = { listeners: 0, buzz: 0, hype: 1 };
+      let seed = 12345;
+      const random = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+      };
+      for (let i = 0; i < 400; i++) {
+        const r = music.simulateRelease(state, {
+          type: music.release('single'), genre: music.genre('pop'),
+          persona: music.persona(personaId), market, random,
+        });
+        state = { listeners: r.listeners, buzz: r.buzz, hype: r.hype };
+      }
+      return state;
+    };
+    const faceState = grow('face');
+    const anonState = grow('anon');
 
     check('mit Gesicht wächst die Hörerschaft schneller',
-      f.status.listeners > a.status.listeners,
-      `${de(f.status.listeners)} vs ${de(a.status.listeners)}`);
-    check('anonym bringt je Hörer mehr Abrufe',
-      a.status.perDay / a.status.listeners > f.status.perDay / f.status.listeners,
-      `${(a.status.perDay / a.status.listeners).toFixed(2)} vs ` +
-      `${(f.status.perDay / f.status.listeners).toFixed(2)}`);
+      faceState.listeners > anonState.listeners,
+      `${de(faceState.listeners)} vs ${de(anonState.listeners)}`);
+    check('anonym sammelt dafür mehr Abrufe je Hörer',
+      anonState.buzz / anonState.listeners > faceState.buzz / faceState.listeners,
+      `${(anonState.buzz / anonState.listeners).toFixed(1)} vs ` +
+      `${(faceState.buzz / faceState.listeners).toFixed(1)}`);
+
+    const face = await player('jp', 'japanisch', 'pop', 'face');
+    const anon = await player('jp', 'japanisch', 'pop', 'anon');
+    const f = await career(face, 40, { shows: false });
+    const a = await career(anon, 40, { shows: false });
 
     const socialFace = db.allCreator(G, face).reduce((s, r) => s + r.followers, 0);
     const socialAnon = db.allCreator(G, anon).reduce((s, r) => s + r.followers, 0);

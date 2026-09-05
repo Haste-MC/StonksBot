@@ -687,6 +687,61 @@ for (const column of ['last_record_at', 'last_release_at', 'last_show_at']) {
   }
 }
 
+// --------------------------------------------------------------- HEISTS
+// Ein Ding ist ein Projekt mit Crew: Der Plan gehört dem Anführer, die
+// Vorbereitungen erledigt jeder, der dabei ist, und am Ende entscheidet ein
+// Wurf. Zustand gehört in die Datenbank – eine halbfertige Planung überlebt
+// jeden Neustart (siehe src/heist.js).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS heists (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id    TEXT    NOT NULL,
+    leader_id   TEXT    NOT NULL,
+    location    TEXT    NOT NULL,
+    status      TEXT    NOT NULL,          -- planning | done | busted | cancelled
+    outcome     TEXT    NOT NULL DEFAULT '',
+    loot        INTEGER NOT NULL DEFAULT 0,
+    chance      REAL    NOT NULL DEFAULT 0,
+    created_at  INTEGER NOT NULL,
+    executed_at INTEGER
+  );
+  CREATE INDEX IF NOT EXISTS idx_heists_open ON heists (guild_id, status);
+
+  CREATE TABLE IF NOT EXISTS heist_crew (
+    heist_id  INTEGER NOT NULL,
+    guild_id  TEXT    NOT NULL,
+    user_id   TEXT    NOT NULL,
+    joined_at INTEGER NOT NULL,
+    share     INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (heist_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS idx_heist_crew_user ON heist_crew (guild_id, user_id);
+
+  CREATE TABLE IF NOT EXISTS heist_preps (
+    heist_id INTEGER NOT NULL,
+    prep     TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    done_at  INTEGER NOT NULL,
+    PRIMARY KEY (heist_id, prep)
+  );
+
+  -- Fahndung und Knast hängen am Spieler, nicht am Ding.
+  CREATE TABLE IF NOT EXISTS criminals (
+    guild_id     TEXT    NOT NULL,
+    user_id      TEXT    NOT NULL,
+    heat         REAL    NOT NULL DEFAULT 0,
+    heat_at      INTEGER NOT NULL DEFAULT 0,
+    jailed_until INTEGER NOT NULL DEFAULT 0,
+    heists       INTEGER NOT NULL DEFAULT 0,
+    busted       INTEGER NOT NULL DEFAULT 0,
+    loot_total   INTEGER NOT NULL DEFAULT 0,
+    last_heist_at INTEGER NOT NULL DEFAULT 0,
+    last_prep_at  INTEGER NOT NULL DEFAULT 0,
+    created_at   INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
+`);
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -1387,6 +1442,52 @@ const stmt = {
   countGarages: db.prepare(
     'SELECT COUNT(*) AS n FROM storage_garages WHERE guild_id = ? AND user_id = ?'),
   deleteGarages: db.prepare('DELETE FROM storage_garages WHERE guild_id = ?'),
+
+  // --- Heists ---
+  insertHeist: db.prepare(
+    `INSERT INTO heists (guild_id, leader_id, location, status, created_at)
+     VALUES (?, ?, ?, 'planning', ?) RETURNING *`),
+  getHeist: db.prepare('SELECT * FROM heists WHERE guild_id = ? AND id = ?'),
+  openHeists: db.prepare(
+    `SELECT * FROM heists WHERE guild_id = ? AND status = 'planning'
+     ORDER BY created_at ASC LIMIT ?`),
+  finishHeist: db.prepare(
+    `UPDATE heists SET status = ?, outcome = ?, loot = ?, chance = ?, executed_at = ?
+     WHERE guild_id = ? AND id = ? AND status = 'planning'`),
+  heistHistory: db.prepare(
+    `SELECT h.* FROM heists h JOIN heist_crew c ON c.heist_id = h.id
+     WHERE h.guild_id = ? AND c.user_id = ? AND h.status <> 'planning'
+     ORDER BY h.id DESC LIMIT ?`),
+
+  addCrew: db.prepare(
+    `INSERT INTO heist_crew (heist_id, guild_id, user_id, joined_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (heist_id, user_id) DO NOTHING`),
+  removeCrew: db.prepare('DELETE FROM heist_crew WHERE heist_id = ? AND user_id = ?'),
+  crewOf: db.prepare('SELECT * FROM heist_crew WHERE heist_id = ? ORDER BY joined_at ASC'),
+  crewMembership: db.prepare(
+    `SELECT c.* FROM heist_crew c JOIN heists h ON h.id = c.heist_id
+     WHERE c.guild_id = ? AND c.user_id = ? AND h.status = 'planning' LIMIT 1`),
+  setShare: db.prepare(
+    'UPDATE heist_crew SET share = ? WHERE heist_id = ? AND user_id = ?'),
+
+  addPrep: db.prepare(
+    `INSERT INTO heist_preps (heist_id, prep, user_id, done_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (heist_id, prep) DO NOTHING`),
+  prepsOf: db.prepare('SELECT * FROM heist_preps WHERE heist_id = ?'),
+
+  getCriminal: db.prepare('SELECT * FROM criminals WHERE guild_id = ? AND user_id = ?'),
+  createCriminal: db.prepare(
+    `INSERT INTO criminals (guild_id, user_id, created_at) VALUES (?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO NOTHING`),
+  saveCriminal: db.prepare(
+    `UPDATE criminals SET heat = ?, heat_at = ?, jailed_until = ?, heists = ?,
+       busted = ?, loot_total = ?, last_heist_at = ?, last_prep_at = ?
+     WHERE guild_id = ? AND user_id = ?`),
+  topCriminals: db.prepare(
+    `SELECT * FROM criminals WHERE guild_id = ? AND loot_total > 0
+     ORDER BY loot_total DESC LIMIT ?`),
+  clearCrime: db.prepare('DELETE FROM criminals WHERE guild_id = ? AND user_id = ?'),
+  clearCrewOf: db.prepare('DELETE FROM heist_crew WHERE guild_id = ? AND user_id = ?'),
 
   // --- Musik ---
   getArtist: db.prepare('SELECT * FROM artists WHERE guild_id = ? AND user_id = ?'),
@@ -2561,6 +2662,84 @@ function mergeAccounts(guildId, fromId, toId) {
 // ------------------------------------------------------ Kontoverknüpfung
 
 /** Die Verknüpfung einer Plattform-Identität, oder null. */
+// ---------------------------------------------------------------- Heists
+
+/** Legt eine Planung an. */
+function insertHeist({ guildId, leaderId, location, createdAt }) {
+  return stmt.insertHeist.get(guildId, String(leaderId), location, createdAt);
+}
+
+function getHeist(guildId, id) {
+  return stmt.getHeist.get(guildId, Number(id)) ?? null;
+}
+
+/** Alle offenen Planungen dieser Welt – dort kann man mitmachen. */
+function openHeists(guildId, limit = 10) {
+  return stmt.openHeists.all(guildId, limit);
+}
+
+/** Schließt ein Ding ab. false, wenn es nicht mehr in Planung war (§7). */
+function finishHeist(guildId, id, { status, outcome, loot, chance, at }) {
+  return stmt.finishHeist.run(
+    status, outcome, loot, chance, at, guildId, Number(id)).changes > 0;
+}
+
+function heistHistory(guildId, userId, limit = 5) {
+  return stmt.heistHistory.all(guildId, String(userId), limit);
+}
+
+function addCrew(heistId, guildId, userId, at) {
+  stmt.addCrew.run(Number(heistId), guildId, String(userId), at);
+}
+
+function removeCrew(heistId, userId) {
+  stmt.removeCrew.run(Number(heistId), String(userId));
+}
+
+function crewOf(heistId) {
+  return stmt.crewOf.all(Number(heistId));
+}
+
+/** Ist dieser Spieler gerade an einer Planung beteiligt? */
+function crewMembership(guildId, userId) {
+  return stmt.crewMembership.get(guildId, String(userId)) ?? null;
+}
+
+function setShare(heistId, userId, share) {
+  stmt.setShare.run(Math.round(share), Number(heistId), String(userId));
+}
+
+function addPrep(heistId, prep, userId, at) {
+  return stmt.addPrep.run(Number(heistId), prep, String(userId), at).changes > 0;
+}
+
+function prepsOf(heistId) {
+  return stmt.prepsOf.all(Number(heistId));
+}
+
+/** Fahndungsakte eines Spielers – legt sie beim ersten Zugriff an. */
+function getCriminal(guildId, userId, now = Date.now()) {
+  stmt.createCriminal.run(guildId, String(userId), now);
+  return stmt.getCriminal.get(guildId, String(userId));
+}
+
+function saveCriminal(guildId, userId, c) {
+  stmt.saveCriminal.run(
+    c.heat, c.heat_at, c.jailed_until, c.heists, c.busted, c.loot_total,
+    c.last_heist_at ?? 0, c.last_prep_at ?? 0, guildId, String(userId));
+}
+
+/** Die erfolgreichsten Diebe der Welt. */
+function topCriminals(guildId, limit = 10) {
+  return stmt.topCriminals.all(guildId, limit);
+}
+
+/** Räumt Fahndung und Crew-Zugehörigkeit ab (Tests, Admin). */
+function clearCrime(guildId, userId) {
+  stmt.clearCrime.run(guildId, String(userId));
+  stmt.clearCrewOf.run(guildId, String(userId));
+}
+
 // ----------------------------------------------------------------- Musik
 
 /** Der Künstler eines Spielers – legt ihn beim ersten Zugriff an. */
@@ -3087,6 +3266,9 @@ module.exports = {
   addStats, getStats, listStats, setTagline, setSeenVersion, setHome, stampCountry,
   getWallet, hasWallet, addCash, moveToCash, logWallet, walletLog, walletTop,
   getLink, setLink, deleteLink, linksOf,
+  insertHeist, getHeist, openHeists, finishHeist, heistHistory,
+  addCrew, removeCrew, crewOf, crewMembership, setShare, addPrep, prepsOf,
+  getCriminal, saveCriminal, topCriminals, clearCrime,
   getArtist, hasArtist, saveArtist, topArtists, clearArtist,
   insertContract, getContract, openContract, activeContract, setContractStatus,
   contractHistory,

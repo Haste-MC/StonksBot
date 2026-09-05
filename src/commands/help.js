@@ -55,6 +55,12 @@ module.exports = {
             'Manchmal steckt sogar ein Auto drin – aufmachen musst du selbst!',
         },
         {
+          name: '🕵️ Heists',
+          value: '`/heist` – Ziel aussuchen, über Tage vorbereiten, Crew holen, durchziehen. ' +
+            'Ohne Vorbereitung verlierst du im Schnitt; mit Vorbereitung ist es das ' +
+            'lukrativste und gefährlichste im Spiel.',
+        },
+        {
           name: '🎵 Musik',
           value: '`/musik` – die längste Strecke im Spiel: Songs, Releases, Konzerte und ' +
             'Tantiemen, die von allein weiterlaufen. Mit Gesicht oder anonym, in Japan und ' +

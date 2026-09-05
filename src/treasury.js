@@ -53,6 +53,7 @@ const CATEGORIES = [
   { id: 'boerse', emoji: '📈', label: 'Börse', test: /^börse/i },
   { id: 'werkstatt', emoji: '🛠️', label: 'Werkstatt', test: /^werkstatt|^selbst repariert/i },
   { id: 'angeln', emoji: '🎣', label: 'Angeln', test: /^fang/i },
+  { id: 'crime', emoji: '🕵️', label: 'Beutezüge', test: /^(beute|vorbereitung)/i },
   { id: 'musik', emoji: '🎵', label: 'Musik', test: /^(tantiemen|konzert|vorschuss)/i },
   { id: 'creator', emoji: '📡', label: 'Creator', test: /^(twitch|youtube|instagram|twitter|stream|sponsor|merch|vertragsstrafe)/i },
   { id: 'auktion', emoji: '🏬', label: 'Auktionshaus', test: /^auktion|^fund|^hehler/i },

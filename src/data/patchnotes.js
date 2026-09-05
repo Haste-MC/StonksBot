@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.17.0',
+    date: '2026-09-05',
+    title: 'Heists',
+    lines: [
+      '🕵️ **Der kriminelle Pfad:** Sieben Ziele vom Spätkauf bis zum Goldtransport. Ein Ding ist kein Job, sondern ein Projekt – aussuchen, tagelang vorbereiten, Crew holen, durchziehen. `/heist`',
+      '📋 **Elf Vorbereitungen:** auskundschaften, Fluchtwagen, Masken, Funk, Kameras abschalten, Störsender, Insider, Sprengung, Schmiere stehen, Hehler. Jeder Schritt hebt die Chance oder die Beute – und kostet.',
+      '🧰 **Vier Ausrüstungsstufen** neu im Shop: Sturmmaske, Brecheisen, Funkgeräte, Dietrich-Set, Störsender, Sprengsatz. Es zählt die beste Ausrüstung am Tisch.',
+      '👥 **Mit Crew:** Offene Planungen sieht jeder, wer beitritt teilt Beute und Strafe. Mehr Leute = sicherer und mehr Beute, aber weniger je Kopf. Der Anführer bekommt 15 % Aufschlag.',
+      '🚨 **Wenn es schiefgeht:** Strafe, Knast (bis 72 Stunden, in denen gar nichts geht) und beim Desaster die Ausrüstung. Die **Fahndung** steigt mit jedem Ding und drückt die Chance um bis zu 25 Punkte.',
+      '⚖️ **Ehrlich gerechnet:** Ohne Vorbereitung ist jedes Ding ein Verlustgeschäft – der Test rechnet das für jedes Ziel nach. Erst die Investition dreht es ins Plus.',
+    ],
+  },
+  {
     version: '1.16.0',
     date: '2026-09-05',
     title: 'Musik',

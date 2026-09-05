@@ -96,6 +96,12 @@ const COMMANDS = [
       ({ view: await ui.buildHomeView({ guildId, userId }) }),
   },
   {
+    names: ['heist', 'heists', 'ding', 'crime'],
+    info: 'Heists planen und durchziehen',
+    run: async ({ guildId, userId }) =>
+      ({ view: await ui.buildCrimeView({ guildId, userId }) }),
+  },
+  {
     names: ['musik', 'music', 'studio', 'artist'],
     info: 'Deine Musikkarriere',
     run: async ({ guildId, userId }) => {

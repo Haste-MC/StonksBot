@@ -23,6 +23,7 @@ aber mit echtem **UnbelievaBoat-Guthaben** über dessen API.
 | `/balance [user]` | Zeigt Bargeld / Bank / Gesamt aus UnbelievaBoat. |
 | `/staat` | Zeigt die Staatskasse – den gemeinsamen Topf des Servers. |
 | `/heimat` | Wohnsitz und Inhaltssprache – für welchen Markt du produzierst. |
+| `/heist` | Der kriminelle Pfad: planen, vorbereiten, durchziehen. |
 | `/musik` | Deine Musikkarriere: Songs, Releases, Konzerte, Tantiemen. |
 | `/creator [plattform]` | Dein Netzwerk: Twitch, YouTube, Instagram, Twitter. |
 | `/leaderboard` | Rangliste – jetzt auch nach **Reichweite**. |
@@ -169,6 +170,17 @@ Die erste Wahl ist kostenlos. Danach kostet ein **Umzug** Geld, beendet den
 Mietvertrag und lässt die eigene Wohnung im alten Land zurück (sie bleibt dein
 Eigentum, gibt dir dort aber keinen Stellplatz mehr). Ein **Sprachwechsel**
 kostet 45 % deiner Follower. `/heimat`
+
+## Heists
+
+Der kriminelle Pfad funktioniert wie ein Projekt statt wie ein Job: Ziel
+aussuchen (vom Spätkauf bis zum Goldtransport), über Tage **vorbereiten**
+(auskundschaften, Fluchtwagen, Funk, Kameras abschalten, Insider …), **Crew**
+zusammenstellen – und dann entscheidet ein Wurf.
+
+Ohne Vorbereitung ist der Erwartungswert **negativ**; mit voller Vorbereitung
+wird es die lukrativste Sache im Spiel. Fehlschläge kosten Strafe, Knast und
+manchmal die Ausrüstung, und die **Fahndung** steigt mit jedem Ding. `/heist`
 
 ## Musik
 

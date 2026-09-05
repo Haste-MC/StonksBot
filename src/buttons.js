@@ -13,7 +13,8 @@ const {
   buildTopView, buildRepairView, buildMarketView, buildAssetView, buildDepotView,
   buildFishingView, buildCreatorView, buildPlatformView, buildDealsView,
   buildDecisionView, buildHomeView, buildCountryView, buildCountryConfirm,
-  buildCountryTreasuryView, buildMusicView, buildMusicSetupView, buildPersonaView,
+  buildCountryTreasuryView, buildCrimeView, buildTargetsView, buildPlanView,
+  buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money,
 } = require('./ui');
@@ -1407,6 +1408,195 @@ Object.assign(buttons, {
       .setStyle(TextInputStyle.Short).setRequired(true);
     modal.addComponents(new ActionRowBuilder().addComponents(input));
     await interaction.showModal(modal);
+  },
+
+  /** Der kriminelle Pfad. */
+  async hcrime(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildCrimeView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Zielliste. */
+  async hziel(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildTargetsView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
+  /** Ein Ding planen. */
+  async hstart(interaction, [locId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./heist').plan(guildId, userId, locId);
+    await interaction.editReply(res.ok
+      ? await buildPlanView({ guildId, userId })
+      : await buildTargetsView({ guildId, userId }));
+
+    const problems = {
+      unknown_location: '❌ Das Ziel gibt es nicht.',
+      already_planning: '📋 Du planst schon etwas. Erst das zu Ende bringen.',
+      jailed: null, cooldown: null,
+    };
+    const note = res.ok
+      ? `${res.location.emoji} **${res.location.name}** steht im Plan.\n` +
+        'Jetzt Vorbereitungen abarbeiten – und falls nötig Leute dazuholen.'
+      : res.reason === 'jailed'
+        ? `🚔 Du sitzt noch **${require('./income').formatRemaining(res.remainingMs)}**.`
+        : res.reason === 'cooldown'
+          ? `⏳ Nach einem Ding muss Gras drüber wachsen – noch ` +
+            `**${require('./income').formatRemaining(res.remainingMs)}**.`
+          : (problems[res.reason] ?? '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Die laufende Planung. */
+  async hplan(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildPlanView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Offene Planungen. */
+  async hopen(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildOpenHeistsView({
+      guildId: gid(interaction), userId: uid(interaction),
+    }));
+  },
+
+  /** Einer Crew beitreten. */
+  async hjoin(interaction, [id]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./heist').join(guildId, userId, Number(id));
+    await interaction.editReply(res.ok
+      ? await buildPlanView({ guildId, userId })
+      : await buildOpenHeistsView({ guildId, userId }));
+
+    const problems = {
+      gone: 'ℹ️ Diese Planung gibt es nicht mehr.',
+      already_planning: '📋 Du bist schon an einem Ding dran.',
+      full: '👥 Die Crew ist voll.',
+    };
+    const note = res.ok
+      ? `👥 Du bist dabei: ${res.location.emoji} **${res.location.name}** ` +
+        `(${res.crew}/${res.location.maxCrew}).`
+      : res.reason === 'jailed'
+        ? `🚔 Du sitzt noch **${require('./income').formatRemaining(res.remainingMs)}**.`
+        : (problems[res.reason] ?? '❌ Das ging nicht.');
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Aussteigen oder abblasen. */
+  async hleave(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./heist').leave(guildId, userId);
+    await interaction.editReply(await buildCrimeView({ guildId, userId }));
+    await interaction.followUp({
+      content: res.ok
+        ? (res.cancelled
+          ? '🚪 Abgeblasen. Die Crew steht wieder auf der Straße – das Geld für die '
+            + 'Vorbereitung ist weg.'
+          : '🚪 Ausgestiegen. Ohne dich, aber ohne dich auch ohne Risiko.')
+        : 'ℹ️ Du planst gerade nichts.',
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /** Einen Vorbereitungsschritt erledigen. */
+  async hprep(interaction, [prepId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await require('./heist').doPrep(guildId, userId, prepId);
+    await interaction.editReply(await buildPlanView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      const problems = {
+        not_planning: 'ℹ️ Du planst gerade nichts.',
+        gone: 'ℹ️ Diese Planung gibt es nicht mehr.',
+        already_done: '✅ Das ist schon erledigt.',
+        unknown_prep: '❌ Das gehört nicht zu diesem Ding.',
+      };
+      if (res.reason === 'needs_item') {
+        note = `🧰 Dafür brauchst du **${res.item}** ` +
+          `(🧰 Ausrüstung, ${money(symbol, res.price ?? 0)}).`;
+      } else if (res.reason === 'needs_car') {
+        note = `🚗 Dafür brauchst du ein Auto ab **${money(symbol, res.need)}**.`;
+      } else if (res.reason === 'needs_crew') {
+        note = `👥 Dafür braucht ihr mindestens **${res.need}** Leute – ihr seid ` +
+          `**${res.have}**.`;
+      } else if (res.reason === 'too_poor') {
+        note = `💸 **${res.prep.name}** kostet ${money(symbol, res.cost)} – du hast ` +
+          `${money(symbol, res.have)}.`;
+      } else if (res.reason === 'cooldown') {
+        note = `⏳ Eins nach dem anderen – wieder in ` +
+          `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'jailed') {
+        note = `🚔 Du sitzt noch **${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else note = problems[res.reason] ?? '❌ Das ging nicht.';
+    } else {
+      note = `${res.prep.emoji} **${res.prep.name}** erledigt.\n_${res.prep.text}_`;
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Durchziehen. */
+  async hgo(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await require('./heist').execute(guildId, userId);
+    await interaction.editReply(await buildCrimeView({ guildId, userId }));
+
+    let note;
+    if (!res.ok) {
+      const problems = {
+        not_planning: 'ℹ️ Du planst gerade nichts.',
+        gone: 'ℹ️ Diese Planung gibt es nicht mehr.',
+        not_leader: '👑 Nur wer das Ding angefangen hat, gibt das Startsignal.',
+      };
+      if (res.reason === 'too_few') {
+        note = `👥 Für ${res.location.name} braucht ihr **${res.need}** Leute – ihr seid ` +
+          `**${res.have}**.`;
+      } else if (res.reason === 'gear') {
+        note = `🧰 Dafür braucht die Crew mindestens **${res.need.name}**. ` +
+          `Beste Ausrüstung am Tisch: **${res.have.name}**.`;
+      } else if (res.reason === 'jailed') {
+        note = `🚔 Du sitzt noch **${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else note = problems[res.reason] ?? '❌ Das ging nicht.';
+    } else {
+      const icon = { clean: '✅', messy: '⚠️', failed: '🚔', disaster: '💥' }[res.outcome];
+      const own = res.members.find((m) => m.userId === String(userId));
+      note = `${icon} **${res.location.name}** – _${res.text}_\n` +
+        `🎲 Chance war ${Math.round(res.odds.chance * 100)} % · ` +
+        `Vorbereitung ${res.done}/${res.total} · Crew ${res.crew}\n`;
+
+      if (res.success) {
+        note += `💰 Beute: **${money(symbol, res.gross)}** für die Crew.\n` +
+          res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
+            `**${money(symbol, m.amount)}**`).join('\n');
+      } else {
+        note += `⚖️ Erwischt. Jeder zahlt und sitzt **${Math.round(res.jailHours)} h**.\n` +
+          res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
+            `**${money(symbol, m.amount)}**` +
+            (m.lostGear ? ` · 💥 ${m.lostGear} verloren` : '')).join('\n');
+      }
+    }
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Das Musikstudio. */

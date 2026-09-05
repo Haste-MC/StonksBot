@@ -1432,6 +1432,263 @@ function short(n) {
   return n.toLocaleString('de-DE');
 }
 
+// ------------------------------------------------------------------ Heists
+
+/** Kurze Chance-Anzeige mit Balken. */
+function oddsBar(chance) {
+  return `${progressBar(chance, 10)} **${Math.round(chance * 100)} %**`;
+}
+
+/**
+ * Die Übersicht des kriminellen Pfads: Fahndung, laufende Planung, Ziele.
+ */
+async function buildCrimeView({ guildId, userId }) {
+  const heist = require('./heist');
+  const symbol = await getSymbol(guildId);
+  const s = heist.status(guildId, userId);
+  const r = s.record;
+
+  const embed = new EmbedBuilder()
+    .setTitle('🕵️ Die andere Seite')
+    .setColor(r.jailedMs > 0 ? 0x7f8c8d : 0x2c3e50)
+    .setDescription(
+      'Ein Ding ist kein Job, sondern ein **Projekt**: Ziel aussuchen, über Tage '
+      + 'vorbereiten, Leute dazuholen – und dann entscheidet ein einziger Wurf.\n'
+      + '_Ohne Vorbereitung verliert man im Schnitt. Mit Vorbereitung wird es die '
+      + 'lukrativste und gefährlichste Sache im Spiel._');
+
+  if (r.jailedMs > 0) {
+    embed.addFields({
+      name: '🚔 Du sitzt',
+      value: `Noch **${require('./income').formatRemaining(r.jailedMs)}**. `
+        + 'Bis dahin läuft hier gar nichts.',
+    });
+  }
+
+  embed.addFields(
+    {
+      name: '🔥 Fahndung',
+      value: `${progressBar(r.heat / heist.HEAT_MAX, 10)} ${Math.round(r.heat)} / `
+        + `${heist.HEAT_MAX}\n_${r.heat > 60 ? 'Sie kennen dein Gesicht.'
+          : r.heat > 25 ? 'Man wird aufmerksam.' : 'Unbeschriebenes Blatt.'}_`,
+      inline: true,
+    },
+    {
+      name: '🧰 Ausrüstung',
+      value: `${s.tier.emoji} **${s.tier.name}** (Stufe ${s.tier.tier})\n`
+        + `_${s.tier.blurb}_`,
+      inline: true,
+    },
+    {
+      name: '📊 Akte',
+      value: `${r.heists} Dinger · ${r.busted} daneben\n`
+        + `Beute gesamt: ${money(symbol, r.loot_total)}`,
+      inline: true,
+    },
+  );
+
+  if (s.heist) {
+    const h = s.heist;
+    embed.addFields({
+      name: `📋 In Planung: ${h.location.emoji} ${h.location.name}`,
+      value: `Vorbereitung **${h.done}/${h.total}** · Crew **${h.crew.length}/`
+        + `${h.location.maxCrew}** · Chance ${Math.round(h.odds.chance * 100)} %`,
+    });
+  } else if (s.open.length > 0) {
+    embed.addFields({
+      name: '📢 Offene Planungen',
+      value: s.open.slice(0, 3).map((h) => `${h.location.emoji} **${h.location.name}** – `
+        + `${h.crew}/${h.location.maxCrew} Leute`).join('\n'),
+    });
+  }
+
+  if (s.history.length > 0) {
+    embed.addFields({
+      name: '📜 Zuletzt',
+      value: s.history.slice(0, 3).map((h) => `${h.outcome === 'clean' ? '✅'
+        : h.outcome === 'messy' ? '⚠️' : '🚔'} ${h.location?.emoji ?? ''} `
+        + `${h.location?.name ?? h.location}`).join('\n'),
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hziel|1|${userId}`)
+      .setLabel('Ziele').setEmoji('🎯')
+      .setStyle(ButtonStyle.Primary).setDisabled(Boolean(s.heist) || r.jailedMs > 0),
+    new ButtonBuilder().setCustomId(`hplan|${userId}`)
+      .setLabel('Planung').setEmoji('📋')
+      .setStyle(ButtonStyle.Success).setDisabled(!s.heist),
+    new ButtonBuilder().setCustomId(`hopen|${userId}`)
+      .setLabel(`Mitmachen (${s.open.length})`).setEmoji('📢')
+      .setStyle(ButtonStyle.Secondary).setDisabled(Boolean(s.heist) || r.jailedMs > 0),
+    homeButton(userId))];
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Die Zielliste. */
+async function buildTargetsView({ guildId, userId, page = 1 }) {
+  const heist = require('./heist');
+  const symbol = await getSymbol(guildId);
+  const s = heist.status(guildId, userId);
+  const all = heist.LOCATIONS;
+  const perPage = 4;
+  const totalPages = Math.max(1, Math.ceil(all.length / perPage));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const slice = all.slice((p - 1) * perPage, p * perPage);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🎯 Was soll es sein?')
+    .setColor(0x2c3e50)
+    .setDescription('Je größer das Ziel, desto mehr Vorbereitung, Leute und Ausrüstung '
+      + 'verlangt es – und desto härter die Strafe, wenn es schiefgeht.')
+    .setFooter({ text: `Seite ${p} / ${totalPages} · deine Stufe: ${s.tier.name}` });
+
+  for (const loc of slice) {
+    const tier = heist.TIERS[loc.gearTier];
+    embed.addFields({
+      name: `${loc.emoji} ${loc.name}`,
+      value: `_${loc.blurb}_\n`
+        + `👥 ${loc.minCrew}–${loc.maxCrew} · ${tier.emoji} ab **${tier.name}** · `
+        + `📋 ${loc.preps.length} Schritte\n`
+        + `💰 ${money(symbol, loc.loot[0])} – ${money(symbol, loc.loot[1])} · `
+        + `⚖️ ${money(symbol, loc.fine)} + ${loc.jailHours} h`,
+    });
+  }
+
+  const rows = [new ActionRowBuilder().addComponents(...slice.map((loc) =>
+    new ButtonBuilder().setCustomId(`hstart|${loc.id}|${userId}`)
+      .setLabel(loc.name.slice(0, 40)).setEmoji(loc.emoji)
+      .setStyle(ButtonStyle.Secondary)
+      .setDisabled(s.tier.tier < loc.gearTier)))];
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hziel|${p - 1}|${userId}`)
+      .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`hziel|${p + 1}|${userId}`)
+      .setLabel('Weiter').setEmoji('▶️').setStyle(ButtonStyle.Secondary)
+      .setDisabled(p >= totalPages),
+    new ButtonBuilder().setCustomId(`hcrime|${userId}`)
+      .setLabel('Übersicht').setEmoji('🕵️').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Die laufende Planung mit allen Schritten. */
+async function buildPlanView({ guildId, userId }) {
+  const heist = require('./heist');
+  const symbol = await getSymbol(guildId);
+  const s = heist.status(guildId, userId);
+  if (!s.heist) return buildCrimeView({ guildId, userId });
+
+  const h = s.heist;
+  const embed = new EmbedBuilder()
+    .setTitle(`${h.location.emoji} ${h.location.name}`)
+    .setColor(h.ready ? 0x27ae60 : 0x2c3e50)
+    .setDescription(`_${h.location.blurb}_`)
+    .addFields(
+      {
+        name: '🎲 Erfolgschance',
+        value: `${oddsBar(h.odds.chance)}\n`
+          + `_Grundchance ${Math.round(h.odds.base * 100)} % `
+          + `${h.odds.fromPreps >= 0 ? '+' : ''}${Math.round(h.odds.fromPreps * 100)} Vorbereitung `
+          + `+${Math.round(h.odds.fromTier * 100)} Ausrüstung `
+          + `+${Math.round(h.odds.fromCrew * 100)} Crew `
+          + `${Math.round(h.odds.fromHeat * 100)} Fahndung_`,
+      },
+      {
+        name: '💰 Zu erwarten',
+        value: `${money(symbol, h.loot[0])} – ${money(symbol, h.loot[1])} für die ganze Crew\n`
+          + `_Bei einem Fehlschlag: ${money(symbol, h.location.fine)} und `
+          + `${h.location.jailHours} h Knast – für jeden._`,
+      },
+      {
+        name: `👥 Crew (${h.crew.length}/${h.location.maxCrew})`,
+        value: h.crew.map((c) => `${c.user_id === h.leader_id ? '👑' : '•'} `
+          + identity.mention(c.user_id)).join('\n')
+          + (h.crew.length < h.location.minCrew
+            ? `\n⚠️ _Mindestens ${h.location.minCrew} nötig._` : ''),
+      },
+      {
+        name: `📋 Vorbereitung (${h.done}/${h.total})`,
+        value: h.steps.map((step) => `${step.done ? '✅' : '⬜'} ${step.emoji} `
+          + `**${step.name}** – ${step.cost > 0 ? money(symbol, step.cost) : 'kostenlos'}`
+          + (step.needs?.item ? ` · braucht ${step.needs.item}` : '')
+          + (step.needs?.car ? ` · Auto ab ${money(symbol, step.needs.car)}` : '')
+          + (step.needs?.crew ? ` · ab ${step.needs.crew} Leuten` : '')).join('\n'),
+      },
+    );
+
+  if (s.tier.tier < h.location.gearTier) {
+    embed.addFields({
+      name: '🧰 Ausrüstung fehlt',
+      value: `Dieses Ziel verlangt mindestens **${heist.TIERS[h.location.gearTier].name}**. `
+        + 'Die beste Ausrüstung in der Crew zählt.',
+    });
+  }
+
+  const open = h.steps.filter((step) => !step.done).slice(0, 4);
+  const rows = [];
+  if (open.length > 0) {
+    rows.push(new ActionRowBuilder().addComponents(...open.map((step) =>
+      new ButtonBuilder().setCustomId(`hprep|${step.id}|${userId}`)
+        .setLabel(step.name.slice(0, 40)).setEmoji(step.emoji)
+        .setStyle(ButtonStyle.Secondary))));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hgo|${userId}`)
+      .setLabel('Durchziehen').setEmoji('🚨')
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!h.isLeader || !h.ready),
+    new ButtonBuilder().setCustomId(`hleave|${userId}`)
+      .setLabel(h.isLeader ? 'Abblasen' : 'Aussteigen').setEmoji('🚪')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`hcrime|${userId}`)
+      .setLabel('Übersicht').setEmoji('🕵️').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/** Offene Planungen anderer Spieler. */
+async function buildOpenHeistsView({ guildId, userId }) {
+  const heist = require('./heist');
+  const symbol = await getSymbol(guildId);
+  const s = heist.status(guildId, userId);
+
+  const embed = new EmbedBuilder()
+    .setTitle('📢 Wer sucht noch Leute?')
+    .setColor(0x2c3e50)
+    .setDescription(s.open.length === 0
+      ? 'Gerade plant niemand etwas. Fang selbst eins an – große Ziele brauchen ohnehin Crew.'
+      : 'Große Dinger gehen nicht allein. Wer mitmacht, teilt die Beute – und die Strafe.');
+
+  for (const h of s.open.slice(0, 5)) {
+    embed.addFields({
+      name: `${h.location.emoji} ${h.location.name}`,
+      value: `Angeführt von ${identity.mention(h.leader_id)}\n`
+        + `👥 ${h.crew}/${h.location.maxCrew} · 💰 ${money(symbol, h.location.loot[0])} – `
+        + `${money(symbol, h.location.loot[1])} · ⚖️ ${money(symbol, h.location.fine)}`,
+    });
+  }
+
+  const rows = [];
+  const joinable = s.open.filter((h) => h.crew < h.location.maxCrew).slice(0, 4);
+  if (joinable.length > 0) {
+    rows.push(new ActionRowBuilder().addComponents(...joinable.map((h) =>
+      new ButtonBuilder().setCustomId(`hjoin|${h.id}|${userId}`)
+        .setLabel(h.location.name.slice(0, 40)).setEmoji(h.location.emoji)
+        .setStyle(ButtonStyle.Success))));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hcrime|${userId}`)
+      .setLabel('Übersicht').setEmoji('🕵️').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+
 /**
  * Das Studio: der Überblick über die Musikkarriere.
  *
@@ -3562,6 +3819,7 @@ module.exports = {
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
+  buildCrimeView, buildTargetsView, buildPlanView, buildOpenHeistsView,
   buildMusicView, buildMusicSetupView, buildPersonaView, buildReleaseView,
   buildMusicDealView,
   buildLanguageView, buildLanguageConfirm,

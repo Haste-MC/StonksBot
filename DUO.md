@@ -475,6 +475,90 @@ englischen Videos, nur weil derselbe Mensch davor sitzt.
 Ohne diese Kosten wäre beides eine Optimierungsaufgabe, die man einmal löst und
 danach vergisst. Mit ihnen ist es eine Weichenstellung.
 
+## Heists 🕵️
+
+```
+!heist           (auch !ding, !crime)
+/heist           auf Discord, oder 🕵️ im Menü unter Zocken
+```
+
+Alles andere im Spiel ist ein Kreislauf – ein Ding ist ein **Projekt**: Ziel
+aussuchen, über Tage vorbereiten, Leute dazuholen, und dann entscheidet ein
+einziger Wurf über alles.
+
+### Sieben Ziele
+
+| | Crew | Ausrüstung | Schritte | Beute | Strafe |
+|--|--|--|--:|--|--|
+| 🏪 Spätkauf | 1–2 | – | 2 | 3.000–8.000 | 7.000 + 5 h |
+| ⛽ Tankstelle | 1–3 | 🧤 Stufe 1 | 3 | 9.000–24.000 | 20.000 + 9 h |
+| 💎 Juwelier | 2–4 | 🧰 Stufe 2 | 5 | 40.000–110.000 | 70.000 + 18 h |
+| 🖼️ Kunstdepot | 2–5 | 🧰 Stufe 2 | 5 | 90.000–240.000 | 180.000 + 24 h |
+| 🏦 Filialbank | 3–5 | 🔓 Stufe 3 | 7 | 200.000–520.000 | 250.000 + 36 h |
+| 🎰 Kasino-Tresor | 4–6 | 🔓 Stufe 3 | 7 | 450.000–1,1 Mio | 500.000 + 48 h |
+| 🚚 Goldtransport | 4–6 | 💣 Stufe 4 | 8 | 900.000–2,4 Mio | 900.000 + 72 h |
+
+### Die Erfolgschance ist offen einsehbar
+
+```
+Grundchance des Ziels
+  + jede erledigte Vorbereitung      (2–9 Prozentpunkte)
+  + Ausrüstungsstufe der Crew        (bis +18)
+  + jeder Kopf über der Mindestgröße (+4, max +12)
+  − Fahndungsdruck                   (bis −25)
+```
+
+Elf Vorbereitungsschritte – auskundschaften, Fluchtwagen, Masken, Funk,
+Kameras abschalten, Störsender, Insider, Sprengung, Schmiere stehen, Hehler –
+kosten Geld und teils Ausrüstung oder ein Auto. Jeder Schritt gehört zum Plan,
+nicht zur Person: **die ganze Crew arbeitet daran**, jeder Schritt nur einmal.
+
+Die **Ausrüstungsstufen** (🧤 Sturmmaske → 🔧 Brecheisen → 🔓 Dietrich-Set und
+Funk → 💣 Störsender und Sprengsatz) gibt es in der 🧰 Ausrüstung. Es zählt die
+**beste Ausrüstung am Tisch** – Werkzeug lässt sich teilen.
+
+### Crew
+
+Große Ziele gehen nicht allein. Wer eine Planung eröffnet, taucht unter
+📢 **Mitmachen** bei allen anderen auf; wer beitritt, teilt Beute **und**
+Strafe. Mehr Leute heißt sichereres Ding und mehr Beute – aber weniger je Kopf
+(die Beute wächst unterlinear mit der Crew). Der Anführer bekommt 15 % Aufschlag
+und als Einziger den Startknopf.
+
+### Wenn es schiefgeht
+
+Vier Ausgänge: **sauber** (volle Beute), **mit Komplikationen** (60 % davon,
+mehr Fahndung), **daneben** (Strafe und Knast für jeden) und **Desaster**
+(anderthalbfache Strafe, anderthalbfacher Knast, 50 % Chance auf verlorene
+Ausrüstung). Wer sitzt, kann gar nichts Kriminelles tun – planen, vorbereiten,
+mitmachen: alles gesperrt.
+
+Die **Fahndung** steigt mit jedem Ding, klingt mit 12 % pro Tag ab und drückt
+bei vollem Stand die Erfolgschance um 25 Punkte (89 % → 64 %) und erhöht die
+Strafen um bis zu 80 %.
+
+### Warum das kein Gelddrucker ist (§3)
+
+Ein Ding **ohne Vorbereitung hat einen negativen Erwartungswert** – bei jedem
+einzelnen Ziel. Ein Fehlschlag kostet ungefähr so viel, wie ein Erfolg
+einbringt, und die Grundchancen liegen bei 38–55 %. Erst wer Geld, Zeit und
+Ausrüstung investiert, dreht es ins Plus:
+
+| Ziel | roh | voll vorbereitet |
+|--|--:|--:|
+| 🏪 Spätkauf | −1.058 | +1.422 |
+| 💎 Juwelier | −25.149 | +15.144 |
+| 🏦 Filialbank | −115.954 | +73.182 |
+| 🚚 Goldtransport | −513.228 | +287.731 |
+
+_(Erwartungswert je Versuch aus Sicht des Anführers, nach Abzug der
+Vorbereitungskosten.)_
+
+[`test/heist.test.js`](test/heist.test.js) rechnet beide Spalten für **jedes**
+Ziel nach: roh muss negativ sein, vorbereitet positiv. Dazu die Deckel:
+12 Stunden Pause zwischen zwei Dingern, Knast bei Fehlschlägen, und eine
+Fahndung, die mit jedem Coup steigt.
+
 ## Musik 🎵
 
 ```

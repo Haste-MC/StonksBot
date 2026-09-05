@@ -114,6 +114,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildGearShopView(ctx),
   },
   {
+    id: 'crime',
+    group: 'fun',
+    label: 'Heists',
+    emoji: '🕵️',
+    description: 'Planen, vorbereiten, durchziehen – mit Crew',
+    style: 'danger',
+    build: (ctx) => ui.buildCrimeView(ctx),
+  },
+  {
     id: 'casino',
     group: 'fun',
     label: 'Casino',
@@ -251,7 +260,7 @@ const GROUPS = [
   { id: 'cars', label: 'Fahrzeuge', emoji: '🚗', description: 'Kaufen, verkaufen, deine Garage' },
   { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
   { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
-  { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino und Auktionshaus' },
+  { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino, Auktionen und Heists' },
   { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Heimat' },
 ];
 

@@ -19,6 +19,7 @@ const WEAR_BY_CATEGORY = {
   'Technik': 0.02,       // ~alle 50 Schichten
   'Führerschein': 0,     // verschleißt nie
   'Ausbildung': 0,       // verschleißt nie
+  'Untergrund': 0.03,    // geht bei einem Ding schon mal verloren
 };
 
 const ITEMS = [
@@ -83,6 +84,21 @@ const ITEMS = [
     description: 'Berufstaucher-Qualifikation für Arbeiten unter Wasser.' },
   { category: 'Ausbildung', name: 'Kranführerschein', price: 5800, emoji: '🏗️',
     description: 'Befähigung zum Führen von Turmdrehkranen.' },
+
+  // ------------------------------------------------------------- Untergrund
+  // Werkzeug für Dinge, die man besser nicht bespricht (siehe src/heist.js).
+  { category: 'Untergrund', name: 'Sturmmaske', price: 200, emoji: '🧤',
+    description: 'Schwarz, formlos, unauffällig im Rucksack.' },
+  { category: 'Untergrund', name: 'Brecheisen', price: 450, emoji: '🔧',
+    description: 'Öffnet fast alles. Fragt nie, was dahinter ist.' },
+  { category: 'Untergrund', name: 'Funkgeräte', price: 1200, emoji: '📻',
+    description: 'Vier Stück, eigener Kanal. Reichweite zwei Häuserblocks.' },
+  { category: 'Untergrund', name: 'Dietrich-Set', price: 2600, emoji: '🔓',
+    description: 'Zwölf Teile im Lederetui. Braucht Übung und ruhige Hände.' },
+  { category: 'Untergrund', name: 'Störsender', price: 7500, emoji: '🚨',
+    description: 'Legt Funk und Alarmleitungen für ein paar Minuten lahm.' },
+  { category: 'Untergrund', name: 'Sprengsatz', price: 18000, emoji: '💣',
+    description: 'Fachgerecht gefertigt. Man will nicht wissen, von wem.' },
 
   // ------------------------------------------------------------- Ausstattung
   { category: 'Ausstattung', name: 'Arbeitskleidung', price: 350, emoji: '🦺',
