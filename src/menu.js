@@ -256,12 +256,18 @@ const ENTRIES = [
  * Eine neue Kategorie = ein Eintrag hier; ein Menüpunkt landet über sein
  * `group`-Feld automatisch darin.
  */
+/*
+ * Die Beschreibung sagt, WOFÜR eine Kategorie da ist – sie zählt nicht auf,
+ * was drinsteckt. Das Hauptmenü setzt die Menüpunkte ohnehin direkt darunter;
+ * eine Aufzählung stünde also zweimal da (und war bei „Ich" und „Zocken" auch
+ * noch anders sortiert als die echte Liste).
+ */
 const GROUPS = [
-  { id: 'cars', label: 'Fahrzeuge', emoji: '🚗', description: 'Kaufen, verkaufen, deine Garage' },
+  { id: 'cars', label: 'Fahrzeuge', emoji: '🚗', description: 'Kaufen, pflegen, weiterverkaufen' },
   { id: 'estate', label: 'Immobilien', emoji: '🏘️', description: 'Kaufen, mieten, vermieten' },
-  { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Jobs und Ausrüstung' },
-  { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Casino, Auktionen und Heists' },
-  { id: 'me', label: 'Ich', emoji: '👤', description: 'Profil, Geld, Postfach, Rangliste, Heimat' },
+  { id: 'work', label: 'Arbeit', emoji: '💼', description: 'Wo dein Geld herkommt' },
+  { id: 'fun', label: 'Zocken', emoji: '🎲', description: 'Glück, Risiko und krumme Dinger' },
+  { id: 'me', label: 'Ich', emoji: '👤', description: 'Alles über dich und dein Vermögen' },
 ];
 
 const groupById = new Map(GROUPS.map((g) => [g.id, g]));

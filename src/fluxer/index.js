@@ -190,8 +190,8 @@ async function dispatch(customId, ctx) {
 
   const interaction = createInteraction({
     ...ctx,
-    prompt: async ({ channel, userId, title, label }) =>
-      prompt.ask({ channel, userId, title, label }),
+    prompt: async ({ channel, userId, platformUserId: who, title, label }) =>
+      prompt.ask({ channel, userId, platformUserId: who ?? ctx.platformUserId, title, label }),
   });
 
   // Modals gibt es nicht: Öffnet ein Handler eines, fragen wir im Chat nach

@@ -9,6 +9,12 @@
  *
  * Bewusst mit Zeitlimit: sonst bliebe eine Frage ewig offen und die nächste
  * beliebige Nachricht würde als Antwort gewertet.
+ *
+ * ⚠️ Der Schlüssel ist die **Plattform-ID**, nicht das Konto.
+ * Die Handler arbeiten mit Konten (`fx:123` oder die verknüpfte Discord-ID),
+ * eine eingehende Nachricht trägt aber die Fluxer-ID des Absenders. Wer hier
+ * das Konto einsetzt, wartet ewig: Die Antwort kommt an, passt aber auf keinen
+ * offenen Schlüssel – genau daran sind die eigenen Einsätze gescheitert.
  */
 
 const TIMEOUT_MS = 60 * 1000;
@@ -22,8 +28,13 @@ const keyOf = (channelId, userId) => `${channelId}:${userId}`;
  * Stellt eine Frage und wartet auf die Antwort des Spielers.
  * @returns {Promise<string|null>} die Antwort, oder null bei Zeitablauf.
  */
-async function ask({ channel, userId, title = 'Eingabe', label = 'Wert', timeoutMs = TIMEOUT_MS }) {
-  const key = keyOf(channel.id, userId);
+async function ask({
+  channel, userId, platformUserId = null,
+  title = 'Eingabe', label = 'Wert', timeoutMs = TIMEOUT_MS,
+}) {
+  // Auf wen wir warten: die Fluxer-ID des Absenders (siehe Kopf).
+  const waitFor = platformUserId ?? userId;
+  const key = keyOf(channel.id, waitFor);
 
   // Eine ältere, noch offene Frage desselben Spielers verfällt.
   waiting.get(key)?.(null);
@@ -32,7 +43,7 @@ async function ask({ channel, userId, title = 'Eingabe', label = 'Wert', timeout
   // Währungssymbol enthalten (z.B. "Dein Gebot (mind. <:Rubine:…> 500)").
   const render = require('./render');
   await channel.send({
-    content: `<@${userId}> **${render.forFluxer(title)}** – ${render.forFluxer(label)}?\n` +
+    content: `<@${waitFor}> **${render.forFluxer(title)}** – ${render.forFluxer(label)}?\n` +
       `_Antworte einfach mit deiner Eingabe (${Math.round(timeoutMs / 1000)} s Zeit)._`,
   }).catch(() => {});
 

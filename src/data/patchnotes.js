@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.18.0',
+    date: '2026-09-06',
+    title: 'Vermögen zählt jetzt alles',
+    lines: [
+      '💰 **Networth rechnet endlich vollständig:** Bargeld, Bank, Autos, Immobilien, **Depot** und die **Sammlung aus den Auktionen**. Wer 50.000 in Fundstücken liegen hatte, sah bisher aus wie ein Habenichts.',
+      '🏆 **`!top` und `/top` zeigen vier Sichten:** Vermögen (neu und Standard), Gesamtguthaben, Bargeld, Bank. Beim Vermögen steht unter jeder Zeile, woraus es besteht.',
+      '👥 **Jeder ist dabei:** In der Rangliste steht jetzt auch, wer Geld oder Besitz hat, ohne je etwas mit mir gemacht zu haben – und wer nur besitzt, aber pleite ist.',
+      '📣 **Ruft jemand `!top`, antworte ich mit:** Neben der Liste von UnbelievaBoat steht dann unsere – die kennt auch Besitz und die Fluxer-Spieler. Auf Wunsch räume ich ihre Liste danach weg, dann bleibt nur meine stehen.',
+      '🧾 **Menü aufgeräumt:** Die Kategorien zählten ihre Menüpunkte doppelt auf. Und im Profil stand dasselbe Autofoto zweimal, wenn keine Immobilie da war.',
+      '🎰 **Fluxer:** Eigene Eingaben (Casino-Einsatz, Gebot, Stückzahl, Spruch, Titel) wurden nie angenommen – die Antwort landete unter der falschen Kennung. Behoben.',
+    ],
+  },
+  {
     version: '1.17.1',
     date: '2026-09-06',
     title: 'Heist-Ausrüstung war unsichtbar',

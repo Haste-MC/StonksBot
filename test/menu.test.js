@@ -57,6 +57,12 @@ function validate(name, view) {
     `${m.buttons.length} vs ${GROUPS.length}`);
   check('jede Kategorie wird beschrieben',
     GROUPS.every((g) => m.embed.description.includes(g.label)));
+  // Unter jeder Kategorie stehen ihre Menüpunkte ohnehin – eine Beschreibung,
+  // die sie noch einmal aufzählt, zeigt alles doppelt.
+  const doppelt = GROUPS.filter((g) => entriesOfGroup(g.id)
+    .some((e) => g.description.toLowerCase().includes(e.label.toLowerCase())));
+  check('die Beschreibung zählt die Menüpunkte nicht noch einmal auf',
+    doppelt.length === 0, doppelt.map((g) => g.label).join());
   check('Button-IDs zeigen auf die Kategorie',
     GROUPS.every((g) => m.buttons.some((b) => b.custom_id === `grp|${g.id}|${U}`)));
 

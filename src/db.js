@@ -1417,6 +1417,19 @@ const stmt = {
     `SELECT user_id, cash, bank, cash + bank AS total FROM wallets
      WHERE guild_id = ? ORDER BY total DESC LIMIT ?`),
 
+  /*
+   * Jeder, der irgendetwas BESITZT – auch ohne einen Cent auf dem Konto.
+   * Gebraucht fürs Vermögens-Ranking: Wer 50.000 in Fundstücken liegen hat,
+   * gehört dort hin, selbst wenn sein Geldbeutel leer ist.
+   */
+  assetOwners: db.prepare(
+    `SELECT inv.user_id AS user_id FROM inventory inv JOIN items i ON i.id = inv.item_id
+      WHERE inv.guild_id = ? AND inv.quantity > 0 AND i.kind IN ('car', 'property')
+     UNION
+     SELECT user_id FROM market_holdings WHERE guild_id = ? AND shares > 0
+     UNION
+     SELECT user_id FROM storage_loot WHERE guild_id = ?`),
+
   // --- Einkommens-Cooldowns (!daily …) ---
   getClaim: db.prepare(
     'SELECT * FROM income_claims WHERE guild_id = ? AND user_id = ? AND kind = ?'),
@@ -3244,6 +3257,11 @@ function walletTop(guildId, limit = 50) {
   return stmt.walletTop.all(guildId, limit);
 }
 
+/** IDs aller Spieler mit Autos, Immobilien, Wertpapieren oder Fundstücken. */
+function assetOwners(guildId) {
+  return stmt.assetOwners.all(guildId, guildId, guildId).map((r) => String(r.user_id));
+}
+
 // --------------------------------------------------- Einkommens-Cooldowns
 
 /** Zeitpunkt der letzten Auszahlung dieser Art, oder null. */
@@ -3288,7 +3306,7 @@ module.exports = {
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
-  getClaim, setClaim, clearClaim,
+  getClaim, setClaim, clearClaim, assetOwners,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,

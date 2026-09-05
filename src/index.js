@@ -12,7 +12,9 @@ const relay = require('./relay');
 // Nur anfordern, wenn eines der Features es wirklich benötigt – ohne
 // Freischaltung im Developer Portal würde der Bot sonst gar nicht starten.
 const perks = require('./perks');
-const needsMessages = nudges.enabled || relay.enabled || perks.enabled;
+const topEcho = require('./topEcho');
+const needsMessages =
+  nudges.enabled || relay.enabled || perks.enabled || topEcho.needsIntent;
 const intents = [GatewayIntentBits.Guilds];
 if (needsMessages) {
   intents.push(GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent);
@@ -35,6 +37,10 @@ for (const file of fs.readdirSync(commandsDir).filter((f) => f.endsWith('.js')))
 client.once('clientReady', (c) => {
   console.log(`✅ Eingeloggt als ${c.user.tag} – ${client.commands.size} Commands geladen.`);
   if (nudges.enabled) console.log('📣 Nudges aktiv (reagieren auf !work & Co.).');
+  if (topEcho.enabled && needsMessages) {
+    console.log(`🏆 Eigene Rangliste antwortet auf \`${topEcho.PREFIX}top\``
+      + (topEcho.replacing() ? ' und löscht die von UnbelievaBoat.' : '.'));
+  }
 
   // Neue Ausrüstung aus einem Update in den Shop nachtragen (nur additiv).
   require('./seed').syncCatalogs(identity.world());
@@ -64,6 +70,12 @@ if (needsMessages) {
   client.on('messageCreate', (message) => {
     if (nudges.enabled) nudges.handleMessage(message).catch(() => {});
     if (perks.enabled) workBonus(message).catch(() => {});
+    // Ruft jemand !top, kommt unsere Rangliste dazu (siehe topEcho.js) –
+    // und mit TOP_ECHO_REPLACE räumen wir die von UnbelievaBoat weg.
+    if (topEcho.enabled) {
+      topEcho.handleMessage(message).catch(() => {});
+      topEcho.catchReply(message).catch(() => {});
+    }
     relay.fromDiscord(message).catch((err) =>
       console.error('Brücke Discord→Fluxer:', err.message));
   });

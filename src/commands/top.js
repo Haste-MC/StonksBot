@@ -4,11 +4,12 @@ const ui = require('../ui');
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('top')
-    .setDescription('Die reichsten Spieler – Geld-Rangliste.')
+    .setDescription('Die reichsten Spieler – Geld und Besitz.')
     .addStringOption((o) =>
       o.setName('sortierung').setDescription('Wonach ranken?')
         .addChoices(
-          { name: 'Gesamtvermögen', value: 'total' },
+          { name: 'Vermögen (mit Autos, Depot, Sammlung)', value: 'networth' },
+          { name: 'Gesamtguthaben', value: 'total' },
           { name: 'Bargeld', value: 'cash' },
           { name: 'Bank', value: 'bank' },
         )),
@@ -18,7 +19,7 @@ module.exports = {
     return interaction.editReply(await ui.buildTopView({
       guildId: interaction.guildId,
       userId: interaction.user.id,
-      sort: interaction.options.getString('sortierung') ?? 'total',
+      sort: interaction.options.getString('sortierung') ?? 'networth',
     }));
   },
 };

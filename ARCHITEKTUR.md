@@ -224,6 +224,10 @@ src/
   street.js        Straßenrisiko (Kratzer/Schaden/Diebstahl)
   condition.js     Fahrzeugzustand 0–100 + Wertformel
   currency.js      Serverwährungssymbol (gecacht)
+  networth.js      Vermögen an EINER Stelle: Geld + Autos + Immobilien
+                   + Depot + Sammlung (alle Ranglisten/Ansichten nutzen es)
+  toplist.js       Reichen-Rangliste: UnbelievaBoat + lokale Geldbeutel + Besitz
+  topEcho.js       Antwortet auf `!top` mit unserer Rangliste (Präfix mitlesen)
   casino.js        Reine Spiellogik (Karten, Slots, Roulette, Coinflip)
   casinoPlay.js    Casino-Geldfluss + Blackjack-Rundenverwaltung
 

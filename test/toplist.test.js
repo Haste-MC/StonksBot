@@ -4,7 +4,8 @@
  * Anders als !work oder !rob lässt sich die Rangliste über die
  * UnbelievaBoat-API wirklich LESEN – sie wird also nicht nachgebaut, sondern
  * geholt. Ergänzt wird sie um die Fluxer-Spieler ohne Verknüpfung, deren Geld
- * im lokalen Wallet liegt und die UnbelievaBoat gar nicht kennt.
+ * im lokalen Wallet liegt und die UnbelievaBoat gar nicht kennt – und um den
+ * Besitz (test/networth.test.js prüft die Vermögenssicht).
  *
  * Aufruf: npm run test:toplist
  */
@@ -98,6 +99,113 @@ unb.leaderboard = async (q) => { lastQuery = q; return remote.map((u) => ({ ...u
   identity.remember('111111111111111111', 'Kevin');
   check('gemerkter Name wird bevorzugt', toplist.label('111111111111111111').includes('Kevin'));
   check('sonst eine Erwähnung', toplist.label('444444444444444444') === '<@444444444444444444>');
+
+  console.log('--- !top wird auf Discord mitgehört ---');
+  /*
+   * `!top` gehört dort UnbelievaBoat. Dessen Liste kennt aber weder Besitz
+   * noch die Fluxer-Spieler – deshalb antwortet der Bot zusätzlich mit seiner
+   * eigenen (siehe topEcho.js).
+   */
+  const topEcho = require('../src/topEcho');
+  const P = topEcho.PREFIX;
+  check('erkennt den Befehl', topEcho.parse(`${P}top`)?.cmd === 'top');
+  check('auch mit Argument', topEcho.parse(`${P}top bar`)?.arg === 'bar');
+  check('auch die Schreibweisen von UnbelievaBoat',
+    Boolean(topEcho.parse(`${P}lb`)) && Boolean(topEcho.parse(`${P}leaderboard`)));
+  check('lässt fremde Befehle in Ruhe', topEcho.parse(`${P}work`) === null);
+  check('und normalen Text erst recht', topEcho.parse('top 10 Autos') === null);
+
+  const gesendet = [];
+  const nachricht = (content, userId = '111111111111111111') => ({
+    guild: { id: 'G' },
+    author: { id: userId, bot: false },
+    channel: {
+      id: 'KANAL',
+      async send(payload) { gesendet.push(payload); return { id: `M${gesendet.length}` }; },
+    },
+    content,
+  });
+
+  const t0 = Date.now();
+  check('antwortet auf !top', await topEcho.handleMessage(nachricht(`${P}top`), t0) === true);
+  check('und schickt eine Ansicht',
+    gesendet.length === 1 && Boolean(gesendet[0].embeds?.length), JSON.stringify(gesendet[0] ?? {}));
+  check('die Liste ist unsere (mit Vermögen)',
+    gesendet[0].embeds[0].toJSON().title.includes('Vermögen'),
+    gesendet[0].embeds[0].toJSON().title);
+  check('ohne Pings – die Liste soll niemanden anschreien',
+    gesendet[0].allowedMentions?.users?.length === 0);
+
+  check('gleich danach nicht noch einmal (Spamschutz)',
+    await topEcho.handleMessage(nachricht(`${P}top`), t0 + 1000) === false);
+  check('nach der Wartezeit wieder',
+    await topEcho.handleMessage(nachricht(`${P}top`), t0 + topEcho.COOLDOWN_MS + 1) === true);
+  check('Bots werden ignoriert', await topEcho.handleMessage(
+    { ...nachricht(`${P}top`), author: { id: 'BOT', bot: true } }, t0 + 999999) === false);
+
+  console.log('--- Ersetzen: UnbelievaBoats Antwort wegräumen ---');
+  /*
+   * Einen fremden Bot am Antworten hindern kann niemand. „Ersetzen" heißt
+   * deshalb: selbst antworten und ihre Antwort danach löschen. Gefährlich ist
+   * dabei nur eines – die falsche Nachricht zu erwischen. Genau das wird hier
+   * durchgespielt.
+   */
+  let geloescht = 0;
+  const unbAntwort = (authorId = topEcho.UNB_BOT_ID, channelId = 'KANAL') => ({
+    guild: { id: 'G' },
+    author: { id: authorId, bot: true },
+    client: { user: { id: 'ICHSELBST' } },
+    channel: { id: channelId },
+    content: 'Leaderboard',
+    async delete() { geloescht++; },
+  });
+
+  const t1 = t0 + 10 * topEcho.COOLDOWN_MS;
+  check('ohne TOP_ECHO_REPLACE bleibt alles stehen',
+    await topEcho.handleMessage(nachricht(`${P}top`), t1) === true
+    && await topEcho.catchReply(unbAntwort(), t1 + 500) === false);
+  check('und nichts wurde gelöscht', geloescht === 0, String(geloescht));
+
+  process.env.TOP_ECHO_REPLACE = 'true';
+  check('die Einstellung greift', topEcho.replacing() === true);
+
+  const t2 = t1 + 10 * topEcho.COOLDOWN_MS;
+  check('ohne vorheriges !top wird nichts gelöscht',
+    await topEcho.catchReply(unbAntwort(), t2) === false);
+
+  await topEcho.handleMessage(nachricht(`${P}top`), t2);
+  check('eine fremde Bot-Nachricht bleibt',
+    await topEcho.catchReply(unbAntwort('IRGENDEINBOT'), t2 + 300) === false);
+  check('in einem anderen Kanal auch',
+    await topEcho.catchReply(unbAntwort(topEcho.UNB_BOT_ID, 'ANDERER'), t2 + 300) === false);
+  check('unsere eigene Liste erst recht',
+    await topEcho.catchReply(unbAntwort('ICHSELBST'), t2 + 300) === false);
+  check('ihre Antwort wird gelöscht',
+    await topEcho.catchReply(unbAntwort(), t2 + 300) === true);
+  check('genau eine', geloescht === 1, String(geloescht));
+  check('eine zweite Nachricht bleibt stehen',
+    await topEcho.catchReply(unbAntwort(), t2 + 400) === false);
+
+  const t3 = t2 + 10 * topEcho.COOLDOWN_MS;
+  await topEcho.handleMessage(nachricht(`${P}top`), t3);
+  check('was zu spät kommt, bleibt auch stehen',
+    await topEcho.catchReply(unbAntwort(), t3 + topEcho.CATCH_MS + 1) === false);
+  check('immer noch nur eine gelöscht', geloescht === 1, String(geloescht));
+
+  console.log('--- Geht unsere Liste nicht raus, bleibt ihre ---');
+  const stummerKanal = {
+    guild: { id: 'G' },
+    author: { id: '111111111111111111', bot: false },
+    channel: { id: 'STUMM', async send() { throw new Error('keine Rechte'); } },
+    content: `${P}top`,
+  };
+  const t4 = t3 + 10 * topEcho.COOLDOWN_MS;
+  check('wir melden ehrlich, dass nichts kam',
+    await topEcho.handleMessage(stummerKanal, t4) === false);
+  check('und löschen deshalb auch nichts',
+    await topEcho.catchReply(unbAntwort(topEcho.UNB_BOT_ID, 'STUMM'), t4 + 300) === false);
+
+  delete process.env.TOP_ECHO_REPLACE;
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);

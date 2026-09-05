@@ -2956,6 +2956,12 @@ async function buildBalanceView({ guildId, userId, targetId = null }) {
     getBalance(guildId, owner), getSymbol(guildId),
   ]);
 
+  // Was jemand BESITZT gehört hier genauso hin wie das Konto – sonst sieht ein
+  // Spieler mit 50.000 in der Sammlung aus wie ein Habenichts (networth.js).
+  const nw = require('./networth');
+  const worth = await nw.of(guildId, owner, bal);
+  const parts = nw.breakdown(worth, (v) => v.toLocaleString('de-DE'));
+
   const embed = new EmbedBuilder()
     .setTitle('💰 Guthaben')
     .setDescription(identity.mention(owner))
@@ -2963,7 +2969,10 @@ async function buildBalanceView({ guildId, userId, targetId = null }) {
       { name: 'Bargeld', value: money(symbol, bal.cash), inline: true },
       { name: 'Bank', value: money(symbol, bal.bank), inline: true },
       { name: 'Gesamt', value: money(symbol, bal.total), inline: true },
-      { name: 'Garagenwert', value: money(symbol, db.garageValue(guildId, owner)), inline: true },
+      {
+        name: '💰 Vermögen',
+        value: `${money(symbol, worth.total)}\n${parts || '_nur Bargeld und Bank_'}`,
+      },
     )
     .setColor(0xf1c40f);
 
@@ -2992,12 +3001,10 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const isSelf = owner === userId;
   const symbol = await getSymbol(guildId);
 
+  // Eine einzige Vermögensrechnung für alle Ansichten – Bargeld, Bank, Autos,
+  // Immobilien, Depot und die Sammlung aus den Auktionen (siehe networth.js).
   const bal = await getBalance(guildId, owner).catch(() => null);
-  const garage = db.garageValue(guildId, owner);
-  const realty = db.propertyValue(guildId, owner);
-  const liquid = bal ? bal.total : 0;
-  const depotValue = require('./wallstreet').portfolio(guildId, owner).value;
-  const networth = liquid + garage + realty + depotValue;
+  const worth = await require('./networth').of(guildId, owner, bal);
 
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);
@@ -3042,7 +3049,7 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
         `${prog.into.toLocaleString('de-DE')} / ${prog.needed.toLocaleString('de-DE')} XP`,
       inline: true,
     },
-    { name: '💰 Networth', value: money(symbol, networth), inline: true },
+    { name: '💰 Networth', value: money(symbol, worth.total), inline: true },
     { name: '​', value: '​', inline: true },
     { name: '📈 Einnahmen', value: money(symbol, stats.income_total), inline: true },
     { name: '📉 Ausgaben', value: money(symbol, stats.expense_total), inline: true },
@@ -3123,16 +3130,18 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const footSym = plainSymbol(symbol);
   embed.setFooter({
     text: bal
-      ? `Bar ${money(footSym, bal.cash)} · Bank ${money(footSym, bal.bank)} · ` +
-        `Autos ${money(footSym, garage)} · Immobilien ${money(footSym, realty)}`
+      ? `Bar ${money(footSym, worth.cash)} · Bank ${money(footSym, worth.bank)} · ` +
+        `Autos ${money(footSym, worth.garage)} · Immobilien ${money(footSym, worth.realty)} · ` +
+        `Depot ${money(footSym, worth.depot)} · Sammlung ${money(footSym, worth.collection)}`
       : 'Guthaben gerade nicht abrufbar',
   });
 
   // Großes Foto der teuersten Immobilie (Flex!), kleines Thumbnail vom Auto.
-  if (topProp && topProp.image_url) embed.setImage(topProp.image_url);
-  else if (car && car.image_url) embed.setImage(car.image_url);
-  // Das Miniaturbild bleibt beim Auto – Fluxer stellt `thumbnail` nicht dar.
-  if (car && car.image_url) embed.setThumbnail(car.image_url);
+  const bigPicture = topProp?.image_url || car?.image_url || null;
+  if (bigPicture) embed.setImage(bigPicture);
+  // Das Miniaturbild bleibt beim Auto – aber nur, wenn oben die Immobilie
+  // hängt. Sonst stand dasselbe Autofoto zweimal im Profil.
+  if (car?.image_url && bigPicture !== car.image_url) embed.setThumbnail(car.image_url);
 
   const row = new ActionRowBuilder();
   if (isSelf) {
@@ -3156,8 +3165,11 @@ const LB_METRICS = {
   reach: { label: 'Reichweite', emoji: '📡' },
 };
 const LB_PAGE = 10;
-// Networth kostet je Spieler eine API-Abfrage – für die Networth-Sortierung
-// müssen wir alle abfragen, deshalb hier gedeckelt.
+/*
+ * Das Vermögen kommt für fast alle aus EINEM Ranglisten-Aufruf (toplist.js).
+ * Nur wer dort gar nicht auftaucht, kostet noch eine eigene Abfrage – die
+ * bleibt gedeckelt, damit eine große Statistiktabelle keine API-Flut auslöst.
+ */
 const LB_MAX_NETWORTH = 50;
 
 async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 1 }) {
@@ -3171,6 +3183,16 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   const reachByUser = new Map(
     db.topCreatorTotal(guildId, 200).map((r) => [r.user_id, r.followers]));
 
+  /*
+   * Wer Geld oder Besitz hat, gehört in die Rangliste – auch wer sonst nichts
+   * mit dem Bot gemacht hat. Ein Aufruf liefert das für alle auf einmal
+   * (toplist.js: UnbelievaBoat + lokale Geldbeutel + Besitz), statt je Spieler
+   * einzeln nachzufragen.
+   */
+  const rich = await require('./toplist').fetch({ sort: 'networth', limit: 300 })
+    .catch(() => []);
+  const worthByUser = new Map(rich.map((e) => [e.userId, e.networth]));
+
   let roster = db.listStats(guildId).map((s) => ({
     userId: s.user_id,
     xp: s.xp,
@@ -3178,8 +3200,19 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     income: s.income_total,
     expense: s.expense_total,
     reach: reachByUser.get(s.user_id) ?? 0,
-    networth: null,
+    networth: worthByUser.get(s.user_id) ?? null,
   }));
+
+  // Reiche ohne eigene Spielerstatistik nachtragen.
+  const inRoster = new Set(roster.map((r) => r.userId));
+  for (const e of rich) {
+    if (inRoster.has(e.userId)) continue;
+    inRoster.add(e.userId);
+    roster.push({
+      userId: e.userId, xp: 0, lvl: 0, income: 0, expense: 0,
+      reach: reachByUser.get(e.userId) ?? 0, networth: e.networth,
+    });
+  }
 
   if (metric === 'reach') {
     // Wer einen Kanal hat, aber noch nie Geld bewegt hat (reiner Twitter-
@@ -3195,13 +3228,15 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     roster = roster.filter((r) => r.reach > 0);
   }
 
-  // Guthaben (und damit Networth) nur bei Bedarf holen – je Zeile eine Abfrage.
+  /*
+   * Für die wenigen, die oben nicht dabei waren (kein Geld, kein Besitz, aber
+   * eine Statistik), wird einzeln nachgefragt – erst hier, und nur für die
+   * Zeilen, die auch angezeigt werden.
+   */
   const fillNetworth = (rows) => Promise.all(rows.map(async (r) => {
     if (r.networth !== null) return;
     const bal = await getBalance(guildId, r.userId).catch(() => null);
-    r.networth = (bal ? bal.total : 0)
-      + db.garageValue(guildId, r.userId)
-      + db.propertyValue(guildId, r.userId);
+    r.networth = (await require('./networth').of(guildId, r.userId, bal)).total;
   }));
 
   const embed = new EmbedBuilder()
@@ -3215,8 +3250,10 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
   }
 
   if (metric === 'networth') {
-    roster = roster.slice(0, LB_MAX_NETWORTH);
-    await fillNetworth(roster);
+    // Die Reichen stehen schon oben, offen sind nur die Statistik-Zeilen ohne
+    // Vermögenswert – die werden gedeckelt nachgeschlagen.
+    await fillNetworth(roster.filter((r) => r.networth === null).slice(0, LB_MAX_NETWORTH));
+    for (const r of roster) if (r.networth === null) r.networth = 0;
     roster.sort((a, b) => b.networth - a.networth);
   } else {
     const key = { level: 'lvl', income: 'income', expense: 'expense', reach: 'reach' }[metric];
@@ -3240,7 +3277,7 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
         : `🏆 Lvl ${r.lvl} · 📈 ${money(symbol, r.income)} · ` +
           `📉 ${money(symbol, r.expense)} · 💰 ${money(symbol, r.networth ?? 0)}` +
           (r.reach > 0 ? ` · 📡 ${r.reach.toLocaleString('de-DE')}` : '');
-      return `${medal(rank)} <@${r.userId}>${you}\n${line}`;
+      return `${medal(rank)} ${identity.mention(r.userId)}${you}\n${line}`;
     }).join('\n\n'));
   }
 
@@ -3638,19 +3675,26 @@ async function buildCollectionView({ guildId, userId }) {
 // -------------------------------------------------------- Geld-Rangliste
 
 /**
- * Die reine Geld-Rangliste (`!top`) – wie man sie von UnbelievaBoat kennt.
+ * Die Reichen-Rangliste (`!top`).
+ *
+ * Vier Sichten: **Vermögen** (Standard – Geld plus Autos, Immobilien, Depot
+ * und Sammlung), sowie Gesamtguthaben, Bargeld und Bank wie bei
+ * UnbelievaBoat. Gelistet wird jeder, der irgendetwas davon hat, egal ob sein
+ * Geld bei UnbelievaBoat oder im lokalen Geldbeutel liegt (siehe toplist.js).
  *
  * Nicht zu verwechseln mit buildLeaderboardView: Die zeigt Level, Einnahmen
- * und Ausgaben aus unseren eigenen Daten. Hier geht es nur ums Geld, direkt
- * von UnbelievaBoat gelesen und um die ungelinkten Fluxer-Spieler ergänzt.
+ * und Ausgaben aus unseren eigenen Daten.
  */
-async function buildTopView({ guildId, userId, sort = 'total' }) {
+async function buildTopView({ guildId, userId, sort = 'networth' }) {
   const toplist = require('./toplist');
+  const nw = require('./networth');
   const symbol = await getSymbol(guildId);
   const key = toplist.parseSort(sort);
   const entries = await toplist.fetch({ sort: key, limit: 15 });
 
-  const titles = { total: 'Gesamtvermögen', cash: 'Bargeld', bank: 'Bank' };
+  const titles = {
+    networth: 'Vermögen', total: 'Gesamtguthaben', cash: 'Bargeld', bank: 'Bank',
+  };
   const embed = new EmbedBuilder()
     .setTitle(`💰 Reichste Spieler — ${titles[key]}`)
     .setColor(0xf1c40f);
@@ -3663,17 +3707,26 @@ async function buildTopView({ guildId, userId, sort = 'total' }) {
   const medal = (rank) => ['🥇', '🥈', '🥉'][rank - 1] ?? `**#${rank}**`;
   embed.setDescription(entries.map((e) => {
     const you = e.userId === userId ? ' ⬅️ **du**' : '';
-    return `${medal(e.rank)} ${toplist.label(e.userId)}${you} — ${money(symbol, e[key])}`;
+    const head = `${medal(e.rank)} ${toplist.label(e.userId)}${you} — ${money(symbol, e[key])}`;
+    // Beim Vermögen gehört dazu, woraus es besteht – sonst wirkt die Zahl
+    // erfunden, wenn jemand mit leerem Konto ganz oben steht.
+    if (key !== 'networth') return head;
+    // Ohne Währungszeichen: In der Aufzählung stünde es sonst fünfmal.
+    const plain = (v) => v.toLocaleString('de-DE');
+    const parts = [`💵 ${plain(e.total)}`, nw.breakdown(e, plain)]
+      .filter(Boolean).join(' · ');
+    return `${head}\n_${parts}_`;
   }).join('\n'));
 
   const mine = entries.find((e) => e.userId === userId);
   embed.setFooter({
-    text: mine
+    text: (mine
       ? `Dein Platz: ${mine.rank} von ${entries.length}`
-      : 'Du bist (noch) nicht in den Top 15.',
+      : 'Du bist (noch) nicht in den Top 15.')
+      + (key === 'networth' ? ' · Vermögen = Geld + Autos + Immobilien + Depot + Sammlung' : ''),
   });
 
-  // Umschalten zwischen den drei Sichten.
+  // Umschalten zwischen den vier Sichten.
   const row = new ActionRowBuilder().addComponents(
     ...Object.entries(titles).map(([k, label]) =>
       new ButtonBuilder()

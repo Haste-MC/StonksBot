@@ -1425,20 +1425,81 @@ API wirklich **lesen** (`getGuildLeaderboard`), sie wird also nicht nachgebaut,
 sondern geholt – ein Aufruf statt einer Abfrage je Spieler.
 
 ```
-!top            nach Gesamtvermögen
+!top            nach Vermögen (Standard)
+!top gesamt     nach Guthaben (Bargeld + Bank)
 !top bar        nach Bargeld
 !top bank       nach Bankguthaben
 ```
 
 Auf Discord zusätzlich als `/top`. Die Ansicht lässt sich per Knopf umschalten.
 
-Ergänzt wird die Liste um die **Fluxer-Spieler ohne Verknüpfung**: Deren Geld
-liegt im lokalen Wallet, UnbelievaBoat kennt sie nicht – ohne diese Ergänzung
-würden sie fehlen, obwohl sie mitspielen. Verknüpfte Konten stehen nur einmal
-drin.
+### Was „Vermögen" heißt
 
-Nicht zu verwechseln mit `!rangliste`: Die zeigt Level, Einnahmen, Ausgaben und
-Gesamtvermögen aus unseren eigenen Daten. `!top` ist die reine Geldliste.
+Geld ist nur ein Teil davon. Gerechnet wird an **einer** Stelle
+([`src/networth.js`](src/networth.js)) – und alle Ansichten nehmen dieselbe
+Zahl:
+
+```
+Vermögen = Bargeld + Bank + Autos + Immobilien + Depot + Sammlung
+```
+
+Autos zählen mit ihrem Zustandswert, Immobilien mit dem Kaufwert, das Depot mit
+dem aktuellen Kurs und die **Sammlung** mit dem Schätzwert der Fundstücke aus
+den Auktionen. Genau die beiden Letzten fehlten früher: Wer 50.000 in
+Fundstücken liegen hatte, stand in der Rangliste da wie jemand ohne alles.
+Beim Vermögen steht unter jeder Zeile, woraus es besteht.
+
+### Wer gelistet wird
+
+Alle drei Quellen zusammen, damit niemand durchs Raster fällt:
+
+| Quelle | Wer dort steht | Kosten |
+|---|---|---|
+| UnbelievaBoat | alle Discord-Konten mit Geld | **ein** API-Aufruf |
+| Lokale Geldbeutel | Fluxer-Spieler ohne Verknüpfung | SQLite |
+| Besitz | wer Autos, Aktien oder Fundstücke hat – auch mit leerem Konto | SQLite |
+
+Verknüpfte Konten stehen nur einmal drin. Wer bei UnbelievaBoat gar nicht in
+den Top 100 auftaucht, aber etwas besitzt, wird einzeln nachgeschlagen –
+gedeckelt auf 25 Abfragen, damit ein großer Server keine API-Flut auslöst.
+
+### `!top` auf Discord: zwei Listen
+
+Dort gehört `!top` UnbelievaBoat. Der Bot liest den Befehl mit und antwortet
+**zusätzlich** mit seiner eigenen Liste ([`src/topEcho.js`](src/topEcho.js)) –
+beide stehen nebeneinander, und der Unterschied ist sofort zu sehen.
+Voraussetzung ist wie beim Level-Zuschlag das Message Content Intent; deshalb
+wird es dafür nur angefordert, wenn `TOP_ECHO=true` ausdrücklich gesetzt ist
+(sonst läuft es einfach mit, wenn der Bot ohnehin mitliest).
+
+#### Ersetzen statt ergänzen
+
+Einen fremden Bot am Antworten **hindern** kann niemand – Discord stellt seine
+Nachricht zu, bevor irgendwer eingreifen könnte. Mit `TOP_ECHO_REPLACE=true`
+läuft es deshalb so: Wir antworten selbst und **löschen ihre Antwort
+hinterher**. Für einen Moment stehen beide da, danach nur noch unsere.
+
+Gelöscht wird nur, wenn alles zusammenpasst:
+
+1. jemand hat gerade in **diesem** Kanal `!top` getippt,
+2. wir haben darauf tatsächlich geantwortet (sonst bliebe gar keine Liste),
+3. die Nachricht kommt von **UnbelievaBoat** (`UNB_BOT_ID`, Standard ist dessen
+   feste ID) und nie von uns selbst,
+4. und das alles innerhalb von `TOP_ECHO_CATCH_S` Sekunden.
+
+Höchstens **eine** Nachricht je Befehl. Scharf gestellt wird schon **vor** dem
+ersten `await` (§7): UnbelievaBoat antwortet in Millisekunden, unsere Liste
+kostet erst einen API-Aufruf – wer erst nach dem Senden aufpasst, kommt zu
+spät. Geht unsere Liste nicht raus, wird auch nichts gelöscht.
+
+Der Bot braucht dafür **Nachrichten verwalten**; fehlt das Recht, bleibt
+einfach beides stehen und im Log steht einmalig der Grund. Am saubersten ist
+es ohnehin, den Befehl in UnbelievaBoats eigenem Dashboard abzuschalten – dann
+antwortet dort von vornherein niemand mehr und es muss nichts gelöscht werden.
+
+Nicht zu verwechseln mit `!rangliste`: Die zeigt Level, Einnahmen und Ausgaben
+aus unseren eigenen Daten – inzwischen ebenfalls für jeden, der Geld oder
+Besitz hat.
 
 ## Grenzen
 - **Ein Prozess:** Ein harter Absturz betrifft beide Bots. Unbehandelte Fehler

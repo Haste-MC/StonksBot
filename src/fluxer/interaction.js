@@ -136,6 +136,9 @@ function createInteraction(ctx) {
       const field = json.components?.[0]?.components?.[0] ?? {};
       const answer = await ctx.prompt({
         channel, userId,
+        // Antworten kommen unter der Plattform-ID herein, nicht unter dem
+        // Konto – sonst findet prompt.consume die offene Frage nie.
+        platformUserId: mentionId,
         title: json.title ?? 'Eingabe',
         label: field.label ?? 'Wert',
       });

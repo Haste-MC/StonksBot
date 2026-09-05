@@ -157,7 +157,7 @@ const COMMANDS = [
   },
   {
     names: ['top', 'reich', 'reichste'],
-    info: 'Geld-Rangliste: !top [bar|bank]',
+    info: 'Reichen-Rangliste: !top [vermögen|bar|bank]',
     run: async ({ guildId, userId, args }) =>
       ({ view: await ui.buildTopView({ guildId, userId, sort: args[0] }) }),
   },

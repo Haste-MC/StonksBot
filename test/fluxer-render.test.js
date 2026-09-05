@@ -205,6 +205,37 @@ function view(buttons) {
   check('die Erwähnung bleibt erhalten (soll pingen)',
     sent.every((m) => m.content.startsWith('<@FX1>')), sent[0]?.content);
 
+  console.log('--- Modal-Ersatz: die Antwort muss ankommen ---');
+  /*
+   * Der Fehler: `ask` merkte sich die Frage unter dem KONTO (fx:FX2 oder die
+   * verknüpfte Discord-ID), die eingehende Antwort trägt aber die Fluxer-ID
+   * des Absenders. Dadurch wurde keine Eingabe je angenommen – eigener
+   * Casino-Einsatz, Gebot, Spruch, Stückzahl und Titel liefen alle ins Leere.
+   */
+  const prompt = require('../src/fluxer/prompt');
+  const askChannel = { id: 'c9', async send() { return { id: 'm9' }; } };
+  const askInteraction = createInteraction({
+    channel: askChannel, message: null, userId: `fx:FX2`, platformUserId: 'FX2', guildId: G,
+    prompt: (opts) => prompt.ask(opts),
+  });
+  const modal = {
+    toJSON: () => ({
+      custom_id: 'cbetset|slots|fx:FX2',
+      title: 'Eigener Einsatz',
+      components: [{ components: [{ custom_id: 'amount', label: 'Betrag' }] }],
+    }),
+  };
+  const answering = askInteraction.showModal(modal);
+  await new Promise((r) => setImmediate(r));
+  check('die Frage steht offen', prompt.pending() === 1, String(prompt.pending()));
+  check('eine fremde Nachricht zählt nicht',
+    prompt.consume({ channel: { id: 'c9' }, author: { id: 'ANDERER' }, content: '999' }) === false);
+  check('die eigene Antwort wird angenommen',
+    prompt.consume({ channel: { id: 'c9' }, author: { id: 'FX2' }, content: '500' }) === true);
+  const answered = await answering;
+  check('und kommt beim Handler an', answered.answer === '500', JSON.stringify(answered));
+  check('die Frage ist danach zu', prompt.pending() === 0, String(prompt.pending()));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
