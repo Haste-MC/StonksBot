@@ -75,9 +75,25 @@ async function rob(guildId, robberId, victimId, now = Date.now(), random = Math.
   const left = remainingMs(guildId, robberId, now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
 
-  const [robber, victim] = await Promise.all([
+  /*
+   * Das Ziel muss es geben.
+   *
+   * Ein lokaler Geldbeutel entsteht beim ersten Zugriff – mit Startkapital.
+   * Ohne diese Prüfung hätte `!rob irgendeinname` genau diesen Geldbeutel
+   * angelegt und sofort leergeräumt: 2.500 aus dem Nichts, je erfundenem
+   * Namen einmal. Deshalb hier nur NACHSEHEN, nicht anlegen.
+   */
+  const identity = require('./identity');
+  if (!identity.isDiscordAccount(victimId) && !db.hasWallet(guildId, victimId)) {
+    return { ok: false, reason: 'unknown_victim' };
+  }
+
+  // Ein Discord-Konto, das es nicht gibt, beantwortet die API mit einem Fehler.
+  const balances = await Promise.all([
     getBalance(guildId, robberId), getBalance(guildId, victimId),
-  ]);
+  ]).catch(() => null);
+  if (!balances) return { ok: false, reason: 'unknown_victim' };
+  const [robber, victim] = balances;
 
   if (victim.cash < RULES.minVictimCash) {
     return { ok: false, reason: 'victim_broke', have: victim.cash, needed: RULES.minVictimCash };

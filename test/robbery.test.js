@@ -52,6 +52,22 @@ const totalOf = async (id) => (await wallet.getBalance(W, id)).total;
   const r2 = await robbery.rob(W, pleite, a);
   check('ohne eigenes Bargeld kein Überfall', !r2.ok && r2.reason === 'no_cash');
 
+  console.log('--- Erfundene Ziele erzeugen kein Geld ---');
+  /*
+   * Ein lokaler Geldbeutel entsteht beim ersten Zugriff – mit Startkapital.
+   * `!rob irgendeinname` hat ihn dadurch angelegt und sofort leergeräumt:
+   * Geld aus dem Nichts, je erfundenem Namen einmal (ARCHITEKTUR §3).
+   */
+  const jäger = await player(10000);
+  const vorherJ = await totalOf(jäger);
+  const phantom = await robbery.rob(W, jäger, 'fx:GibtsGarNicht', Date.now(), () => 0.01);
+  check('ein unbekanntes Ziel wird abgelehnt',
+    !phantom.ok && phantom.reason === 'unknown_victim', JSON.stringify(phantom));
+  check('und es entsteht kein Geld', (await totalOf(jäger)) === vorherJ);
+  check('der Geldbeutel wurde gar nicht erst angelegt',
+    db.hasWallet(W, 'fx:GibtsGarNicht') === false);
+  check('auch kein Cooldown dafür verbraucht', robbery.remainingMs(W, jäger) === 0);
+
   console.log('--- Erfolgreicher Überfall: reine Umverteilung ---');
   const räuber = await player(5000);
   const opfer = await player(20000);

@@ -166,12 +166,16 @@ const COMMANDS = [
     info: 'Jemanden ausrauben (50:50, alles oder nichts): !rob <@spieler|id>',
     run: async ({ guildId, userId, args, prefix }) => {
       const symbol = await getSymbol(guildId);
-      const raw = String(args[0] ?? '').replace(/[<@!>]/g, '').trim();
-      if (!raw) return { text: `❓ Wen denn? Beispiel: \`${prefix}rob @spieler\`` };
+      if (!args[0]) return { text: `❓ Wen denn? Beispiel: \`${prefix}rob @spieler\`` };
 
-      // Auf das Konto übersetzen: Ein Fluxer-Ziel kann verknüpft sein.
-      const victim = identity.account('fluxer', raw) === `fx:${raw}` && /^\d{17,20}$/.test(raw)
-        ? raw : identity.account('fluxer', raw);
+      // Erwähnung, ID von hier, ID von drüben oder Name – siehe identity.resolve.
+      const victim = identity.resolve(guildId, 'fluxer', args[0]);
+      if (!victim) {
+        return {
+          text: '🕵️ Den kenne ich nicht. Nimm eine Erwähnung, die ID von jemandem, '
+            + 'der hier schon mitspielt, oder eine Discord-ID.',
+        };
+      }
 
       const res = await robbery.rob(guildId, userId, victim);
       if (!res.ok) return { text: robProblem(res, symbol, prefix) };
@@ -484,6 +488,9 @@ function robProblem(res, symbol, prefix) {
       return `🪹 Da ist nichts zu holen (unter ${money(symbol, res.needed)} Bargeld).`;
     case 'no_cash':
       return '👛 Ohne einen Taler kein Überfall – du könntest die Strafe nicht zahlen.';
+    case 'unknown_victim':
+      return '🕵️ Den kenne ich nicht. Nimm eine Erwähnung oder die ID von jemandem, '
+        + 'der hier schon mitspielt.';
     default: return '❌ Der Überfall ging schief.';
   }
 }

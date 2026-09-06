@@ -300,6 +300,18 @@ gleich anfühlt:
 ist unantastbar. Ein Überfall bestraft damit Sorglosigkeit, nicht Pech – und
 genau deshalb darf er so hart sein.
 
+**Wen meint `!rob <ziel>`?** Das entscheidet `identity.resolve` der Reihe nach:
+verknüpftes Konto → hier bekannter Geldbeutel → Discord-ID → eindeutiger Name.
+Zwei Dinge, die dabei schiefgingen und jetzt abgesichert sind:
+
+- Vorher galt **jede 17–20-stellige Zahl als Discord-ID**. Ein nicht
+  verknüpfter Fluxer-Spieler wurde damit auf ein fremdes Konto aufgelöst – der
+  Überfall traf den Falschen.
+- Ein Ziel, das es **gar nicht gibt**, war eine Geldquelle: Der lokale
+  Geldbeutel entsteht beim ersten Zugriff (mit Startkapital), und der Überfall
+  hat ihn sofort leergeräumt. `!rob irgendeinname` machte so 2.500 aus dem
+  Nichts. Jetzt wird nur noch **nachgesehen**, nicht angelegt.
+
 `!rob` gibt es **nur auf Fluxer**. Auf Discord bleibt der Befehl
 UnbelievaBoat überlassen: Zwei Überfall-Systeme nebeneinander hätten getrennte
 Abklingzeiten, und man könnte doppelt so oft rauben.

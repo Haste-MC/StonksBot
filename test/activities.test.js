@@ -121,6 +121,13 @@ cleanup();
       fishing.describe(zug, '100').includes(zug.catch.name));
   }
 
+  /*
+   * Die Rute geht bei 1,5 % der Züge kaputt. Passiert das hier, meldet der
+   * nächste Zug „keine Ausrüstung" statt „Abklingzeit" – und der Test wäre
+   * ohne eigenes Zutun rot. Also nachlegen, wenn es passiert ist.
+   */
+  if (zug.broke) db.reservePurchase(G, U, rute.id, 1);
+
   const sofort = await fishing.fish(G, U);
   check('zweiter Zug läuft in den Cooldown',
     !sofort.ok && sofort.reason === 'cooldown', sofort.reason);

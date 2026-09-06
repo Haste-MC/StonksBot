@@ -151,6 +151,34 @@ cleanup();
     unb.viaUnb(DISCORD) === Boolean(unb.UNB_GUILD && process.env.UNB_TOKEN));
   check('Fluxer-Konto läuft nie über UnbelievaBoat', unb.viaUnb('fx:egal') === false);
 
+  console.log('--- Wen meint "!rob <ziel>"? ---');
+  {
+    /*
+     * Vorher galt jede 17–20-stellige Zahl als Discord-ID. Ein nicht
+     * verknüpfter Fluxer-Spieler wurde damit auf ein fremdes Discord-Konto
+     * aufgelöst – der Überfall traf den Falschen.
+     */
+    const wallet = require('../src/wallet');
+    const fxNummer = '9911223344556677889';
+    await wallet.getBalance(W, `fx:${fxNummer}`);   // dieser Spieler existiert hier
+    check('ein bekannter Fluxer-Spieler bleibt ein Fluxer-Spieler',
+      identity.resolve(W, 'fluxer', fxNummer) === `fx:${fxNummer}`,
+      String(identity.resolve(W, 'fluxer', fxNummer)));
+
+    const fremd = '498875863496916995';
+    check('eine unbekannte Zahl gilt als Discord-ID',
+      identity.resolve(W, 'fluxer', fremd) === fremd,
+      String(identity.resolve(W, 'fluxer', fremd)));
+    check('Erwähnungen werden entpackt',
+      identity.resolve(W, 'fluxer', `<@${fremd}>`) === fremd);
+    check('leere Eingabe meint niemanden',
+      identity.resolve(W, 'fluxer', '  ') === null);
+    check('ein erfundener Name meint niemanden',
+      identity.resolve(W, 'fluxer', 'GibtsNichtXyz') === null);
+    check('und dabei entsteht kein Konto',
+      db.hasWallet(W, 'fx:GibtsNichtXyz') === false);
+  }
+
   console.log('--- Admin ---');
   check('ohne Eintrag in BOT_ADMINS kein Admin', accounts.isAdmin('irgendwer') === false);
 

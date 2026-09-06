@@ -165,6 +165,38 @@ function platformIdOf(accountId, platform) {
 }
 
 /**
+ * Wen meint dieser Eingabe-Schnipsel?
+ *
+ * Gebraucht dort, wo ein Spieler einen anderen benennt (`!rob <ziel>`). Die
+ * Eingabe kann alles sein: eine Erwähnung, eine rohe ID von hier oder von
+ * drüben, oder ein Name. Deshalb der Reihe nach:
+ *
+ *   1. **Verknüpft?** Dann ist die Sache klar – das gemeinsame Konto.
+ *   2. **Kennen wir den Geldbeutel?** Dann ist es ein Spieler von hier. Diese
+ *      Prüfung ist der Grund für die Funktion: Vorher galt jede 17–20-stellige
+ *      Zahl als Discord-ID, und ein nicht verknüpfter Fluxer-Spieler wurde mit
+ *      seiner eigenen ID zum falschen Konto aufgelöst.
+ *   3. **Sieht aus wie eine Discord-ID?** Dann ist es eine.
+ *   4. **Sonst ein Name** – wenn er eindeutig ist.
+ *
+ * Angelegt wird dabei nichts: `hasWallet` sieht nur nach (sonst entstünde beim
+ * Zielen auf einen erfundenen Namen ein Konto mit Startkapital).
+ *
+ * @returns {string|null} das Konto, oder null wenn niemand gemeint sein kann
+ */
+function resolve(guildId, platform, input) {
+  const raw = String(input ?? '').replace(/[<@!>]/g, '').trim();
+  if (!raw) return null;
+
+  const linked = account(platform, raw);
+  if (linked !== `${FLUXER_PREFIX}${raw}`) return linked;   // verknüpft
+  if (db.hasWallet(guildId, linked)) return linked;         // von hier bekannt
+  if (isDiscordAccount(raw) && /^\d{17,20}$/.test(raw)) return raw;
+
+  return accountByName(raw);
+}
+
+/**
  * Verweis auf einen Spieler in einer Ansicht: echte Erwähnung, wo sie
  * funktioniert, sonst der Name. Eine rohe ID sieht nie jemand.
  */
@@ -177,6 +209,6 @@ function mention(accountId) {
 module.exports = {
   WORLD_ID, FLUXER_PREFIX,
   world, account, isDiscordAccount, isLinked, remember, nameOf, display, mention,
-  nameKey, accountByName, platformIdOf,
+  nameKey, accountByName, platformIdOf, resolve,
   checkWorld,
 };

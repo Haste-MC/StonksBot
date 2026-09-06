@@ -1569,6 +1569,9 @@ const stmt = {
 
   // --- Wallet (eigene Wirtschaft) ---
   getWallet: db.prepare('SELECT * FROM wallets WHERE guild_id = ? AND user_id = ?'),
+  // Nur nachsehen, nichts anlegen – für Ziele, die es vielleicht gar nicht gibt.
+  peekWallet: db.prepare(
+    'SELECT 1 FROM wallets WHERE guild_id = ? AND user_id = ? LIMIT 1'),
   createWallet: db.prepare(
     `INSERT INTO wallets (guild_id, user_id, cash, bank, created_at) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (guild_id, user_id) DO NOTHING`),
@@ -3564,6 +3567,11 @@ function walletLog(guildId, userId, limit = 20) {
 }
 
 /** Reichste Spieler (nur flüssiges Vermögen) – für die Rangliste. */
+/** Gibt es diesen Geldbeutel schon? Legt ihn NICHT an. */
+function hasWallet(guildId, userId) {
+  return Boolean(stmt.peekWallet.get(guildId, String(userId)));
+}
+
 function walletTop(guildId, limit = 50) {
   return stmt.walletTop.all(guildId, limit);
 }
@@ -3618,7 +3626,7 @@ module.exports = {
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
-  getClaim, setClaim, clearClaim, assetOwners,
+  getClaim, setClaim, clearClaim, assetOwners, hasWallet,
   setTitle, bumpActivity, activityOf, setActivity, peekCriminal,
   podiumOf, setPodium, clearPodium,
   rememberRemoved, removedNames, forgetRemoved,
