@@ -21,7 +21,16 @@ module.exports = {
     // Durch ON DELETE CASCADE verschwindet der Artikel auch aus allen Inventaren.
     db.deleteItem(interaction.guildId, itemId);
 
+    /*
+     * Und merken, dass er weg soll: Der Katalog-Abgleich beim Start trägt
+     * sonst alles nach, was in den Katalogdateien steht – der Artikel wäre
+     * beim nächsten Neustart wieder da (siehe seed.js).
+     */
+    const known = require('../seed').catalogOf(item.kind);
+    if (known) db.rememberRemoved(interaction.guildId, item.kind, item.name);
+
     return interaction.editReply(
-      `🗑️ **${item.name}** wurde gelöscht – auch aus den Inventaren aller Mitglieder.`);
+      `🗑️ **${item.name}** wurde gelöscht – auch aus den Inventaren aller Mitglieder.`
+      + (known ? '\nEr wird beim Neustart **nicht** wieder angelegt.' : ''));
   },
 };

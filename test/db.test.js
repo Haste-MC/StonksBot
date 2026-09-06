@@ -102,6 +102,40 @@ console.log('--- Katalog-Abgleich ---');
   check('Heist-Ausrüstung ist im Shop auffindbar',
     require('../src/data/heists').TIERS.at(-1).items
       .every((name) => db.allItemsOfKind(G2, 'gear').some((i) => i.name === name)));
+  // Autos und Immobilien laufen über denselben Abgleich – vorher musste man
+  // dafür von Hand ein Skript starten.
+  const cars = seed.ensureCatalog(G2, 'car');
+  check('Autos werden genauso nachgetragen',
+    cars.added.length === require('../src/data/catalog').length,
+    `${cars.added.length}/${require('../src/data/catalog').length}`);
+  const props = seed.ensureCatalog(G2, 'property');
+  check('Immobilien auch',
+    props.added.length === require('../src/data/properties').length,
+    `${props.added.length}/${require('../src/data/properties').length}`);
+  check('und beim zweiten Lauf passiert nichts mehr',
+    seed.ensureCatalog(G2, 'car').added.length === 0
+    && seed.ensureCatalog(G2, 'property').added.length === 0);
+  check('Immobilien behalten Miete und Stellplätze',
+    db.allItemsOfKind(G2, 'property').every((i) => i.rent >= 0 && i.garage >= 0)
+    && db.allItemsOfKind(G2, 'property').some((i) => i.rent > 0));
+
+  // Was ein Admin bewusst löscht, bleibt gelöscht – sonst wäre der Abgleich
+  // beim nächsten Neustart stärker als die Entscheidung des Admins.
+  const auto = db.allItemsOfKind(G2, 'car')[0];
+  db.deleteItem(G2, auto.id);
+  db.rememberRemoved(G2, 'car', auto.name);
+  const nachher = seed.ensureCatalog(G2, 'car');
+  check('ein gelöschter Artikel kommt nicht zurück',
+    nachher.added.length === 0 && nachher.skipped === 1,
+    JSON.stringify(nachher.added));
+  check('er steht auf der Sperrliste',
+    db.removedNames(G2, 'car').has(auto.name.toLowerCase()));
+  db.forgetRemoved(G2, 'car', auto.name);
+  check('von der Sperrliste genommen wird er wieder angelegt',
+    seed.ensureCatalog(G2, 'car').added.length === 1);
+  check('die Sperrliste gilt nur für ihre Art',
+    db.removedNames(G2, 'property').size === 0);
+
   check('sie hat eine eigene Kategorie',
     db.allItemsOfKind(G2, 'gear')
       .some((i) => i.brand === 'Untergrund' && i.name === 'Brecheisen'));

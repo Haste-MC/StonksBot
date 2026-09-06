@@ -30,34 +30,11 @@ if (reset) {
   console.log(`🗑️  ${existing.length} vorhandene Immobilien gelöscht.\n`);
 }
 
-let added = 0, skipped = 0, withoutImage = 0;
-
-for (const entry of catalog) {
-  const image = images[entry.name];
-  if (!image) withoutImage++;
-
-  try {
-    db.createItem({
-      guildId,
-      name: entry.name,
-      price: entry.price,
-      description: entry.description,
-      emoji: entry.emoji,
-      brand: entry.category,
-      kind: 'property',
-      stock: entry.stock,
-      garage: entry.garage,
-      rent: entry.rent,
-      createdBy: 'seed',
-      imageUrl: image?.url ?? '',
-      attribution: image?.attribution ?? '',
-    });
-    added++;
-  } catch (err) {
-    if (String(err.message).includes('UNIQUE')) { skipped++; continue; }
-    throw err;
-  }
-}
+// Derselbe Abgleich, den auch der Bot beim Start macht: nur Fehlendes anlegen.
+const result = require('./seed').ensureCatalog(guildId, 'property');
+const added = result.added.length;
+const skipped = catalog.length - added;
+const withoutImage = result.added.filter((name) => !images[name]).length;
 
 // Übersicht nach Kategorie.
 const all = db.allItemsOfKind(guildId, 'property');

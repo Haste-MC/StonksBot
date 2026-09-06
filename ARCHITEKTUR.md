@@ -246,6 +246,7 @@ src/
   street.js        Straßenrisiko (Kratzer/Schaden/Diebstahl)
   condition.js     Fahrzeugzustand 0–100 + Wertformel
   currency.js      Serverwährungssymbol (gecacht)
+  seed.js          Katalog-Abgleich beim Start (Ausrüstung, Autos, Immobilien)
   activity.js      Strichliste "was tust du am häufigsten" -> Titel im Profil
   podium.js        Glückwunsch, wenn jemand auf Platz 1-3 der Reichsten steigt
   networth.js      Vermögen an EINER Stelle: Geld + Autos + Immobilien

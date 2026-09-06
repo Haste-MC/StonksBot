@@ -36,31 +36,11 @@ if (reset) {
   console.log(`🗑️  ${removed} vorhandene Artikel gelöscht.\n`);
 }
 
-let added = 0, skipped = 0, withoutImage = 0;
-
-for (const car of catalog) {
-  const image = images[car.name];
-  if (!image) withoutImage++;
-
-  try {
-    db.createItem({
-      guildId,
-      name: car.name,
-      price: car.price,
-      description: car.spec,
-      emoji: car.emoji,
-      brand: car.brand,
-      stock: null,
-      createdBy: 'seed',
-      imageUrl: image?.url ?? '',
-      attribution: image?.attribution ?? '',
-    });
-    added++;
-  } catch (err) {
-    if (String(err.message).includes('UNIQUE')) { skipped++; continue; }
-    throw err;
-  }
-}
+// Derselbe Abgleich, den auch der Bot beim Start macht: nur Fehlendes anlegen.
+const result = require('./seed').ensureCatalog(guildId, 'car');
+const added = result.added.length;
+const skipped = catalog.length - added;
+const withoutImage = result.added.filter((name) => !images[name]).length;
 
 // Übersicht nach Marken.
 const brands = db.listBrands(guildId);

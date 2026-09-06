@@ -216,6 +216,24 @@ db.exec(`
 `);
 
 /*
+ * Von Hand gelöschte Katalog-Artikel.
+ *
+ * Der Abgleich beim Start trägt alles nach, was im Katalog steht und im Shop
+ * fehlt (siehe seed.js). Ohne diese Liste käme ein Artikel, den ein Admin
+ * bewusst entfernt hat, beim nächsten Neustart zurück. Gemerkt wird nur der
+ * Name – Preise und Beschreibungen sind egal, es geht um „will ich nicht".
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS catalog_removed (
+    guild_id TEXT    NOT NULL,
+    kind     TEXT    NOT NULL,
+    name_key TEXT    NOT NULL,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, kind, name_key)
+  );
+`);
+
+/*
  * Wer zuletzt auf dem Treppchen stand (Plätze 1–3 der Reichsten).
  *
  * Gebraucht für die Glückwunsch-Meldung: Ohne diesen Merker wüsste niemand,
@@ -1365,6 +1383,15 @@ const stmt = {
     `SELECT kind, count, last_at FROM player_activity
      WHERE guild_id = ? AND user_id = ? AND count > 0
      ORDER BY count DESC, last_at DESC`),
+  // --- Von Hand gelöschte Katalog-Artikel ---
+  rememberRemoved: db.prepare(
+    `INSERT INTO catalog_removed (guild_id, kind, name_key, at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, kind, name_key) DO NOTHING`),
+  removedNames: db.prepare(
+    'SELECT name_key FROM catalog_removed WHERE guild_id = ? AND kind = ?'),
+  forgetRemoved: db.prepare(
+    'DELETE FROM catalog_removed WHERE guild_id = ? AND kind = ? AND name_key = ?'),
+
   // --- Treppchen (Glückwunsch-Meldung) ---
   podiumOf: db.prepare(
     'SELECT rank, user_id, worth, at FROM podium WHERE guild_id = ? ORDER BY rank'),
@@ -2434,6 +2461,24 @@ function bumpActivity(guildId, userId, kind, at = Date.now()) {
 /** Alle Aktivitäten eines Spielers, häufigste zuerst. */
 function activityOf(guildId, userId) {
   return stmt.activityOf.all(guildId, String(userId));
+}
+
+/**
+ * Merkt sich, dass dieser Artikel bewusst gelöscht wurde – dann trägt der
+ * Abgleich ihn nicht wieder nach.
+ */
+function rememberRemoved(guildId, kind, name, at = Date.now()) {
+  stmt.rememberRemoved.run(guildId, String(kind), String(name).toLowerCase(), at);
+}
+
+/** Die Namen (klein geschrieben), die für diese Art nicht nachgetragen werden. */
+function removedNames(guildId, kind) {
+  return new Set(stmt.removedNames.all(guildId, String(kind)).map((r) => r.name_key));
+}
+
+/** Nimmt einen Artikel von der Sperrliste – er darf wieder nachgetragen werden. */
+function forgetRemoved(guildId, kind, name) {
+  return stmt.forgetRemoved.run(guildId, String(kind), String(name).toLowerCase()).changes > 0;
 }
 
 /** Die zuletzt gemerkten Plätze 1–3 der Reichsten. */
@@ -3576,6 +3621,7 @@ module.exports = {
   getClaim, setClaim, clearClaim, assetOwners,
   setTitle, bumpActivity, activityOf, setActivity, peekCriminal,
   podiumOf, setPodium, clearPodium,
+  rememberRemoved, removedNames, forgetRemoved,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,

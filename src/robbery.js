@@ -4,6 +4,7 @@ const unb = require('./unb');
 // Späte Bindung, damit Tests die Geldschnittstelle ersetzen können (§8).
 const getBalance = (...a) => unb.getBalance(...a);
 const changeCash = (...a) => unb.changeCash(...a);
+const withdrawFromBank = (...a) => unb.withdrawFromBank(...a);
 
 /**
  * ===========================================================================
@@ -13,8 +14,15 @@ const changeCash = (...a) => unb.changeCash(...a);
  * UnbelievaBoats `!rob` lässt sich für Fluxer-Spieler nicht auslösen (die API
  * kennt keine Befehlsausführung, und eine gespiegelte Nachricht stammt vom Bot,
  * nicht vom Spieler). Deshalb hier nachgebaut – es wirkt über `changeCash` auf
- * **dieselben** UnbelievaBoat-Konten und funktioniert damit auf beiden
- * Plattformen gleich.
+ * **dieselben** UnbelievaBoat-Konten.
+ *
+ * Aufgerufen wird es **nur auf Fluxer** (`!rob`). Auf Discord bleibt der Befehl
+ * UnbelievaBoat überlassen: Zwei Überfall-Systeme nebeneinander hätten
+ * getrennte Abklingzeiten, und man könnte doppelt so oft rauben.
+ *
+ * Die Regeln sind deshalb absichtlich dieselben wie drüben – **alles oder
+ * nichts bei fünfzig-fünfzig**, damit sich der Befehl auf beiden Seiten gleich
+ * anfühlt.
  *
  * ==================== KEIN GELDDRUCKER (§3) ====================
  * Ein Überfall ist reine UMVERTEILUNG: Was der eine bekommt, verliert der
@@ -31,16 +39,21 @@ const HOUR = 60 * 60 * 1000;
 /** Balance-Stellschrauben. */
 const RULES = {
   cooldownMs: 2 * HOUR,
-  /** Grundchance auf Erfolg. */
+  /** Münzwurf. Keine Rechnerei, kein Vorteil für Reiche – wie bei UnbelievaBoat. */
   baseChance: 0.5,
-  /** So viel vom Bargeld des Opfers ist höchstens erbeutbar. */
-  maxShare: 0.3,
-  /** Darunter lohnt sich ein Überfall nicht – schützt Arme. */
+  /**
+   * Bei Erfolg ist das **ganze Bargeld** des Opfers weg.
+   *
+   * Das ist hart, und genau darin liegt der Sinn: Die Bank ist die Antwort
+   * darauf. Wer einzahlt, ist unantastbar – ein Überfall bestraft also
+   * Sorglosigkeit, nicht Pech. Wer weniger als das hier dabei hat, ist es
+   * nicht wert und bleibt verschont.
+   */
   minVictimCash: 500,
-  /** Anteil des eigenen Bargelds, der bei Misserfolg ans Opfer geht. */
+  /** Anteil des eigenen Vermögens, der bei Misserfolg ans Opfer geht. */
   penaltyShare: 0.15,
-  /** Höchststrafe, damit ein Fehlschlag nicht ruiniert. */
-  maxPenalty: 5000,
+  /** Höchststrafe – ein Fehlschlag soll wehtun, aber nicht ruinieren. */
+  maxPenalty: 2000,
 };
 
 /** Wie lange noch bis zum nächsten Versuch? (0 = jetzt möglich) */
@@ -48,18 +61,6 @@ function remainingMs(guildId, accountId, now = Date.now()) {
   const claim = db.getClaim(guildId, accountId, 'rob');
   if (!claim) return 0;
   return Math.max(0, claim.claimed_at + RULES.cooldownMs - now);
-}
-
-/**
- * Erfolgschance.
- *
- * Je größer die Beute im Verhältnis zum eigenen Bargeld, desto riskanter –
- * das bremst, sich an einem viel Reicheren zu vergreifen, ohne es zu verbieten.
- */
-function chanceFor(loot, robberCash) {
-  const ratio = loot / Math.max(1, robberCash);
-  const penalty = Math.min(0.25, ratio * 0.05);
-  return Math.max(0.2, RULES.baseChance - penalty);
 }
 
 /**
@@ -81,10 +82,12 @@ async function rob(guildId, robberId, victimId, now = Date.now(), random = Math.
   if (victim.cash < RULES.minVictimCash) {
     return { ok: false, reason: 'victim_broke', have: victim.cash, needed: RULES.minVictimCash };
   }
-  if (robber.cash <= 0) return { ok: false, reason: 'no_cash' };
+  // Die Strafe darf von der Bank kommen – wer gar nichts hat, raubt nicht.
+  if (robber.total <= 0) return { ok: false, reason: 'no_cash' };
 
-  const loot = Math.max(1, Math.floor(victim.cash * RULES.maxShare * (0.4 + random() * 0.6)));
-  const chance = chanceFor(loot, robber.cash);
+  // Alles oder nichts: das komplette Bargeld des Opfers. Die Bank bleibt tabu.
+  const loot = victim.cash;
+  const chance = RULES.baseChance;
   const success = random() < chance;
 
   db.setClaim(guildId, robberId, 'rob', now);
@@ -92,7 +95,19 @@ async function rob(guildId, robberId, victimId, now = Date.now(), random = Math.
   if (!success) {
     // Strafe ans Opfer – so verschwindet nichts und Fehlschläge tun weh.
     const penalty = Math.min(
-      RULES.maxPenalty, Math.max(1, Math.floor(robber.cash * RULES.penaltyShare)));
+      RULES.maxPenalty,
+      Math.max(1, Math.min(robber.total, Math.floor(robber.total * RULES.penaltyShare))));
+
+    /*
+     * Bargeld oder Bank ist egal: Reicht das Bargeld nicht, wird der Rest von
+     * der Bank geholt. Sonst käme ausgerechnet der straffrei davon, der sein
+     * Geld vorsorglich eingezahlt hat.
+     */
+    if (robber.cash < penalty) {
+      await withdrawFromBank(guildId, robberId, penalty - robber.cash, 'Überfall gescheitert')
+        .catch(() => {});
+    }
+
     const moved = await transfer(guildId, robberId, victimId, penalty, 'Überfall gescheitert');
     if (!moved) return { ok: false, reason: 'failed_transfer' };
     return { ok: true, success: false, penalty, chance };
@@ -126,4 +141,4 @@ async function transfer(guildId, fromId, toId, amount, reason) {
   }
 }
 
-module.exports = { RULES, HOUR, remainingMs, chanceFor, rob, transfer };
+module.exports = { RULES, HOUR, remainingMs, rob, transfer };

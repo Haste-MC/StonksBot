@@ -163,7 +163,7 @@ const COMMANDS = [
   },
   {
     names: ['rob', 'ausrauben', 'überfall', 'ueberfall'],
-    info: 'Jemanden ausrauben: !rob <@spieler|id>',
+    info: 'Jemanden ausrauben (50:50, alles oder nichts): !rob <@spieler|id>',
     run: async ({ guildId, userId, args, prefix }) => {
       const symbol = await getSymbol(guildId);
       const raw = String(args[0] ?? '').replace(/[<@!>]/g, '').trim();
@@ -178,10 +178,12 @@ const COMMANDS = [
 
       return {
         text: res.success
-          ? `🎭 **Erfolg!** Du hast **${money(symbol, res.amount)}** erbeutet.\n` +
-            `_Chance war ${Math.round(res.chance * 100)} %._`
-          : `🚨 **Erwischt!** Du zahlst **${money(symbol, res.penalty)}** Schmerzensgeld.\n` +
-            `_Chance war ${Math.round(res.chance * 100)} % – Bargeld auf der Bank ist sicher._`,
+          ? `🎭 **Erfolg!** Du hast **${money(symbol, res.amount)}** erbeutet – `
+            + 'das komplette Bargeld.\n'
+            + `_Fifty-fifty, und heute war es deine Hälfte._`
+          : `🚨 **Erwischt!** Du zahlst **${money(symbol, res.penalty)}** Schmerzensgeld.\n`
+            + '_Fifty-fifty, und heute nicht. Was auf der Bank liegt, ist sicher – '
+            + 'für dich wie für dein Opfer._',
       };
     },
   },
@@ -481,7 +483,7 @@ function robProblem(res, symbol, prefix) {
     case 'victim_broke':
       return `🪹 Da ist nichts zu holen (unter ${money(symbol, res.needed)} Bargeld).`;
     case 'no_cash':
-      return '👛 Ohne eigenes Bargeld kein Überfall – du könntest die Strafe nicht zahlen.';
+      return '👛 Ohne einen Taler kein Überfall – du könntest die Strafe nicht zahlen.';
     default: return '❌ Der Überfall ging schief.';
   }
 }

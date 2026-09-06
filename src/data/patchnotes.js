@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.24.0',
+    date: '2026-09-06',
+    title: 'Überfälle wie drüben',
+    lines: [
+      '🎭 **`!rob` auf Fluxer funktioniert jetzt wie UnbelievaBoats Version auf Discord:** fifty-fifty, und bei Erfolg ist das **komplette Bargeld** des Opfers weg.',
+      '🏦 **Die Bank ist die Antwort darauf.** Erbeutbar ist nur Bargeld – wer einzahlt, ist unantastbar.',
+      '⚖️ **Fehlschlag kostet höchstens 2.000** (vorher 5.000), und die Strafe kommt notfalls von der Bank. Wer alles eingezahlt hatte, kam vorher straffrei davon.',
+      '🛡️ Unverändert: Opfer mit weniger als 500 Bargeld sind geschützt, 2 Stunden Pause zwischen zwei Versuchen.',
+    ],
+  },
+  {
     version: '1.23.0',
     date: '2026-09-06',
     title: 'Das Auktionshaus lohnt sich endlich',

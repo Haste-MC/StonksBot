@@ -283,11 +283,26 @@ beiden Plattformen gleich.
 !einkommen            Rollen-Einkommen abholen
 ```
 
-**Überfall** ([`robbery.js`](src/robbery.js)): Nur **Bargeld** ist erbeutbar – wer
-einzahlt, ist sicher. Höchstens 30 % vom Bargeld des Opfers, Opfer unter 500
-sind geschützt, 2 h Cooldown. Die Erfolgschance sinkt, je größer die Beute im
-Verhältnis zum eigenen Bargeld ist. Bei Misserfolg zahlt der Räuber Schmerzensgeld
-**an das Opfer**.
+**Überfall** ([`robbery.js`](src/robbery.js)) – bewusst **genauso wie
+UnbelievaBoats `!rob` auf Discord**, damit sich der Befehl auf beiden Seiten
+gleich anfühlt:
+
+| | |
+|--|--|
+| Chance | **50:50**, fest – kein Vorteil für Reiche |
+| Erfolg | das **ganze Bargeld** des Opfers |
+| Fehlschlag | 15 % des eigenen Vermögens, **höchstens 2.000**, ans Opfer |
+| Woher die Strafe kommt | Bargeld oder Bank – reicht das Bargeld nicht, wird von der Bank geholt |
+| Geschützt | Opfer mit weniger als 500 Bargeld |
+| Cooldown | 2 Stunden |
+
+**Die Bank ist die Antwort darauf.** Erbeutbar ist nur Bargeld; wer einzahlt,
+ist unantastbar. Ein Überfall bestraft damit Sorglosigkeit, nicht Pech – und
+genau deshalb darf er so hart sein.
+
+`!rob` gibt es **nur auf Fluxer**. Auf Discord bleibt der Befehl
+UnbelievaBoat überlassen: Zwei Überfall-Systeme nebeneinander hätten getrennte
+Abklingzeiten, und man könnte doppelt so oft rauben.
 
 Zwei bewusste Entscheidungen, beide getestet:
 - **Reine Umverteilung.** Was der eine bekommt, verliert der andere – auf den
@@ -504,16 +519,8 @@ Die vier Stufen (🧤 Sturmmaske → 🔧 Brecheisen → 🔓 Dietrich-Set und �
 🚨 Störsender und 💣 Sprengsatz) stehen in der 🧰 **Ausrüstung** unter der
 Kategorie **Untergrund**.
 
-Der Shop liest seine Artikel aus der **Datenbank**, nicht aus den
-Katalogdateien – Admins sollen Preise ändern und eigene Sachen anlegen können.
-Neue Ausrüstung aus einem Update landete dadurch bisher nicht von allein im
-Laden. Seit [`src/seed.js`](src/seed.js) gleicht der Bot das **beim Start**
-selbst ab: Fehlendes wird angelegt, Vorhandenes nicht angefasst, Gelöschtes
-bleibt gelöscht. Wer nicht neu starten will, kann es von Hand nachziehen:
-
-```bash
-node src/seed-gear.js <deine-server-id>
-```
+Wie alle Shop-Artikel kommen sie über den Katalog-Abgleich in den Laden –
+siehe unten.
 
 ### Die Erfolgschance ist offen einsehbar
 
@@ -1395,6 +1402,46 @@ Zwei weitere bewusste Entscheidungen, ebenfalls getestet:
 
 [`workshop.js`](src/workshop.js) bucht über dieselbe Geldschnittstelle wie
 alles andere und funktioniert damit auf beiden Plattformen gleich.
+
+## Katalog-Abgleich: neue Artikel kommen von allein
+
+Der Shop liest seine Artikel aus der **Datenbank**, nicht aus den
+Katalogdateien – Admins sollen Preise ändern, eigene Sachen anlegen und welche
+löschen können. Neues aus einem Update landete dadurch nicht von allein im
+Laden; bei den Heist-Werkzeugen ist genau das passiert.
+
+[`src/seed.js`](src/seed.js) gleicht deshalb **bei jedem Start** alle drei
+Kataloge ab:
+
+| Katalog | Datei | im Shop unter |
+|--|--|--|
+| 🧰 Ausrüstung | [`data/gear.js`](src/data/gear.js) | Ausrüstung |
+| 🚗 Autos | [`data/catalog.js`](src/data/catalog.js) | Neuwagen / Marken |
+| 🏘️ Immobilien | [`data/properties.js`](src/data/properties.js) | Immobilien |
+
+Die Regeln sind für alle drei gleich:
+
+- **Fehlendes wird angelegt** – ein neues Auto in der Katalogdatei steht nach
+  dem nächsten Neustart im Shop, ohne dass jemand ein Skript aufruft.
+- **Vorhandenes bleibt unangetastet** – von Hand geänderte Preise,
+  Beschreibungen und Bestände überlebt der Abgleich.
+- **Gelöschtes bleibt gelöscht.** `/removeitem` merkt sich den Namen
+  (`catalog_removed`); der Abgleich überspringt ihn. Ohne diese Liste wäre der
+  Neustart stärker als die Entscheidung des Admins.
+
+Bilder kommen weiter aus `data/images.json` bzw. `data/property-images.json`
+(erzeugt von den Skripten in `scripts/`); fehlt ein Eintrag, wird der Artikel
+trotzdem angelegt – nur ohne Foto.
+
+Von Hand geht es weiterhin, wenn man nicht neu starten will:
+
+```bash
+node src/seed-gear.js <server-id>       # oder seed-cars.js / seed-properties.js
+```
+
+Alles, was **keine** Shop-Artikel sind – Jobs, Heist-Ziele, Szenen,
+Fundstücke, Länder, Musik-Genres … – wird direkt aus den Dateien gelesen und
+ist nach einem Neustart ohnehin sofort da.
 
 ## Auktionshaus: warum man überhaupt bietet
 
