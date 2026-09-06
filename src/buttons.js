@@ -1101,6 +1101,33 @@ Object.assign(buttons, {
 
 // ============================================================ Storage Wars
 
+/**
+ * Der Bericht am Ende eines Dings: Ausgang, Chance, Beute oder Strafe.
+ * Steht hier, weil ihn die letzte Szene ausgibt – nicht mehr der Start.
+ */
+function heistReport(res, symbol) {
+  const icon = { clean: '✅', messy: '⚠️', failed: '🚔', disaster: '💥' }[res.outcome];
+  const lines = [
+    `${icon} **${res.location.name}** – _${res.text}_`,
+    `🎲 Chance war ${Math.round(res.odds.chance * 100)} % ` +
+      `(${res.odds.fromCalls >= 0 ? '+' : ''}${Math.round(res.odds.fromCalls * 100)} aus euren ` +
+      'Entscheidungen) · ' +
+      `Vorbereitung ${res.done}/${res.total} · Crew ${res.crew}`,
+  ];
+
+  if (res.success) {
+    lines.push(`💰 Beute: **${money(symbol, res.gross)}** für die Crew.`);
+    lines.push(...res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
+      `**${money(symbol, m.amount)}**`));
+  } else {
+    lines.push(`⚖️ Erwischt. Jeder zahlt und sitzt **${Math.round(res.jailHours)} h**.`);
+    lines.push(...res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
+      `**${money(symbol, m.amount)}**` +
+      (m.lostGear ? ` · 💥 ${m.lostGear} verloren` : '')));
+  }
+  return lines.join('\n');
+}
+
 /** Klartext zu einem abgelehnten Gebot. */
 function bidFailText(res, symbol) {
   switch (res.reason) {
@@ -1524,7 +1551,9 @@ Object.assign(buttons, {
           ? '🚪 Abgeblasen. Die Crew steht wieder auf der Straße – das Geld für die '
             + 'Vorbereitung ist weg.'
           : '🚪 Ausgestiegen. Ohne dich, aber ohne dich auch ohne Risiko.')
-        : 'ℹ️ Du planst gerade nichts.',
+        : (res.reason === 'running'
+          ? '🏃 Zu spät – ihr seid mittendrin. Da steigt keiner mehr aus.'
+          : 'ℹ️ Du planst gerade nichts.'),
       flags: MessageFlags.Ephemeral,
     }).catch(() => {});
   },
@@ -1575,16 +1604,16 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
-    const symbol = await getSymbol(guildId);
 
     const res = await require('./heist').execute(guildId, userId);
-    await interaction.editReply(await buildCrimeView({ guildId, userId }));
+    await interaction.editReply(await buildPlanView({ guildId, userId }));
 
     let note;
     if (!res.ok) {
       const problems = {
         not_planning: 'ℹ️ Du planst gerade nichts.',
         gone: 'ℹ️ Diese Planung gibt es nicht mehr.',
+        running: 'ℹ️ Das Ding läuft doch schon.',
         not_leader: '👑 Nur wer das Ding angefangen hat, gibt das Startsignal.',
       };
       if (res.reason === 'too_few') {
@@ -1597,24 +1626,59 @@ Object.assign(buttons, {
         note = `🚔 Du sitzt noch **${require('./income').formatRemaining(res.remainingMs)}**.`;
       } else note = problems[res.reason] ?? '❌ Das ging nicht.';
     } else {
-      const icon = { clean: '✅', messy: '⚠️', failed: '🚔', disaster: '💥' }[res.outcome];
-      const own = res.members.find((m) => m.userId === String(userId));
-      note = `${icon} **${res.location.name}** – _${res.text}_\n` +
-        `🎲 Chance war ${Math.round(res.odds.chance * 100)} % · ` +
-        `Vorbereitung ${res.done}/${res.total} · Crew ${res.crew}\n`;
-
-      if (res.success) {
-        note += `💰 Beute: **${money(symbol, res.gross)}** für die Crew.\n` +
-          res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
-            `**${money(symbol, m.amount)}**`).join('\n');
-      } else {
-        note += `⚖️ Erwischt. Jeder zahlt und sitzt **${Math.round(res.jailHours)} h**.\n` +
-          res.members.map((m) => `${m.leader ? '👑' : '•'} ${identity.mention(m.userId)}: ` +
-            `**${money(symbol, m.amount)}**` +
-            (m.lostGear ? ` · 💥 ${m.lostGear} verloren` : '')).join('\n');
-      }
+      note = `🚨 **Los geht's.** ${res.run.stages} Szenen, ` +
+        `${res.crew.length === 1 ? 'du entscheidest alles selbst' : 'reihum entscheidet jeder'}.\n` +
+        `Zuerst: ${identity.mention(res.run.turnId)} bei _${res.run.scene.title}_.`;
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /**
+   * Eine Szene entscheiden.
+   *
+   * Die Meldung geht **öffentlich** in den Kanal: Ein Ding ist eine
+   * gemeinsame Sache, und die Crew soll sehen, was der andere gewählt hat.
+   */
+  async hdec(interaction, [optionId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+
+    const res = await require('./heist').decide(guildId, userId, optionId);
+    await interaction.editReply(await buildPlanView({ guildId, userId }));
+
+    if (!res.ok) {
+      const problems = {
+        not_planning: 'ℹ️ Du bist an keinem Ding beteiligt.',
+        not_running: 'ℹ️ Da läuft gerade nichts.',
+        already_decided: '⏱️ Diese Szene hat schon jemand entschieden.',
+        unknown_option: '❌ Diese Möglichkeit gibt es hier nicht.',
+        gone: 'ℹ️ Das Ding gibt es nicht mehr.',
+      };
+      const note = res.reason === 'not_your_turn'
+        ? `⏳ ${identity.mention(res.turnId)} ist dran – in ` +
+          `**${require('./income').formatRemaining(res.takeoverIn)}** darfst du übernehmen.`
+        : (problems[res.reason] ?? '❌ Das ging nicht.');
+      return interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+
+    const head = `${res.scene.emoji} ${identity.mention(res.by)}: **${res.option.label}** ` +
+      `— _${res.option.text}_`;
+
+    if (!res.finished) {
+      const next = res.run;
+      return interaction.followUp({
+        content: `${head}\n\n${next.scene.emoji} **${next.scene.title}** ` +
+          `(${next.stage}/${next.stages}) – ${identity.mention(next.turnId)} ist dran.`,
+        allowedMentions: { users: [] },
+      }).catch(() => {});
+    }
+
+    await interaction.followUp({
+      content: `${head}\n\n${heistReport(res, symbol)}`,
+      allowedMentions: { users: [] },
+    }).catch(() => {});
   },
 
   /** Das Musikstudio. */

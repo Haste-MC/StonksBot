@@ -1487,7 +1487,15 @@ async function buildCrimeView({ guildId, userId }) {
     },
   );
 
-  if (s.heist) {
+  if (s.heist?.run) {
+    const run = s.heist.run;
+    embed.addFields({
+      name: `🚨 Läuft gerade: ${s.heist.location.emoji} ${s.heist.location.name}`,
+      value: `Szene **${run.stage}/${run.stages}** – ${run.scene?.emoji ?? ''} `
+        + `**${run.scene?.title ?? ''}**\n`
+        + (run.yourTurn ? '🫵 **Du bist dran.**' : `⏳ ${identity.mention(run.turnId)} ist dran.`),
+    });
+  } else if (s.heist) {
     const h = s.heist;
     embed.addFields({
       name: `📋 In Planung: ${h.location.emoji} ${h.location.name}`,
@@ -1516,8 +1524,9 @@ async function buildCrimeView({ guildId, userId }) {
       .setLabel('Ziele').setEmoji('🎯')
       .setStyle(ButtonStyle.Primary).setDisabled(Boolean(s.heist) || r.jailedMs > 0),
     new ButtonBuilder().setCustomId(`hplan|${userId}`)
-      .setLabel('Planung').setEmoji('📋')
-      .setStyle(ButtonStyle.Success).setDisabled(!s.heist),
+      .setLabel(s.heist?.run ? 'Zur Szene' : 'Planung').setEmoji(s.heist?.run ? '🚨' : '📋')
+      .setStyle(s.heist?.run ? ButtonStyle.Danger : ButtonStyle.Success)
+      .setDisabled(!s.heist),
     new ButtonBuilder().setCustomId(`hopen|${userId}`)
       .setLabel(`Mitmachen (${s.open.length})`).setEmoji('📢')
       .setStyle(ButtonStyle.Secondary).setDisabled(Boolean(s.heist) || r.jailedMs > 0),
@@ -1575,11 +1584,77 @@ async function buildTargetsView({ guildId, userId, page = 1 }) {
 }
 
 /** Die laufende Planung mit allen Schritten. */
+/**
+ * Das laufende Ding: eine Szene, drei Möglichkeiten, einer entscheidet.
+ *
+ * Wer nicht dran ist, sieht dieselbe Szene – aber ohne Knöpfe. Erst nach der
+ * Wartezeit darf er übernehmen (siehe heist.js).
+ */
+async function buildRunView({ guildId, userId }) {
+  const heist = require('./heist');
+  const symbol = await getSymbol(guildId);
+  const s = heist.status(guildId, userId);
+  const h = s.heist;
+  const run = h?.run;
+  if (!run?.scene) return buildPlanView({ guildId, userId });
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${run.scene.emoji} ${run.scene.title}`)
+    .setColor(0xe67e22)
+    .setDescription(
+      `**${h.location.emoji} ${h.location.name}** · Szene ${run.stage}/${run.stages}\n\n`
+      + `_${run.scene.text}_`);
+
+  // Was bisher entschieden wurde – die Crew soll sehen, worauf sie aufbaut.
+  if (run.calls.length) {
+    embed.addFields({
+      name: '🎬 Bisher',
+      value: run.calls.map((c) => `${c.scene?.emoji ?? '•'} ${identity.mention(c.user_id)}: `
+        + `**${c.option?.label ?? c.option}** `
+        + `_${c.option?.text ?? ''}_`).join('\n').slice(0, 1000),
+    });
+  }
+
+  // Vorzeichen immer mitschreiben: Der Unterschied zwischen +3 und −7 ist
+  // genau die Entscheidung, um die es hier geht.
+  const shift = (v) => {
+    const n = Math.round((v ?? 0) * 100);
+    return `${n > 0 ? '+' : n < 0 ? '−' : '±'}${Math.abs(n)}`;
+  };
+  embed.addFields({
+    name: run.yourTurn ? '🫵 Du bist dran' : `⏳ ${identity.mention(run.turnId)} ist dran`,
+    value: run.yourTurn
+      ? run.scene.options.map((o) => `${o.emoji} **${o.label}** — `
+        + `Chance **${shift(o.odds)}** · Beute **${shift(o.loot)} %**`).join('\n')
+      : (run.takeoverIn > 0
+        ? '_Wenn nichts kommt, darf die Crew in '
+          + `${require('./income').formatRemaining(run.takeoverIn)} übernehmen._`
+        : '_Zu lange nichts gehört – jetzt darf jeder aus der Crew entscheiden._'),
+  });
+
+  const rows = [];
+  if (run.yourTurn) {
+    rows.push(new ActionRowBuilder().addComponents(...run.scene.options.slice(0, 5).map((o) =>
+      new ButtonBuilder().setCustomId(`hdec|${o.id}|${userId}`)
+        .setLabel(o.label.slice(0, 40)).setEmoji(o.emoji)
+        .setStyle(ButtonStyle.Primary))));
+  }
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`hplan|${userId}`)
+      .setLabel('Aktualisieren').setEmoji('🔄').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
 async function buildPlanView({ guildId, userId }) {
   const heist = require('./heist');
   const symbol = await getSymbol(guildId);
   const s = heist.status(guildId, userId);
   if (!s.heist) return buildCrimeView({ guildId, userId });
+
+  // Läuft das Ding schon, gehört die Bühne der Szene.
+  if (s.heist.run) return buildRunView({ guildId, userId });
 
   const h = s.heist;
   const embed = new EmbedBuilder()
@@ -3971,7 +4046,7 @@ module.exports = {
   buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
-  buildCrimeView, buildTargetsView, buildPlanView, buildOpenHeistsView,
+  buildCrimeView, buildTargetsView, buildPlanView, buildRunView, buildOpenHeistsView,
   buildMusicView, buildMusicSetupView, buildPersonaView, buildReleaseView,
   buildMusicDealView,
   buildLanguageView, buildLanguageConfirm,

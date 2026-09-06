@@ -203,4 +203,211 @@ const DISASTER = [
   'Sie hatten den Tipp vor euch. Der Insider war keiner.',
 ];
 
-module.exports = { PREPS, TIERS, LOCATIONS, CLEAN, MESSY, FAILED, DISASTER };
+/**
+ * ===========================================================================
+ *  SZENEN – die Entscheidungen während des Dings
+ * ===========================================================================
+ *
+ * Ein Ding läuft nicht mehr in einem Wurf ab: Zwischen Start und Ausgang
+ * stehen mehrere Szenen, und jede verlangt eine Entscheidung. In der Crew
+ * kommt reihum jeder mindestens einmal dran, allein trifft man alle selbst.
+ *
+ * Jede Option ist ein **Tauschgeschäft**: Sicherheit gegen Beute oder
+ * umgekehrt. Es gibt bewusst keine Option, die einfach nur gut ist – sonst
+ * wäre die Entscheidung keine, sondern eine Fleißaufgabe, und der
+ * Erwartungswert eines unvorbereiteten Dings würde ins Plus kippen
+ * (ARCHITEKTUR §3; nachgerechnet in test/heist.test.js).
+ *
+ *   odds   Aufschlag auf die Erfolgschance (Prozentpunkte als Anteil)
+ *   loot   Aufschlag auf die Beute (Anteil)
+ *   heat   Aufschlag auf die Fahndung (Punkte, optional)
+ */
+const SCENES = [
+  {
+    id: 'alarm',
+    emoji: '🚨',
+    title: 'Die Alarmanlage',
+    text: 'Hinter der Tür blinkt ein Kästchen, das laut Plan gar nicht da sein sollte.',
+    options: [
+      {
+        id: 'kappen', label: 'Kabel kappen', emoji: '✂️', odds: 0.05, loot: -0.12,
+        text: 'Zwei Minuten Fummelei – dafür bleibt es still.',
+      },
+      {
+        id: 'ignorieren', label: 'Ignorieren, Tempo machen', emoji: '🏃', odds: -0.05, loot: 0.22,
+        text: 'Es piept. Ihr rennt trotzdem weiter – und nehmt mehr mit.',
+      },
+      {
+        id: 'umleiten', label: 'Auf den Nachbarn umlenken', emoji: '🔀', odds: 0.02, loot: 0,
+        heat: 3, text: 'Die Streife fährt erst mal nebenan vorbei. Erst mal.',
+      },
+    ],
+  },
+  {
+    id: 'wachmann',
+    emoji: '💤',
+    title: 'Der Wachmann',
+    text: 'Er sitzt im Kabuff und döst. Sein Funkgerät liegt auf dem Tisch.',
+    options: [
+      {
+        id: 'schleichen', label: 'Vorbeischleichen', emoji: '🤫', odds: 0.04, loot: -0.08,
+        text: 'Ihr nehmt den langen Weg. Er schnarcht weiter.',
+      },
+      {
+        id: 'fesseln', label: 'Überwältigen', emoji: '🪢', odds: -0.03, loot: 0.15,
+        heat: 5, text: 'Schnell, leise, unschön. Der Weg ist jetzt frei.',
+      },
+      {
+        id: 'funk', label: 'Nur das Funkgerät klauen', emoji: '📻', odds: 0.02, loot: -0.03,
+        text: 'Wenn er aufwacht, kann er wenigstens niemanden rufen.',
+      },
+    ],
+  },
+  {
+    id: 'tresor',
+    emoji: '🔐',
+    title: 'Der Tresor',
+    text: 'Er ist älter als erwartet – und dicker.',
+    options: [
+      {
+        id: 'bohren', label: 'Aufbohren', emoji: '🛠️', odds: 0.03, loot: -0.05,
+        text: 'Langsam, sauber, laut genug für die halbe Straße. Aber er geht auf.',
+      },
+      {
+        id: 'sprengen', label: 'Sprengen', emoji: '💥', odds: -0.07, loot: 0.3,
+        heat: 6, text: 'Der Knall war zu hören. Was drin lag, aber auch.',
+      },
+      {
+        id: 'liegenlassen', label: 'Liegen lassen', emoji: '🚪', odds: 0.07, loot: -0.25,
+        text: 'Ihr nehmt, was rumliegt, und seid weg, bevor jemand kommt.',
+      },
+    ],
+  },
+  {
+    id: 'zeuge',
+    emoji: '👀',
+    title: 'Der Zeuge',
+    text: 'Jemand steht am Fenster gegenüber. Handy in der Hand.',
+    options: [
+      {
+        id: 'weg', label: 'Sofort abbrechen und raus', emoji: '🏃', odds: 0.08, loot: -0.3,
+        text: 'Ihr seid weg, bevor das Foto scharf ist.',
+      },
+      {
+        id: 'maske', label: 'Maske runterziehen, weitermachen', emoji: '🎭', odds: -0.02, loot: 0.1,
+        heat: 4, text: 'Er hat Stoff gesehen, kein Gesicht. Ihr macht weiter.',
+      },
+      {
+        id: 'ablenken', label: 'Jemand lenkt ihn ab', emoji: '🙋', odds: 0.03, loot: -0.1,
+        text: 'Einer von euch spielt den Betrunkenen. Es funktioniert erstaunlich gut.',
+      },
+    ],
+  },
+  {
+    id: 'streife',
+    emoji: '🚓',
+    title: 'Die Streife',
+    text: 'Blaulicht am Ende der Straße. Noch ohne Sirene.',
+    options: [
+      {
+        id: 'warten', label: 'Abwarten', emoji: '⏳', odds: 0.06, loot: -0.15,
+        text: 'Zehn Minuten Stillstand. Zehn Minuten, die euch fehlen.',
+      },
+      {
+        id: 'durchziehen', label: 'Durchziehen', emoji: '⚡', odds: -0.06, loot: 0.25,
+        text: 'Wer jetzt aufhört, war umsonst hier.',
+      },
+      {
+        id: 'umweg', label: 'Fluchtweg ändern', emoji: '🗺️', odds: 0.03, loot: -0.05,
+        text: 'Der Umweg ist länger, aber leer.',
+      },
+    ],
+  },
+  {
+    id: 'beute',
+    emoji: '💼',
+    title: 'Mehr, als reinpasst',
+    text: 'Da liegt deutlich mehr, als ihr tragen könnt.',
+    options: [
+      {
+        id: 'mitnehmen', label: 'Alles mitnehmen', emoji: '🎒', odds: -0.06, loot: 0.28,
+        text: 'Vollgepackt. Schwer. Langsam.',
+      },
+      {
+        id: 'auswaehlen', label: 'Nur das Beste', emoji: '💎', odds: 0, loot: 0.06,
+        text: 'Ihr nehmt, was klein ist und teuer.',
+      },
+      {
+        id: 'leicht', label: 'Leicht bleiben', emoji: '🪶', odds: 0.06, loot: -0.18,
+        text: 'Beweglich zu sein hat auch einen Wert.',
+      },
+    ],
+  },
+  {
+    id: 'insider',
+    emoji: '📱',
+    title: 'Der Anruf',
+    text: 'Euer Kontakt meldet sich mitten im Ding. Er klingt nervös.',
+    options: [
+      {
+        id: 'zuhoeren', label: 'Zuhören', emoji: '👂', odds: 0.05, loot: -0.1,
+        text: 'Er hatte recht: hinten war eine Kamera mehr.',
+      },
+      {
+        id: 'auflegen', label: 'Auflegen', emoji: '📴', odds: -0.03, loot: 0.12,
+        text: 'Keine Zeit. Vielleicht war es wichtig.',
+      },
+      {
+        id: 'abschalten', label: 'Handys ganz aus', emoji: '🔕', odds: 0.03, loot: -0.02,
+        heat: -4, text: 'Kein Funkmast merkt sich, wer hier war.',
+      },
+    ],
+  },
+  {
+    id: 'tuer',
+    emoji: '🚪',
+    title: 'Die zweite Tür',
+    text: 'Hinter der ersten Tür steht eine zweite. Von der stand nichts im Plan.',
+    options: [
+      {
+        id: 'knacken', label: 'Knacken', emoji: '🔓', odds: 0.02, loot: 0,
+        text: 'Dauert. Geht aber.',
+      },
+      {
+        id: 'ramme', label: 'Mit Anlauf', emoji: '🐏', odds: -0.05, loot: 0.2,
+        heat: 4, text: 'Sie gibt beim dritten Mal nach. Der halbe Block hat es gehört.',
+      },
+      {
+        id: 'lueftung', label: 'Durch die Lüftung', emoji: '🕳️', odds: 0.04, loot: -0.14,
+        text: 'Eng, staubig, unbeobachtet. Nur passt kaum was durch.',
+      },
+    ],
+  },
+  {
+    id: 'flucht',
+    emoji: '🚗',
+    title: 'Der Absprung',
+    text: 'Draußen ist es heller, als es sein sollte.',
+    options: [
+      {
+        id: 'gas', label: 'Vollgas', emoji: '🏎️', odds: -0.04, loot: 0.18,
+        heat: 5, text: 'Zwei rote Ampeln, ein Kreisverkehr, niemand hinterher.',
+      },
+      {
+        id: 'spazieren', label: 'Ruhig weggehen', emoji: '🚶', odds: 0.06, loot: -0.16,
+        text: 'Nichts sieht unauffälliger aus als Langeweile.',
+      },
+      {
+        id: 'aufteilen', label: 'Aufteilen', emoji: '↔️', odds: 0.03, loot: -0.06,
+        text: 'Drei Richtungen, ein Treffpunkt. Klassiker, weil es klappt.',
+      },
+    ],
+  },
+];
+
+const sceneById = new Map(SCENES.map((s) => [s.id, s]));
+const scene = (id) => sceneById.get(String(id ?? '')) ?? null;
+
+module.exports = {
+  PREPS, TIERS, LOCATIONS, CLEAN, MESSY, FAILED, DISASTER, SCENES, scene,
+};

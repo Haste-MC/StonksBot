@@ -62,6 +62,27 @@ function player({ gear = true, withCar = true } = {}) {
 
 const loc = (id) => heist.location(id);
 
+/**
+ * Zieht ein Ding komplett durch: starten und jede Szene entscheiden.
+ *
+ * `choose(scene, stage)` wählt die Option; ohne Angabe die erste. Entschieden
+ * wird immer von dem, der laut Anzeige dran ist – genau wie im Spiel.
+ */
+async function playThrough(leader, at, random = Math.random, choose = null) {
+  const started = await heist.execute(G, leader, at, random);
+  // 'running' heißt: Das Ding läuft schon – dann nur noch zu Ende spielen.
+  if (!started.ok && started.reason !== 'running') return started;
+
+  for (let guard = 0; guard < 20; guard++) {
+    const run = heist.status(G, leader, at).heist?.run;
+    if (!run?.scene) break;
+    const option = choose ? choose(run.scene, run.stage) : run.scene.options[0];
+    const res = await heist.decide(G, run.turnId, option.id, at, random);
+    if (!res.ok || res.finished) return res;
+  }
+  return { ok: false, reason: 'stuck' };
+}
+
 (async () => {
   console.log('--- Die Daten ---');
   {
@@ -219,7 +240,7 @@ const loc = (id) => heist.location(id);
     const t0 = Date.now();
     heist.plan(G, U, 'kiosk', t0);
     cash = 0; bookings = 0;
-    const win = await heist.execute(G, U, t0, () => 0);
+    const win = await playThrough(U, t0, () => 0);
     check('ein Erfolg zahlt aus', win.ok && win.success && win.gross > 0, de(win.gross ?? 0));
     check('genau eine Buchung je Kopf (§9)', bookings === 1, String(bookings));
     const past = db.heistHistory(G, U, 1)[0];
@@ -239,7 +260,7 @@ const loc = (id) => heist.location(id);
     db.addStats(G, R, { xp: level.xpForLevel(20) });
     const faktor = perks.perks(perks.levelOf(G, R)).income;
     heist.plan(G, R, 'kiosk', t0);
-    const reich = await heist.execute(G, R, t0, () => 0);
+    const reich = await playThrough(R, t0, () => 0);
     check('der Zuschlag ist überhaupt spürbar', faktor > 1, String(faktor));
     check('die Beute bekommt den Level-Zuschlag',
       reich.members[0].amount === Math.round(reich.gross * faktor),
@@ -251,7 +272,7 @@ const loc = (id) => heist.location(id);
     const W = player();
     heist.join(G, W, db.crewMembership(G, V).heist_id, t0);
     cash = 0; bookings = 0;
-    const bust = await heist.execute(G, V, t0, () => 0.999);
+    const bust = await playThrough(V, t0, () => 0.999);
     check('ein Fehlschlag kostet', bust.ok && !bust.success && cash < 0, de(cash));
     check('beide zahlen', bust.members.length === 2 && bust.members.every((m) => m.amount < 0));
 
@@ -261,7 +282,7 @@ const loc = (id) => heist.location(id);
     const T = player();
     heist.plan(G, S, 'juwelier', t0);
     heist.join(G, T, db.crewMembership(G, S).heist_id, t0);
-    const strafe = await heist.execute(G, S, t0, () => 0.999);
+    const strafe = await playThrough(S, t0, () => 0.999);
     check('die Strafe wächst nicht mit dem Level',
       strafe.members[0].amount === strafe.members[1].amount,
       strafe.members.map((m) => m.amount).join(' vs '));
@@ -284,6 +305,163 @@ const loc = (id) => heist.location(id);
     check('sie wird nie negativ', heist.heatNow(row, 1 + 400 * 24 * HOUR) >= 0);
     check('und nie größer als das Maximum',
       heist.heatNow({ heat: 999, heat_at: 1 }, 2) <= heist.HEAT_MAX);
+  }
+
+  console.log('\n--- Die Szenen ---');
+  {
+    check('genug Szenen für die größte Crew',
+      heist.SCENES.length >= Math.max(...heist.LOCATIONS.map((l) => l.maxCrew)),
+      String(heist.SCENES.length));
+    check('jede Szene ist vollständig',
+      heist.SCENES.every((sc) => sc.id && sc.emoji && sc.title && sc.text
+        && sc.options.length >= 2));
+    check('keine Szene doppelt',
+      new Set(heist.SCENES.map((sc) => sc.id)).size === heist.SCENES.length);
+    check('keine Option ohne Wirkung',
+      heist.SCENES.every((sc) => sc.options.every((o) => (o.odds ?? 0) || (o.loot ?? 0))));
+    check('jede Option ist ein Tauschgeschäft (keine ist einfach nur gut)',
+      heist.SCENES.every((sc) => sc.options.every((o) =>
+        (o.odds ?? 0) <= 0 || (o.loot ?? 0) <= 0)),
+      heist.SCENES.flatMap((sc) => sc.options
+        .filter((o) => (o.odds ?? 0) > 0 && (o.loot ?? 0) > 0).map((o) => o.id)).join());
+    check('in jeder Szene gibt es den sicheren und den gierigen Weg',
+      heist.SCENES.every((sc) => sc.options.some((o) => (o.odds ?? 0) > 0)
+        && sc.options.some((o) => (o.loot ?? 0) > 0)));
+    check('jede Option hat einen Text', heist.SCENES.every((sc) =>
+      sc.options.every((o) => o.label && o.emoji && o.text)));
+  }
+
+  console.log('\n--- Jeder kommt dran ---');
+  {
+    check('allein sind es die Mindestszenen', heist.stagesFor(1) === heist.MIN_STAGES);
+    check('nie weniger Szenen als Köpfe',
+      [1, 2, 3, 4, 5, 6].every((n) => heist.stagesFor(n) >= n),
+      [1, 2, 3, 4, 5, 6].map((n) => `${n}:${heist.stagesFor(n)}`).join(' '));
+
+    // Die eigentliche Zusage: In einer Crew entscheidet jeder mindestens einmal.
+    for (const size of [1, 2, 3, 4, 5, 6]) {
+      const crew = Array.from({ length: size }, (unused, i) => ({ user_id: `u${i}` }));
+      const stages = heist.stagesFor(size);
+      const turns = new Set();
+      for (let stage = 1; stage <= stages; stage++) {
+        turns.add(heist.turnFor(crew, 'u2', stage));
+      }
+      check(`Crew von ${size}: jeder entscheidet mindestens einmal`,
+        turns.size === size, `${turns.size} von ${size}`);
+    }
+    check('der Anführer fängt an',
+      heist.turnFor([{ user_id: 'a' }, { user_id: 'b' }], 'b', 1) === 'b');
+    check('die Szenen wiederholen sich nicht',
+      new Set(heist.pickScenes(heist.SCENES.length)).size === heist.SCENES.length);
+  }
+
+  console.log('\n--- Der Ablauf zu zweit ---');
+  {
+    const leader = player();
+    const mate = player();
+    const t0 = Date.now();
+    heist.plan(G, leader, 'juwelier', t0);
+    heist.join(G, mate, db.crewMembership(G, leader).heist_id, t0);
+
+    const started = await heist.execute(G, leader, t0, () => 0);
+    check('das Ding startet, ohne schon entschieden zu sein',
+      started.ok && started.run.stage === 1 && !started.outcome, JSON.stringify(started.reason));
+    check('der Anführer ist zuerst dran', started.run.turnId === leader);
+    check('es gibt mindestens so viele Szenen wie Köpfe', started.run.stages >= 2);
+
+    check('währenddessen plant niemand etwas Neues',
+      heist.plan(G, mate, 'kiosk', t0).reason === 'already_planning');
+    check('und niemand steigt aus', heist.leave(G, mate, t0).reason === 'running');
+    check('ein zweites Startsignal läuft ins Leere',
+      (await heist.execute(G, leader, t0, () => 0)).reason === 'running');
+
+    const scene1 = heist.status(G, leader, t0).heist.run.scene;
+    check('wer nicht dran ist, entscheidet nicht',
+      (await heist.decide(G, mate, scene1.options[0].id, t0)).reason === 'not_your_turn');
+    check('und Unsinn wird abgelehnt',
+      (await heist.decide(G, leader, 'gibtsnicht', t0)).reason === 'unknown_option');
+
+    const first = await heist.decide(G, leader, scene1.options[0].id, t0);
+    check('die Entscheidung zählt', first.ok && !first.finished, first.reason ?? '');
+    check('danach ist der Nächste dran', first.run.turnId === mate, first.run.turnId);
+    check('dieselbe Szene nicht zweimal (§7)',
+      (await heist.decide(G, leader, scene1.options[1].id, t0)).reason === 'not_your_turn');
+
+    // Nach der Wartezeit darf die Crew übernehmen – sonst hängt ein Ding an
+    // jemandem, der offline ist.
+    const spaet = t0 + heist.TURN_TIMEOUT_MS + 1;
+    const uebernommen = await heist.decide(
+      G, leader, heist.status(G, leader, spaet).heist.run.scene.options[0].id, spaet);
+    check('nach der Wartezeit springt die Crew ein', uebernommen.ok === true,
+      uebernommen.reason ?? '');
+
+    const rest = await playThrough(leader, spaet, () => 0);
+    check('das Ding kommt zu Ende', rest.ok && rest.finished, rest.reason ?? '');
+    check('die Akte kennt alle Entscheidungen',
+      rest.calls.length === started.run.stages,
+      `${rest.calls.length} von ${started.run.stages}`);
+    check('und weiß, wer sie getroffen hat',
+      rest.calls.every((c) => [leader, mate].includes(c.user_id)));
+  }
+
+  console.log('\n--- Entscheidungen wirken ---');
+  {
+    const safest = (sc) => sc.options.reduce((b, o) => (o.odds > b.odds ? o : b));
+    const greediest = (sc) => sc.options.reduce((b, o) => (o.loot > b.loot ? o : b));
+
+    const A = player();
+    const t0 = Date.now();
+    heist.plan(G, A, 'kiosk', t0);
+    const vorsichtig = await playThrough(A, t0, () => 0, safest);
+
+    const B = player();
+    heist.plan(G, B, 'kiosk', t0);
+    const gierig = await playThrough(B, t0, () => 0, greediest);
+
+    check('der vorsichtige Weg hebt die Chance', vorsichtig.odds.fromCalls > 0,
+      String(vorsichtig.odds.fromCalls));
+    check('der gierige Weg senkt sie', gierig.odds.fromCalls < vorsichtig.odds.fromCalls,
+      `${gierig.odds.fromCalls} vs ${vorsichtig.odds.fromCalls}`);
+    check('dafür bringt er mehr Beute', gierig.gross > vorsichtig.gross,
+      `${de(gierig.gross)} vs ${de(vorsichtig.gross)}`);
+    check('die Chance bleibt gedeckelt', vorsichtig.odds.chance <= heist.MAX_CHANCE);
+  }
+
+  console.log('\n--- Auch mit den besten Entscheidungen bleibt es riskant (§3) ---');
+  {
+    /*
+     * Die neue Gefahr: Wenn die sicherste Wahl die Chance genug hebt, wäre ein
+     * unvorbereitetes Ding plötzlich ein Geschäft. Deshalb hier dieselbe
+     * Erwartungswert-Rechnung wie oben – aber mit dem bestmöglichen Pfad.
+     */
+    const bestBy = (key, count) => [...heist.SCENES]
+      .map((sc) => sc.options.reduce((b, o) => ((o[key] ?? 0) > (b[key] ?? 0) ? o : b)))
+      .sort((a, b) => (b[key] ?? 0) - (a[key] ?? 0))
+      .slice(0, count)
+      .reduce((acc, o) => ({ odds: acc.odds + (o.odds ?? 0), loot: acc.loot + (o.loot ?? 0) }),
+        { odds: 0, loot: 0 });
+
+    const evWith = (l, crew, mod) => {
+      const base = heist.oddsOf({
+        loc: l, done: [], tier: heist.TIERS[l.gearTier], crewSize: crew, heat: 0 });
+      const chance = Math.min(heist.MAX_CHANCE, base.chance + mod.odds);
+      const avg = ((l.loot[0] + l.loot[1]) / 2) * heist.crewFactor(l, crew)
+        * Math.max(0.2, 1 + mod.loot);
+      const share = 1.15 / (1.15 + (crew - 1));
+      const win = avg * share * (0.75 + 0.25 * heist.MESSY_LOOT);
+      const lose = l.fine * (0.6 + 0.4 * 1.5);
+      return chance * win - (1 - chance) * lose;
+    };
+
+    for (const key of ['odds', 'loot']) {
+      const bad = heist.LOCATIONS.filter((l) => {
+        const stages = heist.stagesFor(l.maxCrew);
+        const mod = bestBy(key, stages);
+        return evWith(l, l.minCrew, mod) >= 0 || evWith(l, l.maxCrew, mod) >= 0;
+      });
+      check(`der ${key === 'odds' ? 'sicherste' : 'gierigste'} Pfad rettet kein rohes Ding`,
+        bad.length === 0, bad.map((l) => l.id).join());
+    }
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

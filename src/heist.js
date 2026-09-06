@@ -68,6 +68,28 @@ const LEADER_SHARE = 1.15;
 /** Wahrscheinlichkeit, bei einem Desaster Ausrüstung zu verlieren. */
 const GEAR_LOSS_CHANCE = 0.5;
 
+/**
+ * ===========================================================================
+ *  DER DURCHLAUF
+ * ===========================================================================
+ *
+ * Ein Ding ist kein einzelner Wurf mehr. Zwischen „los" und „raus" stehen
+ * mehrere **Szenen**, und jede verlangt eine Entscheidung: sicher oder gierig
+ * (siehe data/heists.js).
+ *
+ * In der Crew kommt **reihum jeder mindestens einmal** dran – deshalb gibt es
+ * nie weniger Szenen als Köpfe. Wer allein arbeitet, entscheidet alles selbst.
+ *
+ * Damit ein Ding nicht ewig offen steht, wenn jemand nicht mehr antwortet,
+ * darf nach `TURN_TIMEOUT_MS` jeder aus der Crew für ihn übernehmen.
+ */
+
+/** So viele Szenen mindestens – auch allein. */
+const MIN_STAGES = 3;
+
+/** Danach darf die Crew für den Zögernden entscheiden. */
+const TURN_TIMEOUT_MS = Number(process.env.HEIST_TURN_MIN || '5') * 60 * 1000;
+
 const locationById = new Map(data.LOCATIONS.map((l) => [l.id, l]));
 const prepById = new Map(data.PREPS.map((p) => [p.id, p]));
 
@@ -168,6 +190,78 @@ function crewFactor(loc, crewSize) {
   return Math.pow(Math.max(1, crewSize) / Math.max(1, loc.minCrew), 0.8);
 }
 
+// ------------------------------------------------------------- Szenenfolge
+
+/** Wie viele Szenen dieses Ding hat: nie weniger als Köpfe (und nie 0). */
+function stagesFor(crewSize) {
+  return clamp(MIN_STAGES, data.SCENES.length, Math.max(MIN_STAGES, crewSize));
+}
+
+/** Zieht so viele verschiedene Szenen – kein Ding gleicht dem anderen. */
+function pickScenes(count, random = Math.random) {
+  const pool = data.SCENES.map((s) => s.id);
+  const out = [];
+  while (out.length < count && pool.length) {
+    out.push(...pool.splice(Math.floor(random() * pool.length), 1));
+  }
+  return out;
+}
+
+/**
+ * Die Reihenfolge am Tisch: Der Anführer fängt an, danach in der
+ * Beitrittsreihenfolge. `sort` ist stabil, die Crew bleibt also sortiert.
+ */
+function orderOf(crew, leaderId) {
+  return [...crew].sort((a, b) =>
+    Number(String(b.user_id) === String(leaderId))
+    - Number(String(a.user_id) === String(leaderId)));
+}
+
+/** Wer entscheidet die Szene Nummer `stage` (1-basiert)? */
+function turnFor(crew, leaderId, stage) {
+  const order = orderOf(crew, leaderId);
+  if (!order.length) return '';
+  return String(order[(Math.max(1, stage) - 1) % order.length].user_id);
+}
+
+/** Die Szenen dieses Durchlaufs als Objekte. */
+function scenesOf(heist) {
+  return String(heist.scenes ?? '').split(',').filter(Boolean)
+    .map((id) => data.scene(id)).filter(Boolean);
+}
+
+/**
+ * Der Stand des laufenden Dings – alles, was die Ansicht braucht.
+ * @returns {object|null} null, wenn gerade kein Durchlauf läuft
+ */
+function runOf(heist, crew, userId, now = Date.now()) {
+  if (!heist || heist.status !== 'running') return null;
+
+  const scenes = scenesOf(heist);
+  const stage = Math.max(1, heist.stage || 1);
+  const scene = scenes[stage - 1] ?? null;
+  const waited = now - (heist.turn_at || 0);
+  const takeoverIn = Math.max(0, TURN_TIMEOUT_MS - waited);
+
+  return {
+    stage,
+    stages: heist.stages || scenes.length,
+    scene,
+    scenes,
+    turnId: String(heist.turn_id ?? ''),
+    // Dran ist, wer aufgerufen wurde – oder jeder, wenn zu lange nichts kam.
+    yourTurn: String(heist.turn_id ?? '') === String(userId) || takeoverIn === 0,
+    takeoverIn,
+    oddsMod: heist.odds_mod ?? 0,
+    lootMod: heist.loot_mod ?? 0,
+    calls: db.callsOf(heist.id).map((c) => ({
+      ...c,
+      scene: data.scene(c.scene),
+      option: data.scene(c.scene)?.options.find((o) => o.id === c.option) ?? null,
+    })),
+  };
+}
+
 // ------------------------------------------------------------------ Planen
 
 /** Der Zustand eines Spielers im kriminellen Pfad. */
@@ -208,6 +302,8 @@ function status(guildId, userId, now = Date.now()) {
       steps,
       done: done.length,
       total: steps.length,
+      // Läuft das Ding gerade? Dann zählt nur noch die aktuelle Szene.
+      run: runOf(heist, crew, userId, now),
       isLeader: heist.leader_id === String(userId),
       ready: crew.length >= loc.minCrew && tier.tier >= loc.gearTier,
       odds,
@@ -268,6 +364,9 @@ function leave(guildId, userId, now = Date.now()) {
   if (!membership) return { ok: false, reason: 'not_planning' };
   const heist = db.getHeist(guildId, membership.heist_id);
   if (!heist) return { ok: false, reason: 'gone' };
+  // Mitten im Ding steigt niemand aus – sonst wäre der Abbruch die beste
+  // Antwort auf eine schlechte Szene, und das Risiko wäre keins mehr.
+  if (heist.status === 'running') return { ok: false, reason: 'running' };
 
   if (heist.leader_id === String(userId)) {
     db.finishHeist(guildId, heist.id, {
@@ -348,14 +447,19 @@ async function doPrep(guildId, userId, prepId, now = Date.now()) {
 }
 
 /**
- * Das Ding durchziehen. Nur der Anführer, nur einmal – der Statuswechsel
- * geschieht vor jeder Buchung (§7).
+ * Das Ding starten. Nur der Anführer, nur einmal – der Statuswechsel
+ * geschieht vor allem anderen (§7).
+ *
+ * Gewürfelt wird hier noch nichts: Erst laufen die Szenen, und was die Crew
+ * dabei entscheidet, verschiebt Chance und Beute (siehe `decide`).
  */
 async function execute(guildId, userId, now = Date.now(), random = Math.random) {
   const membership = db.crewMembership(guildId, userId);
   if (!membership) return { ok: false, reason: 'not_planning' };
   const heist = db.getHeist(guildId, membership.heist_id);
-  if (!heist || heist.status !== 'planning') return { ok: false, reason: 'gone' };
+  if (!heist) return { ok: false, reason: 'gone' };
+  if (heist.status === 'running') return { ok: false, reason: 'running' };
+  if (heist.status !== 'planning') return { ok: false, reason: 'gone' };
   if (heist.leader_id !== String(userId)) return { ok: false, reason: 'not_leader' };
 
   const loc = location(heist.location);
@@ -376,11 +480,110 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
     };
   }
 
+  // Szenenfolge festlegen und den Ersten aufrufen. Erst schreiben, dann
+  // melden: Ein zweiter Klick findet kein 'planning' mehr vor (§7).
+  const stages = stagesFor(crew.length);
+  const scenes = pickScenes(stages, random);
+  const turnId = turnFor(crew, heist.leader_id, 1);
+
+  if (!db.startRun(guildId, heist.id, {
+    stage: 1, stages, turnId, turnAt: now, scenes,
+  })) return { ok: false, reason: 'gone' };
+
+  const fresh = db.getHeist(guildId, heist.id);
+  return {
+    ok: true, started: true, location: loc, crew,
+    run: runOf(fresh, crew, userId, now),
+  };
+}
+
+/**
+ * Eine Szene entscheiden.
+ *
+ * Dran ist, wer aufgerufen wurde – oder nach `TURN_TIMEOUT_MS` jeder aus der
+ * Crew, damit ein Ding nicht an einem hängt, der offline ist.
+ *
+ * Reihenfolge wie überall (§7): erst die Entscheidung festschreiben (die
+ * Tabelle lässt je Szene genau eine zu), dann weiterrücken. Zwei gleichzeitige
+ * Klicks können deshalb weder doppelt zählen noch zwei Szenen überspringen.
+ */
+async function decide(guildId, userId, optionId, now = Date.now(), random = Math.random) {
+  const membership = db.crewMembership(guildId, userId);
+  if (!membership) return { ok: false, reason: 'not_planning' };
+  const heist = db.getHeist(guildId, membership.heist_id);
+  if (!heist || heist.status !== 'running') return { ok: false, reason: 'not_running' };
+
+  const crew = db.crewOf(heist.id);
+  const run = runOf(heist, crew, userId, now);
+  if (!run?.scene) return { ok: false, reason: 'gone' };
+  if (!run.yourTurn) {
+    return {
+      ok: false, reason: 'not_your_turn',
+      turnId: run.turnId, takeoverIn: run.takeoverIn, run,
+    };
+  }
+
+  const option = run.scene.options.find((o) => o.id === String(optionId));
+  if (!option) return { ok: false, reason: 'unknown_option', run };
+
+  if (!db.addCall({
+    heistId: heist.id, stage: run.stage, guildId, userId,
+    scene: run.scene.id, option: option.id,
+    odds: option.odds ?? 0, loot: option.loot ?? 0, at: now,
+  })) return { ok: false, reason: 'already_decided', run };
+
+  const odds = (heist.odds_mod ?? 0) + (option.odds ?? 0);
+  const loot = (heist.loot_mod ?? 0) + (option.loot ?? 0);
+  const heat = (heist.heat_mod ?? 0) + (option.heat ?? 0);
+  const last = run.stage >= run.stages;
+
+  if (!db.advanceRun(guildId, heist.id, run.stage, {
+    stage: last ? run.stage : run.stage + 1,
+    turnId: last ? '' : turnFor(crew, heist.leader_id, run.stage + 1),
+    turnAt: now,
+    odds, loot, heat,
+  })) return { ok: false, reason: 'gone' };
+
+  const fresh = db.getHeist(guildId, heist.id);
+  if (!last) {
+    return {
+      ok: true, finished: false, scene: run.scene, option,
+      by: String(userId), run: runOf(fresh, crew, userId, now),
+    };
+  }
+
+  /*
+   * `finished` und nicht `done`: Der Ausgang bringt sein eigenes `done` mit –
+   * die Zahl der erledigten Vorbereitungen. Zwei Bedeutungen für dasselbe
+   * Wort haben hier schon einmal dafür gesorgt, dass ein fertiges Ding als
+   * „läuft noch" durchging.
+   */
+  const outcome = await resolve(guildId, fresh, crew, now, random);
+  return { ok: true, scene: run.scene, option, by: String(userId), ...outcome, finished: true };
+}
+
+/**
+ * Der Ausgang: würfeln, aufteilen, buchen.
+ *
+ * Chance und Beute tragen hier die Aufschläge aus den Entscheidungen –
+ * `odds_mod` und `loot_mod` – mit. Der Rest ist unverändert: eine Buchung je
+ * Kopf (§9), Status vor jeder Buchung (§7).
+ */
+async function resolve(guildId, heist, crew, now = Date.now(), random = Math.random) {
+  const loc = location(heist.location);
   const doneIds = new Set(db.prepsOf(heist.id).map((p) => p.prep));
   const done = prepsFor(loc).filter((p) => doneIds.has(p.id));
-  const heat = crew.reduce((sum, m) => sum + heatNow(db.getCriminal(guildId, m.user_id, now), now), 0)
-    / crew.length;
-  const odds = oddsOf({ loc, done, tier, crewSize: crew.length, heat });
+  const tier = crewTier(guildId, crew);
+  const heat = crew.reduce(
+    (sum, m) => sum + heatNow(db.getCriminal(guildId, m.user_id, now), now), 0) / crew.length;
+
+  const base = oddsOf({ loc, done, tier, crewSize: crew.length, heat });
+  const odds = {
+    ...base,
+    fromCalls: heist.odds_mod ?? 0,
+    chance: clamp(MIN_CHANCE, MAX_CHANCE, base.chance + (heist.odds_mod ?? 0)),
+  };
+  const callLoot = Math.max(0.2, 1 + (heist.loot_mod ?? 0));
 
   // --- Der Wurf ---
   const roll = random();
@@ -394,7 +597,7 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
   const spread = loc.loot[1] - loc.loot[0];
   const gross = success
     ? Math.round((loc.loot[0] + random() * spread) * lootFactor(done)
-      * crewFactor(loc, crew.length) * (outcome === 'messy' ? MESSY_LOOT : 1))
+      * crewFactor(loc, crew.length) * callLoot * (outcome === 'messy' ? MESSY_LOOT : 1))
     : 0;
 
   // Zuerst den Status – danach kann niemand dasselbe Ding zweimal ziehen.
@@ -412,7 +615,8 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
     const member = crew[i];
     const row = db.getCriminal(guildId, member.user_id, now);
     const memberHeat = heatNow(row, now);
-    const extraHeat = loc.heat * (outcome === 'disaster' ? 1.5 : outcome === 'messy' ? 1.2 : 1);
+    const extraHeat = loc.heat * (outcome === 'disaster' ? 1.5 : outcome === 'messy' ? 1.2 : 1)
+      + (heist.heat_mod ?? 0);
 
     let amount = 0;
     let jailUntil = 0;
@@ -439,7 +643,7 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
 
     // Der Anteil bleibt an der Crew-Zeile stehen: Sie ist zugleich die
     // Historie. Gelöscht wird sie nicht – `crewMembership` schaut ohnehin nur
-    // auf Planungen, und ohne die Zeile gäbe es keine Akte.
+    // auf laufende Dinger, und ohne die Zeile gäbe es keine Akte.
     db.setShare(heist.id, member.user_id, amount);
     db.saveCriminal(guildId, member.user_id, {
       ...row,
@@ -466,9 +670,15 @@ async function execute(guildId, userId, now = Date.now(), random = Math.random) 
   }
 
   const texts = { clean: data.CLEAN, messy: data.MESSY, failed: data.FAILED, disaster: data.DISASTER };
+  const calls = db.callsOf(heist.id);
   return {
     ok: true, outcome, success, location: loc, crew: crew.length, tier,
     odds, gross, members, done: done.length, total: loc.preps.length,
+    calls: calls.map((c) => ({
+      ...c,
+      scene: data.scene(c.scene),
+      option: data.scene(c.scene)?.options.find((o) => o.id === c.option) ?? null,
+    })),
     text: pick(texts[outcome], random),
     jailHours: success ? 0 : loc.jailHours * (outcome === 'disaster' ? 1.5 : 1),
   };
@@ -480,4 +690,6 @@ module.exports = {
   CREW_BONUS, CREW_BONUS_MAX, MIN_CHANCE, MAX_CHANCE, MESSY_LOOT, LEADER_SHARE,
   location, prep, prepsFor, heatNow, jailedMs, recordOf, tierOf, crewTier,
   oddsOf, lootFactor, crewFactor, status, plan, join, leave, doPrep, execute,
+  MIN_STAGES, TURN_TIMEOUT_MS, SCENES: data.SCENES, scene: data.scene,
+  stagesFor, pickScenes, turnFor, orderOf, scenesOf, runOf, decide, resolve,
 };

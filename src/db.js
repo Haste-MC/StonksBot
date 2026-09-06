@@ -745,6 +745,20 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_heists_open ON heists (guild_id, status);
 
+  -- Die Entscheidungen während des Dings: wer wann was gewählt hat.
+  CREATE TABLE IF NOT EXISTS heist_calls (
+    heist_id INTEGER NOT NULL,
+    stage    INTEGER NOT NULL,
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    scene    TEXT    NOT NULL,
+    option   TEXT    NOT NULL,
+    odds     REAL    NOT NULL DEFAULT 0,
+    loot     REAL    NOT NULL DEFAULT 0,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (heist_id, stage)
+  );
+
   CREATE TABLE IF NOT EXISTS heist_crew (
     heist_id  INTEGER NOT NULL,
     guild_id  TEXT    NOT NULL,
@@ -846,6 +860,34 @@ const statsColumns = new Set(
   db.prepare('PRAGMA table_info(player_stats)').all().map((c) => c.name));
 if (!statsColumns.has('seen_version')) {
   db.exec("ALTER TABLE player_stats ADD COLUMN seen_version TEXT NOT NULL DEFAULT ''");
+}
+
+/*
+ * Der laufende Durchlauf eines Dings (siehe heist.js).
+ *
+ *   stage     welche Szene gerade dran ist (0 = läuft nicht)
+ *   stages    wie viele es insgesamt sind
+ *   turn_id   wer entscheiden muss
+ *   turn_at   seit wann – danach darf die Crew einspringen
+ *   scenes    die ausgewürfelten Szenen dieses Durchlaufs (kommagetrennt)
+ *   odds_mod  aufsummierter Aufschlag auf die Erfolgschance
+ *   loot_mod  aufsummierter Aufschlag auf die Beute
+ */
+const heistColumns = new Set(
+  db.prepare('PRAGMA table_info(heists)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['stage', 'INTEGER NOT NULL DEFAULT 0'],
+  ['stages', 'INTEGER NOT NULL DEFAULT 0'],
+  ['turn_id', "TEXT NOT NULL DEFAULT ''"],
+  ['turn_at', 'INTEGER NOT NULL DEFAULT 0'],
+  ['scenes', "TEXT NOT NULL DEFAULT ''"],
+  ['odds_mod', 'REAL NOT NULL DEFAULT 0'],
+  ['loot_mod', 'REAL NOT NULL DEFAULT 0'],
+  ['heat_mod', 'REAL NOT NULL DEFAULT 0'],
+]) {
+  if (!heistColumns.has(column)) {
+    db.exec(`ALTER TABLE heists ADD COLUMN ${column} ${definition}`);
+  }
 }
 
 // Selbst gewählter Titel: '' = automatisch (häufigste Aktivität),
@@ -1538,12 +1580,15 @@ const stmt = {
   openHeists: db.prepare(
     `SELECT * FROM heists WHERE guild_id = ? AND status = 'planning'
      ORDER BY created_at ASC LIMIT ?`),
+  // Abgeschlossen wird aus der Planung heraus (Abbruch) oder am Ende des
+  // Durchlaufs. Beides genau einmal – die Bedingung ist der Doppelklickschutz.
   finishHeist: db.prepare(
-    `UPDATE heists SET status = ?, outcome = ?, loot = ?, chance = ?, executed_at = ?
-     WHERE guild_id = ? AND id = ? AND status = 'planning'`),
+    `UPDATE heists SET status = ?, outcome = ?, loot = ?, chance = ?, executed_at = ?,
+       turn_id = '', stage = 0
+     WHERE guild_id = ? AND id = ? AND status IN ('planning', 'running')`),
   heistHistory: db.prepare(
     `SELECT h.* FROM heists h JOIN heist_crew c ON c.heist_id = h.id
-     WHERE h.guild_id = ? AND c.user_id = ? AND h.status <> 'planning'
+     WHERE h.guild_id = ? AND c.user_id = ? AND h.status NOT IN ('planning', 'running')
      ORDER BY h.id DESC LIMIT ?`),
 
   addCrew: db.prepare(
@@ -1551,11 +1596,30 @@ const stmt = {
      ON CONFLICT (heist_id, user_id) DO NOTHING`),
   removeCrew: db.prepare('DELETE FROM heist_crew WHERE heist_id = ? AND user_id = ?'),
   crewOf: db.prepare('SELECT * FROM heist_crew WHERE heist_id = ? ORDER BY joined_at ASC'),
+  // Auch während des Durchlaufs ('running'): Wer mitten im Ding steckt, darf
+  // weder ein zweites planen noch aussteigen – und muss seine Szene finden.
   crewMembership: db.prepare(
-    `SELECT c.* FROM heist_crew c JOIN heists h ON h.id = c.heist_id
-     WHERE c.guild_id = ? AND c.user_id = ? AND h.status = 'planning' LIMIT 1`),
+    `SELECT c.*, h.status FROM heist_crew c JOIN heists h ON h.id = c.heist_id
+     WHERE c.guild_id = ? AND c.user_id = ? AND h.status IN ('planning', 'running')
+     LIMIT 1`),
   setShare: db.prepare(
     'UPDATE heist_crew SET share = ? WHERE heist_id = ? AND user_id = ?'),
+
+  // --- Der laufende Durchlauf ---
+  startRun: db.prepare(
+    `UPDATE heists SET status = 'running', stage = ?, stages = ?, turn_id = ?,
+       turn_at = ?, scenes = ?, odds_mod = 0, loot_mod = 0, heat_mod = 0
+     WHERE guild_id = ? AND id = ? AND status = 'planning'`),
+  advanceRun: db.prepare(
+    `UPDATE heists SET stage = ?, turn_id = ?, turn_at = ?,
+       odds_mod = ?, loot_mod = ?, heat_mod = ?
+     WHERE guild_id = ? AND id = ? AND status = 'running' AND stage = ?`),
+  addCall: db.prepare(
+    `INSERT INTO heist_calls (heist_id, stage, guild_id, user_id, scene, option, odds, loot, at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (heist_id, stage) DO NOTHING`),
+  callsOf: db.prepare(
+    'SELECT * FROM heist_calls WHERE heist_id = ? ORDER BY stage'),
 
   addPrep: db.prepare(
     `INSERT INTO heist_preps (heist_id, prep, user_id, done_at) VALUES (?, ?, ?, ?)
@@ -2836,6 +2900,39 @@ function setShare(heistId, userId, share) {
   stmt.setShare.run(Math.round(share), Number(heistId), String(userId));
 }
 
+/**
+ * Startet den Durchlauf. false, wenn das Ding nicht mehr in Planung war –
+ * damit zwei Klicks nicht zwei Durchläufe starten (§7).
+ */
+function startRun(guildId, id, { stage, stages, turnId, turnAt, scenes }) {
+  return stmt.startRun.run(
+    Math.round(stage), Math.round(stages), String(turnId), turnAt,
+    Array.isArray(scenes) ? scenes.join(',') : String(scenes ?? ''),
+    guildId, Number(id)).changes > 0;
+}
+
+/**
+ * Rückt eine Szene weiter. `fromStage` ist die Szene, die gerade entschieden
+ * wurde: Nur wer sie noch vorfindet, darf weiterrücken (§7).
+ */
+function advanceRun(guildId, id, fromStage, { stage, turnId, turnAt, odds, loot, heat }) {
+  return stmt.advanceRun.run(
+    Math.round(stage), String(turnId), turnAt, odds, loot, heat,
+    guildId, Number(id), Math.round(fromStage)).changes > 0;
+}
+
+/** Hält eine Entscheidung fest. false, wenn diese Szene schon entschieden war. */
+function addCall({ heistId, stage, guildId, userId, scene, option, odds, loot, at }) {
+  return stmt.addCall.run(
+    Number(heistId), Math.round(stage), guildId, String(userId),
+    scene, option, odds, loot, at).changes > 0;
+}
+
+/** Alle Entscheidungen eines Dings, in der Reihenfolge der Szenen. */
+function callsOf(heistId) {
+  return stmt.callsOf.all(Number(heistId));
+}
+
 function addPrep(heistId, prep, userId, at) {
   return stmt.addPrep.run(Number(heistId), prep, String(userId), at).changes > 0;
 }
@@ -3400,6 +3497,7 @@ module.exports = {
   getLink, setLink, deleteLink, linksOf,
   insertHeist, getHeist, openHeists, finishHeist, heistHistory,
   addCrew, removeCrew, crewOf, crewMembership, setShare, addPrep, prepsOf,
+  startRun, advanceRun, addCall, callsOf,
   getCriminal, saveCriminal, topCriminals, clearCrime,
   getArtist, hasArtist, saveArtist, topArtists, clearArtist,
   insertContract, getContract, openContract, activeContract, setContractStatus,

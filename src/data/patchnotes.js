@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.22.0',
+    date: '2026-09-06',
+    title: 'Heists: Entscheidungen mittendrin',
+    lines: [
+      '🎬 **Ein Ding läuft jetzt in Szenen ab.** Alarmanlage, Wachmann, Tresor, Zeuge, Streife … Jede Szene verlangt eine Entscheidung, und jede Option ist ein Tauschgeschäft: Sicherheit gegen Beute.',
+      '👥 **In der Crew kommt reihum jeder mindestens einmal dran** – es gibt nie weniger Szenen als Köpfe. Allein entscheidet man alles selbst.',
+      '⏳ **Niemand blockiert das Ding:** Antwortet jemand fünf Minuten nicht, darf die Crew für ihn entscheiden. Aussteigen geht mittendrin nicht mehr.',
+      '📊 **Am Ende steht, was eure Entscheidungen gebracht haben** – als eigener Posten in der Erfolgschance.',
+      '⚖️ **Und trotzdem kein Freifahrtschein:** Auch wer immer die sicherste Option nimmt, macht aus einem unvorbereiteten Ding kein Geschäft. Nachgerechnet für jedes Ziel.',
+    ],
+  },
+  {
     version: '1.21.0',
     date: '2026-09-06',
     title: 'Applaus fürs Treppchen',

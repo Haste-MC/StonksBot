@@ -542,6 +542,43 @@ Strafe. Mehr Leute heißt sichereres Ding und mehr Beute – aber weniger je Kop
 (die Beute wächst unterlinear mit der Crew). Der Anführer bekommt 15 % Aufschlag
 und als Einziger den Startknopf.
 
+### Der Durchlauf: Entscheidungen mittendrin
+
+Ein Ding ist kein einzelner Wurf mehr. Zwischen „los" und „raus" stehen mehrere
+**Szenen**, und jede verlangt eine Entscheidung:
+
+```
+🔐 Der Tresor
+💎 Juwelier · Szene 1/3
+
+Er ist älter als erwartet – und dicker.
+
+🫵 Du bist dran
+🛠️ Aufbohren     — Chance +3 · Beute −5 %
+💥 Sprengen      — Chance −7 · Beute +30 %
+🚪 Liegen lassen — Chance +7 · Beute −25 %
+```
+
+Neun Szenen, aus denen je Durchlauf verschiedene gezogen werden – Alarmanlage,
+Wachmann, Tresor, Zeuge, Streife, zu viel Beute, der Anruf des Insiders, die
+zweite Tür, der Absprung. Jede Option ist ein **Tauschgeschäft**: Sicherheit
+gegen Beute oder umgekehrt. Keine ist einfach nur gut, und der Test liest die
+Daten und prüft genau das.
+
+**In der Crew kommt reihum jeder mindestens einmal dran** – deshalb gibt es nie
+weniger Szenen als Köpfe (mindestens drei). Der Anführer fängt an, danach geht
+es in der Beitrittsreihenfolge weiter. Wer allein arbeitet, entscheidet alles
+selbst.
+
+Während der Durchlauf läuft, steigt niemand aus und niemand plant etwas Neues –
+sonst wäre der Abbruch die beste Antwort auf eine schlechte Szene. Antwortet
+jemand nicht, darf nach **5 Minuten** (`HEIST_TURN_MIN`) jeder aus der Crew für
+ihn entscheiden; ein Ding hängt also nie an einem, der offline gegangen ist.
+
+Am Ende zählt die Summe: Die Aufschläge aus allen Entscheidungen landen in der
+Erfolgschance und im Beutefaktor, und der Bericht weist sie getrennt aus
+(„Chance war 61 % (+11 aus euren Entscheidungen)").
+
 ### Wenn es schiefgeht
 
 Vier Ausgänge: **sauber** (volle Beute), **mit Komplikationen** (60 % davon,
@@ -570,6 +607,12 @@ Ausrüstung investiert, dreht es ins Plus:
 
 _(Erwartungswert je Versuch aus Sicht des Anführers, nach Abzug der
 Vorbereitungskosten.)_
+
+Daran ändern auch die Entscheidungen nichts: Der Test rechnet zusätzlich den
+**bestmöglichen Pfad** durch – einmal immer die sicherste Option, einmal immer
+die gierigste – und verlangt, dass ein rohes Ding auch dann ein
+Verlustgeschäft bleibt. Sonst wäre „immer sicher klicken" der Ersatz für
+Vorbereitung geworden.
 
 [`test/heist.test.js`](test/heist.test.js) rechnet beide Spalten für **jedes**
 Ziel nach: roh muss negativ sein, vorbereitet positiv. Dazu die Deckel:
