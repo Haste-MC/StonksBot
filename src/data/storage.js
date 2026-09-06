@@ -25,6 +25,18 @@ const { weighted, pick, between } = require('./npc');
  * hat man sie in JEDER Garage. Jetzt sind die teuren Stücke entsprechend
  * seltener, und der Preis folgt dem, was üblicherweise drin liegt.
  */
+/*
+ * `jackpot: true` heißt: Das Stück ist **findbar, aber nicht eingepreist**.
+ *
+ * Dieselbe Idee wie bei den obersten Seltenheitsstufen (UNPRICED_FROM in
+ * storage.js): Ein Goldbarren, den man einmal in tausend Funden zieht, würde
+ * über den Erwartungswert den Startpreis JEDER Garage anheben – man bezahlt
+ * dann in jeder Auktion eine Lotterie mit, die praktisch nie aufgeht. Genau
+ * daran ist die erste Fassung des Auktionshauses gescheitert.
+ *
+ * Deshalb zählen diese Stücke voll zum Inhalt, aber nicht zum Preis:
+ * geschenkter Ausreißer statt Dauerabgabe.
+ */
 const OBJECTS = [
   { name: 'Kiste altes Werkzeug', weight: 10, range: [50, 300] },
   { name: 'Stapel alte Schallplatten', weight: 10, range: [80, 400] },
@@ -33,13 +45,54 @@ const OBJECTS = [
   { name: 'Antike Vase', weight: 6, range: [150, 800] },
   { name: 'Gerahmtes Gemälde', weight: 5, range: [200, 900] },
   { name: 'Vergessene Münzsammlung', weight: 7, range: [120, 700] },
-  { name: 'AWP - Dragonlore', weight: 0.5, range: [2750, 7560] },
+  { name: 'AWP - Dragonlore', weight: 2, range: [2750, 7560], jackpot: true },
   { name: 'Simons Schrotflinte', weight: 2, range: [400, 2450] },
   { name: 'Miros Pokemon Karten', weight: 8, range: [50, 500] },
   { name: '1 von Gabriels 300 Controllern', weight: 10, range: [20, 300] },
   { name: 'Ente mit Talenten', weight: 5, range: [50, 1000] },
   { name: 'Haste MCs Motorradteile', weight: 8, range: [20, 700] },
   { name: 'Toaster', weight: 10, range: [5, 400] },
+  { name: 'Rolex', weight: 1, range: [15000, 60000], jackpot: true },
+
+  // --- Zocker-Nachlass ---
+  { name: 'Game Boy mit Tetris-Modul', weight: 7, range: [80, 500] },
+  { name: 'Kiste PS2-Spiele', weight: 9, range: [40, 350] },
+  { name: 'N64 mit Ocarina of Time', weight: 2, range: [400, 2200] },
+  { name: 'Gaming-Stuhl (durchgesessen)', weight: 9, range: [30, 350] },
+  { name: 'Arcade-Automat, läuft fast', weight: 1.5, range: [800, 3500] },
+  { name: 'Tastatur ohne W, A, S und D', weight: 9, range: [5, 90] },
+  { name: 'Karton voller Steam-Keys', weight: 6, range: [30, 600] },
+  { name: 'Grafikkarte aus der Mining-Zeit', weight: 4, range: [150, 1200] },
+  { name: 'Versiegeltes Super Mario 64', weight: 0.06, range: [30000, 120000], jackpot: true },
+
+  // --- Regal Anime ---
+  { name: 'Umzugskarton voller Manga', weight: 8, range: [80, 700] },
+  { name: 'Figurensammlung, halb ausgepackt', weight: 6, range: [100, 900] },
+  { name: 'Limitiertes Figma, noch in Folie', weight: 2, range: [300, 1800] },
+  { name: 'Signiertes Anime-Cel', weight: 1, range: [900, 4500] },
+  { name: 'Stapel Waifu-Kissenbezüge', weight: 5, range: [15, 220] },
+  { name: 'Cosplay-Rüstung aus Pappe', weight: 6, range: [20, 300] },
+  { name: '1st-Edition-Glurak im Slab', weight: 0.12, range: [12000, 55000], jackpot: true },
+
+  // --- Dinge, bei denen der Auktionator kurz still wird ---
+  { name: 'Antikes Samuraischwert', weight: 0.5, range: [3000, 14000], jackpot: true },
+  { name: 'Erstausgabe-Comic in Schutzhülle', weight: 0.3, range: [4000, 20000], jackpot: true },
+  { name: 'Goldbarren unter dem Fußboden', weight: 0.08, range: [25000, 90000], jackpot: true },
+  { name: 'Zettel mit einem Seed-Phrase-Backup', weight: 0.04, range: [40000, 160000], jackpot: true },
+
+  // --- Ganz normaler Hausrat ---
+  { name: 'Karton IKEA-Schrauben', weight: 10, range: [5, 90] },
+  { name: 'Heimtrainer, kaum benutzt', weight: 9, range: [30, 400] },
+  { name: 'Aquarium ohne Wasser', weight: 7, range: [20, 250] },
+  { name: 'Rasenmäher ohne Motor', weight: 8, range: [10, 200] },
+  { name: 'Palette abgelaufener Energydrinks', weight: 9, range: [5, 80] },
+  { name: 'Zwölf identische Regenschirme', weight: 8, range: [15, 180] },
+  { name: 'Kaffeevollautomat mit Kalk', weight: 7, range: [80, 700] },
+  { name: 'Nähmaschine von Oma', weight: 7, range: [60, 450] },
+  { name: 'Plattenspieler mit heiler Nadel', weight: 6, range: [120, 800] },
+  { name: 'Kiste Modelleisenbahn', weight: 5, range: [200, 1500] },
+  { name: 'Eichenschrankwand, zerlegt', weight: 6, range: [80, 700] },
+  { name: 'Umzugskisten voller Schulhefte', weight: 9, range: [1, 40] },
 ];
 
 /**

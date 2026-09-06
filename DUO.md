@@ -1490,6 +1490,43 @@ gar nicht offen waren, werden neu aufgerufen (`reprice`). Das gerade laufende
 Los und alles, worauf schon geboten wurde, bleibt unangetastet – auf einen
 Preis, zu dem jemand geboten hat, muss man sich verlassen können.
 
+### Was in den Garagen liegt
+
+47 Fundstücke, grob in vier Ecken: **Zocker-Nachlass** (Game Boy, PS2-Kiste,
+Arcade-Automat, Tastatur ohne WASD), **Anime-Regal** (Manga-Karton, Figma in
+Folie, signiertes Cel, Stapel Waifu-Kissenbezüge), **ganz normaler Hausrat**
+(Kaffeevollautomat, Rasenmäher ohne Motor, zwölf identische Regenschirme) –
+und ein paar Stücke, bei denen der Auktionator kurz still wird.
+
+`weight` ist dabei die **relative Häufigkeit**: Die Ziehungschance eines
+Stücks ist sein Gewicht geteilt durch die Summe aller Gewichte. Bei rund 5
+Objekten je Garage heißt das:
+
+| Gewicht | Chance je Objekt | ungefähr |
+|--:|--:|--|
+| 10 | 3,8 % | in jeder 5. Garage |
+| 5 | 1,9 % | in jeder 11. Garage |
+| 1 | 0,4 % | in jeder 53. Garage |
+| 0,1 | 0,04 % | in jeder 525. Garage |
+
+### Jackpot-Stücke: findbar, aber nicht eingepreist
+
+Acht Stücke tragen `jackpot: true` – Rolex, Goldbarren, versiegeltes Super
+Mario 64, 1st-Edition-Glurak, Seed-Phrase-Zettel und Co. Sie zählen **voll zum
+Inhalt**, aber **nicht zum Startpreis**.
+
+Der Grund ist derselbe wie bei den obersten Seltenheitsstufen: Ein Goldbarren
+aus 1 von 650 Garagen würde über den Erwartungswert den Preis **jeder** Garage
+anheben – man bezahlt dann überall eine Lotterie mit, die praktisch nie
+aufgeht. Genau daran ist die erste Fassung gescheitert.
+
+Ohne diese Trennung hätte allein das Hinzufügen der neuen Teuerstücke den
+Median von 1,68 auf 1,38 gedrückt und die Nieten von 9 % auf 24 % hochgezogen –
+die Auktion wäre wieder da gewesen, wo sie vorher war. So bleibt es bei
+**Median 1,7 ×** und rund **10 % Nieten**, und der Jackpot ist ein Geschenk
+statt einer Dauerabgabe. 28 % des Objektwerts liegen dadurch außerhalb des
+Preises.
+
 ### Die Schätzung des Auktionators
 
 Bieten ohne Anhaltspunkt ist Raten. Jede Garage bringt deshalb eine

@@ -186,6 +186,28 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
     Math.max(...shares) <= 0.20,
     data.OBJECTS[shares.indexOf(Math.max(...shares))].name + ' ' + (100 * Math.max(...shares)).toFixed(1) + ' %');
 
+  console.log('--- Jackpot-Stücke sind findbar, aber nicht eingepreist ---');
+  {
+    const jackpots = data.OBJECTS.filter((o) => o.jackpot);
+    check('es gibt welche', jackpots.length > 0, String(jackpots.length));
+    check('sie sind die teuersten im Katalog',
+      Math.min(...jackpots.map((o) => o.range[0]))
+      > Math.max(...data.OBJECTS.filter((o) => !o.jackpot).map((o) => o.range[1])) / 2);
+    check('sie drücken den Preis nicht in jede Garage',
+      storage.pricedObjectMean() < storage.objectMean(),
+      `${storage.pricedObjectMean().toFixed(0)} vs ${storage.objectMean().toFixed(0)}`);
+    console.log(`    ${(100 * storage.unpricedObjectShare()).toFixed(0)} % des Objektwerts `
+      + 'sind geschenkter Ausreißer statt Dauerabgabe.');
+
+    // Findbar müssen sie trotzdem sein – sonst wäre es nur eine schöne Liste.
+    const rngJ = mulberry32(31337);
+    const seen = new Set();
+    for (let i = 0; i < 200000; i++) seen.add(storage.rollObject(rngJ).name);
+    check('trotzdem taucht jedes Stück irgendwann auf',
+      data.OBJECTS.every((o) => seen.has(o.name)),
+      data.OBJECTS.filter((o) => !seen.has(o.name)).map((o) => o.name).join());
+  }
+
   console.log('--- In jeder Garage liegt Bargeld ---');
   const rngCash = mulberry32(13579);
   let withoutCash = 0;

@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.25.0',
+    date: '2026-09-06',
+    title: 'Neues Zeug in den Garagen',
+    lines: [
+      '📦 **32 neue Fundstücke** – vom Game Boy mit Tetris-Modul über den Manga-Karton und den Arcade-Automaten bis zur Tastatur ohne W, A, S und D.',
+      '💎 **Und ein paar, bei denen der Auktionator kurz still wird:** versiegeltes Super Mario 64, 1st-Edition-Glurak im Slab, Goldbarren unter dem Fußboden, ein Zettel mit einem Seed-Phrase-Backup.',
+      '🎁 **Die dicken Stücke kosten dich nichts extra:** Sie zählen voll zum Inhalt, aber nicht zum Startpreis – du bezahlst nicht in jeder Garage eine Lotterie mit.',
+      '🎰 Die Auktion bleibt damit, wie sie war: Die typische Garage ist rund das 1,7-Fache ihres Aufrufpreises wert, jede zehnte ist eine Niete.',
+    ],
+  },
+  {
     version: '1.24.0',
     date: '2026-09-06',
     title: 'Überfälle wie drüben',

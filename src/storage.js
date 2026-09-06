@@ -130,6 +130,25 @@ function objectMean() {
     (s, o) => s + (o.weight ?? 1) * (o.range[0] + o.range[1]) / 2, 0) / total;
 }
 
+/**
+ * Derselbe Mittelwert für die **Preisbildung** – ohne die Stücke, die als
+ * `jackpot` markiert sind.
+ *
+ * Ihr Gewicht bleibt im Nenner (sie werden ja gezogen), ihr Wert fällt aus dem
+ * Zähler. Ein Goldbarren aus 1 von 3000 Funden hebt damit nicht mehr den
+ * Startpreis jeder Garage; er ist der Ausreißer, für den niemand vorher zahlt.
+ */
+function pricedObjectMean() {
+  const total = data.OBJECTS.reduce((s, o) => s + (o.weight ?? 1), 0);
+  return data.OBJECTS.reduce(
+    (s, o) => s + (o.jackpot ? 0 : (o.weight ?? 1) * (o.range[0] + o.range[1]) / 2), 0) / total;
+}
+
+/** Anteil des Objektwerts, der über `jackpot` bewusst nicht eingepreist ist. */
+function unpricedObjectShare() {
+  return 1 - pricedObjectMean() / objectMean();
+}
+
 /** Gewichteter Erwartungswert eines Multiplikators über eine Stufenliste. */
 function expectedMultiplier(list) {
   const total = list.reduce((s, e) => s + e.weight, 0);
@@ -160,7 +179,7 @@ function unpricedShare() {
 
 /** Erwarteter Wert EINES Objekts – die Grundlage des Startpreises. */
 function expectedObjectValue() {
-  return objectMean() * pricedRarityMultiplier() * expectedConditionMultiplier();
+  return pricedObjectMean() * pricedRarityMultiplier() * expectedConditionMultiplier();
 }
 
 /** Der **volle** Erwartungswert eines Objekts, Jackpot-Tail eingerechnet. */
@@ -606,7 +625,8 @@ module.exports = {
   FOUND_CAR_CONDITION, CAR_PRICE_CAP, MIN,
   UNPRICED_FROM,
   rollEstimate, appraisal,
-  objectMean, expectedMultiplier, expectedRarityMultiplier, expectedConditionMultiplier,
+  objectMean, pricedObjectMean, unpricedObjectShare,
+  expectedMultiplier, expectedRarityMultiplier, expectedConditionMultiplier,
   pricedRarityMultiplier, unpricedShare, cashRange, expectedCash,
   expectedObjectValue, expectedObjectValueFull, expectedValueFull,
   eligibleCars, avgCarValue, expectedValue, startPrice,
