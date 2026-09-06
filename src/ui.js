@@ -3711,16 +3711,28 @@ async function buildAuctionView({ guildId, userId }) {
   const rows = [];
   if (live) {
     const bid = live.top_bid > 0 ? live.top_bid : null;
+    const guess = storage.appraisal(live);
     embed.setDescription(
       `**Garage #${live.seq + 1}** — _${TIER_LABEL(live.tier)}_\n` +
       `Angeboten von ${live.seller}.\n\n` +
       (live.hint ? `🕵️ _${live.hint}_\n` : '') +
       (live.peek ? `👀 ${live.peek}\n` : '') +
-      `\n⏳ Noch **${timeLeft(live.ends_at - now)}** zum Bieten.`);
+      `\n⏳ Noch **${timeLeft(live.ends_at - now)}** zum Bieten.` +
+      (live.extended > 0 ? ' _(verlängert)_' : ''));
     embed.addFields(
       { name: bid ? 'Höchstgebot' : 'Startpreis', value: money(symbol, bid ?? live.start_price), inline: true },
       { name: 'Mindestgebot', value: money(symbol, storage.minBid(live)), inline: true },
     );
+    if (guess) {
+      // Die Schätzung ist der Grund, überhaupt zu bieten – und sie ist
+      // absichtlich ungenau (siehe storage.js).
+      embed.addFields({
+        name: '🔍 Schätzung des Auktionators',
+        value: `${money(symbol, guess.low)} – ${money(symbol, guess.high)}\n`
+          + '_Auf den ersten Blick geschätzt. Er kann sich irren._',
+        inline: true,
+      });
+    }
     if (bid) {
       embed.addFields({
         name: 'Höchstbietender', value: identity.mention(live.top_bidder), inline: true,
@@ -3748,12 +3760,11 @@ async function buildAuctionView({ guildId, userId }) {
     });
   }
 
-  // Erwartung geradebiegen: Der Startpreis liegt bewusst über dem, was
-  // üblicherweise drin liegt. Wer das weiß, fühlt sich vom Ergebnis nicht
-  // betrogen – und weiß, dass der Gewinn in den seltenen Funden steckt.
+  // Erwartung geradebiegen – jetzt in die andere Richtung: Der Startpreis
+  // liegt unter dem üblichen Inhalt, das Risiko liegt im Hochbieten.
   embed.setFooter({
-    text: `Runde mit ${round.size} Garagen · Die meisten liegen knapp unter dem Startpreis — ` +
-      'der Gewinn steckt in den seltenen Funden',
+    text: `Runde mit ${round.size} Garagen · Der Aufruf liegt unter dem üblichen Inhalt — `
+      + 'wer zu weit hochgeht, zahlt trotzdem drauf',
   });
   rows.push(bottomRow());
 

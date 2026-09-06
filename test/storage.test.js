@@ -1,9 +1,19 @@
 /**
  * Tests für das Storage-Wars-Minigame.
  *
- * Schwerpunkt: KEIN GELDDRUCKER (Monte-Carlo) – der Erwartungswert des Inhalts
- * liegt unter dem Startpreis. Dazu Sequenz, Bieten (atomar), faule Abrechnung
- * (idempotent) und die Sammlung.
+ * Schwerpunkt: das Auktionshaus ist eine **bewusste Ausnahme von §3** – hier
+ * fließt Geld ins Spiel. Geprüft wird deshalb nicht, dass es keinen Zufluss
+ * gibt, sondern dass er die Form hat, die das Feature braucht:
+ *
+ *  1. **Bieten lohnt sich.** Die typische Garage ist deutlich mehr wert als
+ *     ihr Startpreis – sonst gäbe es keinen Grund, sich hochzubieten.
+ *  2. **Es gibt eine Spanne**, in der Hochbieten sich noch rechnet – und ein
+ *     Ende, ab dem nicht mehr (der Fluch des Gewinners).
+ *  3. **Der Zufluss ist über den Durchsatz gedeckelt**, nicht über den Preis:
+ *     immer nur ein Los, 20 Minuten, serverweit.
+ *
+ * Dazu Sequenz, Bieten (atomar), Anti-Snipe, faule Abrechnung (idempotent)
+ * und die Sammlung.
  *
  * Aufruf: npm run test:storage
  */
@@ -71,11 +81,11 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
 }
 
 (async () => {
-  console.log('--- KEIN GELDDRUCKER: Startpreis ≥ E[Inhalt] (analytisch) ---');
-  // Der eigentliche Beweis ist analytisch: bei Heavy-Tail-Verteilungen ist der
-  // empirische Mittelwert zu wackelig. Wir zeigen, dass der Erwartungswert die
-  // Seltenheits- UND Zustands-Multiplikatoren korrekt enthält und der Startpreis
-  // darüber liegt (Hausvorteil).
+  console.log('--- Preisbildung: Startpreis unter dem Erwartungswert (analytisch) ---');
+  // Analytisch statt empirisch: Bei Heavy-Tail-Verteilungen ist der gemessene
+  // Mittelwert zu wackelig. Gezeigt wird, dass der Erwartungswert die
+  // Seltenheits- UND Zustands-Multiplikatoren korrekt enthält – und dass der
+  // Startpreis bewusst darunter liegt.
   const totR = data.RARITIES.reduce((s, r) => s + r.weight, 0);
   const handRar = data.RARITIES.reduce((s, r) => s + (r.weight / totR) * r.mult, 0);
   const totC = data.CONDITIONS.reduce((s, c) => s + c.weight, 0);
@@ -85,26 +95,23 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   check('E[Objekt] (voll) = Basis × E[Seltenheit] × E[Zustand]',
     Math.abs(storage.expectedObjectValueFull() - storage.objectMean() * handRar * handCond) < 1e-6);
 
-  // Der Startpreis rechnet OHNE den Jackpot-Tail (ab UNPRICED_FROM). Damit das
-  // kein Gelddrucker wird, muss der verschenkte Anteil kleiner sein als der
-  // Hausvorteil – und der Preis trotzdem über dem VOLLEN Erwartungswert liegen.
+  // Der Startpreis rechnet OHNE den Jackpot-Tail (ab UNPRICED_FROM): Der Preis
+  // folgt dem, was üblicherweise drinliegt, nicht einer Lotterie.
   check('Preis-Erwartung liegt unter der vollen (Tail ist geschenkt)',
     storage.pricedRarityMultiplier() < storage.expectedRarityMultiplier());
-  check(`ungepreister Jackpot-Anteil (${(100 * storage.unpricedShare()).toFixed(1)} %) < Hausvorteil ` +
-    `(${(100 * (storage.HOUSE_MARGIN - 1)).toFixed(0)} %)`,
-    storage.unpricedShare() < storage.HOUSE_MARGIN - 1,
-    `${storage.unpricedShare()} vs ${storage.HOUSE_MARGIN - 1}`);
-  check('Sicherheitsabstand bleibt ≥ 2 Punkte',
-    storage.HOUSE_MARGIN - 1 - storage.unpricedShare() >= 0.02,
-    String(storage.HOUSE_MARGIN - 1 - storage.unpricedShare()));
 
   const carAvg = storage.avgCarValue(G);
-  const edgeOk = data.TIERS.every((t) => {
+  const startOk = data.TIERS.every((t) => {
     const e = storage.expectedValueFull(t, carAvg);   // VOLLER Erwartungswert
     const s = storage.startPrice(t, carAvg);
-    return s >= e && s <= e * storage.HOUSE_MARGIN + 1;
+    return s < e * 0.6 && s > e * 0.25;
   });
-  check('Startpreis ≥ vollem E[Inhalt] für jede Stufe (Hausvorteil)', edgeOk);
+  check('Startpreis liegt deutlich unter dem Erwartungswert – aber nicht geschenkt',
+    startOk,
+    data.TIERS.map((t) => `${t.id}:${(storage.startPrice(t, carAvg)
+      / storage.expectedValueFull(t, carAvg)).toFixed(2)}`).join(' '));
+  check('der Startanteil ist die einzige Stellschraube dafür',
+    storage.START_SHARE > 0 && storage.START_SHARE < 1, String(storage.START_SHARE));
 
   console.log('--- Drop-Chancen: legendary 1 %, mythic 0,5 %, Tail respektlos selten ---');
   const rng = mulberry32(1234567);
@@ -134,10 +141,12 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
     ['godlike', 'cosmic', 'primordial', 'celestial', 'eternal', 'ascended', 'transcendent', 'omnipotent', 'origin']
       .every((id) => freq(id) < 0.001));
 
-  console.log('--- Balance: die typische Garage ist kein Totalverlust ---');
-  // Regressionsschutz für das Rebalancing: Ohne diese Schranken war der Median
-  // bei 38 % des Startpreises – vier von fünf Käufen fühlten sich wie
-  // Geldverbrennen an. Der Hausvorteil deckelt das nach oben (Median < 1).
+  console.log('--- Balance: Bieten muss sich lohnen ---');
+  /*
+   * Regressionsschutz. Vorher lag der Median bei 0,70 × Startpreis: Wer mitbot,
+   * verlor im Schnitt ein Drittel – und wer sich hochbieten ließ, verlor
+   * sicher. Damit war das Bietgefecht, also der Sinn des Features, tot.
+   */
   const rngMed = mulberry32(987654);
   const ratios = [];
   for (let i = 0; i < 20000; i++) {
@@ -149,10 +158,25 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const winRate = ratios.filter((r) => r >= 1).length / ratios.length;
   console.log(`    Median ${quant(0.5).toFixed(2)} · p25 ${quant(0.25).toFixed(2)} · ` +
     `p90 ${quant(0.9).toFixed(2)} · Gewinnquote ${(100 * winRate).toFixed(1)} %`);
-  check('Median-Garage ist ≥ 65 % ihres Preises wert', quant(0.5) >= 0.65, quant(0.5).toFixed(3));
-  check('auch das untere Viertel ist ≥ 45 % wert', quant(0.25) >= 0.45, quant(0.25).toFixed(3));
-  check('Median bleibt unter dem Preis (Hausvorteil wirkt)', quant(0.5) < 1, quant(0.5).toFixed(3));
-  check('jede fünfte Garage lohnt sich', winRate >= 0.20, (100 * winRate).toFixed(1));
+  check('die Median-Garage ist mindestens das 1,4-Fache ihres Startpreises wert',
+    quant(0.5) >= 1.4, quant(0.5).toFixed(3));
+  check('auch das untere Viertel trägt sich', quant(0.25) >= 1.0, quant(0.25).toFixed(3));
+  check('vier von fünf Garagen lohnen sich zum Startpreis',
+    winRate >= 0.8, (100 * winRate).toFixed(1));
+  // Ohne Nieten wäre es kein Storage Wars, sondern ein Automat.
+  check('aber es gibt weiterhin Nieten', quant(0.05) < 1, quant(0.05).toFixed(3));
+
+  /*
+   * Die Spanne, um die es geht: Wie weit darf man über den Startpreis gehen,
+   * bevor sich die typische Garage nicht mehr rechnet? Darunter ist Bieten
+   * richtig, darüber der Fluch des Gewinners.
+   */
+  const breakEven = quant(0.5);
+  console.log(`    Bietspanne: bis ${((breakEven - 1) * 100).toFixed(0)} % über dem `
+    + 'Startpreis rechnet sich die Median-Garage noch');
+  check('die Spanne ist groß genug für ein Gefecht (≥ +40 %)',
+    breakEven >= 1.4, breakEven.toFixed(2));
+  check('und endet irgendwo (kein Freibrief)', quant(0.5) < 4, quant(0.5).toFixed(2));
 
   console.log('--- Kein Objekt trägt den halben Preis ---');
   const totW = data.OBJECTS.reduce((a, o) => a + (o.weight ?? 1), 0);
@@ -177,7 +201,7 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
     data.RARITIES.every((r, i) => i === 0 || r.mult > data.RARITIES[i - 1].mult));
   check('15 Seltenheitsstufen', data.RARITIES.length === 15, String(data.RARITIES.length));
 
-  console.log('--- Faucet-Richtung empirisch (seeded) + Jackpots/Nieten ---');
+  console.log('--- Zufluss empirisch (seeded) + Jackpots/Nieten ---');
   const rng2 = mulberry32(424242);
   let sumV = 0, sumS = 0, jackpots = 0, busts = 0;
   const M = 20000;
@@ -190,9 +214,23 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const meanV = sumV / M, meanS = sumS / M;
   console.log(`    Ø Inhalt ${Math.round(meanV)} · Ø Startpreis ${Math.round(meanS)} ` +
     `· RTP ${(meanV / meanS * 100).toFixed(1)} % · Jackpots ${jackpots} · Nieten ${busts}`);
-  check('Ø Inhalt ≤ Ø Startpreis (kein Faucet)', meanV <= meanS, `${Math.round(meanV)} vs ${Math.round(meanS)}`);
+  check('Ø Inhalt liegt deutlich über dem Startpreis (bewusster Zufluss)',
+    meanV >= 1.8 * meanS, `${Math.round(meanV)} vs ${Math.round(meanS)}`);
   check('Jackpots kommen vor', jackpots > 0);
   check('Nieten kommen vor', busts > 0);
+
+  /*
+   * Gedeckelt wird der Zufluss über den DURCHSATZ, nicht über den Preis: Es
+   * ist immer nur ein Los live. Mehr als das kann serverweit nicht ins Spiel
+   * fließen – und das auch nur, wenn niemand mitbietet.
+   */
+  const perHour = (meanV - meanS) * (60 * 60 * 1000 / storage.LOT_DURATION_MS);
+  console.log(`    Höchstzufluss ${Math.round(perHour).toLocaleString('de-DE')} pro Stunde `
+    + 'für den ganzen Server (ohne Gegengebote)');
+  check('der Zufluss bleibt in der Größenordnung eines aktiven Spielers',
+    perHour <= 30000, Math.round(perHour).toString());
+  check('nur ein Los gleichzeitig – der Deckel hängt an der Zeit',
+    storage.LOT_DURATION_MS >= 10 * 60 * 1000, String(storage.LOT_DURATION_MS));
 
   console.log('--- ensureRound: 4–7 Garagen, gestaffelt ---');
   cleanup();
@@ -355,6 +393,130 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
 
   cleanup();
   db.clearLoot(G, U); db.clearLoot(G, U2);
+  console.log('--- Die Schätzung des Auktionators ---');
+  {
+    const rngE = mulberry32(2468);
+    let inBand = 0;
+    const N2 = 5000;
+    for (let i = 0; i < N2; i++) {
+      const l = storage.rollLot(G, rngE);
+      const band = storage.appraisal({ estimate: l.estimate });
+      if (l.value >= band.low && l.value <= band.high) inBand++;
+    }
+    const hit = inBand / N2;
+    console.log(`    Der echte Wert liegt in ${(hit * 100).toFixed(0)} % der Fälle in der Spanne.`);
+    check('die Schätzung hilft (trifft meistens)', hit > 0.6, hit.toFixed(2));
+    check('aber sie ist nicht sicher (man kann sich vergreifen)', hit < 0.95, hit.toFixed(2));
+    check('sie steht auf keinem Fall bei null',
+      storage.rollLot(G, rngE).estimate > 0);
+    check('die Spanne liegt um die Schätzung herum', (() => {
+      const b = storage.appraisal({ estimate: 1000 });
+      return b.low === 800 && b.high === 1200;
+    })());
+    check('ohne Schätzung keine Spanne', storage.appraisal({ estimate: 0 }) === null);
+
+    // Sie darf sich nicht bei jedem Aufruf neu würfeln – sonst könnte man sie
+    // durch Neuladen so lange ziehen, bis sie gefällt.
+    cleanup();
+    const bE = 8_100_000_000_000;
+    const { lot: lotE } = makeLot({
+      base: bE, startPrice: 1000, contents: { objects: [], cash: 5000, car: null },
+      value: 5000, opensAt: bE, endsAt: bE + L, roundEnds: bE + 5 * L,
+    });
+    const first = db.getLot(G, lotE.id).estimate;
+    check('die Schätzung liegt fest', db.getLot(G, lotE.id).estimate === first);
+  }
+
+  console.log('--- Übergang: alte Lose werden neu aufgerufen ---');
+  {
+    cleanup();
+    const bR = 8_300_000_000_000;
+    const round = db.insertRound(G, bR, bR + 4 * L, 2);
+    // So sah ein Los vor dem Rebalancing aus: teurer Aufruf, keine Schätzung.
+    const alt = db.insertLot({
+      guildId: G, roundId: round.id, seq: 1, tier: 'klein', seller: 'A', hint: '', peek: '',
+      startPrice: 99999, contents: { objects: [], cash: 4000, car: null }, value: 4000,
+      estimate: 0, opensAt: bR + 2 * L, endsAt: bR + 3 * L,
+    });
+    const laufend = db.insertLot({
+      guildId: G, roundId: round.id, seq: 0, tier: 'klein', seller: 'B', hint: '', peek: '',
+      startPrice: 99999, contents: { objects: [], cash: 4000, car: null }, value: 4000,
+      estimate: 0, opensAt: bR, endsAt: bR + L,
+    });
+
+    const fixed = storage.reprice(G, bR);
+    check('das noch verschlossene Los wird neu aufgerufen', fixed === 1, String(fixed));
+    check('und zwar günstiger', db.getLot(G, alt.id).start_price < 99999,
+      String(db.getLot(G, alt.id).start_price));
+    check('mit Schätzung', db.getLot(G, alt.id).estimate > 0);
+    check('das laufende Los bleibt, wie es war',
+      db.getLot(G, laufend.id).start_price === 99999,
+      String(db.getLot(G, laufend.id).start_price));
+
+    // Wer schon geboten hat, verlässt sich auf seinen Preis.
+    balanceOf(U).cash = 1_000_000; balanceOf(U).total = 1_000_000;
+    await storage.placeBid(G, U, laufend.id, 99999, bR + 1);
+    check('ein Los mit Gebot wird nie umgepreist',
+      storage.reprice(G, bR) === 0 && db.getLot(G, laufend.id).start_price === 99999);
+  }
+
+  console.log('--- Anti-Snipe: das letzte Gebot beendet nicht die Auktion ---');
+  {
+    cleanup();
+    const LL = 100 * 1000;                 // langes Los -> Fenster = 10 s
+    const bS = 8_200_000_000_000;
+    const round = db.insertRound(G, bS, bS + 2 * LL, 2);
+    const lot1 = db.insertLot({
+      guildId: G, roundId: round.id, seq: 0, tier: 'klein', seller: 'A',
+      hint: '', peek: '', startPrice: 1000, contents: { objects: [], cash: 1, car: null },
+      value: 1, estimate: 1, opensAt: bS, endsAt: bS + LL,
+    });
+    const lot2 = db.insertLot({
+      guildId: G, roundId: round.id, seq: 1, tier: 'klein', seller: 'B',
+      hint: '', peek: '', startPrice: 1000, contents: { objects: [], cash: 1, car: null },
+      value: 1, estimate: 1, opensAt: bS + LL, endsAt: bS + 2 * LL,
+    });
+
+    const fenster = storage.snipeWindow(db.getLot(G, lot1.id));
+    check('das Fenster hängt an der Laufzeit', fenster === Math.round(LL * 0.1), String(fenster));
+
+    balanceOf(U).cash = 1_000_000; balanceOf(U).total = 1_000_000;
+    balanceOf(U2).cash = 1_000_000; balanceOf(U2).total = 1_000_000;
+
+    const frueh = await storage.placeBid(G, U, lot1.id, 1000, bS + LL / 2);
+    check('ein frühes Gebot verlängert nichts', frueh.ok && frueh.extended === 0,
+      String(frueh.extended));
+    check('das Ende steht noch', db.getLot(G, lot1.id).ends_at === bS + LL);
+
+    const spaet = await storage.placeBid(G, U2, lot1.id, 5000, bS + LL - 2000);
+    check('ein Gebot in der Schlussphase verlängert', spaet.extended === fenster,
+      String(spaet.extended));
+    check('das Los läuft länger', db.getLot(G, lot1.id).ends_at === bS + LL + fenster);
+    check('das nächste Los rückt mit',
+      db.getLot(G, lot2.id).opens_at === bS + LL + fenster
+      && db.getLot(G, lot2.id).ends_at === bS + 2 * LL + fenster,
+      JSON.stringify([db.getLot(G, lot2.id).opens_at - bS, db.getLot(G, lot2.id).ends_at - bS]));
+    check('und die Runde endet später',
+      db.activeRound(G, bS + LL)?.ends_at === bS + 2 * LL + fenster);
+
+    // Nicht endlos: Nach genug Verlängerungen ist Schluss.
+    let at = bS + LL + fenster;
+    let bid = 5000;
+    for (let i = 0; i < storage.SNIPE_MAX_ROUNDS + 3; i++) {
+      const lotNow = db.getLot(G, lot1.id);
+      bid = storage.minBid(lotNow);
+      await storage.placeBid(G, i % 2 ? U : U2, lot1.id, bid, lotNow.ends_at - 1);
+      at = db.getLot(G, lot1.id).ends_at;
+    }
+    const finalLot = db.getLot(G, lot1.id);
+    check('die Verlängerung ist gedeckelt',
+      finalLot.extended === storage.maxExtend(finalLot),
+      `${finalLot.extended} vs ${storage.maxExtend(finalLot)}`);
+    check('danach beendet ein Gebot die Auktion nicht mehr endlos',
+      (await storage.placeBid(G, U, lot1.id, storage.minBid(finalLot), finalLot.ends_at - 1))
+        .extended === 0);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.23.0',
+    date: '2026-09-06',
+    title: 'Das Auktionshaus lohnt sich endlich',
+    lines: [
+      '💰 **Garagen starten jetzt weit unter ihrem Wert.** Die typische Garage ist rund das **1,7-Fache** ihres Aufrufpreises wert – neun von zehn lohnen sich. Vorher war es genau andersherum.',
+      '🔥 **Deshalb lohnt sich Hochbieten:** Bis etwa **+68 %** über dem Startpreis rechnet sich die typische Garage noch. Darüber schlägt der Fluch des Gewinners zu – das ist die Entscheidung.',
+      '🔍 **Der Auktionator schätzt.** Jede Garage bringt eine Spanne mit, in der ihr Wert vermutlich liegt. Er trifft meistens. Meistens.',
+      '⏱️ **Anti-Snipe:** Ein Gebot in den letzten Sekunden verlängert die Auktion. Wer gewinnen will, muss mehr bieten – nicht später klicken.',
+      '📣 **Zuschläge werden angesagt**, damit man mitbekommt, was gerade weggeht.',
+      '🎰 Nieten gibt es weiterhin: Jede zehnte Garage ist ihren Preis nicht wert.',
+    ],
+  },
+  {
     version: '1.22.0',
     date: '2026-09-06',
     title: 'Heists: Entscheidungen mittendrin',

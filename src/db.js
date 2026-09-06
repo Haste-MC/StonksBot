@@ -890,6 +890,21 @@ for (const [column, definition] of [
   }
 }
 
+/*
+ * Auktionshaus: Schätzung des Auktionators und die bereits gewährte
+ * Verlängerung (Anti-Snipe, siehe storage.js).
+ */
+const lotColumns = new Set(
+  db.prepare('PRAGMA table_info(storage_lots)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['estimate', 'INTEGER NOT NULL DEFAULT 0'],
+  ['extended', 'INTEGER NOT NULL DEFAULT 0'],
+]) {
+  if (!lotColumns.has(column)) {
+    db.exec(`ALTER TABLE storage_lots ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 // Selbst gewählter Titel: '' = automatisch (häufigste Aktivität),
 // 'none' = keiner, sonst die Kennung der Aktivität (siehe activity.js).
 if (!statsColumns.has('title')) {
@@ -1386,8 +1401,22 @@ const stmt = {
   insertLot: db.prepare(
     `INSERT INTO storage_lots
        (guild_id, round_id, seq, tier, seller, hint, peek, start_price, contents,
-        value, opens_at, ends_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+        value, estimate, opens_at, ends_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+
+  // --- Anti-Snipe: ein spätes Gebot verlängert das Los … ---
+  repriceLot: db.prepare(
+    `UPDATE storage_lots SET start_price = ?, estimate = ?
+     WHERE guild_id = ? AND id = ? AND status = 'open' AND top_bid = 0`),
+  extendLot: db.prepare(
+    `UPDATE storage_lots SET ends_at = ends_at + ?, extended = extended + ?
+     WHERE guild_id = ? AND id = ? AND status = 'open'`),
+  // … und schiebt alles Nachfolgende dieser Runde mit.
+  shiftLotsAfter: db.prepare(
+    `UPDATE storage_lots SET opens_at = opens_at + ?, ends_at = ends_at + ?
+     WHERE guild_id = ? AND round_id = ? AND seq > ? AND status = 'open'`),
+  extendRound: db.prepare(
+    'UPDATE storage_rounds SET ends_at = ends_at + ? WHERE guild_id = ? AND id = ?'),
   listRoundLots: db.prepare(
     'SELECT * FROM storage_lots WHERE guild_id = ? AND round_id = ? ORDER BY seq ASC'),
   getLot: db.prepare('SELECT * FROM storage_lots WHERE guild_id = ? AND id = ?'),
@@ -2462,11 +2491,37 @@ function insertRound(guildId, startedAt, endsAt, size) {
   return stmt.insertRound.get(guildId, startedAt, endsAt, size);
 }
 
-/** @param lot {guildId,roundId,seq,tier,seller,hint,peek,startPrice,contents,value,opensAt,endsAt} */
+/** Setzt Startpreis und Schätzung neu – nur solange niemand geboten hat. */
+function repriceLot(guildId, id, startPrice, estimate) {
+  return stmt.repriceLot.run(
+    Math.round(startPrice), Math.round(estimate), guildId, Number(id)).changes > 0;
+}
+
+/**
+ * Verlängert ein laufendes Los und schiebt die Runde mit.
+ *
+ * Ohne das Nachschieben würden zwei Lose gleichzeitig live sein – die Ansicht
+ * zeigt aber immer nur eines, und das zweite wäre unbietbar.
+ *
+ * @returns {boolean} ob verlängert wurde
+ */
+function extendLot(guildId, lot, deltaMs) {
+  const delta = Math.round(deltaMs);
+  if (delta <= 0) return false;
+  return transaction(() => {
+    if (stmt.extendLot.run(delta, delta, guildId, Number(lot.id)).changes === 0) return false;
+    stmt.shiftLotsAfter.run(delta, delta, guildId, Number(lot.round_id), Number(lot.seq));
+    stmt.extendRound.run(delta, guildId, Number(lot.round_id));
+    return true;
+  });
+}
+
+/** @param lot {guildId,roundId,seq,tier,seller,hint,peek,startPrice,contents,value,estimate,opensAt,endsAt} */
 function insertLot(lot) {
   return parseLot(stmt.insertLot.get(
     lot.guildId, lot.roundId, lot.seq, lot.tier, lot.seller ?? '', lot.hint ?? '',
     lot.peek ?? '', lot.startPrice, JSON.stringify(lot.contents), lot.value,
+    Math.round(lot.estimate ?? 0),
     lot.opensAt, lot.endsAt));
 }
 
@@ -3524,6 +3579,7 @@ module.exports = {
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,
+  extendLot, repriceLot,
   finishLot, dueLots, purgeOldLots,
   addLoot, listLoot, lootSummary, getLoot, removeLoot, clearLoot, clearStorage, grantCar,
   addGarage, listGarages, getGarage, removeGarage, countGarages,

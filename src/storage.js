@@ -20,15 +20,40 @@ const MIN = 60 * 1000;
  * ist bietbar. Alles hängt an der Zeit (kein Scheduler): mehrfaches Öffnen
  * erzeugt nichts, fällige Lose werden faul beim nächsten settle() abgerechnet.
  *
- * ===================== KEIN GELDDRUCKER (§3) =====================
- * Startpreis S = round(E[V] × HAUSMARGE), HAUSMARGE ≥ 1. S hängt nur an der
- * Größenstufe (der Erscheinung), NIE am konkreten Inhalt V. Jeder Gewinner
- * zahlt ≥ S ≥ E[V], also E[Gewinn] ≤ 0. Bewiesen in test/storage.test.js.
- * ================================================================
+ * ============ BEWUSSTE AUSNAHME VON §3 (kein Gelddrucker) ============
+ * Hier fließt Geld ins Spiel, und das ist Absicht.
+ *
+ * Vorher lag der Startpreis ÜBER dem Erwartungswert: Wer mitbot, verlor im
+ * Schnitt – und wer sich hochbieten ließ, verlor sicher. Damit war die
+ * Kernidee des Features tot, denn ein Bietgefecht setzt voraus, dass sich das
+ * Ding, um das man kämpft, überhaupt lohnt. Die typische Garage war 70 % ihres
+ * Startpreises wert; vier von fünf Käufen waren Geldverbrennen.
+ *
+ * Jetzt beginnt die Garage bei einem **Bruchteil** ihres erwarteten Inhalts
+ * (`START_SHARE`). Daraus entsteht das, was das Feature ausmacht:
+ *
+ *   - Beim Startpreis lohnt sie sich fast immer -> es gibt einen Grund zu bieten.
+ *   - Zwischen Startpreis und wahrem Wert liegt eine **Spanne**, in der sich
+ *     Hochbieten noch rechnet. Genau darin findet das Gefecht statt.
+ *   - Irgendwo in dieser Spanne kippt es. Wer zu weit geht, zahlt drauf –
+ *     der Fluch des Gewinners, und die eigentliche Entscheidung.
+ *
+ * Gedeckelt ist der Zufluss nicht über den Preis, sondern über den **Durchsatz**:
+ * Es ist immer nur EIN Los live, 20 Minuten lang, serverweit. Mehr als ein
+ * paar Garagen pro Stunde gibt es nicht – und je mehr Leute mitbieten, desto
+ * kleiner wird der Schnitt für den Gewinner. Der Test rechnet nach, wie groß
+ * der Zufluss höchstens ist.
+ * =====================================================================
  */
 
-/** Hausvorteil: der Startpreis liegt über dem Erwartungswert des Inhalts. */
-const HOUSE_MARGIN = 1.10;
+/**
+ * Anteil des erwarteten Inhalts, bei dem die Garage startet.
+ *
+ * 0,45 heißt: Der Auktionator ruft mit knapp der Hälfte dessen auf, was
+ * typischerweise drinsteckt. Der Median liegt damit bei rund 1,7 × Startpreis –
+ * so viel Luft hat ein Bietgefecht, bevor es sich nicht mehr lohnt.
+ */
+const START_SHARE = 0.45;
 
 /**
  * Ab dieser Seltenheit fließt ein Fund NICHT mehr in den Startpreis ein.
@@ -38,8 +63,8 @@ const HOUSE_MARGIN = 1.10;
  * eine Lotterie, die man praktisch nie gewinnt. Der Jackpot bleibt drin, er
  * wird nur nicht mehr eingepreist: geschenkter Bonus statt Dauerabgabe.
  *
- * Damit das kein Gelddrucker wird, muss der so verschenkte Anteil KLEINER sein
- * als der Hausvorteil – genau das prüft test/storage.test.js.
+ * Der Preis folgt damit dem, was üblicherweise drinliegt, statt einer
+ * Lotterie, die praktisch nie aufgeht.
  */
 const UNPRICED_FROM = 'godlike';
 /** Wie lange eine einzelne Garage live ist. Tunbar über opts.lotDuration. */
@@ -50,6 +75,32 @@ const ROUND_GAP_MS = 0;
 const ROUND_SIZE = [4, 7];
 /** Mindest-Erhöhungsschritt beim Überbieten. */
 const BID_INCREMENT = 0.10;
+
+/**
+ * ANTI-SNIPE: Ein Gebot in den letzten Sekunden verlängert das Los.
+ *
+ * Ohne das gewinnt nicht, wer am meisten will, sondern wer am spätesten
+ * klickt – und ein Bietgefecht endet, bevor es eins wird. Die nachfolgenden
+ * Lose der Runde rücken automatisch mit (db.extendLot).
+ *
+ * Das Fenster hängt an der **Laufzeit des Loses**, nicht an einer festen
+ * Zahl: ein Zehntel davon, höchstens eine Minute. Bei den 20 Minuten im Spiel
+ * ist das die letzte Minute; in Tests mit Sekunden-Losen skaliert es mit,
+ * statt jedes Gebot zur Verlängerung zu machen.
+ */
+const SNIPE_WINDOW_MS = 60 * 1000;
+const SNIPE_MAX_ROUNDS = 10;
+
+/** Die letzten Sekunden eines Loses, in denen ein Gebot verlängert. */
+function snipeWindow(lot) {
+  const duration = Math.max(1, (lot.ends_at - lot.opens_at) - (lot.extended ?? 0));
+  return Math.max(1, Math.min(SNIPE_WINDOW_MS, Math.round(duration * 0.1)));
+}
+
+/** So weit darf ein einzelnes Los insgesamt verlängert werden. */
+function maxExtend(lot) {
+  return snipeWindow(lot) * SNIPE_MAX_ROUNDS;
+}
 /** Zustand gefundener Autos (verstaubte Garage) – fest, für saubere E[V]-Rechnung. */
 const FOUND_CAR_CONDITION = 65;
 /** Nur günstigere Autos sind auffindbar, damit der Jackpot den EV nicht sprengt. */
@@ -149,7 +200,27 @@ function expectedValueFull(tier, carValue = 0) {
 }
 
 function startPrice(tier, carValue) {
-  return Math.max(1, Math.round(expectedValue(tier, carValue) * HOUSE_MARGIN));
+  return Math.max(1, Math.round(expectedValue(tier, carValue) * START_SHARE));
+}
+
+/**
+ * Die Schätzung des Auktionators.
+ *
+ * Ohne Anhaltspunkt ist Bieten Raten, und Raten macht keinen Spaß. Die
+ * Schätzung ist deshalb ein **verrauschter** Blick auf den echten Wert
+ * (±25 %): gut genug, um eine dicke Garage zu erkennen, schlecht genug, dass
+ * man sich vergreifen kann. Sie wird beim Erzeugen einmal gewürfelt und
+ * bleibt danach fest – sonst könnte man sie durch Neuladen „auswürfeln".
+ */
+function rollEstimate(value, random = Math.random) {
+  return Math.max(1, Math.round(value * (0.75 + random() * 0.5)));
+}
+
+/** Die angezeigte Spanne zu einer Schätzung (±20 %). */
+function appraisal(lot) {
+  const e = lot?.estimate ?? 0;
+  if (e <= 0) return null;
+  return { low: Math.round(e * 0.8), high: Math.round(e * 1.2) };
 }
 
 // ------------------------------------------------------------- Generierung
@@ -208,6 +279,7 @@ function rollLot(guildId, random = Math.random) {
   return {
     tier: tier.id, seller: data.pick(data.SELLERS, random), hint, peek,
     startPrice: startPrice(tier, carAvg), contents: { objects, cash, car }, value,
+    estimate: rollEstimate(value, random),
   };
 }
 
@@ -232,6 +304,11 @@ function ensureRound(guildId, now = Date.now(), random = Math.random, opts = {})
   const lotDuration = opts.lotDuration ?? LOT_DURATION_MS;
   const roundGap = opts.roundGap ?? ROUND_GAP_MS;
 
+  // Übergang nach dem Rebalancing: Lose aus der alten Rechnung, die noch gar
+  // nicht offen waren, bekommen den neuen Aufruf. Erkennbar an der fehlenden
+  // Schätzung; wer schon geboten hat, wird nie angefasst (db.repriceLot).
+  reprice(guildId, now, opts);
+
   return db.transaction(() => {
     const latest = db.latestRound(guildId);
     if (latest && latest.ends_at > now) return null;                 // läuft noch
@@ -248,6 +325,30 @@ function ensureRound(guildId, now = Date.now(), random = Math.random, opts = {})
     }
     return { round, lots };
   });
+}
+
+/**
+ * Rechnet noch nicht eröffnete Lose auf die aktuelle Preisformel um.
+ *
+ * Ohne das liefe nach einem Update noch bis zu zwei Stunden die alte Runde mit
+ * alten Preisen – also genau das, was gerade repariert wurde.
+ */
+function reprice(guildId, now = Date.now(), opts = {}) {
+  const round = db.activeRound(guildId, now);
+  if (!round) return 0;
+
+  const carAvg = avgCarValue(guildId);
+  const random = opts.random ?? Math.random;
+  let fixed = 0;
+
+  for (const lot of db.listRoundLots(guildId, round.id)) {
+    if (lot.estimate > 0 || lot.opens_at <= now || lot.top_bid > 0) continue;
+    const tier = data.TIERS.find((t) => t.id === lot.tier);
+    if (!tier) continue;
+    if (db.repriceLot(guildId, lot.id,
+      startPrice(tier, carAvg), rollEstimate(lot.value, random))) fixed++;
+  }
+  return fixed;
 }
 
 // ------------------------------------------------------------------- Bieten
@@ -288,17 +389,27 @@ async function placeBid(guildId, userId, lotId, amount, now = Date.now()) {
     return { ok: false, reason: 'outbid', lot: fresh, min: minBid(fresh) };
   }
 
+  // Kurz vor Schluss geboten? Dann bekommt der andere noch eine Chance.
+  let extended = 0;
+  const window = snipeWindow(lot);
+  const room = maxExtend(lot) - (lot.extended ?? 0);
+  if (lot.ends_at - now <= window && room > 0) {
+    extended = Math.min(window, room);
+    if (!db.extendLot(guildId, lot, extended)) extended = 0;
+  }
+
   // Vorherigen Höchstbietenden benachrichtigen (nicht sich selbst).
   if (prevBidder && prevBidder !== userId) {
     db.createMessage({
       guildId, userId: prevBidder, type: 'info',
       title: `Überboten: Garage #${lot.seq + 1}`,
-      body: `Jemand hat dein Gebot übertroffen. Nachlegen im Auktionshaus?`,
+      body: 'Jemand hat dein Gebot übertroffen. Nachlegen im Auktionshaus?'
+        + (extended ? ' Die Auktion wurde dafür verlängert.' : ''),
       amount: bid,
     });
   }
 
-  return { ok: true, lot: db.getLot(guildId, lotId), bid, previous: prevBid };
+  return { ok: true, lot: db.getLot(guildId, lotId), bid, previous: prevBid, extended };
 }
 
 // -------------------------------------------------------------- Abrechnung
@@ -317,7 +428,34 @@ async function settle(guildId, userId = null, now = Date.now(), opts = {}) {
     results.push(await resolveLot(guildId, lot));
   }
   ensureRound(guildId, now, opts.random ?? Math.random, opts);
+  if (opts.announce !== false) await announce(guildId, results).catch(() => {});
   return userId ? results.filter((r) => r.winner === userId && r.status === 'sold') : results;
+}
+
+/**
+ * Sagt Zuschläge im Kanal an – auf beiden Plattformen.
+ *
+ * Warum überhaupt: Eine Auktion, von der niemand erfährt, hat keine
+ * Mitbieter. Wer liest, dass eine Garage gerade für 12.400 wegging, schaut
+ * beim nächsten Mal selbst vorbei. Ohne eingestellten Kanal passiert nichts
+ * (siehe relay.broadcast), und eine misslungene Durchsage darf die Abrechnung
+ * nie aufhalten.
+ */
+async function announce(guildId, results) {
+  const sold = results.filter((r) => r.status === 'sold' && r.price > 0);
+  if (!sold.length) return;
+
+  const { getSymbol } = require('./currency');
+  const { money } = require('./ui');
+  const identity = require('./identity');
+  const relay = require('./relay');
+  const symbol = await getSymbol(guildId);
+
+  for (const r of sold) {
+    await relay.broadcast(
+      `🏬 **${r.label}** geht für **${money(symbol, r.price)}** an `
+      + `${identity.mention(r.winner)}. Was wohl drin ist?`);
+  }
 }
 
 async function resolveLot(guildId, lot) {
@@ -463,13 +601,15 @@ async function sellLoot(guildId, userId, lootId = null) {
 }
 
 module.exports = {
-  HOUSE_MARGIN, LOT_DURATION_MS, ROUND_GAP_MS, ROUND_SIZE, BID_INCREMENT,
+  START_SHARE, LOT_DURATION_MS, ROUND_GAP_MS, ROUND_SIZE, BID_INCREMENT,
+  SNIPE_WINDOW_MS, SNIPE_MAX_ROUNDS, snipeWindow, maxExtend,
   FOUND_CAR_CONDITION, CAR_PRICE_CAP, MIN,
   UNPRICED_FROM,
+  rollEstimate, appraisal,
   objectMean, expectedMultiplier, expectedRarityMultiplier, expectedConditionMultiplier,
   pricedRarityMultiplier, unpricedShare, cashRange, expectedCash,
   expectedObjectValue, expectedObjectValueFull, expectedValueFull,
   eligibleCars, avgCarValue, expectedValue, startPrice,
-  rollObject, rollLot, generateLot, ensureRound, minBid, isLive, placeBid,
-  settle, resolveLot, applyCarReward, openGarage, revealBody, sellLoot,
+  rollObject, rollLot, generateLot, ensureRound, reprice, minBid, isLive, placeBid,
+  settle, announce, resolveLot, applyCarReward, openGarage, revealBody, sellLoot,
 };

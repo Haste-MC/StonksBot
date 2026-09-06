@@ -53,8 +53,9 @@ const level = require('./level');
  *                      Verkauf macht Kaufen-und-Verkaufen zur Gelddruckerei.
  *   ❌ Verkäufe        Auto, Immobilie, Fundstück: gekauft für X, verkauft
  *                      für X · 1,6 wäre eine Schleife ohne Boden.
- *   ❌ Auktionshaus    Die Beute liegt bewusst knapp unter dem Startpreis;
- *                      jeder Aufschlag kippt genau diese Rechnung.
+ *   ❌ Auktionshaus    Dort ist der Zufluss schon eingebaut (bewusste
+ *                      Ausnahme, siehe storage.js) – ein Level-Bonus obendrauf
+ *                      wäre der zweite auf denselben Topf.
  *   ❌ Überfall        Was der eine verliert, bekommt der andere – ein
  *                      Zuschlag würde Geld aus dem Nichts erzeugen.
  *   ❌ Miete unter Spielern, Rückerstattungen, Entschädigungen: dasselbe.

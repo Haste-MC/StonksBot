@@ -1205,8 +1205,9 @@ Grenze liegt, die den Bot vor einem Gelddrucker schützt (ARCHITEKTUR §3):
 
 - **Werkstatt** – der Preis liegt nur wenige Prozent über dem Wertzuwachs. Ein
   Level-Rabatt machte daraus ein Geschäft: reparieren, verkaufen, Gewinn.
-- **Auktionshaus** – der Startpreis liegt knapp über dem Erwartungswert des
-  Inhalts. Jeder Nachlass drehte den Erwartungswert ins Plus.
+- **Auktionshaus** – dort ist der Zufluss bereits eingebaut (die bewusste
+  Ausnahme von §3, siehe oben). Ein Level-Bonus obendrauf wäre der zweite
+  Aufschlag auf denselben Topf.
 - **Casino** – der Hausvorteil ist hauchdünn; +60 % auf Gewinne drehen jedes
   Spiel ins sichere Plus.
 - **Börse** – die Kurse sind ein Martingal. Ein Aufschlag auf den Verkauf
@@ -1395,58 +1396,87 @@ Zwei weitere bewusste Entscheidungen, ebenfalls getestet:
 [`workshop.js`](src/workshop.js) bucht über dieselbe Geldschnittstelle wie
 alles andere und funktioniert damit auf beiden Plattformen gleich.
 
-## Auktionshaus: Balance der Garagen
+## Auktionshaus: warum man überhaupt bietet
 
-Storage Wars fühlte sich wie Geldverbrennen an – zu Recht. Der Startpreis ist
-der **Erwartungswert** des Inhalts plus Hausvorteil, und der Erwartungswert
-wurde von Dingen getragen, die man praktisch nie zieht:
+Die erste Fassung war ökonomisch eine Falle. Der Startpreis lag **über** dem
+Erwartungswert des Inhalts – wer mitbot, verlor im Schnitt, und wer sich
+hochbieten ließ, verlor sicher. Damit war der Sinn des Features tot: Ein
+Bietgefecht setzt voraus, dass sich das Ding, um das gekämpft wird, überhaupt
+lohnt. Die typische Garage war 70 % ihres Aufrufpreises wert.
 
-| Ursache | vorher |
-|--|--|
-| Ein einziges Fundstück (Dragonlore) | trug **49 %** des durchschnittlichen Objektwerts, steckte aber nur in 1 von 14 Funden |
-| Funde seltener als 1 : 100 (Mythic und aufwärts) | **19 %** des Preises – eine Lotterie, die man in jeder Garage mitbezahlt hat |
-| Bargeld | lag nur in 15–35 % der Garagen |
+### Die Umkehr
 
-Ergebnis: Die **typische** Garage war 38 % ihres Startpreises wert. Der
-Durchschnitt stimmte – aber den bekommt man nur, wenn man tausende Garagen
-kauft. Bei fünf Käufen sieht man den Median, und der war ein Totalverlust.
-
-Vier Stellschrauben, alle in [`data/storage.js`](src/data/storage.js) bzw.
-[`storage.js`](src/storage.js):
-
-1. **Fundgewichte.** Teure Stücke sind jetzt entsprechend selten, statt gleich
-   oft gezogen zu werden wie ein Toaster. Der Preis folgt dem, was üblicherweise
-   drinliegt.
-2**Der unerreichbare Tail wird nicht mehr eingepreist.** Alles ab „Godlike"
-   (< 1 : 2000) fließt in den Inhalt, aber nicht in den Startpreis – geschenkter
-   Bonus statt Dauerabgabe. Damit das keine Geldquelle wird, muss der so
-   verschenkte Anteil (6,1 %) unter dem Hausvorteil (10 %) bleiben; der Test
-   rechnet beides gegeneinander.
-3**Sockel statt Alles-oder-nichts.** In **jeder** Garage liegt Bargeld
-   (Spanne je Größe), und es sind mehr Objekte drin – mehr Stücke heißt näher am
-   Durchschnitt.
-
-Dazu der Hausvorteil von 15 % auf 10 %.
+Der Startpreis ist jetzt ein **Bruchteil** des erwarteten Inhalts
+(`START_SHARE = 0,45`). Daraus entsteht die Spannung, die das Format braucht:
 
 | | vorher | jetzt |
-|--|--|--|
-| typische Garage (Median) | 38 % des Preises | **77 %** |
-| schlechtes Viertel (p25) | 17 % | **61 %** |
-| Garagen mit Gewinn | 19,6 % | **24,7 %** |
-| Ø Inhalt / Ø Preis | 88 % | **95 %** |
+|--|--:|--:|
+| typische Garage (Median) | 0,70 × Startpreis | **1,68 ×** |
+| schlechtes Viertel (p25) | 0,54 × | **1,27 ×** |
+| Garagen, die sich lohnen | 23 % | **90 %** |
+| Ø Inhalt / Ø Startpreis | 0,92 | **2,3** |
+| Bietspanne bis zum Break-even | — | **+68 %** über dem Startpreis |
 
-**Warum nicht mehr als jede vierte Garage Gewinn bringt:** Der Preis muss über
-dem Erwartungswert liegen, sonst ist die Auktion eine Geldquelle (ARCHITEKTUR
-§3). Bei einer Verteilung mit Jackpots heißt das zwangsläufig, dass die
-Mehrheit der Käufe knapp darunter landet – der Gewinn steckt in den seltenen
-Funden. Erreichbar war also nicht „meistens Gewinn", sondern „meistens ein
-kleiner Verlust statt eines Totalverlusts". Genau das steht jetzt auch im
-Auktions-Panel, damit niemand mit falscher Erwartung bietet.
+Diese +68 % sind der eigentliche Punkt: **so weit** kann man sich hochbieten,
+bevor die typische Garage zum Verlustgeschäft wird. Darunter ist Bieten
+richtig, darüber schlägt der Fluch des Gewinners zu. Genau darin findet das
+Gefecht statt – und wer die Nerven verliert, zahlt drauf.
 
-Abgesichert ist das Rebalancing in
-[`test/storage.test.js`](test/storage.test.js): Median- und p25-Schranken über
-20 000 gewürfelte Garagen, dazu der analytische Nachweis, dass der Startpreis
-weiterhin über dem **vollen** Erwartungswert liegt (Jackpot-Tail eingerechnet).
+Nieten gibt es weiterhin: Jede zehnte Garage ist keinen Aufrufpreis wert, und
+das unterste Zwanzigstel ist ein echter Reinfall. Ohne das wäre es kein Storage
+Wars, sondern ein Automat.
+
+Beim Update greift die neue Rechnung sofort: Lose der laufenden Runde, die noch
+gar nicht offen waren, werden neu aufgerufen (`reprice`). Das gerade laufende
+Los und alles, worauf schon geboten wurde, bleibt unangetastet – auf einen
+Preis, zu dem jemand geboten hat, muss man sich verlassen können.
+
+### Die Schätzung des Auktionators
+
+Bieten ohne Anhaltspunkt ist Raten. Jede Garage bringt deshalb eine
+**verrauschte Schätzung** mit (±25 % auf den echten Wert, angezeigt als Spanne):
+
+```
+🔍 Schätzung des Auktionators
+🪙 6.400 – 🪙 9.600
+Auf den ersten Blick geschätzt. Er kann sich irren.
+```
+
+In 84 % der Fälle liegt der wahre Wert in der Spanne – gut genug, um eine
+dicke Garage zu erkennen, schlecht genug, dass man sich vergreifen kann. Sie
+wird beim Erzeugen einmal gewürfelt und bleibt fest; Neuladen würfelt sie nicht
+neu.
+
+### Anti-Snipe
+
+Ein Gebot in der Schlussphase **verlängert** das Los. Sonst gewinnt nicht, wer
+am meisten will, sondern wer am spätesten klickt – und ein Bietgefecht endet,
+bevor es eins wird.
+
+Das Fenster hängt an der Laufzeit des Loses (ein Zehntel davon, höchstens eine
+Minute), verlängert wird um dieselbe Spanne, und nach zehn Verlängerungen ist
+Schluss. Die nachfolgenden Lose der Runde rücken automatisch mit – sonst wären
+plötzlich zwei Garagen gleichzeitig live, von denen die Ansicht nur eine zeigt.
+
+### Zuschläge werden angesagt
+
+Eine Auktion, von der niemand erfährt, hat keine Mitbieter. Geht eine Garage
+weg, meldet der Bot das auf **beiden** Plattformen im eingestellten Kanal
+(dieselben `ANNOUNCE_*`-Kanäle wie beim Treppchen, ohne Ping):
+
+```
+🏬 Garage #3 geht für 🪙 12.400 an @Kevin. Was wohl drin ist?
+```
+
+### Und §3?
+
+Das Auktionshaus **erzeugt Geld**, und zwar mit Absicht – die einzige
+dokumentierte Ausnahme von der goldenen Regel (ARCHITEKTUR §3). Gedeckelt ist
+der Zufluss nicht über den Preis, sondern über den **Durchsatz**: serverweit
+ist immer nur ein Los live, 20 Minuten lang. Daraus können höchstens rund
+**11.000 pro Stunde** ins Spiel fließen – für den ganzen Server, und nur, wenn
+niemand mitbietet; jedes Gegengebot senkt den Schnitt des Gewinners.
+[`test/storage.test.js`](test/storage.test.js) rechnet diese Obergrenze nach.
 
 ## Staatskasse: der gemeinsame Topf
 

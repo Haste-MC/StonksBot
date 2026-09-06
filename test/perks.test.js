@@ -21,7 +21,6 @@ const level = require('../src/level');
 const income = require('../src/income');
 const market = require('../src/wallstreet');
 const workshop = require('../src/workshop');
-const storage = require('../src/storage');
 const property = require('../src/property');
 const unb = require('../src/unb');
 
@@ -87,9 +86,12 @@ function makeLevel(userId, lvl) {
     !require('node:fs').readFileSync('src/storage.js', 'utf8').includes('perks'));
   check('Reparatur kostet weiterhin mehr als sie bringt',
     workshop.quote(50000, 20, 'resto').cost > workshop.quote(50000, 20, 'resto').gain);
-  check('Startpreis der Auktion liegt weiter über dem Erwartungswert',
-    require('../src/data/storage').TIERS.every((t) =>
-      storage.startPrice(t, 0) >= storage.expectedValueFull(t, 0)));
+  /*
+   * Das Auktionshaus ist inzwischen ein bewusster Zufluss (siehe storage.js).
+   * Der läuft aber über den Startpreis, der für alle gleich ist – ein
+   * Level-Rabatt obendrauf hätte dort nichts zu suchen, und die Prüfung
+   * darüber hält das fest.
+   */
 
   console.log('--- Tagesbonus wächst mit dem Level ---');
   const LOW = makeLevel('PERK_LOW', 0);

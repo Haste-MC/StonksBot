@@ -53,6 +53,28 @@ du etwas baust, das Geld auszahlt, schreib einen Test, der über viele tausend
 Durchläufe zeigt, dass die Bilanz nicht positiv kippt (siehe
 `test/buyers.test.js`, `test/casino.test.js`, `test/tenants.test.js`).
 
+### Die eine bewusste Ausnahme: das Auktionshaus
+
+[`storage.js`](src/storage.js) **erzeugt Geld** – mit Absicht, als
+Produktentscheidung. Der Startpreis liegt bei rund 45 % des erwarteten Inhalts,
+die typische Garage ist also etwa das 1,7-Fache ihres Aufrufpreises wert.
+
+Der Grund: Vorher lag der Preis über dem Erwartungswert. Damit verlor jeder
+Mitbieter im Schnitt – und ein Bietgefecht, also der ganze Sinn des Features,
+war eine Selbstschädigung. Ein Wettbewerb um etwas, das sich nicht lohnt, ist
+kein Wettbewerb.
+
+Gedeckelt ist der Zufluss **nicht über den Preis, sondern über den Durchsatz**:
+serverweit ist immer nur ein Los live, 20 Minuten lang. Mehr als ~11.000 pro
+Stunde können daraus nicht ins Spiel fließen, und jedes Gegengebot senkt den
+Schnitt des Gewinners weiter. `test/storage.test.js` rechnet diese Obergrenze
+nach – die Regel ist damit nicht aufgehoben, sondern durch eine andere,
+schwächere ersetzt.
+
+Wer hier etwas ändert: Diese Ausnahme ist bewusst und dokumentiert. Sie
+zurückzudrehen („der Startpreis muss doch über dem Erwartungswert liegen")
+macht das Feature wieder kaputt.
+
 ## 4. Faule (lazy) Abrechnung statt Hintergrundjobs
 
 Der Bot hat **keinen Scheduler und keinen Cronjob**. Alles Zeitabhängige –
