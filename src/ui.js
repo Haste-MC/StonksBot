@@ -3275,6 +3275,9 @@ async function buildLeaderboardView({ guildId, userId, metric = 'level', page = 
     .catch(() => []);
   const worthByUser = new Map(rich.map((e) => [e.userId, e.networth]));
 
+  // Dieselbe Prüfung wie bei `!top` – wer aufsteigt, wird gefeiert.
+  if (rich.length) require('./podium').celebrate(guildId, rich).catch(() => {});
+
   let roster = db.listStats(guildId).map((s) => ({
     userId: s.user_id,
     xp: s.xp,
@@ -3781,6 +3784,12 @@ async function buildTopView({ guildId, userId, sort = 'networth' }) {
   // Namen nachtragen: In dieser Liste stehen Leute, die den Bot nie benutzt
   // haben – ohne das stünden dort rohe IDs (siehe names.js).
   await require('./names').ensure(entries.map((e) => e.userId)).catch(() => {});
+
+  // Ist jemand aufs Treppchen gestiegen? Die Liste liegt hier ohnehin vor,
+  // also kostet die Prüfung nichts (siehe podium.js).
+  if (key === 'networth') {
+    require('./podium').celebrate(guildId, entries).catch(() => {});
+  }
 
   const titles = {
     networth: 'Vermögen', total: 'Gesamtguthaben', cash: 'Bargeld', bank: 'Bank',

@@ -216,6 +216,24 @@ db.exec(`
 `);
 
 /*
+ * Wer zuletzt auf dem Treppchen stand (Plätze 1–3 der Reichsten).
+ *
+ * Gebraucht für die Glückwunsch-Meldung: Ohne diesen Merker wüsste niemand,
+ * ob sich etwas geändert hat – und der Bot würde bei jedem Blick in die
+ * Rangliste dieselbe Meldung erneut absetzen.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS podium (
+    guild_id TEXT    NOT NULL,
+    rank     INTEGER NOT NULL,
+    user_id  TEXT    NOT NULL,
+    worth    INTEGER NOT NULL DEFAULT 0,
+    at       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, rank)
+  );
+`);
+
+/*
  * Wie oft jemand welche Aktivität gemacht hat.
  *
  * Daraus entsteht der automatische Titel im Profil ("Ganove", "Angler" …).
@@ -1290,6 +1308,15 @@ const stmt = {
     `SELECT kind, count, last_at FROM player_activity
      WHERE guild_id = ? AND user_id = ? AND count > 0
      ORDER BY count DESC, last_at DESC`),
+  // --- Treppchen (Glückwunsch-Meldung) ---
+  podiumOf: db.prepare(
+    'SELECT rank, user_id, worth, at FROM podium WHERE guild_id = ? ORDER BY rank'),
+  setPodium: db.prepare(
+    `INSERT INTO podium (guild_id, rank, user_id, worth, at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, rank) DO UPDATE SET
+       user_id = excluded.user_id, worth = excluded.worth, at = excluded.at`),
+  clearPodium: db.prepare('DELETE FROM podium WHERE guild_id = ?'),
+
   setActivity: db.prepare(
     `INSERT INTO player_activity (guild_id, user_id, kind, count, last_at)
      VALUES (?, ?, ?, ?, ?)
@@ -2314,6 +2341,21 @@ function bumpActivity(guildId, userId, kind, at = Date.now()) {
 /** Alle Aktivitäten eines Spielers, häufigste zuerst. */
 function activityOf(guildId, userId) {
   return stmt.activityOf.all(guildId, String(userId));
+}
+
+/** Die zuletzt gemerkten Plätze 1–3 der Reichsten. */
+function podiumOf(guildId) {
+  return stmt.podiumOf.all(guildId);
+}
+
+/** Schreibt einen Platz fort. */
+function setPodium(guildId, rank, userId, worth, at = Date.now()) {
+  stmt.setPodium.run(guildId, Math.round(rank), String(userId), Math.round(worth), at);
+}
+
+/** Vergisst das Treppchen (Reset/Tests). */
+function clearPodium(guildId) {
+  return stmt.clearPodium.run(guildId).changes;
 }
 
 /** Setzt einen Zählerstand absolut (statt ihn zu erhöhen). */
@@ -3380,6 +3422,7 @@ module.exports = {
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners,
   setTitle, bumpActivity, activityOf, setActivity, peekCriminal,
+  podiumOf, setPodium, clearPodium,
   deleteMessage, clearMessages, countDeletable,
   transaction,
   activeRound, latestRound, insertRound, insertLot, listRoundLots, getLot, placeBid, claimLot,

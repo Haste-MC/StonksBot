@@ -18,6 +18,16 @@
  */
 module.exports = [
   {
+    version: '1.21.0',
+    date: '2026-09-06',
+    title: 'Applaus fürs Treppchen',
+    lines: [
+      '🥇 **Wer auf Platz 3, 2 oder 1 der Reichsten steigt, wird gefeiert** – mit einer Meldung auf beiden Plattformen, inklusive dem, den er überholt hat, und seinem Vermögen.',
+      '🔕 **Ohne Ping.** Namen werden angezeigt, aber niemand wird angeschrien – @everyone schon gar nicht.',
+      '🤫 **Und ohne Spam:** Nur Aufstiege zählen, jeder Platz hat eine Sperrfrist, und wer nur bei einem Börsentick kurz vorbeizieht, löst nichts aus.',
+    ],
+  },
+  {
     version: '1.20.0',
     date: '2026-09-06',
     title: 'Titel und ein größeres Profilbild',

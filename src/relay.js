@@ -614,6 +614,60 @@ function learnFace(message, platform = 'discord') {
   identity.remember(identity.account(platform, String(id)), name);
 }
 
+/**
+ * ===========================================================================
+ *  DURCHSAGE AUF BEIDEN SEITEN
+ * ===========================================================================
+ *
+ * Eine Meldung, die nicht aus einem Kanal kommt, sondern vom Bot selbst –
+ * etwa der Glückwunsch, wenn jemand aufs Treppchen steigt (podium.js).
+ *
+ * Wohin: `ANNOUNCE_DISCORD_CHANNEL` / `ANNOUNCE_FLUXER_CHANNEL`, ersatzweise
+ * die Kanäle der Brücke. Ist nichts eingestellt, passiert nichts – eine
+ * Durchsage soll sich keinen Kanal aussuchen.
+ *
+ * **Nie ein Ping.** `allowedMentions: { parse: [] }` heißt: Erwähnungen werden
+ * dargestellt, aber niemand wird benachrichtigt – schon gar nicht @everyone.
+ *
+ * @returns {Promise<string[]>} welche Plattformen die Meldung angenommen haben
+ */
+const ANNOUNCE_DISCORD = process.env.ANNOUNCE_DISCORD_CHANNEL || DISCORD_CHANNEL;
+const ANNOUNCE_FLUXER = process.env.ANNOUNCE_FLUXER_CHANNEL || FLUXER_CHANNEL;
+
+async function broadcast(text, { discord = ANNOUNCE_DISCORD, fluxer = ANNOUNCE_FLUXER } = {}) {
+  const sent = [];
+  if (!text) return sent;
+
+  if (discord && clients.discord) {
+    try {
+      // Unübersetzt: Der Text ist bereits in Discord-Schreibweise verfasst
+      // (Erwähnungen, Währungs-Emoji). `forDiscord` ist für Fremdtexte da und
+      // würde eine korrekte Erwähnung als Fluxer-ID missdeuten.
+      const channel = await clients.discord.channels.fetch(String(discord));
+      await channel.send({ content: text, allowedMentions: { parse: [] } });
+      sent.push('discord');
+    } catch (err) {
+      console.warn(`Durchsage (Discord) fehlgeschlagen: ${err.message}`);
+    }
+  }
+
+  if (fluxer && clients.fluxer) {
+    try {
+      // Über dieselbe Übersetzung wie die Ansichten: Währungs-Emoji und
+      // Erwähnungen sind auf Fluxer sonst Rohtext.
+      await clients.fluxer.channels.send(String(fluxer), {
+        content: require('./fluxer/render').forFluxer(text),
+        allowedMentions: { parse: [] },
+      });
+      sent.push('fluxer');
+    } catch (err) {
+      console.warn(`Durchsage (Fluxer) fehlgeschlagen: ${err.message}`);
+    }
+  }
+
+  return sent;
+}
+
 /** Discord → Fluxer. */
 async function fromDiscord(message) {
   if (!ready() || isOwn(message, 'discord') || ignored(message)) return false;
@@ -663,4 +717,5 @@ module.exports = {
   forFluxer, forDiscord,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, ownWebhookIds, hooks,
+  broadcast, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
 };

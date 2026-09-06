@@ -1554,6 +1554,43 @@ Verknüpfte Konten stehen nur einmal drin. Wer bei UnbelievaBoat gar nicht in
 den Top 100 auftaucht, aber etwas besitzt, wird einzeln nachgeschlagen –
 gedeckelt auf 25 Abfragen, damit ein großer Server keine API-Flut auslöst.
 
+### Treppchen: Glückwunsch auf beiden Plattformen
+
+Steigt jemand auf **Platz 3, 2 oder 1** der Reichsten, geht eine Meldung in
+den eingestellten Kanal – auf Discord **und** auf Fluxer
+([`podium.js`](src/podium.js)):
+
+```
+🥇 @Kevin ist die neue Nummer 1 der Reichsten!
+Überholt: @Mira · Vermögen: 🪙 1.234.567
+```
+
+Erwähnungen werden dargestellt, aber **niemand wird angepingt** – die Durchsage
+setzt `allowedMentions: { parse: [] }`, @everyone gibt es hier nicht.
+
+```env
+ANNOUNCE_DISCORD_CHANNEL=…      # ersatzweise RELAY_DISCORD_CHANNEL
+ANNOUNCE_FLUXER_CHANNEL=…       # ersatzweise RELAY_FLUXER_CHANNEL
+PODIUM_COOLDOWN_H=6
+PODIUM_MIN_WORTH=10000
+```
+
+Kein Scheduler (§4): Geprüft wird, wenn die Rangliste ohnehin gerechnet wurde –
+beim Blick auf `!top` oder `!rangliste`. Der Glückwunsch kann dadurch ein paar
+Minuten später kommen als der Aufstieg; dafür kostet er keine einzige
+zusätzliche Abfrage.
+
+Vier Regeln, damit daraus kein Spam wird:
+
+1. **Nur Aufstiege.** Wer verdrängt wird, rutscht zwangsläufig – dafür gibt es
+   keine Meldung.
+2. **Nichts beim ersten Mal.** Ist noch kein Treppchen gemerkt, wird es still
+   gefüllt; sonst gäbe es drei Glückwünsche für einen Zustand, der längst gilt.
+3. **Sperrfrist je Spieler und Platz** (6 h). Zwei Spieler dicht beieinander
+   tauschen sonst bei jedem Börsentick die Plätze.
+4. **Erst merken, dann senden** (§7): Zwei gleichzeitige Aufrufe setzen nicht
+   beide dieselbe Meldung ab.
+
 ### `!top` auf Discord: zwei Listen
 
 Dort gehört `!top` UnbelievaBoat. Der Bot liest den Befehl mit und antwortet
