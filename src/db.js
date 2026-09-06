@@ -365,6 +365,26 @@ db.exec(`
   );
 `);
 
+/*
+ * Nachbeben eines Kurssturzes oder einer Übertreibung (siehe wallstreet.js).
+ *
+ *   recover_to    Kurs, zu dem es zurückgehen soll (0 = kein Ereignis offen)
+ *   recover_until bis zu welchem Takt der Zug wirkt
+ *
+ * Nur in diesem Fenster ist der Kurs vorhersagbar – der Rest der Zeit bleibt
+ * er ein Zufallslauf. Genau das begrenzt, wie viel sich daraus holen lässt.
+ */
+const priceColumns = new Set(
+  db.prepare('PRAGMA table_info(market_prices)').all().map((c) => c.name));
+for (const [column, definition] of [
+  ['recover_to', 'REAL NOT NULL DEFAULT 0'],
+  ['recover_until', 'INTEGER NOT NULL DEFAULT 0'],
+]) {
+  if (!priceColumns.has(column)) {
+    db.exec(`ALTER TABLE market_prices ADD COLUMN ${column} ${definition}`);
+  }
+}
+
 // Zustand des Gesamtmarktes: eine Welt, eine Uhr, eine Stimmung.
 // `vol` ist die aktuelle Nervosität (1 = normal) und wandert langsam – daher
 // gibt es ruhige Wochen und hektische Tage, statt immer gleich viel Zappeln.
@@ -1496,10 +1516,11 @@ const stmt = {
   getPrice: db.prepare('SELECT * FROM market_prices WHERE guild_id = ? AND symbol = ?'),
   allPrices: db.prepare('SELECT * FROM market_prices WHERE guild_id = ?'),
   setPrice: db.prepare(
-    `INSERT INTO market_prices (guild_id, symbol, price, tick, listed_at)
-     VALUES (?, ?, ?, ?, ?)
+    `INSERT INTO market_prices (guild_id, symbol, price, tick, listed_at, recover_to, recover_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (guild_id, symbol) DO UPDATE SET
-       price = excluded.price, tick = excluded.tick`),
+       price = excluded.price, tick = excluded.tick,
+       recover_to = excluded.recover_to, recover_until = excluded.recover_until`),
   relist: db.prepare(
     `UPDATE market_prices SET price = ?, tick = ?, listed_at = ?
      WHERE guild_id = ? AND symbol = ?`),
@@ -3402,8 +3423,10 @@ function allPrices(guildId) {
 }
 
 /** Schreibt Kurs und Stand der Simulation fort. */
-function setPrice(guildId, symbol, price, tick, listedAt = Date.now()) {
-  stmt.setPrice.run(guildId, symbol, Math.max(1, Math.round(price)), tick, listedAt);
+function setPrice(guildId, symbol, price, tick, listedAt = Date.now(), recover = null) {
+  stmt.setPrice.run(
+    guildId, symbol, Math.max(1, Math.round(price)), tick, listedAt,
+    Math.max(0, recover?.to ?? 0), Math.max(0, recover?.until ?? 0));
 }
 
 /** Neuemission nach einer Insolvenz: Kurs und Startzeitpunkt zurücksetzen. */

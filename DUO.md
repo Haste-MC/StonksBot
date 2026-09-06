@@ -1276,25 +1276,69 @@ Auf Discord `/boerse` (mit `wert:HAST` direkt zum Papier) und `/depot`, dazu
 Eingabe – und beim Verkauf 25/50/100 % des Bestands oder eine Stückzahl. Auf
 Fluxer geht dasselbe per Text: `!invest RUBI für 20000`.
 
-### Kein Gelddrucker (ARCHITEKTUR §3)
+### Warum die Börse sich lange tot anfühlte
 
-Hier ist die Regel schwerer einzuhalten als anderswo, weil der Spieler selbst
-entscheidet, wann er kauft. Der Kurs ist deshalb ein **Martingal**: Der
-Erwartungswert des nächsten Kurses ist exakt der aktuelle. Gewürfelt wird
-`exp(σ·z − σ²/2)`; für normalverteiltes z hebt der Abzug den Aufwärtseffekt
-der Schwankung genau auf. Ohne ihn hätte jeder Wert eine eingebaute Drift –
-und je wilder ein Coin, desto mehr Geld aus dem Nichts.
+Der Kurs war ein exaktes **Martingal**: Erwartungswert des nächsten Kurses =
+aktueller Kurs, kein Handelsmuster im Vorteil, sauber bewiesen. Und trotzdem
+war das Depot der unbeliebteste Teil des Spiels. Der Grund steckt in einer
+Formel:
 
-Folge: **Keine Strategie hat einen Vorteil.** Halten, Dips kaufen, Trends
-reiten, würfeln – alles hat den Erwartungswert null. Darauf kommt die Gebühr
-von 1 % je Auftrag, und damit ist die Börse unterm Strich eine Geldsenke.
-Keine Zinsen, keine Dividende, kein Bonus – all das wäre Geld aus dem Nichts.
+```
+Median = Mittelwert · e^(−σ²·t/2)
+```
 
-[`test/wallstreet.test.js`](test/wallstreet.test.js) beweist beides:
-analytisch (E[Ertrag] = 1 über 200.000 Schritte je Schwankungsstufe) und
-empirisch (vier Strategien über je 600 Kursbahnen; zusätzlich exakt: auf
-derselben Bahn ist das Ergebnis mit Gebühr immer genau um die gezahlten
-Gebühren schlechter).
+Bei multiplikativen Kursen tragen wenige große Ausreißer den Mittelwert,
+während der **typische** Verlauf langsam absackt. Gemessen: Über einen Monat
+lag der Median einer Aktie bei **−10 %**, bei Krypto bei **−59 %** – und nur
+**39 %** aller Käufe gingen mit Gewinn raus. Rechnerisch fair, gefühlt
+Abzocke. Wer hielt, verlor. Wer hinschaute, wurde nicht belohnt.
+
+### Zwei bewusste Zuflüsse
+
+**1. Drift.** Der Markt steigt leicht: Die Aufwärtsdrift gleicht das
+Ausbluten des Medians aus. Sie ist gedeckelt (`DRIFT_CAP`), und der Deckel
+bestimmt die Kalibrierung der Schwankung – ein Wert, dessen σ unter dem Deckel
+liegt, hat einen flachen Median.
+
+| typische Aktie | Median | Ø |
+|---|--:|--:|
+| 1 Woche | 0,0 % | +1,0 % |
+| 1 Monat | −0,9 % | +4,2 % |
+| 3 Monate | −3,5 % | +13,7 % |
+
+Krypto liegt bewusst weit über dem Deckel und bleibt damit **die Wette**:
+Median −41 % im Monat, Erwartungswert +3 %. Die meisten verlieren, wenige
+gewinnen groß. Genau das soll ein Coin sein.
+
+**2. Nachbeben.** Selten (je Wert etwa alle 90 Tage) kippt ein Kurs um 12–30 %
+weg oder schießt hoch – und holt danach über zwei Tage die **Hälfte** davon
+zurück. Das ist die einzige Stelle, an der ein Kurs vorhersagbar ist, und
+genau dafür ist sie da: Wer die Schlagzeile liest und im Einbruch kauft,
+verdient daran.
+
+### Warum keine dauerhafte Kursbindung
+
+Der erste Versuch war, die Kurse dauerhaft an einen Anker zu binden (Mean
+Reversion). Das repariert den Median perfekt – und macht die Börse zur
+Gelddruckmaschine. Gemessen mit einem stumpfen Bot („kaufe 10 % unter dem
+Schnitt der letzten 200 Takte, verkaufe 10 % darüber"), der **einmal am Tag**
+hineinschaut:
+
+| | dauerhafte Bindung | jetzt (nur Nachbeben) |
+|---|--:|--:|
+| Aktien | +105 % | **+20 %** |
+| Krypto | +253 % | +33 % |
+
+_(Rendite auf das eingesetzte Kapital, rund sechs Wochen, nach Gebühren.)_
+
+Vorhersagbarkeit ist immer handelbar – die Frage ist nur, wie oft es sie gibt.
+Sechs Parametersätze und eine Variante, die erst bei ±80 % Abweichung greift,
+landeten alle zwischen +38 % und +285 %. Deshalb: selten und begrenzt statt
+dauerhaft.
+
+[`test/wallstreet.test.js`](test/wallstreet.test.js) hält beide Enden fest –
+dass der Median nicht mehr wegläuft, **und** dass derselbe Bot unter 40 %
+bleibt.
 
 ### Was die Kurse realistisch macht
 

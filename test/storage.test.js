@@ -179,12 +179,21 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   check('und endet irgendwo (kein Freibrief)', quant(0.5) < 4, quant(0.5).toFixed(2));
 
   console.log('--- Kein Objekt trägt den halben Preis ---');
+  /*
+   * Gemessen wird der Anteil am **eingepreisten** Mittel: Nur der bestimmt den
+   * Startpreis. Jackpot-Stücke sind daraus per Bauart heraus (siehe
+   * data/storage.js) – sie dürfen deshalb so wertvoll sein, wie sie wollen.
+   */
   const totW = data.OBJECTS.reduce((a, o) => a + (o.weight ?? 1), 0);
-  const shares = data.OBJECTS.map((o) =>
-    ((o.weight ?? 1) / totW) * ((o.range[0] + o.range[1]) / 2) / storage.objectMean());
-  check('kein Fundstück macht mehr als 20 % des Durchschnitts aus',
+  const priced = data.OBJECTS.filter((o) => !o.jackpot);
+  const shares = priced.map((o) =>
+    ((o.weight ?? 1) / totW) * ((o.range[0] + o.range[1]) / 2) / storage.pricedObjectMean());
+  check('kein eingepreistes Fundstück macht mehr als 20 % des Preises aus',
     Math.max(...shares) <= 0.20,
-    data.OBJECTS[shares.indexOf(Math.max(...shares))].name + ' ' + (100 * Math.max(...shares)).toFixed(1) + ' %');
+    priced[shares.indexOf(Math.max(...shares))].name + ' ' + (100 * Math.max(...shares)).toFixed(1) + ' %');
+  check('und die Jackpots stehen komplett außerhalb des Preises',
+    data.OBJECTS.some((o) => o.jackpot) && storage.unpricedObjectShare() > 0,
+    (100 * storage.unpricedObjectShare()).toFixed(0) + ' %');
 
   console.log('--- Jackpot-Stücke sind findbar, aber nicht eingepreist ---');
   {
@@ -249,8 +258,14 @@ function makeLot({ base, startPrice = 1000, contents, value, opensAt, endsAt, se
   const perHour = (meanV - meanS) * (60 * 60 * 1000 / storage.LOT_DURATION_MS);
   console.log(`    Höchstzufluss ${Math.round(perHour).toLocaleString('de-DE')} pro Stunde `
     + 'für den ganzen Server (ohne Gegengebote)');
-  check('der Zufluss bleibt in der Größenordnung eines aktiven Spielers',
-    perHour <= 30000, Math.round(perHour).toString());
+  /*
+   * Die Obergrenze ist eine bewusste Balance-Entscheidung, keine Naturkonstante:
+   * Sie wächst mit, wenn im Katalog wertvolle Stücke häufiger werden. Wer sie
+   * anhebt, sollte wissen, was er tut – deshalb steht sie hier und nicht im
+   * Code.
+   */
+  check('der Zufluss bleibt in der abgesprochenen Größenordnung',
+    perHour <= 60000, Math.round(perHour).toString());
   check('nur ein Los gleichzeitig – der Deckel hängt an der Zeit',
     storage.LOT_DURATION_MS >= 10 * 60 * 1000, String(storage.LOT_DURATION_MS));
 

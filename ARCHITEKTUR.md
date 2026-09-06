@@ -53,7 +53,23 @@ du etwas baust, das Geld auszahlt, schreib einen Test, der über viele tausend
 Durchläufe zeigt, dass die Bilanz nicht positiv kippt (siehe
 `test/buyers.test.js`, `test/casino.test.js`, `test/tenants.test.js`).
 
-### Die eine bewusste Ausnahme: das Auktionshaus
+### Bewusste Ausnahme 2: die Börse
+
+[`wallstreet.js`](src/wallstreet.js) hat seit dem Umbau zwei kleine Zuflüsse:
+eine **gedeckelte Aufwärtsdrift** (sie gleicht aus, dass der Median eines
+Zufallslaufs mit σ²·t/2 absackt) und **Nachbeben** nach seltenen Kursstürzen.
+
+Der Grund: Als reines Martingal war die Börse rechnerisch fair, aber nur 39 %
+aller Käufe gingen mit Gewinn raus – der Mittelwert wurde von seltenen
+Ausreißern getragen. Ein Feature, bei dem der typische Spieler immer verliert,
+wird nicht benutzt.
+
+Beides ist gemessen und nach oben festgenagelt: Ein Bot, der stur tief kauft
+und hoch verkauft, holt ~20 % auf das eingesetzte Kapital in sechs Wochen
+(vorher, mit dauerhafter Kursbindung: +105 %). Wer hier etwas ändert, muss
+diesen Wert im Test im Auge behalten.
+
+### Bewusste Ausnahme 1: das Auktionshaus
 
 [`storage.js`](src/storage.js) **erzeugt Geld** – mit Absicht, als
 Produktentscheidung. Der Startpreis liegt bei rund 45 % des erwarteten Inhalts,

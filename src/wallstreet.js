@@ -15,21 +15,37 @@ const withdrawFromBank = (...a) => unb.withdrawFromBank(...a);
  * Aktien, Fonds-Anteile und Krypto mit Kursen, die sich stündlich bewegen.
  * Gekauft und verkauft wird mit demselben Geld wie alles andere.
  *
- * ===================== KEIN GELDDRUCKER (§3) =====================
- * Der Kurs ist ein **Martingal**: Der Erwartungswert des nächsten Kurses ist
- * exakt der aktuelle. Formal wird der Ertrag als exp(σ·z − σ²/2) gewürfelt;
- * für normalverteiltes z gilt E[exp(σ·z)] = exp(σ²/2), der Abzug hebt das
- * also genau auf.
+ * ===================== ZWEI BEWUSSTE ZUFLÜSSE =====================
+ * Die Börse war lange ein exaktes Martingal: Erwartungswert null, kein Muster
+ * im Vorteil. Sauber – aber sie fühlte sich tot an, und das aus einem
+ * unangenehmen Grund. Bei multiplikativen Kursen gilt
  *
- * Folge: **Kein Handelsmuster hat einen Vorteil.** Kaufen, halten, Dips
- * kaufen, Trends reiten – alles hat den Erwartungswert null. Darauf kommt die
- * Gebühr (beide Seiten), und damit ist die Börse unterm Strich eine
- * Geldsenke. Kein Zins, keine Dividende, kein Bonus: All das wäre Geld aus
- * dem Nichts.
+ *     Median = Mittelwert · e^(−σ²·t/2)
  *
- * Bewiesen in test/wallstreet.test.js – analytisch UND per Monte-Carlo über
- * mehrere Handelsstrategien.
- * =================================================================
+ * Der Mittelwert stimmte also, während der **typische** Verlauf langsam
+ * ausblutete: Gemessen gingen nur 39 % aller Käufe mit Gewinn raus. Wer hielt,
+ * verlor gefühlt immer, und wer hinschaute, wurde dafür nicht belohnt.
+ *
+ * Deshalb jetzt zwei Zuflüsse, beide klein, beide gedeckelt, beide gemessen:
+ *
+ *  1. **Drift** – der Markt steigt leicht. Das gleicht das Ausbluten aus, ohne
+ *     irgendein Handelsmuster zu bevorzugen: Es gibt nichts vorherzusagen,
+ *     der Zufluss ist passiv und proportional zum eingesetzten Geld. Gedeckelt
+ *     über DRIFT_CAP.
+ *  2. **Nachbeben** – nach einem Kurssturz (oder einer Übertreibung nach oben)
+ *     zieht der Kurs einen Teil davon zurück. **Nur in diesem Fenster** ist
+ *     etwas vorhersagbar, und genau das macht Hinschauen wertvoll: Wer den
+ *     Einbruch sieht und kauft, verdient daran.
+ *
+ * Warum nicht dauerhaft an einen Anker binden? Das war der erste Versuch, und
+ * er ist an der Messung gescheitert: Ein simpler Bot („kaufe 10 % unter dem
+ * Schnitt") holte damit **+105 % auf das eingesetzte Kapital in zwei Monaten**
+ * heraus – bei einem Blick pro Tag. Vorhersagbarkeit ist immer handelbar; die
+ * Frage ist nur, wie oft es sie gibt. Deshalb hier: selten und begrenzt.
+ *
+ * Wie groß der Vorteil des Hinschauens tatsächlich ist, rechnet
+ * test/wallstreet.test.js mit demselben Bot nach und hält ihn nach oben fest.
+ * ==================================================================
  *
  * ===================== FAULE SIMULATION (§4) =====================
  * Es gibt keinen Scheduler. Jeder Wert merkt sich, bis zu welchem **Tick** er
@@ -67,6 +83,36 @@ const CRYPTO_SIGMA = 0.012;
 const VOL_PULL = 0.02;       // wie stark es zur Normallage zurückzieht
 const VOL_NOISE = 0.05;      // wie stark die Nervosität selbst schwankt
 const VOL_RANGE = [0.45, 2.6];
+
+/**
+ * Aufwärtsdrift je Takt, als **Anteil des Ausblutens** (σ²/2).
+ *
+ * 1 hieße: Der Median steht exakt still, der Mittelwert wächst um dasselbe.
+ * 0,6 lässt einen Rest übrig – Halten lohnt sich, ist aber kein Selbstläufer.
+ */
+const DRIFT_SHARE = 1;
+
+/**
+ * Und ein harter Deckel je Takt.
+ *
+ * Nötig wegen Krypto: Dort ist σ²/2 so groß, dass die volle Drift +150 % im
+ * Monat wären. Mit Deckel liegt der passive Zufluss für JEDEN Wert bei
+ * höchstens ~4 % im Monat.
+ */
+const DRIFT_CAP = 0.00004;
+
+/**
+ * ===================== NACHBEBEN =====================
+ * Selten kippt ein Kurs weg (oder schießt hoch) – und holt danach einen Teil
+ * davon zurück. Das ist die einzige Stelle, an der der Kurs vorhersagbar ist,
+ * und sie ist mit Absicht selten: Der Vorteil, den man daraus ziehen kann, ist
+ * die Zahl der Ereignisse mal ihre Tiefe.
+ */
+const EVENT_CHANCE = 1 / (48 * 90);   // je Wert etwa alle 90 Tage
+const EVENT_SIZE = [0.12, 0.30];      // wie tief es kippt
+const RECOVER_SHARE = 0.5;            // so viel davon kommt zurück
+const RECOVER_TICKS = 96;             // über zwei Tage verteilt
+const RECOVER_PULL = 0.035;           // Zug je Takt in Richtung Erholung
 
 /** Gebühr je Seite. Die einzige Stelle, an der der Börse Geld zufließt. */
 const FEE = 0.01;
@@ -111,11 +157,43 @@ function gauss(random = Math.random) {
  * Ohne diesen Abzug hätte jeder Wert eine eingebaute Aufwärtsdrift – ein
  * Gelddrucker, der mit der Schwankung wächst (ARCHITEKTUR §3).
  */
-function step(price, sigma, random = Math.random, shock = 0, shockSigma = 0) {
-  if (!sigma && !shock) return price;
+function step(price, sigma, random = Math.random, shock = 0, shockSigma = 0, recoverTo = 0) {
+  if (!sigma && !shock && !recoverTo) return price;
   const variance = sigma * sigma + shockSigma * shockSigma;
-  const factor = Math.exp(sigma * gauss(random) + shock - variance / 2);
+
+  // Drift: gleicht das Ausbluten des Medians zum großen Teil aus, gedeckelt.
+  const drift = Math.min(DRIFT_CAP, (variance / 2) * DRIFT_SHARE);
+
+  // Nachbeben: zieht in Richtung Erholungsziel – nur solange das Fenster läuft.
+  const pull = recoverTo > 0
+    ? RECOVER_PULL * Math.log(recoverTo / Math.max(1, price)) : 0;
+
+  const factor = Math.exp(pull + drift + sigma * gauss(random) + shock - variance / 2);
   return Math.max(1, Math.round(price * factor));
+}
+
+/**
+ * Würfelt ein Kursereignis aus: Sturz oder Übertreibung.
+ *
+ * @returns {{price:number, to:number, down:boolean}|null} neuer Kurs und das
+ *   Erholungsziel – oder null, wenn nichts passiert ist.
+ */
+function rollEvent(price, tick, random = Math.random) {
+  if (random() >= EVENT_CHANCE) return null;
+
+  const size = EVENT_SIZE[0] + random() * (EVENT_SIZE[1] - EVENT_SIZE[0]);
+  const down = random() < 0.5;
+  const after = down
+    ? Math.max(1, Math.round(price * (1 - size)))
+    : Math.max(1, Math.round(price * (1 + size)));
+
+  // Zurück kommt nur ein Teil – der Rest ist echte Neubewertung. Sonst wäre
+  // jedes Ereignis eine sichere Bank für den, der es sieht.
+  const to = down
+    ? after + (price - after) * RECOVER_SHARE
+    : after - (after - price) * RECOVER_SHARE;
+
+  return { price: after, to, until: tick + RECOVER_TICKS, down, size };
 }
 
 /** Nächste Nervosität: zieht zur 1 zurück, wackelt aber selbst. */
@@ -242,6 +320,11 @@ function simulate(guildId, from, target, now, random) {
   const funds = data.ASSETS.filter((a) => a.kind === 'fund');
   const prices = new Map(singles.map((a) => [a.symbol, db.getPrice(guildId, a.symbol).price]));
   const fundPrices = new Map(funds.map((a) => [a.symbol, db.getPrice(guildId, a.symbol).price]));
+  // Offene Nachbeben aus einem früheren Lauf weiterführen.
+  const recovery = new Map(singles.map((a) => {
+    const row = db.getPrice(guildId, a.symbol);
+    return [a.symbol, { to: row.recover_to ?? 0, until: row.recover_until ?? 0 }];
+  }));
   let vol = db.getMarketState(guildId)?.vol ?? 1;
 
   for (let t = from + 1; t <= target; t++) {
@@ -256,9 +339,21 @@ function simulate(guildId, from, target, now, random) {
 
     for (const asset of singles) {
       const before = prices.get(asset.symbol);
-      const next = step(
+      const open = recovery.get(asset.symbol);
+      const active = open.until > t ? open.to : 0;
+
+      let next = step(
         before, asset.sigma * vol, random,
-        shocks[asset.kind] ?? 0, shockSigma[asset.kind] ?? 0);
+        shocks[asset.kind] ?? 0, shockSigma[asset.kind] ?? 0, active);
+
+      // Kippt hier gerade etwas weg? Dann überschreibt das den normalen Schritt.
+      const event = active > 0 ? null : rollEvent(next, t, random);
+      if (event) {
+        next = event.price;
+        recovery.set(asset.symbol, { to: event.to, until: event.until });
+      } else if (open.until <= t && open.to > 0) {
+        recovery.set(asset.symbol, { to: 0, until: 0 });   // Fenster abgelaufen
+      }
 
       prices.set(asset.symbol, next);
       db.addHistory(guildId, asset.symbol, t, next);
@@ -267,7 +362,7 @@ function simulate(guildId, from, target, now, random) {
       if (Math.abs(change) >= NEWS_THRESHOLD) {
         const headline = makeHeadline(asset, change);
         db.addNews(guildId, asset.symbol, t, headline, change, now);
-        news.push({ symbol: asset.symbol, headline, change });
+        news.push({ symbol: asset.symbol, headline, change, event: Boolean(event) });
       }
     }
 
@@ -291,7 +386,7 @@ function simulate(guildId, from, target, now, random) {
 
   for (const asset of singles) {
     const price = prices.get(asset.symbol);
-    db.setPrice(guildId, asset.symbol, price, target);
+    db.setPrice(guildId, asset.symbol, price, target, undefined, recovery.get(asset.symbol));
     db.purgeHistory(guildId, asset.symbol, target - HISTORY_TICKS);
     if (price < BANKRUPT_BELOW) broke.push({ asset, price });
   }
@@ -628,6 +723,8 @@ function arrow(change) {
 module.exports = {
   TICK_MS, MAX_CATCHUP, FEE, MIN_FEE, BANKRUPT_BELOW, HISTORY_TICKS,
   NEWS_THRESHOLD, MAX_SHARES, MARKET_SIGMA, CRYPTO_SIGMA, VOL_RANGE,
+  DRIFT_SHARE, DRIFT_CAP, EVENT_CHANCE, EVENT_SIZE, RECOVER_SHARE, RECOVER_TICKS,
+  RECOVER_PULL, rollEvent,
   gauss, step, nextVol, tickOf, basketOf, fundPrice, basketMean, list, advance,
   simulate, makeHeadline, bankrupt,
   feeFor, feeForUser, quote, board, portfolio, sharesFor, buy, sell,

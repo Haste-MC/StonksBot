@@ -54,9 +54,12 @@ const H = market.TICK_MS;
 db.clearMarket(G);
 
 (async () => {
-  console.log('--- KEIN GELDDRUCKER: der Kurs ist ein Martingal ---');
-  // E[exp(σ·z − σ²/2)] === 1. Ohne den Abzug σ²/2 hätte jeder Wert eine
-  // eingebaute Aufwärtsdrift – Geld aus dem Nichts, wachsend mit der Schwankung.
+  console.log('--- Das Fundament: der Zufallsschritt selbst ist fair ---');
+  /*
+   * E[exp(σ·z − σ²/2)] === 1: Ohne diesen Abzug hätte jeder Wert eine
+   * eingebaute Drift, die mit der Schwankung wächst. Der Abzug bleibt – die
+   * bewusste Drift kommt separat obendrauf und ist gedeckelt (siehe unten).
+   */
   for (const sigma of [0.005, 0.02, 0.05]) {
     const rng = mulberry32(4242 + Math.round(sigma * 1000));
     const N = 200000;
@@ -73,8 +76,12 @@ db.clearMarket(G);
   let sum = 0;
   const N = 200000;
   for (let i = 0; i < N; i++) sum += market.step(10000, 0.02, rngStep);
-  check(`Kursschritt hält den Erwartungswert (${Math.round(sum / N)} statt 10000)`,
-    Math.abs(sum / N - 10000) < 100, String(sum / N));
+  // Der Schritt trägt jetzt die gedeckelte Drift – der Erwartungswert liegt
+  // also ein Stück ÜBER dem Ausgangskurs, und zwar um genau diesen Deckel.
+  const erwartet = 10000 * Math.exp(market.DRIFT_CAP);
+  check(`Kursschritt steigt um die Drift (${Math.round(sum / N)} statt ${Math.round(erwartet)})`,
+    Math.abs(sum / N - erwartet) < 120, String(sum / N));
+  check('und die Drift ist gedeckelt', market.DRIFT_CAP <= 0.00005, String(market.DRIFT_CAP));
 
   check('Kurse bleiben positiv',
     Array.from({ length: 5000 }, () => market.step(1, 0.05, rngStep)).every((p) => p >= 1));
@@ -233,6 +240,73 @@ db.clearMarket(G);
   check('Postfach informiert',
     db.listMessages(G, PLEITE, 1).items.some((m) => m.title.includes('Insolvenz')));
 
+  console.log('--- Drift: Halten blutet nicht mehr aus ---');
+  {
+    /*
+     * Der Grund für die Drift. Vorher galt Median = Mittelwert · e^(−σ²t/2):
+     * Der Erwartungswert stimmte, aber der typische Verlauf sank – gemessen
+     * gingen nur 39 % aller Käufe mit Gewinn raus. Jetzt hebt die Drift genau
+     * dieses Ausbluten auf, solange die Schwankung unter dem Deckel bleibt.
+     */
+    const typisch = data.ASSETS.filter((a) => a.kind === 'stock').map((a) => a.sigma)
+      .sort((a, b) => a - b)[Math.floor(data.ASSETS.filter((a) => a.kind === 'stock').length / 2)];
+
+    const halten = (sigma, ticks, N = 3000) => {
+      const out = []; let sum = 0;
+      for (let i = 0; i < N; i++) {
+        const rng = mulberry32(i * 7919 + 3);
+        let p = 5000, vol = 1;
+        for (let t = 0; t < ticks; t++) {
+          vol = market.nextVol(vol, rng);
+          p = market.step(p, sigma * vol, rng,
+            market.gauss(rng) * market.MARKET_SIGMA * vol, market.MARKET_SIGMA * vol);
+        }
+        out.push(p / 5000); sum += p / 5000;
+      }
+      out.sort((a, b) => a - b);
+      return { med: out[Math.floor(0.5 * N)], mean: sum / N };
+    };
+
+    const monat = halten(typisch, 1440);
+    console.log(`    typische Aktie über einen Monat: Median ${((monat.med - 1) * 100).toFixed(1)} % `
+      + `· Ø ${((monat.mean - 1) * 100).toFixed(1)} %`);
+    check('der Median bleibt ungefähr stehen (vorher −10 %)',
+      monat.med > 0.95, monat.med.toFixed(3));
+    check('und der Erwartungswert steigt spürbar, aber maßvoll',
+      monat.mean > 1.01 && monat.mean < 1.10, monat.mean.toFixed(3));
+
+    // Krypto bleibt bewusst die Wette: dort ist σ weit über dem Deckel.
+    const krypto = data.ASSETS.find((a) => a.kind === 'crypto');
+    const kMonat = halten(krypto.sigma, 1440, 1500);
+    check('Krypto bleibt eine Wette (Median klar im Minus)',
+      kMonat.med < 0.8, kMonat.med.toFixed(3));
+  }
+
+  console.log('--- Nachbeben: Hinschauen lohnt sich, aber begrenzt ---');
+  {
+    check('Ereignisse sind selten', market.EVENT_CHANCE < 1 / (48 * 30),
+      String(1 / market.EVENT_CHANCE));
+    check('sie holen nur einen Teil zurück',
+      market.RECOVER_SHARE > 0 && market.RECOVER_SHARE < 1, String(market.RECOVER_SHARE));
+
+    const rngE = mulberry32(4711);
+    let hits = 0, sample = null;
+    for (let i = 0; i < 200000; i++) {
+      const ev = market.rollEvent(1000, 0, rngE);
+      if (ev) { hits++; sample = sample ?? ev; }
+    }
+    check('ein Ereignis kippt den Kurs deutlich',
+      Math.abs(sample.price - 1000) / 1000 >= market.EVENT_SIZE[0] - 0.001,
+      JSON.stringify(sample));
+    check('das Erholungsziel liegt zwischen Sturz und Ausgangskurs',
+      (sample.down && sample.to > sample.price && sample.to < 1000)
+      || (!sample.down && sample.to < sample.price && sample.to > 1000),
+      JSON.stringify(sample));
+    check('die Häufigkeit stimmt ungefähr',
+      Math.abs(hits / 200000 - market.EVENT_CHANCE) < market.EVENT_CHANCE * 0.2,
+      `${hits} von 200000`);
+  }
+
   console.log('--- Keine Strategie schlägt den Markt ---');
   // Eine EINZELNE Kursbahn beweist gar nichts: Bei einem Martingal kann jede
   // Strategie durch Glück im Plus landen. Deshalb zwei belastbare Aussagen.
@@ -304,8 +378,64 @@ db.clearMarket(G);
   const ends = [];
   for (let seed = 1; seed <= 600; seed++) ends.push(play(strategies.halten, seed * 104729).end);
   ends.sort((a, b) => a - b);
-  check('typischer Halter (Median) endet im Minus', ends[Math.floor(ends.length / 2)] < 0,
+  check('typischer Halter zahlt wenigstens die Gebühr', ends[Math.floor(ends.length / 2)] < 0,
     String(Math.round(ends[Math.floor(ends.length / 2)])));
+
+  console.log('--- Wie viel bringt Hinschauen wirklich? ---');
+  {
+    /*
+     * Der Grund, warum es die Nachbeben überhaupt gibt – und die Schranke, die
+     * verhindert, dass daraus eine Gelddruckmaschine wird.
+     *
+     * Gemessen mit einem stumpfen Bot: kaufen, wenn der Kurs 10 % unter dem
+     * Schnitt der letzten 200 Takte liegt, verkaufen bei 10 % darüber, und das
+     * nur EINMAL AM TAG geprüft. Die erste Fassung dieser Idee (eine dauerhafte
+     * Kursbindung) holte damit +105 % heraus; das war der Grund, sie wieder
+     * auszubauen. Bleibt der Wert hier klein, ist Hinschauen belohnt, ohne dass
+     * der Markt verschenkt wird.
+     */
+    const sigma = data.ASSETS.find((a) => a.kind === 'stock').sigma;
+    let profit = 0, capital = 0;
+
+    for (let seed = 1; seed <= 80; seed++) {
+      const rng = mulberry32(seed * 104729 + 7);
+      let cash = 0, shares = 0, p = 5000, vol = 1, exposure = 0;
+      let rec = { to: 0, until: 0 };
+      const hist = [p];
+
+      for (let t = 0; t < 2000; t++) {
+        vol = market.nextVol(vol, rng);
+        const active = rec.until > t ? rec.to : 0;
+        p = market.step(p, sigma * vol, rng,
+          market.gauss(rng) * market.MARKET_SIGMA * vol, market.MARKET_SIGMA * vol, active);
+
+        const ev = active > 0 ? null : market.rollEvent(p, t, rng);
+        if (ev) { p = ev.price; rec = { to: ev.to, until: ev.until }; }
+        else if (rec.until <= t) rec = { to: 0, until: 0 };
+        hist.push(p);
+
+        if (t % 48 === 0) {
+          const win = hist.slice(-200);
+          const avg = win.reduce((x, y) => x + y, 0) / win.length;
+          if (p < avg * 0.9) { const v = 10 * p; cash -= v + market.feeFor(v); shares += 10; }
+          else if (p > avg * 1.1 && shares > 0) {
+            const n = Math.min(shares, 10); const v = n * p;
+            cash += v - market.feeFor(v); shares -= n;
+          }
+        }
+        exposure += shares * p;
+      }
+      profit += cash + shares * p;
+      capital += exposure / 2000;
+    }
+
+    const rendite = capital > 0 ? profit / capital : 0;
+    console.log(`    „tief kaufen, hoch verkaufen" bringt ${(100 * rendite).toFixed(0)} % `
+      + 'auf das eingesetzte Kapital (rund 6 Wochen)');
+    check('Hinschauen lohnt sich', rendite > 0, (100 * rendite).toFixed(1) + ' %');
+    check('aber es ist keine Gelddruckmaschine (< 40 %)', rendite < 0.4,
+      (100 * rendite).toFixed(1) + ' %');
+  }
 
   console.log('--- Anzeige ---');
   check('Sparkline hat die richtige Länge',

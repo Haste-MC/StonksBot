@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.26.0',
+    date: '2026-09-06',
+    title: 'Die Börse lohnt sich jetzt',
+    lines: [
+      '📈 **Der Markt steigt leicht.** Wer investiert und liegen lässt, verliert nicht mehr langsam – vorher gingen nur 39 % aller Käufe mit Gewinn raus, obwohl die Kurse rechnerisch fair waren.',
+      '💥 **Neu: Kursstürze und Übertreibungen.** Selten kippt ein Wert weg oder schießt hoch – und holt danach die Hälfte davon zurück. Wer die Schlagzeilen liest und im Einbruch kauft, verdient daran.',
+      '🎢 **Krypto bleibt die Wette:** dort schwankt es weiter brutal, und die meisten verlieren. Dafür kann es dort auch dreistellig nach oben gehen.',
+      '⚖️ Beides ist gedeckelt und nachgerechnet: Ein Bot, der stur „tief kaufen, hoch verkaufen" spielt, holt rund 20 % heraus – spürbar, aber keine Gelddruckmaschine.',
+    ],
+  },
+  {
     version: '1.25.0',
     date: '2026-09-06',
     title: 'Neues Zeug in den Garagen',
