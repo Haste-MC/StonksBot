@@ -145,6 +145,28 @@ const ms = jobs.msUntilRefresh(new Date('2026-07-20T23:00:00'));
 check('Auffrischung in unter 24 h', ms > 0 && ms <= 86400000, String(ms));
 check('kurz vor Mitternacht < 1 h', ms <= 3600000, String(ms));
 
+console.log('--- Ein Konto sieht überall dasselbe Angebot ---');
+{
+  /*
+   * Das Angebot hängt an (Welt, KONTO, Datum) – nicht an der Plattform. Wer
+   * verknüpft ist, sieht auf Discord und Fluxer dieselben fünf Jobs; wer es
+   * nicht ist, spielt schlicht ein anderes Konto und bekommt deshalb eine
+   * eigene Liste. Beides ist Absicht, sorgt aber regelmäßig für die Frage
+   * „sind die Listen noch synchron?".
+   */
+  const heute = new Date();
+  const titel = (id, when = heute) => jobs.dailyOffers(G, id, when).map((j) => j.title).join('|');
+  const konto = '498875863496916995';
+
+  check('dasselbe Konto bekommt immer dieselbe Liste', titel(konto) === titel(konto));
+  check('ein anderes Konto sieht etwas anderes',
+    titel(konto) !== titel(`fx:${konto}`),
+    `${titel(konto)} vs ${titel(`fx:${konto}`)}`);
+  check('und morgen ist die Liste wieder anders',
+    titel(konto) !== titel(konto, new Date(heute.getTime() + 86400000)));
+  check('es sind immer fünf', jobs.dailyOffers(G, konto, heute).length === 5);
+}
+
 cleanup();
 console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
 process.exit(fail === 0 ? 0 : 1);

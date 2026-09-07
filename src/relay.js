@@ -634,9 +634,34 @@ function learnFace(message, platform = 'discord') {
 const ANNOUNCE_DISCORD = process.env.ANNOUNCE_DISCORD_CHANNEL || DISCORD_CHANNEL;
 const ANNOUNCE_FLUXER = process.env.ANNOUNCE_FLUXER_CHANNEL || FLUXER_CHANNEL;
 
+/** Sind Durchsagen überhaupt eingerichtet? (für die Startmeldung) */
+const announcesTo = () => [
+  ANNOUNCE_DISCORD ? 'Discord' : null,
+  ANNOUNCE_FLUXER ? 'Fluxer' : null,
+].filter(Boolean);
+
+/** Nur einmal je Start meckern, wenn kein Kanal eingetragen ist. */
+let warnedNoChannel = false;
+
 async function broadcast(text, { discord = ANNOUNCE_DISCORD, fluxer = ANNOUNCE_FLUXER } = {}) {
   const sent = [];
   if (!text) return sent;
+
+  /*
+   * Der häufigste Grund, warum eine Durchsage „nicht funktioniert": Es ist
+   * schlicht kein Kanal eingetragen. Früher passierte dann gar nichts – auch
+   * kein Hinweis. Einmal pro Start sagen wir jetzt Bescheid.
+   */
+  if (!discord && !fluxer) {
+    if (!warnedNoChannel) {
+      warnedNoChannel = true;
+      console.warn(
+        '📣 Durchsage verworfen: kein Kanal eingetragen. Trage in der .env '
+        + 'ANNOUNCE_DISCORD_CHANNEL und/oder ANNOUNCE_FLUXER_CHANNEL ein '
+        + '(ersatzweise RELAY_DISCORD_CHANNEL / RELAY_FLUXER_CHANNEL).');
+    }
+    return sent;
+  }
 
   if (discord && clients.discord) {
     try {
@@ -717,5 +742,5 @@ module.exports = {
   forFluxer, forDiscord,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, ownWebhookIds, hooks,
-  broadcast, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
+  broadcast, announcesTo, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
 };

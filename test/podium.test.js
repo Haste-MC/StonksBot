@@ -126,9 +126,34 @@ const t0 = Date.now();
   await podium.celebrate(W, list([C, 2_000_000], [A, 1_500_000], [B, 1_400_000]), t6 + 60_000);
   check('ohne Änderung geht nichts raus', gesendet.length === 0);
 
+  const t7 = t6 + 20 * HOUR;
+  console.log('--- Ohne eingetragenen Kanal sagt es wenigstens Bescheid ---');
+  {
+    /*
+     * Der Fall aus dem Betrieb: „Ich war Erster und es kam nichts." Ohne
+     * Kanal ging die Meldung lautlos verloren – und im Log stand nichts,
+     * woran man es hätte erkennen können.
+     */
+    const relayModul = require('../src/relay');
+    const echt = relayModul.broadcast;
+    relayModul.broadcast = async () => [];          // nichts eingetragen
+
+    const gelogged = [];
+    const log = console.log;
+    console.log = (...a) => gelogged.push(a.join(' '));
+    const t8 = t7 + 20 * HOUR;
+    await podium.celebrate(W, list([A, 9_000_000], [D, 3_000_000], [C, 2_000_000]), t8);
+    console.log = log;
+
+    check('die verpasste Meldung steht im Log',
+      gelogged.some((l) => l.includes('kein Kanal eingetragen')), gelogged.join(' | '));
+    check('und der Aufsteiger steht trotzdem im Treppchen',
+      db.podiumOf(W).find((r) => r.rank === 1)?.user_id === A);
+    relayModul.broadcast = echt;
+  }
+
   console.log('--- Ein kaputter Kanal reißt nichts mit ---');
   relay.broadcast = async () => { throw new Error('kein Kanal'); };
-  const t7 = t6 + 20 * HOUR;
   const trotzdem = await podium.celebrate(
     W, list([D, 3_000_000], [C, 2_000_000], [A, 1_500_000]), t7);
   check('kein Absturz', Array.isArray(trotzdem));

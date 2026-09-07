@@ -64,6 +64,10 @@ function check(guildId, entries = [], now = Date.now()) {
   const before = db.podiumOf(guildId);
   const held = new Map(before.map((row) => [String(row.user_id), row.rank]));
   const first = before.length === 0;
+  if (first) {
+    console.log('🏆 Treppchen zum ersten Mal gemerkt – gefeiert wird ab der '
+      + 'nächsten Veränderung.');
+  }
 
   const news = [];
   for (let i = 0; i < top.length; i++) {
@@ -137,7 +141,19 @@ async function celebrate(guildId, entries, now = Date.now()) {
     const relay = require('./relay');
 
     for (const item of news) {
-      await relay.broadcast(describe(item, (v) => money(symbol, v)));
+      const text = describe(item, (v) => money(symbol, v));
+      const sent = await relay.broadcast(text);
+
+      /*
+       * Immer ins Log, egal ob es rausging.
+       *
+       * Genau hier fehlte die Antwort auf „ich war Erster und es kam nichts":
+       * Ohne eingetragenen Kanal verschwand die Meldung lautlos, und im Log
+       * stand nichts, woran man es hätte sehen können.
+       */
+      console.log(sent.length
+        ? `🏆 Treppchen-Meldung an ${sent.join(' + ')}: ${text.split('\n')[0]}`
+        : `🏆 Treppchen: ${text.split('\n')[0]} – aber kein Kanal eingetragen.`);
     }
   } catch (err) {
     console.warn(`Treppchen-Meldung fehlgeschlagen: ${err.message}`);
