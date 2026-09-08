@@ -134,11 +134,26 @@ function unlocked(guildId, userId) {
  * Wahl gewinnt die häufigste Aktivität. Wer noch gar nichts gemacht hat,
  * bekommt keinen Titel – das ist kein Fehler, sondern der Anfang.
  *
+ * Ein Wunsch mit dem Präfix `ach:` kommt aus den Erfolgen (achievements.js).
+ * Die beiden Listen kennen einander nicht; das Präfix ist die ganze
+ * Schnittstelle – so bleibt es EIN Titelsystem statt zwei.
+ *
  * @returns {{id,emoji,title,count,tier,chosen:boolean}|null}
  */
 function titleOf(guildId, userId) {
   const wish = String(db.getStats(guildId, userId).title ?? '');
   if (wish === 'none') return null;
+
+  if (wish.startsWith('ach:')) {
+    const eigene = require('./achievements').titlesFor(guildId, userId);
+    const treffer = eigene.find((t) => t.id === wish);
+    // Kein Treffer heißt: Der Erfolg ist (noch) nicht verdient. Nicht
+    // schummeln – dann greift unten die Automatik.
+    if (treffer) {
+      return { id: treffer.id, emoji: treffer.emoji, title: treffer.title,
+        count: 0, tier: 0, chosen: true };
+    }
+  }
 
   const list = unlocked(guildId, userId);
   if (wish) {
@@ -152,6 +167,15 @@ function titleOf(guildId, userId) {
 /** Setzt den Wunsch: eine Kennung, '' für automatisch, 'none' für keinen. */
 function choose(guildId, userId, wish) {
   const value = String(wish ?? '');
+
+  if (value.startsWith('ach:')) {
+    // Nur verdiente Erfolgstitel – sonst könnte man sich "Origin" anheften.
+    const eigene = require('./achievements').titlesFor(guildId, userId);
+    if (!eigene.some((t) => t.id === value)) return false;
+    db.setTitle(guildId, userId, value);
+    return true;
+  }
+
   if (value && value !== 'none' && !byId.has(value)) return false;
   db.setTitle(guildId, userId, value);
   return true;

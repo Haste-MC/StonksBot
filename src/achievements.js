@@ -608,8 +608,25 @@ function board(guildId) {
   });
 }
 
+/**
+ * Erfolge, die einen Titel hergeben: Gold, Platin und alle serverweiten.
+ *
+ * Bronze und Silber bewusst nicht – ein Titel soll etwas bedeuten, und
+ * „Erster Arbeitstag" über dem Profil sagt nur, dass man einmal da war.
+ *
+ * Die Kennungen tragen das Präfix `ach:`, damit activity.js sie von seinen
+ * eigenen Titeln unterscheiden kann, ohne dass beide Listen sich kennen.
+ */
+function titlesFor(guildId, userId) {
+  const haben = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
+  return RULES
+    .filter((r) => haben.has(r.id))
+    .filter((r) => r.scope === 'server' || r.tier === 'gold' || r.tier === 'platin')
+    .map((r) => ({ id: `ach:${r.id}`, emoji: r.emoji, title: r.title }));
+}
+
 module.exports = {
   TIERS, RULES, byId, rarityRank,
   baseCtx, stateCtx, check, onActivity, state, fire,
-  backfill, backfillWorld, listFor, board,
+  backfill, backfillWorld, listFor, board, titlesFor,
 };

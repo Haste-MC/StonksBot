@@ -342,6 +342,27 @@ const A = 'fx:anton', B = 'fx:berta';
     tafelAnsicht.embeds[0].toJSON().fields.every((f) => f.value.length <= 1024),
     JSON.stringify(tafelAnsicht.embeds[0].toJSON().fields.map((f) => f.value.length)));
 
+  console.log('--- Erfolgstitel reihen sich in die vorhandenen ein ---');
+  const titel = ach.titlesFor(W, K);
+  check('nur Gold, Platin und serverweit sind Titel',
+    titel.every((t) => {
+      const r = ach.byId(t.id.slice(4));
+      return r.scope === 'server' || r.tier === 'gold' || r.tier === 'platin';
+    }), JSON.stringify(titel));
+  check('Karls Fischerkönig ist dabei',
+    titel.some((t) => t.id === 'ach:fish_500'), JSON.stringify(titel));
+
+  const activity2 = require('../src/activity');
+  check('der Titel lässt sich wählen', activity2.choose(W, K, 'ach:fish_500') === true);
+  const getragen = activity2.titleOf(W, K);
+  check('und steht dann im Profil',
+    getragen?.title === 'Fischerkönig', JSON.stringify(getragen));
+  check('als selbst gewählt markiert', getragen?.chosen === true);
+
+  check('ein nicht verdienter Erfolgstitel wird abgelehnt',
+    activity2.choose(W, K, 'ach:srv_origin') === false);
+  activity2.choose(W, K, '');
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
