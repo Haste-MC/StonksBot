@@ -622,9 +622,18 @@ function learnFace(message, platform = 'discord') {
  * Eine Meldung, die nicht aus einem Kanal kommt, sondern vom Bot selbst –
  * etwa der Glückwunsch, wenn jemand aufs Treppchen steigt (podium.js).
  *
- * Wohin: `ANNOUNCE_DISCORD_CHANNEL` / `ANNOUNCE_FLUXER_CHANNEL`, ersatzweise
- * die Kanäle der Brücke. Ist nichts eingestellt, passiert nichts – eine
- * Durchsage soll sich keinen Kanal aussuchen.
+ * ===================== ZWEI SORTEN, ZWEI KANÄLE =====================
+ * Nicht jede Durchsage ist gleich viel wert. Ein Treppchenwechsel passiert
+ * selten und alle sollen ihn sehen; ein Auktions-Zuschlag passiert stündlich
+ * und wäre im Hauptkanal nur Rauschen. Deshalb gibt es zwei Sorten:
+ *
+ *   'wichtig'  – Treppchen, später Erfolge:  ANNOUNCE_*_CHANNEL
+ *   'wirtschaft' – Auktionen, Alltag:        ECONOMY_*_CHANNEL
+ *
+ * Ist für die Wirtschaft nichts eingetragen, landet sie im Hauptkanal – so
+ * verhält sich ein bestehendes Setup wie bisher, und wer trennen will, trägt
+ * einfach die zwei zusätzlichen Kanäle ein.
+ * ====================================================================
  *
  * **Nie ein Ping.** `allowedMentions: { parse: [] }` heißt: Erwähnungen werden
  * dargestellt, aber niemand wird benachrichtigt – schon gar nicht @everyone.
@@ -634,16 +643,50 @@ function learnFace(message, platform = 'discord') {
 const ANNOUNCE_DISCORD = process.env.ANNOUNCE_DISCORD_CHANNEL || DISCORD_CHANNEL;
 const ANNOUNCE_FLUXER = process.env.ANNOUNCE_FLUXER_CHANNEL || FLUXER_CHANNEL;
 
-/** Sind Durchsagen überhaupt eingerichtet? (für die Startmeldung) */
-const announcesTo = () => [
-  ANNOUNCE_DISCORD ? 'Discord' : null,
-  ANNOUNCE_FLUXER ? 'Fluxer' : null,
-].filter(Boolean);
+/** Die Kanäle je Sorte. Ohne eigenen Wirtschaftskanal gilt der Hauptkanal. */
+const LANES = {
+  wichtig: {
+    label: 'Wichtiges (Treppchen, Erfolge)',
+    discord: ANNOUNCE_DISCORD,
+    fluxer: ANNOUNCE_FLUXER,
+    hint: 'ANNOUNCE_DISCORD_CHANNEL / ANNOUNCE_FLUXER_CHANNEL',
+  },
+  wirtschaft: {
+    label: 'Wirtschaft (Auktionen)',
+    discord: process.env.ECONOMY_DISCORD_CHANNEL || ANNOUNCE_DISCORD,
+    fluxer: process.env.ECONOMY_FLUXER_CHANNEL || ANNOUNCE_FLUXER,
+    hint: 'ECONOMY_DISCORD_CHANNEL / ECONOMY_FLUXER_CHANNEL',
+  },
+};
 
-/** Nur einmal je Start meckern, wenn kein Kanal eingetragen ist. */
-let warnedNoChannel = false;
+/** Die Sorte nachschlagen – ein Tippfehler soll nicht stumm ins Leere senden. */
+const laneOf = (name) => LANES[name] ?? LANES.wichtig;
 
-async function broadcast(text, { discord = ANNOUNCE_DISCORD, fluxer = ANNOUNCE_FLUXER } = {}) {
+/**
+ * Wohin eine Sorte geht (für die Startmeldung).
+ * @param {string} [lane] Sorte; ohne Angabe die wichtigen Durchsagen.
+ */
+const announcesTo = (lane = 'wichtig') => {
+  const { discord, fluxer } = laneOf(lane);
+  return [discord ? 'Discord' : null, fluxer ? 'Fluxer' : null].filter(Boolean);
+};
+
+/** Eine Zeile je Sorte: wohin geht sie, und wenn nirgends – was fehlt? */
+function announceOverview() {
+  return Object.entries(LANES).map(([name, cfg]) => {
+    const targets = announcesTo(name);
+    return targets.length
+      ? `📣 ${cfg.label}: ${targets.join(' + ')}.`
+      : `📣 ${cfg.label}: AUS – kein Kanal in ${cfg.hint} eingetragen.`;
+  });
+}
+
+/** Nur einmal je Sorte und Start meckern, wenn kein Kanal eingetragen ist. */
+const warnedNoChannel = new Set();
+
+async function broadcast(text, { lane = 'wichtig', ...where } = {}) {
+  const cfg = laneOf(lane);
+  const { discord = cfg.discord, fluxer = cfg.fluxer } = where;
   const sent = [];
   if (!text) return sent;
 
@@ -653,12 +696,12 @@ async function broadcast(text, { discord = ANNOUNCE_DISCORD, fluxer = ANNOUNCE_F
    * kein Hinweis. Einmal pro Start sagen wir jetzt Bescheid.
    */
   if (!discord && !fluxer) {
-    if (!warnedNoChannel) {
-      warnedNoChannel = true;
+    if (!warnedNoChannel.has(lane)) {
+      warnedNoChannel.add(lane);
       console.warn(
-        '📣 Durchsage verworfen: kein Kanal eingetragen. Trage in der .env '
-        + 'ANNOUNCE_DISCORD_CHANNEL und/oder ANNOUNCE_FLUXER_CHANNEL ein '
-        + '(ersatzweise RELAY_DISCORD_CHANNEL / RELAY_FLUXER_CHANNEL).');
+        `📣 Durchsage verworfen (${cfg.label}): kein Kanal eingetragen. `
+        + `Trage in der .env ${cfg.hint} ein `
+        + '(ersatzweise ANNOUNCE_* bzw. RELAY_DISCORD_CHANNEL / RELAY_FLUXER_CHANNEL).');
     }
     return sent;
   }
@@ -742,5 +785,5 @@ module.exports = {
   forFluxer, forDiscord,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, ownWebhookIds, hooks,
-  broadcast, announcesTo, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
+  broadcast, announcesTo, announceOverview, LANES, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
 };

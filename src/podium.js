@@ -142,7 +142,9 @@ async function celebrate(guildId, entries, now = Date.now()) {
 
     for (const item of news) {
       const text = describe(item, (v) => money(symbol, v));
-      const sent = await relay.broadcast(text);
+      // Ausdrücklich die wichtige Sorte: Ein Treppchenwechsel ist selten und
+      // gehört in den Hauptkanal, nicht zwischen die Auktions-Zuschläge.
+      const sent = await relay.broadcast(text, { lane: 'wichtig' });
 
       /*
        * Immer ins Log, egal ob es rausging.

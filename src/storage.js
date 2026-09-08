@@ -473,7 +473,10 @@ async function announce(guildId, results) {
   for (const r of sold) {
     await relay.broadcast(
       `🏬 **${r.label}** geht für **${money(symbol, r.price)}** an `
-      + `${identity.mention(r.winner)}. Was wohl drin ist?`);
+      + `${identity.mention(r.winner)}. Was wohl drin ist?`,
+      // Alltagsmeldung: gehört in den Wirtschaftskanal, nicht zwischen die
+      // seltenen Treppchen-Glückwünsche im Hauptkanal.
+      { lane: 'wirtschaft' });
   }
 }
 

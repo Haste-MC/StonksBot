@@ -58,12 +58,8 @@ client.on(Events.Ready, () => {
     relay.announce();
   }
 
-  // Durchsagen (Treppchen, Auktions-Zuschläge): sagen, ob sie irgendwo landen.
-  const targets = relay.announcesTo();
-  console.log(targets.length
-    ? `📣 Durchsagen gehen an: ${targets.join(' + ')}.`
-    : '📣 Durchsagen sind AUS – kein Kanal in ANNOUNCE_DISCORD_CHANNEL / '
-      + 'ANNOUNCE_FLUXER_CHANNEL eingetragen.');
+  // Durchsagen: je Sorte eine Zeile, damit man sieht, wo was landet.
+  for (const line of relay.announceOverview()) console.log(line);
 
   // Fehlende Anzeigenamen nachtragen, damit nirgends eine rohe ID steht.
   // Verzögert, damit beide Seiten angemeldet sind; Fehler sind egal.

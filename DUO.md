@@ -1784,9 +1784,17 @@ setzt `allowedMentions: { parse: [] }`, @everyone gibt es hier nicht.
 ```env
 ANNOUNCE_DISCORD_CHANNEL=…      # ersatzweise RELAY_DISCORD_CHANNEL
 ANNOUNCE_FLUXER_CHANNEL=…       # ersatzweise RELAY_FLUXER_CHANNEL
+ECONOMY_DISCORD_CHANNEL=…       # Alltag (Auktionen); leer = Hauptkanal
+ECONOMY_FLUXER_CHANNEL=…
 PODIUM_COOLDOWN_H=6
 PODIUM_MIN_WORTH=10000
 ```
+
+`relay.broadcast(text, { lane })` kennt zwei Sorten: `'wichtig'` (Standard –
+Treppchen, später Erfolge) geht in den Hauptkanal, `'wirtschaft'` (die
+Zuschläge des Auktionshauses) in den Wirtschaftskanal. Eine Auktion pro Stunde
+im selben Kanal wie ein Treppchenwechsel würde den seltenen Glückwunsch
+wegspülen; ohne eigenen Wirtschaftskanal bleibt es beim alten Verhalten.
 
 Kein Scheduler (§4): Geprüft wird, wenn die Rangliste ohnehin gerechnet wurde –
 beim Blick auf `!top` oder `!rangliste`. Der Glückwunsch kann dadurch ein paar

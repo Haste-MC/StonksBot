@@ -11,6 +11,12 @@ process.env.RELAY_FLUXER_CHANNEL = 'FX_KANAL';
 process.env.RELAY_ALL = 'true';
 process.env.RELAY_EXCLUDE = 'admin, intern';
 process.env.RELAY_MAP = 'DC_SONDER:FX_ANDERS';
+// Durchsagen: Hauptkanal und Wirtschaftskanal sind absichtlich verschieden,
+// damit die Trennung überhaupt sichtbar werden kann.
+process.env.ANNOUNCE_DISCORD_CHANNEL = 'DC_HAUPT';
+process.env.ANNOUNCE_FLUXER_CHANNEL = 'FX_HAUPT';
+process.env.ECONOMY_DISCORD_CHANNEL = 'DC_WIRTSCHAFT';
+process.env.ECONOMY_FLUXER_CHANNEL = 'FX_WIRTSCHAFT';
 // Dieser Teil prüft die Textform (Notausgang). Die Persona-Spiegelung über
 // Webhooks hat unten einen eigenen Abschnitt mit eigenem Modul-Zustand.
 process.env.RELAY_WEBHOOKS = 'false';
@@ -22,6 +28,26 @@ const check = (label, ok, extra = '') => {
   if (ok) { pass++; console.log(`  ✅ ${label}`); }
   else { fail++; console.log(`  ❌ ${label} ${extra}`); }
 };
+
+/**
+ * Das Modul mit anderen Umgebungsvariablen noch einmal laden.
+ *
+ * Die Kanäle werden beim Laden gelesen (Konstanten) – anders lässt sich ein
+ * zweites Setup nicht prüfen. Danach wird alles zurückgedreht, damit die
+ * folgenden Abschnitte wieder das ursprüngliche Modul sehen.
+ */
+function fresh(env) {
+  const alt = {};
+  for (const [k, v] of Object.entries(env)) { alt[k] = process.env[k]; process.env[k] = v; }
+  delete require.cache[require.resolve('../src/relay')];
+  const geladen = require('../src/relay');
+
+  for (const [k, v] of Object.entries(alt)) {
+    if (v === undefined) delete process.env[k]; else process.env[k] = v;
+  }
+  delete require.cache[require.resolve('../src/relay')];
+  return geladen;
+}
 
 // Zwei gefälschte Clients, die mitschreiben, was gesendet wurde.
 const sentToFluxer = [];
@@ -203,6 +229,52 @@ const msg = (over = {}) => ({
   check('geht an das eingetragene Ziel',
     (await relay.fromDiscord(sonder)) === true &&
     sentToFluxer[sentToFluxer.length - 1].id === 'FX_ANDERS');
+
+  console.log('--- Durchsagen: Wichtiges und Alltag gehen getrennt raus ---');
+  /*
+   * Warum getrennt: Ein Treppchenwechsel passiert selten und soll auffallen,
+   * ein Auktions-Zuschlag stündlich. Im selben Kanal spült der Alltag den
+   * seltenen Glückwunsch weg – deshalb zwei Sorten.
+   */
+  sentToDiscord.length = 0;
+  sentToFluxer.length = 0;
+
+  const wichtig = await relay.broadcast('🥇 Kevin ist die neue Nummer 1');
+  check('Wichtiges geht auf beide Plattformen',
+    wichtig.join('+') === 'discord+fluxer', wichtig.join('+'));
+  check('und zwar in den Hauptkanal',
+    sentToDiscord[0]?.id === 'DC_HAUPT' && sentToFluxer[0]?.id === 'FX_HAUPT',
+    `${sentToDiscord[0]?.id} / ${sentToFluxer[0]?.id}`);
+
+  await relay.broadcast('🏬 Garage #3 geht für 12.400 weg', { lane: 'wirtschaft' });
+  check('der Alltag landet im Wirtschaftskanal',
+    sentToDiscord[1]?.id === 'DC_WIRTSCHAFT' && sentToFluxer[1]?.id === 'FX_WIRTSCHAFT',
+    `${sentToDiscord[1]?.id} / ${sentToFluxer[1]?.id}`);
+  check('der Hauptkanal bleibt davon verschont',
+    sentToDiscord.filter((m) => m.id === 'DC_HAUPT').length === 1);
+
+  await relay.broadcast('Tippfehler in der Sorte', { lane: 'gibtsnicht' });
+  check('eine unbekannte Sorte sendet nicht ins Leere, sondern in den Hauptkanal',
+    sentToDiscord[2]?.id === 'DC_HAUPT', sentToDiscord[2]?.id);
+
+  check('die Startmeldung nennt beide Sorten',
+    relay.announceOverview().length === 2
+    && relay.announceOverview().join(' ').includes('Wirtschaft'),
+    relay.announceOverview().join(' | '));
+  check('und weiß, wohin das Wichtige geht',
+    relay.announcesTo('wichtig').join('+') === 'Discord+Fluxer');
+
+  // Ohne eigenen Wirtschaftskanal bleibt alles wie vorher: alles im Hauptkanal.
+  {
+    const geerbt = fresh({
+      ANNOUNCE_DISCORD_CHANNEL: 'DC_HAUPT', ANNOUNCE_FLUXER_CHANNEL: 'FX_HAUPT',
+      ECONOMY_DISCORD_CHANNEL: '', ECONOMY_FLUXER_CHANNEL: '',
+    });
+    check('ohne ECONOMY_* erbt die Wirtschaft den Hauptkanal',
+      geerbt.LANES.wirtschaft.discord === 'DC_HAUPT'
+      && geerbt.LANES.wirtschaft.fluxer === 'FX_HAUPT',
+      JSON.stringify(geerbt.LANES.wirtschaft));
+  }
 
   await personaTests();
 
