@@ -103,6 +103,8 @@ async function buildBoardView({ guildId, userId }) {
 
   return {
     embeds: [embed],
+    // Auch von hier führt ein Knopf zurück ins Hauptmenü (§ menu.test.js
+    // prüft genau das) – zusätzlich zum Weg über die eigenen Erfolge.
     components: [new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId(`erfolge-meine|${userId}`)

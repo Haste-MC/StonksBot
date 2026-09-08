@@ -328,6 +328,20 @@ const A = 'fx:anton', B = 'fx:berta';
   check('sie nennt den Zähler', /\d+\s*\/\s*37/.test(text), text.slice(0, 200));
   check('und keine rohe Konto-ID', !text.includes('fx:karl'), text.slice(0, 200));
 
+  // Anton hält srv_millionaire aus dem allerersten Abschnitt (claimFirst
+  // oben) – ein Konto, das nachweislich einen serverweiten Erfolg hat.
+  const tafelAnsicht = await ui.buildBoardView({ guildId: W, userId: A });
+  check('die Ehrentafel baut ein Embed', tafelAnsicht.embeds?.length === 1);
+  const tafelText = JSON.stringify(tafelAnsicht.embeds[0].toJSON());
+  check('alle 15 serverweiten Erfolge stehen drin',
+    tafel3.every((e) => tafelText.includes(e.rule.title)),
+    tafelText.slice(0, 200));
+  check('der Halter steht nicht als rohe Konto-ID da', !tafelText.includes(A), tafelText.slice(0, 200));
+  check('unerreichte zeigen "noch niemand"', tafelText.includes('noch niemand'), tafelText.slice(0, 200));
+  check('kein Feld sprengt Discords 1024-Zeichen-Grenze',
+    tafelAnsicht.embeds[0].toJSON().fields.every((f) => f.value.length <= 1024),
+    JSON.stringify(tafelAnsicht.embeds[0].toJSON().fields.map((f) => f.value.length)));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

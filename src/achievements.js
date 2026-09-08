@@ -552,6 +552,8 @@ async function backfillWorld(guildId, konten = null, now = Date.now()) {
       try { trifft = Boolean(rule.test(ctx)); } catch { continue; }
       if (!trifft) continue;
 
+      // Rückfall für künftige serverweite Regeln ohne eigenes Mass –
+      // aktuell bringt jede backfillbare Regel ein `measure` mit.
       const wert = rule.measure ? rule.measure(ctx) : ctx.worth;
       if (wert > bestwert) { bestwert = wert; bester = userId; }
     }
