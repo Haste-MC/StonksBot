@@ -319,3 +319,32 @@ auf `DEV_GUILD_ID` sofort aktiv, global bis zu 1 h.
 - Ein Automodell kann pro Spieler **nur einmal** besessen werden – der Zustand
   hängt am Besitzeintrag. Mehrere gleiche Autos bräuchten eine eigene
   Fahrzeug-Tabelle.
+
+## 14. Erfolge
+
+`src/achievements.js` hält ein deklaratives Regelwerk. Ein neuer Erfolg ist ein
+Eintrag in `RULES` – sonst nichts. Drei Andockpunkte:
+
+- `kind:<id>` – läuft in `unb.countActivity`, also an jeder Geldbuchung mit
+  `kind`. Dort werden **nur** Regeln dieses `kind` geprüft; teure Werte
+  (Vermögen, Depot) werden auf diesem Pfad nie berechnet.
+- `state` – läuft beim Aufbau von Profil und Startseite, wo das Vermögen
+  ohnehin vorliegt und übergeben wird.
+- `fire:<name>` – die Hintertür für Ereignisse ohne Geldbuchung
+  (`achievements.fire(...)` in heist.js, home.js, casinoPlay.js, storage.js).
+
+Die serverweite Einmaligkeit hängt am Primärschlüssel von
+`achievement_firsts`, nicht an einer Prüfung im Code (§7): Zwei gleichzeitige
+Spieler bestünden ein „gibt es den schon?" beide.
+
+Erfolge geben **kein Geld und keine XP** (§3). Das Modul bindet weder `unb`
+noch `wallet` ein – es hat also gar keinen Weg, etwas auszuzahlen. `level` wird
+nur gelesen (`progress()` rechnet aus vorhandener Erfahrung ein Level aus),
+nie vergeben.
+
+Der Nachtrag für Bestandsspieler ist **lautlos**: Beim ersten Blick eines
+Kontos wird alles bereits Erfüllte still vergeben, ohne Postfach und ohne
+Durchsage. Ohne das käme am Tag der Einführung für jeden langjährigen Spieler
+eine Meldungswelle. Erfolge, für die es keine Daten aus der Vergangenheit gibt
+(ein perfekter Coup wird nirgends festgehalten), tragen `backfill: false` und
+starten leer.
