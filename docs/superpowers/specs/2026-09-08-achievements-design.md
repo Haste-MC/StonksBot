@@ -209,12 +209,12 @@ Die Ansicht kommt **nicht** in `ui.js` – die Datei hat bereits 4.069 Zeilen.
 | Bereich | 🥉 Bronze | 🥈 Silber | 🥇 Gold | 💠 Platin |
 |---|---|---|---|---|
 | Arbeit | Erster Arbeitstag (1 Schicht) | Malocher (50) | Arbeitstier (250) | Lebenswerk (1.000) |
-| Vermögen | Erstes Polster (100k) | Halbe Million (500k) | Millionär (1 Mio) | Zehnfache Million (10 Mio) |
+| Vermögen | Erstes Polster (100k) | Halbe Million (500k) | Millionär (1 Mio) | Schwerreich (50 Mio) |
 | Fuhrpark | Erstes eigenes Auto | Sammler (5 Autos) | Traumwagen (Auto ≥ 500k) | Hypercar (Auto ≥ 3 Mio) |
 | Immobilien | Eigenheim (erste eigene) | Vermieter (erste Miete) | Immobilienmogul (≥ 1 Mio) | Schlossherr (das Schloss) |
-| Krumme Dinger | Erstes Ding (1 Heist) | Straßenräuber (10 Überfälle) | Sauber durchgezogen (perfekter Coup) | Beutezug (1 Mio Diebesgut) |
+| Krumme Dinger | Erstes Ding (1 Heist) | Straßenräuber (10 Überfälle) | Sauber durchgezogen (perfekter Coup) | Beutezug (50 Mio Diebesgut) |
 | Zocken | Anfängerglück (1. Gewinn) | – | Hochroller (100k in einer Runde) | Bank gesprengt (1 Mio in einer Runde) |
-| Börse | Kleinanleger (1. Kauf) | – | Börsenhai (Depot ≥ 250k) | Großkapital (Depot ≥ 5 Mio) |
+| Börse | Kleinanleger (1. Kauf) | – | Börsenhai (Depot ≥ 250k) | Großkapital (Depot ≥ 25 Mio) |
 | Auktionen | Erster Zuschlag | – | Schatzmeister (Sammlung ≥ 100k) | Godlike (Fund ab 🟠 Godlike) |
 | Angeln | Erster Fang | Angler (100) | Fischerkönig (500) | Moby Dick (1.000) |
 | Leben | Weltenbummler (Umzug ins Ausland) | Aufsteiger (Level 25) | Legende (Level 50) | Unsterblich (Level 100) |
@@ -231,11 +231,41 @@ Die Schwellen sind nicht geraten, sondern am Stand vom 2026-09-08 gemessen
 |---|---|---|---|---|---|
 | Erfahrung | 65.170 XP = **Level 25** | – | 25 | 50 (250k XP) | 100 (1 Mio XP) |
 | Schichten | **45** | 1 | 50 | 250 | 1.000 |
-| Diebesgut | **16.047** | – | – | – | 1 Mio |
+| Diebesgut | **16.047** | – | – | – | 50 Mio |
 | Sammlung | nur ⚪ Common und 🔵 Rare | – | – | – | 🟠 Godlike |
 
 Silber liegt damit jeweils knapp über dem, was heute schon jemand hat – es gibt
 also sofort etwas zu holen. Gold ist Monate entfernt, Platin die Laufbahn.
+
+#### Der Endgame-Maßstab
+
+Der heutige Höchststand taugt nur für Bronze und Silber. Platin muss sich am
+**Endgame-Ertrag** messen, sonst ist es in zwei Wochen abgeräumt. Maßgeblich
+ist der Goldtransport (`src/data/heists.js`), voll vorbereitet:
+
+| | |
+|---|---|
+| Beute | 900k–2,4 Mio, Mittel 1,65 Mio |
+| Vorbereitungs-Boni | auskundschaften +5 %, insider +20 %, sprengung +35 %, hehler +18 % = **+78 %** → ~2,94 Mio je Erfolg |
+| Erfolgschance | `base` 20 % + ~35 % aus den Vorbereitungen ≈ **55 %** |
+| Taktung | 12 h Sperre, bei Fehlschlag zusätzlich **72 h Knast** |
+
+Erwartungswert je Versuch 1,62 Mio, Zeitkosten 12 h + 0,45 × 72 h = 44 h.
+Macht **~875.000 Beute pro Tag** im Dauerbetrieb.
+
+Daran hängen die drei Platin-Werte, die sich nicht an einer Systemgrenze
+festmachen lassen. Ziel: **rund zwei Monate Endgame-Dauerbetrieb.**
+
+| Erfolg | Schwelle | ≈ Tage |
+|---|---|---|
+| Beutezug | 50 Mio Diebesgut | ~57 |
+| Schwerreich | 50 Mio Vermögen | ~57 |
+| Großkapital | 25 Mio im Depot | ~29 (dazu das Kursrisiko) |
+
+Die übrigen Platin-Werte sind **Systemgrenzen** und bleiben, wie sie sind: das
+Casino deckelt bei `MAX_BET = 1.000.000`, der Fahrzeugkatalog endet beim
+Koenigsegg Jesko (3,5 Mio), und das Schloss gibt es laut `stock: 1` genau
+einmal pro Welt. Höher geht dort schlicht nicht.
 
 ### Serverweit (14)
 
