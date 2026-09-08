@@ -139,6 +139,49 @@ const A = 'fx:anton', B = 'fx:berta';
   check('kein Networth auf dem Buchungspfad', worthAufrufe === 0, String(worthAufrufe));
   networth.of = echtesOf;
 
+  console.log('--- Meldungen: leise unten, laut oben ---');
+  const relay = require('../src/relay');
+  const durchsagen = [];
+  relay.broadcast = async (text, opts = {}) => { durchsagen.push({ text, ...opts }); return ['discord']; };
+  require('../src/currency').getSymbol = async () => '🪙';
+
+  const H = 'fx:heinz';
+  db.setActivity(W, H, 'fishing', 1, 1000);
+  await ach.onActivity(W, H, 'fishing');
+  check('Bronze geht NICHT in den Kanal', durchsagen.length === 0,
+    JSON.stringify(durchsagen));
+  check('steht aber im Postfach',
+    db.listMessages(W, H).items.some((m) => m.title.includes('Erster Fang')),
+    JSON.stringify(db.listMessages(W, H).items.map((m) => m.title)));
+
+  durchsagen.length = 0;
+  db.setActivity(W, H, 'fishing', 500, 2000);
+  await ach.onActivity(W, H, 'fishing');
+  check('Gold geht in den Kanal', durchsagen.length >= 1, String(durchsagen.length));
+  check('und zwar in den Hauptkanal',
+    durchsagen.every((d) => d.lane === 'wichtig'), JSON.stringify(durchsagen));
+  check('die Meldung nennt den Erfolg',
+    durchsagen.some((d) => d.text.includes('Fischerkönig')),
+    durchsagen.map((d) => d.text).join(' | '));
+  check('und pingt niemanden',
+    durchsagen.every((d) => !d.text.includes('@everyone') && !d.text.includes('@here')));
+
+  durchsagen.length = 0;
+  const I = 'fx:ida';
+  await ach.fire(W, I, 'lot_won', { price: 150_000 });
+  check('ein serverweiter Erfolg geht in den Kanal', durchsagen.length === 1);
+  check('und sagt, dass es der Erste war',
+    durchsagen[0]?.text.includes('als Erster'), durchsagen[0]?.text);
+
+  console.log('--- Eine kaputte Meldung kippt die Vergabe nicht ---');
+  relay.broadcast = async () => { throw new Error('kein Kanal'); };
+  const J = 'fx:jonas';
+  db.setActivity(W, J, 'fishing', 500, 3000);
+  const trotzdem = await ach.onActivity(W, J, 'fishing');
+  check('die Erfolge sind trotzdem vergeben', trotzdem.length >= 3, String(trotzdem.length));
+  check('und stehen in der Datenbank',
+    db.achievementsOf(W, J).some((r) => r.ach_id === 'fish_500'));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

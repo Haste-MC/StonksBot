@@ -389,9 +389,47 @@ async function fire(guildId, userId, name, daten = {}, now = Date.now()) {
   return frisch;
 }
 
-/** Meldet frisch vergebene Erfolge. Wird in Task 4 ausgebaut. */
+/**
+ * ===========================================================================
+ *  MELDEN
+ * ===========================================================================
+ *
+ * Ins Postfach kommt jeder Erfolg – dort stört er niemanden und man findet ihn
+ * wieder. In den Kanal kommen nur Gold, Platin und die serverweiten: Wäre
+ * jeder Erfolg laut, hätte der Hauptkanal bei zehn Spielern schnell
+ * dreihundert Meldungen, und dann ist keine davon mehr ein Ereignis.
+ *
+ * Alles hier ist fire-and-forget und vollständig in try/catch: Ein Glückwunsch
+ * darf niemals eine Schicht, einen Heist oder eine Ansicht kippen.
+ */
 async function report(guildId, userId, frisch) {
-  return frisch;
+  if (!frisch.length) return;
+
+  for (const rule of frisch) {
+    const stufe = rule.scope === 'server' ? null : TIERS[rule.tier];
+
+    try {
+      db.createMessage({
+        guildId, userId, type: 'info',
+        title: `${rule.emoji} ${rule.title}`,
+        body: rule.scope === 'server'
+          ? `${rule.text}\nDu hast ihn **als Erster auf dem Server** geholt.`
+          : `${rule.text}\n_${stufe.emoji} ${stufe.label}_`,
+      });
+    } catch { /* ein Postfacheintrag darf nichts kippen */ }
+
+    if (rule.scope !== 'server' && !stufe.loud) continue;
+
+    try {
+      const identity = require('./identity');
+      const text = rule.scope === 'server'
+        ? `${rule.emoji} ${identity.mention(userId)} holt **${rule.title}** `
+          + `– **als Erster auf dem Server**.\n_${rule.text}_`
+        : `${stufe.emoji} ${identity.mention(userId)} schaltet **${rule.title}** frei.`
+          + `\n_${rule.text}_`;
+      await require('./relay').broadcast(text, { lane: 'wichtig' });
+    } catch { /* ohne Kanal bleibt es beim Postfach */ }
+  }
 }
 
 module.exports = {
