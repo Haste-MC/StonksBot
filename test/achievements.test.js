@@ -297,6 +297,37 @@ const A = 'fx:anton', B = 'fx:berta';
   await unb.changeCash(W, M, 500, 'Storno', { kind: 'job', xp: false });
   check('eine Stornobuchung vergibt nichts', db.achievementsOf(W, M).length === 0);
 
+  console.log('--- Die Ansicht ---');
+  const liste = await ach.listFor(W, K);
+  check('geholte und offene Erfolge sind getrennt',
+    liste.geholt.length > 0 && liste.offen.length > 0,
+    `${liste.geholt.length} / ${liste.offen.length}`);
+  check('zusammen sind es alle privaten', liste.gesamt === 37, String(liste.gesamt));
+  check('keiner steht in beiden Listen',
+    !liste.geholt.some((g) => liste.offen.some((o) => o.id === g.id)));
+
+  const offenMitZiel = liste.offen.find((r) => r.progress);
+  check('offene Erfolge zeigen Fortschritt als [ist, soll]',
+    Array.isArray(offenMitZiel?.progress) && offenMitZiel.progress.length === 2,
+    JSON.stringify(offenMitZiel?.progress));
+  check('und der Fortschritt liegt unter dem Ziel',
+    offenMitZiel.progress[0] < offenMitZiel.progress[1],
+    JSON.stringify(offenMitZiel.progress));
+
+  const tafel3 = ach.board(W);
+  check('die Ehrentafel listet alle serverweiten', tafel3.length === 15, String(tafel3.length));
+  check('vergebene nennen den Halter',
+    tafel3.find((e) => e.rule.id === 'srv_worker')?.userId === 'fx:emil');
+  check('unerreichte bleiben leer',
+    tafel3.find((e) => e.rule.id === 'srv_origin')?.userId === null);
+
+  const ui = require('../src/achievementsUi');
+  const ansicht = await ui.buildAchievementsView({ guildId: W, userId: K });
+  check('die Ansicht baut ein Embed', ansicht.embeds?.length === 1);
+  const text = JSON.stringify(ansicht.embeds[0].toJSON());
+  check('sie nennt den Zähler', /\d+\s*\/\s*37/.test(text), text.slice(0, 200));
+  check('und keine rohe Konto-ID', !text.includes('fx:karl'), text.slice(0, 200));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

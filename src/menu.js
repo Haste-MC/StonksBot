@@ -21,6 +21,8 @@ const casinoUi = require('./casinoUi');
  *               und gibt { embeds, components } zurück
  *
  * Discord erlaubt 25 Buttons (5 Zeilen à 5) – so viele Menüpunkte passen.
+ * Mit "Erfolge" sind es jetzt genau 25. Wer einen weiteren Punkt will, muss
+ * vorher einen anderen entfernen oder zusammenlegen.
  */
 const ENTRIES = [
   {
@@ -238,6 +240,15 @@ const ENTRIES = [
     description: 'Garagen ersteigern – Storage Wars',
     style: 'primary',
     build: (ctx) => ui.buildAuctionView(ctx),
+  },
+  {
+    id: 'erfolge',
+    group: 'me',
+    label: 'Erfolge',
+    emoji: '🏅',
+    description: 'Abzeichen, Meilensteine und die Ehrentafel',
+    style: 'primary',
+    build: (ctx) => require('./achievementsUi').buildAchievementsView(ctx),
   },
 ];
 

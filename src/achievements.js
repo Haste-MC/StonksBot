@@ -564,8 +564,50 @@ async function backfillWorld(guildId, konten = null, now = Date.now()) {
   return n;
 }
 
+/**
+ * Die eigenen Erfolge für die Ansicht: was man hat, was noch fehlt.
+ *
+ * Der Fortschritt (`[ist, soll]`) macht den Unterschied zwischen einer Liste
+ * und einem Ziel: „37 / 250 Schichten" sagt einem, dass man dran ist –
+ * „Arbeitstier: gesperrt" sagt gar nichts.
+ */
+async function listFor(guildId, userId) {
+  const privat = RULES.filter((r) => r.scope === 'privat');
+  const haben = new Map(db.achievementsOf(guildId, userId).map((r) => [r.ach_id, r.at]));
+  const ctx = await stateCtx(guildId, userId);
+
+  const geholt = [];
+  const offen = [];
+  for (const rule of privat) {
+    if (haben.has(rule.id)) { geholt.push({ ...rule, at: haben.get(rule.id) }); continue; }
+    let progress = null;
+    try { progress = rule.progress ? rule.progress(ctx) : null; } catch { /* egal */ }
+    offen.push({ ...rule, progress });
+  }
+
+  // Seltenstes zuerst – Platin oben, damit der Flex sichtbar ist.
+  geholt.sort((a, b) => TIERS[b.tier].rank - TIERS[a.tier].rank || b.at - a.at);
+  offen.sort((a, b) => TIERS[a.tier].rank - TIERS[b.tier].rank);
+
+  return { geholt, offen, gesamt: privat.length };
+}
+
+/**
+ * Die Ehrentafel: alle serverweiten Erfolge mit ihrem Halter.
+ *
+ * Auch die unerreichten stehen drin. Eine leere Zeile ist hier kein Mangel,
+ * sondern der Reiz – sie zeigt, dass es noch etwas zu holen gibt.
+ */
+function board(guildId) {
+  const halter = new Map(db.allFirsts(guildId).map((r) => [r.ach_id, r]));
+  return RULES.filter((r) => r.scope === 'server').map((rule) => {
+    const treffer = halter.get(rule.id) ?? null;
+    return { rule, userId: treffer?.user_id ?? null, at: treffer?.at ?? null };
+  });
+}
+
 module.exports = {
   TIERS, RULES, byId, rarityRank,
   baseCtx, stateCtx, check, onActivity, state, fire,
-  backfill, backfillWorld,
+  backfill, backfillWorld, listFor, board,
 };
