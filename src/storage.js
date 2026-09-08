@@ -525,6 +525,8 @@ async function resolveLot(guildId, lot) {
     amount: price,
   });
 
+  require('./achievements').fire(guildId, winner, 'lot_won', { price }).catch(() => {});
+
   return { lotId: lot.id, status: 'sold', winner, label, price };
 }
 
@@ -542,6 +544,10 @@ async function openGarage(guildId, userId, garageId) {
   const c = garage.contents;
   for (const o of c.objects || []) {
     db.addLoot(guildId, userId, o.name, o.value, o.rarity, o.condition, null);
+    // Die Seltenheit zählt im Moment des Aufdeckens. Über den Zustand ginge
+    // leer aus, wer das Stück vor der nächsten Prüfung verkauft.
+    require('./achievements').fire(guildId, userId, 'loot', { rarity: o.rarity })
+      .catch(() => {});
   }
 
   let cashFound = c.cash || 0;

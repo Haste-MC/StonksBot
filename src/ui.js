@@ -2104,6 +2104,12 @@ async function buildHomeView({ guildId, userId }) {
   const market = home.marketOf(guildId, userId);
   const stats = db.getStats(guildId, userId);
 
+  // Diese Ansicht rechnet kein eigenes Vermögen aus – `stateCtx` holt es sich
+  // seinerseits selbst, wenn eine Regel danach fragt.
+  const erfolge = require('./achievements');
+  await erfolge.backfill(guildId, userId).catch(() => {});
+  erfolge.state(guildId, userId, null).catch(() => {});
+
   const embed = new EmbedBuilder()
     .setTitle('🌍 Heimat & Sprache')
     .setColor(0x1abc9c)
@@ -3080,6 +3086,16 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // Immobilien, Depot und die Sammlung aus den Auktionen (siehe networth.js).
   const bal = await getBalance(guildId, owner).catch(() => null);
   const worth = await require('./networth').of(guildId, owner, bal);
+
+  /*
+   * Erfolge, die am Zustand hängen (Vermögen, Level, Fuhrpark), werden hier
+   * geprüft: Das Vermögen liegt gerade vor, also kostet es keine zusätzliche
+   * Abfrage. Erst der Nachtrag (still), dann die laufende Prüfung – sonst
+   * käme für einen Bestandsspieler beim ersten Blick eine Welle Meldungen.
+   */
+  const erfolge = require('./achievements');
+  await erfolge.backfill(guildId, owner).catch(() => {});
+  erfolge.state(guildId, owner, worth).catch(() => {});
 
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);

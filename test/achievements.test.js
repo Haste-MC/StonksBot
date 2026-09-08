@@ -281,6 +281,22 @@ const A = 'fx:anton', B = 'fx:berta';
     db.achievementsOf(W, N).some((r) => r.ach_id === 'move_1'),
     JSON.stringify(db.achievementsOf(W, N)));
 
+  console.log('--- Der Andockpunkt an der Geldbuchung ---');
+  // Ab hier wieder die echte Buchung: Sie ruft countActivity auf, und genau
+  // das ist der Andockpunkt, der hier geprüft wird. Für `fx:`-Konten läuft
+  // sie über das lokale Wallet, also ohne Netz (§12).
+  unb.changeCash = echtesChangeCash;
+
+  const L = 'fx:lena';
+  await unb.changeCash(W, L, 500, 'Schicht', { kind: 'job' });
+  check('eine Buchung mit kind vergibt den Erfolg',
+    db.achievementsOf(W, L).some((r) => r.ach_id === 'job_1'),
+    JSON.stringify(db.achievementsOf(W, L)));
+
+  const M = 'fx:mia';
+  await unb.changeCash(W, M, 500, 'Storno', { kind: 'job', xp: false });
+  check('eine Stornobuchung vergibt nichts', db.achievementsOf(W, M).length === 0);
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

@@ -34,6 +34,13 @@ async function playRound(guildId, userId, bet, reason, play) {
     ? balance
     : await changeCash(guildId, userId, net, reason);
 
+  // Der Gewinn EINER Runde – nicht die Summe. Genau darum geht es beim
+  // Hochroller: einmal groß, nicht oft klein.
+  if (net > 0) {
+    require('./achievements').fire(guildId, userId, 'casino_win', { amount: net })
+      .catch(() => {});
+  }
+
   return { ok: true, outcome, bet, gross, net, newBalance };
 }
 
@@ -112,6 +119,12 @@ async function finish(guildId, userId, game = null, random = Math.random) {
   const newBalance = gross > 0
     ? await changeCash(guildId, userId, gross, `Blackjack: ${result.outcome}`)
     : await getBalance(guildId, userId);
+
+  const gewinn = gross - g.bet;
+  if (gewinn > 0) {
+    require('./achievements').fire(guildId, userId, 'casino_win', { amount: gewinn })
+      .catch(() => {});
+  }
 
   return { ok: true, status: 'done', state: g, bet: g.bet, result, gross, newBalance };
 }

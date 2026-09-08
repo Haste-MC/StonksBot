@@ -143,6 +143,8 @@ async function setHome(guildId, userId, targetId, now = Date.now()) {
 
   // Zuerst der Zustand, dann das Geld.
   db.setHome(guildId, userId, target.id, { move: true, at: now });
+  require('./achievements').fire(guildId, userId, 'move', { country: target.id })
+    .catch(() => {});
   const rental = db.getRental(guildId, userId);
   if (rental) db.endRental(guildId, userId);
 

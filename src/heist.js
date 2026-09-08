@@ -656,6 +656,12 @@ async function resolve(guildId, heist, crew, now = Date.now(), random = Math.ran
       last_heist_at: now,
     });
 
+    // Ein Ding ganz ohne Fehler – das gibt es nur bei `clean`, nicht bei
+    // `messy`. Kein Geldereignis, deshalb die Hintertür.
+    if (outcome === 'clean') {
+      require('./achievements').fire(guildId, member.user_id, 'heist_perfect').catch(() => {});
+    }
+
     const balance = amount !== 0
       ? await changeCash(
         guildId, member.user_id, amount,
