@@ -267,6 +267,20 @@ const A = 'fx:anton', B = 'fx:berta';
   check('ohne Daten kein Nachtrag: der perfekte Coup bleibt frei',
     !db.allFirsts(W2).some((r) => r.ach_id === 'srv_heist'));
 
+  console.log('--- Der Umzug wirkt auch im laufenden Betrieb ---');
+  const N = 'fx:norbert';
+  // Ohne Umzug in der Akte passiert nichts – auch wenn das Ereignis kommt.
+  await ach.fire(W, N, 'move', { country: 'es' });
+  check('ohne Umzug in der Akte kein Erfolg',
+    !db.achievementsOf(W, N).some((r) => r.ach_id === 'move_1'));
+
+  // db.setHome vermerkt den Umzug; erst danach greift die Regel.
+  db.setHome(W, N, 'es', { move: true, at: Date.now() });
+  await ach.fire(W, N, 'move', { country: 'es' });
+  check('nach dem Umzug greift move_1',
+    db.achievementsOf(W, N).some((r) => r.ach_id === 'move_1'),
+    JSON.stringify(db.achievementsOf(W, N)));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

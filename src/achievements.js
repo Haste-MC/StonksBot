@@ -312,6 +312,10 @@ function baseCtx(guildId, userId, extra = {}) {
       return once('level', () =>
         require('./level').progress(db.getStats(guildId, userId).xp).level);
     },
+    /** Wie oft dieses Konto schon ins Ausland gezogen ist. */
+    get moves() {
+      return once('moves', () => db.getStats(guildId, userId).moves ?? 0);
+    },
     /** Bester Rang in der noch vorhandenen Sammlung – für den Nachtrag. */
     get bestRarity() {
       return once('bestRarity', () => db.listLoot(guildId, userId)
@@ -454,7 +458,6 @@ async function backfillCtx(guildId, userId) {
         (bester, fund) => (rarityRank(fund.rarity) > rarityRank(bester) ? fund.rarity : bester),
         ''),
     },
-    moves: { get: () => db.getStats(guildId, userId).moves ?? 0 },
   });
   return ctx;
 }
