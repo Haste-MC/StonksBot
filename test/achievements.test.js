@@ -43,6 +43,41 @@ const A = 'fx:anton', B = 'fx:berta';
   check('die Ehrentafel nennt den Gewinner', eintrag?.user_id === A, JSON.stringify(eintrag));
   check('und nur einen', tafel.filter((r) => r.ach_id === 'srv_millionaire').length === 1);
 
+  console.log('--- Das Regelwerk ist wohlgeformt ---');
+  const ach = require('../src/achievements');
+  const activity = require('../src/activity');
+
+  const ids = ach.RULES.map((r) => r.id);
+  check('jede id kommt genau einmal vor', new Set(ids).size === ids.length,
+    ids.filter((id, i) => ids.indexOf(id) !== i).join(', '));
+  check('37 private Erfolge',
+    ach.RULES.filter((r) => r.scope === 'privat').length === 37,
+    String(ach.RULES.filter((r) => r.scope === 'privat').length));
+  check('15 serverweite Erfolge',
+    ach.RULES.filter((r) => r.scope === 'server').length === 15,
+    String(ach.RULES.filter((r) => r.scope === 'server').length));
+
+  const unvollstaendig = ach.RULES.filter((r) =>
+    !r.emoji || !r.title || !r.text || !r.on || typeof r.test !== 'function');
+  check('jede Regel hat Emoji, Titel, Text, Andockpunkt und Prüfung',
+    unvollstaendig.length === 0, unvollstaendig.map((r) => r.id).join(', '));
+
+  const falscheStufe = ach.RULES.filter((r) =>
+    r.scope === 'privat' ? !ach.TIERS[r.tier] : Boolean(r.tier));
+  check('private Erfolge haben eine gültige Stufe, serverweite keine',
+    falscheStufe.length === 0, falscheStufe.map((r) => r.id).join(', '));
+
+  const unbekannteAktivitaet = ach.RULES
+    .filter((r) => r.on.startsWith('kind:'))
+    .filter((r) => !activity.kind(r.on.slice(5)));
+  check('jeder kind-Andockpunkt nennt eine bekannte Aktivität',
+    unbekannteAktivitaet.length === 0, unbekannteAktivitaet.map((r) => r.on).join(', '));
+
+  console.log('--- Raritäten werden als "oder besser" verglichen ---');
+  check('Cosmic liegt über Godlike', ach.rarityRank('cosmic') > ach.rarityRank('godlike'));
+  check('Mythic liegt darunter', ach.rarityRank('mythic') < ach.rarityRank('godlike'));
+  check('Unbekanntes ist -1', ach.rarityRank('quatsch') === -1);
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
