@@ -432,7 +432,93 @@ async function report(guildId, userId, frisch) {
   }
 }
 
+/**
+ * ===========================================================================
+ *  NACHTRAG FÜR BESTANDSSPIELER
+ * ===========================================================================
+ *
+ * Die Erfolge beginnen bei null – wer vorher 600 Fische gefangen hat, stünde
+ * ohne alles da. Also einmalig alles vergeben, was schon erfüllt ist.
+ *
+ * **Lautlos**, und das ist der ganze Punkt: Ohne diese Regel bekäme ein
+ * Bestandsspieler beim ersten Menü-Klick zwanzig Glückwünsche am Stück, und
+ * der Hauptkanal wäre am Tag der Einführung unbenutzbar. Wie bei
+ * `activity.backfill()` und der Erstbefüllung des Treppchens gilt: Der erste
+ * Durchlauf merkt sich den Stand, gefeiert wird ab der nächsten Veränderung.
+ *
+ * @returns {Promise<number>} wie viele Erfolge nachgetragen wurden
+ */
+async function backfill(guildId, userId, now = Date.now()) {
+  if (db.getClaim(guildId, userId, 'ach_backfill')) return 0;
+  db.setClaim(guildId, userId, 'ach_backfill', now);   // synchron, vor dem ersten await (§7)
+
+  const ctx = await stateCtx(guildId, userId);
+  let n = 0;
+
+  // Alle Andockpunkte durchgehen: Was zählbar ist, ist auch nachtragbar.
+  // `fire`-Erfolge ohne Daten in der Vergangenheit fallen dabei von selbst
+  // heraus – ihr `test` bekommt kein Ereignis und schlägt fehl.
+  for (const hook of hooksOf('privat')) {
+    n += check(guildId, userId, hook, ctx, now).length;
+  }
+  return n;
+}
+
+/** Alle Andockpunkte, die in Regeln dieser Sorte vorkommen. */
+function hooksOf(scope) {
+  return [...new Set(RULES.filter((r) => r.scope === scope).map((r) => r.on))];
+}
+
+/**
+ * Einmaliger Durchlauf über die ganze Welt für die serverweiten Erfolge.
+ *
+ * Ohne ihn ginge „Der erste Millionär" an den, der nach dem Update zufällig
+ * zuerst ins Menü klickt – nicht an den Reichsten. Deshalb wird hier der
+ * Kandidat mit dem höchsten `measure` bestimmt und bekommt ihn.
+ *
+ * Erfolge mit `backfill: false` bleiben außen vor: Für sie gibt es keine
+ * Daten in der Vergangenheit (ein perfekter Coup wird nirgends festgehalten),
+ * also starten sie leer und gehen an den Nächsten, der es schafft.
+ *
+ * @param {string[]} [konten] – nur für Tests; sonst alle mit Besitz
+ * @returns {Promise<number>} wie viele serverweite Erfolge vergeben wurden
+ */
+async function backfillWorld(guildId, konten = null, now = Date.now()) {
+  if (db.getClaim(guildId, '*', 'ach_backfill_world')) return 0;
+  db.setClaim(guildId, '*', 'ach_backfill_world', now);
+
+  const alle = konten ?? require('./networth').owners(guildId);
+  if (!alle.length) return 0;
+
+  // Einmal je Konto den Zusammenhang bauen, nicht je Regel.
+  const ctxs = [];
+  for (const userId of alle) ctxs.push([userId, await stateCtx(guildId, userId)]);
+
+  let n = 0;
+  for (const rule of RULES) {
+    if (rule.scope !== 'server' || rule.backfill === false) continue;
+
+    let bester = null;
+    let bestwert = -Infinity;
+    for (const [userId, ctx] of ctxs) {
+      let trifft = false;
+      try { trifft = Boolean(rule.test(ctx)); } catch { continue; }
+      if (!trifft) continue;
+
+      const wert = rule.measure ? rule.measure(ctx) : ctx.worth;
+      if (wert > bestwert) { bestwert = wert; bester = userId; }
+    }
+
+    if (!bester) continue;
+    if (!db.claimFirst(guildId, rule.id, bester, now)) continue;
+    db.awardAchievement(guildId, bester, rule.id, now);
+    n++;
+  }
+  return n;
+}
+
 module.exports = {
   TIERS, RULES, byId, rarityRank,
   baseCtx, stateCtx, check, onActivity, state, fire,
+  backfill, backfillWorld, hooksOf,
 };

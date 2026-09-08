@@ -182,6 +182,43 @@ const A = 'fx:anton', B = 'fx:berta';
   check('und stehen in der Datenbank',
     db.achievementsOf(W, J).some((r) => r.ach_id === 'fish_500'));
 
+  console.log('--- Nachtrag: alles auf einmal, aber lautlos ---');
+  relay.broadcast = async (text, opts = {}) => { durchsagen.push({ text, ...opts }); return ['discord']; };
+  durchsagen.length = 0;
+
+  const K = 'fx:karl';                       // ein Bestandsspieler mit Vorgeschichte
+  db.setActivity(W, K, 'fishing', 600, 1000);
+  db.setActivity(W, K, 'job', 300, 1000);
+  const vorher = db.listMessages(W, K).total;
+
+  const nachgetragen = await ach.backfill(W, K);
+  check('der Nachtrag vergibt mehrere Erfolge auf einmal', nachgetragen >= 6,
+    String(nachgetragen));
+  check('aber KEINE Durchsage', durchsagen.length === 0, JSON.stringify(durchsagen));
+  check('und kein Postfach-Eintrag', db.listMessages(W, K).total === vorher,
+    `${vorher} -> ${db.listMessages(W, K).total}`);
+  check('die Erfolge sind trotzdem da',
+    db.achievementsOf(W, K).some((r) => r.ach_id === 'fish_500'));
+  check('ein zweiter Nachtrag tut nichts mehr', (await ach.backfill(W, K)) === 0);
+
+  console.log('--- Serverweiter Nachtrag geht an den Stärksten ---');
+  // Zwei Konten erfüllen "Der erste Malocher". Der mit den meisten Schichten
+  // soll ihn bekommen – nicht der, der zufällig zuerst geprüft wird.
+  const W2 = `${W}_B`;
+  db.setActivity(W2, 'fx:wenig', 'job', 260, 1000);
+  db.setActivity(W2, 'fx:viel', 'job', 900, 1000);
+
+  // Die Konten werden ausdrücklich übergeben – so hängt der Test nicht an
+  // networth.owners und damit nicht am Besitz in einer fremden Welt.
+  await ach.backfillWorld(W2, ['fx:wenig', 'fx:viel']);
+  const tafel2 = db.allFirsts(W2).find((r) => r.ach_id === 'srv_worker');
+  check('der mit den meisten Schichten hält ihn', tafel2?.user_id === 'fx:viel',
+    JSON.stringify(tafel2));
+  check('auch der serverweite Nachtrag war lautlos', durchsagen.length === 0,
+    JSON.stringify(durchsagen));
+  check('ohne Daten kein Nachtrag: der perfekte Coup bleibt frei',
+    !db.allFirsts(W2).some((r) => r.ach_id === 'srv_heist'));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
