@@ -3120,13 +3120,15 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const worn = require('./activity').titleOf(guildId, owner);
 
   /*
-   * Abzeichen: die drei seltensten privaten Erfolge, Platin vor Gold vor
-   * Silber vor Bronze (`listFor` sortiert schon so). Serverweite Erfolge
-   * stehen nicht hier, sondern auf der Ehrentafel – dafür gibt es die schon.
-   * Eine Zeile reicht; die vollständige Liste hat ihre eigene Ansicht.
+   * Abzeichen: die drei seltensten Erfolge, serverweit immer zuerst – den
+   * kann per Definition nur einer haben, seltener geht nicht. Der Zähler
+   * davor (`14/37`) bleibt rein privat, wie die Spec es verlangt; nur die
+   * Emojis dahinter kommen jetzt aus `badgesFor`, das beide Sorten kennt.
    */
   const erfolgListe = await erfolge.listFor(guildId, owner).catch(() => ({ geholt: [], gesamt: 0 }));
-  const abzeichen = erfolgListe.geholt.slice(0, 3).map((r) => r.emoji).join(' ');
+  let abzeichenListe = [];
+  try { abzeichenListe = erfolge.badgesFor(guildId, owner, 3); } catch { /* Abzeichen sind kein Pflichtfeld */ }
+  const abzeichen = abzeichenListe.map((r) => r.emoji).join(' ');
 
   const embed = new EmbedBuilder()
     .setTitle('👤 Profil')
@@ -3283,28 +3285,73 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
  */
 async function buildTitleView({ guildId, userId }) {
   const activity = require('./activity');
+  const erfolge = require('./achievements');
   const list = activity.unlocked(guildId, userId);
   const current = activity.titleOf(guildId, userId);
   const wish = String(db.getStats(guildId, userId).title ?? '');
 
-  // Erfolgstitel stehen gleichberechtigt zur Wahl – sie kommen nur aus einer
-  // anderen Quelle (achievements.js), erkennbar am Präfix `ach:`. Anders als
-  // Aktivitäten bringen sie kein `count`/`tier` mit; sie landen deshalb nur
-  // in der Button-Reihe unten, nicht im Feld „Freigespielt" (das rechnet
-  // mit der Häufigkeit, die es für einen Erfolg nicht gibt).
-  const ausErfolgen = require('./achievements').titlesFor(guildId, userId);
+  /*
+   * Erfolgstitel stehen gleichberechtigt zur Wahl – sie kommen nur aus einer
+   * anderen Quelle (achievements.js), erkennbar am Präfix `ach:`. Anders als
+   * Aktivitäten bringen sie kein `count`/`tier` mit; sie landen deshalb nur
+   * in der Button-Reihe unten, nicht im Feld „Freigespielt" (das rechnet
+   * mit der Häufigkeit, die es für einen Erfolg nicht gibt).
+   *
+   * Seltenstes zuerst: serverweit vor Platin vor Gold. Wer beim Kappen
+   * weiter unten landet, soll „Aushilfe" verlieren, nicht „Der erste
+   * Millionär".
+   */
+  const seltenheit = (t) => {
+    const regel = erfolge.byId(t.id.slice(4));
+    if (regel?.scope === 'server') return 2;
+    if (regel?.tier === 'platin') return 1;
+    return 0;
+  };
+  const ausErfolgen = erfolge.titlesFor(guildId, userId)
+    .sort((a, b) => seltenheit(b) - seltenheit(a));
+
+  /*
+   * Discord erlaubt höchstens 5 Aktionsreihen je Nachricht; eine davon ist
+   * unten für Automatisch/Keiner/Zurück/Home reserviert. Bleiben 4 Reihen zu
+   * je 4 Buttons – 16 Titel. Reichen die nicht für beide Seiten, bekommt
+   * jede mindestens die Hälfte der Plätze: Sonst würde, wer alle 12
+   * Aktivitäten betreibt, seine Erfolgstitel lautlos verlieren (und
+   * umgekehrt). Braucht eine Seite weniger als ihre Hälfte, wandern die
+   * übrigen Plätze zur anderen.
+   */
+  const MAX_TITEL = 16;
+  const gesamtTitel = list.length + ausErfolgen.length;
+  let aktivitaetSlots = list.length;
+  let erfolgSlots = ausErfolgen.length;
+  if (gesamtTitel > MAX_TITEL) {
+    aktivitaetSlots = Math.floor(MAX_TITEL / 2);
+    erfolgSlots = MAX_TITEL - aktivitaetSlots;
+    if (list.length < aktivitaetSlots) {
+      aktivitaetSlots = list.length;
+      erfolgSlots = MAX_TITEL - aktivitaetSlots;
+    } else if (ausErfolgen.length < erfolgSlots) {
+      erfolgSlots = ausErfolgen.length;
+      aktivitaetSlots = MAX_TITEL - erfolgSlots;
+    }
+  }
+  // Wie viele Titel trotz fairer Aufteilung nicht mehr ins Menü passen –
+  // sichtbar machen, statt sie lautlos verschwinden zu lassen.
+  const fehlend = gesamtTitel - (aktivitaetSlots + erfolgSlots);
+  const hinweisGekuerzt = fehlend > 0
+    ? `\n\n_${fehlend} ${fehlend === 1 ? 'weiterer Titel passt' : 'weitere Titel passen'} nicht mehr ins Menü._`
+    : '';
 
   const embed = new EmbedBuilder()
     .setTitle('🏅 Dein Titel')
     .setColor(0xf1c40f)
-    .setDescription(list.length
+    .setDescription((list.length
       ? `Aktuell: ${current ? `${current.emoji} **${current.title}**` : '_keiner_'}` +
         (wish === '' && current ? ' _(automatisch)_' : '') +
         '\n\nDer Titel richtet sich sonst danach, **was du am häufigsten machst**. ' +
         'Wählen kannst du nur, was du auch getan hast – und je öfter, desto ' +
         'dicker der Titel.'
       : 'Noch nichts getan, noch kein Titel. Arbeite, angle, dreh ein Ding – '
-        + 'der Titel kommt von selbst.');
+        + 'der Titel kommt von selbst.') + hinweisGekuerzt);
 
   if (list.length) {
     embed.addFields({
@@ -3319,16 +3366,7 @@ async function buildTitleView({ guildId, userId }) {
   }
 
   const rows = [];
-  /*
-   * Discord erlaubt höchstens 5 Aktionsreihen je Nachricht; eine davon ist
-   * unten für Automatisch/Keiner/Zurück/Home reserviert. Bleiben 4 Reihen zu
-   * je 4 Buttons – 16 Titel. Selbst mit allen 12 Aktivitäten UND jedem
-   * Gold-, Platin- und serverweiten Erfolg (theoretisch 35, praktisch nie
-   * alle bei einer Person) wären das zusammen mehr als passen – deshalb wird
-   * hier gekappt: Aktivitäten zuerst (wie bisher sichtbar), Erfolgstitel
-   * dahinter.
-   */
-  const auswahl = [...list, ...ausErfolgen].slice(0, 16);
+  const auswahl = [...list.slice(0, aktivitaetSlots), ...ausErfolgen.slice(0, erfolgSlots)];
   const buttons = auswahl.map((t) => new ButtonBuilder()
     .setCustomId(`titleset|${t.id}|${userId}`)
     .setLabel(t.title.slice(0, 40)).setEmoji(t.emoji)

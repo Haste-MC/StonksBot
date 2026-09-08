@@ -609,6 +609,38 @@ function board(guildId) {
 }
 
 /**
+ * Die verdienten Abzeichen eines Kontos fürs Profil – privat UND serverweit.
+ *
+ * Serverweite Erfolge fehlten hier bisher: `listFor` (die Ansicht „Meine
+ * Erfolge") filtert hart auf `privat`, weil sie ihre eigene Ehrentafel für
+ * die serverweiten hat. Fürs Profil braucht es aber beide zusammen, sonst
+ * verschwindet ausgerechnet das seltenste Abzeichen – „Der erste Millionär"
+ * kann nur EINER haben, das schlägt jedes private Platin.
+ *
+ * Reihenfolge: serverweit zuerst, danach privat nach Stufe absteigend
+ * (Platin, Gold, Silber, Bronze), bei Gleichstand die zuletzt errungenen
+ * zuerst. Verdient heißt: steht in `db.achievementsOf`.
+ *
+ * @returns {Array<{id, emoji, title, scope, tier}>}
+ */
+function badgesFor(guildId, userId, anzahl = 3) {
+  const eintraege = db.achievementsOf(guildId, userId)
+    .map((row) => ({ rule: byId(row.ach_id), at: row.at }))
+    .filter((e) => e.rule);        // eine unbekannte id (alter Datenstand) fliegt raus, statt zu krachen
+
+  eintraege.sort((a, b) => {
+    const server = (e) => (e.rule.scope === 'server' ? 1 : 0);
+    if (server(a) !== server(b)) return server(b) - server(a);
+    const stufe = (e) => (e.rule.scope === 'server' ? 0 : TIERS[e.rule.tier].rank);
+    if (stufe(a) !== stufe(b)) return stufe(b) - stufe(a);
+    return b.at - a.at;
+  });
+
+  return eintraege.slice(0, anzahl).map(({ rule }) => (
+    { id: rule.id, emoji: rule.emoji, title: rule.title, scope: rule.scope, tier: rule.tier }));
+}
+
+/**
  * Erfolge, die einen Titel hergeben: Gold, Platin und alle serverweiten.
  *
  * Bronze und Silber bewusst nicht – ein Titel soll etwas bedeuten, und
@@ -628,5 +660,5 @@ function titlesFor(guildId, userId) {
 module.exports = {
   TIERS, RULES, byId, rarityRank,
   baseCtx, stateCtx, check, onActivity, state, fire,
-  backfill, backfillWorld, listFor, board, titlesFor,
+  backfill, backfillWorld, listFor, board, badgesFor, titlesFor,
 };

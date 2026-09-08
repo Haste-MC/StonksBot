@@ -321,6 +321,46 @@ const A = 'fx:anton', B = 'fx:berta';
   check('unerreichte bleiben leer',
     tafel3.find((e) => e.rule.id === 'srv_origin')?.userId === null);
 
+  console.log('--- Abzeichen fürs Profil: privat UND serverweit (badgesFor) ---');
+  // Emil (E) hat aus dem Abschnitt "Serverweit: genau einer" sowohl private
+  // Erfolge (job_1, job_50, job_250) als auch den serverweiten srv_worker –
+  // ein bekanntes Konto mit genau der Mischung, die das Profil braucht.
+  const abzeichenEmil = ach.badgesFor(W, E, 5);
+  check('der serverweite Erfolg steht an erster Stelle',
+    abzeichenEmil[0]?.id === 'srv_worker' && abzeichenEmil[0]?.scope === 'server',
+    JSON.stringify(abzeichenEmil));
+
+  // Karl (K) hat aus dem Nachtrag Bronze/Silber/Gold sowohl bei Job als auch
+  // beim Angeln. Für Platin gibt es bei ihm keine Vorgeschichte – ein
+  // direkter Award (wie schon ganz oben in dieser Datei für job_1) macht das
+  // Konto vollständig, ohne eine neue Spielsituation zu erfinden.
+  db.awardAchievement(W, K, 'castle', Date.now());
+  const abzeichenKarl = ach.badgesFor(W, K, 20);
+  check('Karl hat keinen serverweiten Erfolg (der ginge sonst vor)',
+    !abzeichenKarl.some((b) => b.scope === 'server'), JSON.stringify(abzeichenKarl));
+  const stufenIndex = (tier) => abzeichenKarl.findIndex((b) => b.tier === tier);
+  check('unter den privaten steht Platin vor Gold',
+    stufenIndex('platin') >= 0 && stufenIndex('platin') < stufenIndex('gold'),
+    JSON.stringify(abzeichenKarl.map((b) => b.tier)));
+  check('Gold steht vor Silber',
+    stufenIndex('gold') < stufenIndex('silber'), JSON.stringify(abzeichenKarl.map((b) => b.tier)));
+  check('Silber steht vor Bronze',
+    stufenIndex('silber') < stufenIndex('bronze'), JSON.stringify(abzeichenKarl.map((b) => b.tier)));
+
+  check('nie mehr Abzeichen als angefordert',
+    ach.badgesFor(W, K, 3).length === 3 && ach.badgesFor(W, E, 1).length === 1);
+
+  // Ein Konto ganz ohne Erfolge (aus dem Nachtrag-Regressionstest oben,
+  // "kein einziger serverweiter Erfolg" / "überhaupt nichts vergeben").
+  const abzeichenLeer = ach.badgesFor(WR2, R2, 3);
+  check('ein Konto ohne Erfolge bekommt eine leere Liste statt einem Absturz',
+    Array.isArray(abzeichenLeer) && abzeichenLeer.length === 0, JSON.stringify(abzeichenLeer));
+
+  // Die leere Liste darf die Profilzeile nicht zum Kippen bringen.
+  const uiMain = require('../src/ui');
+  const profilOhneAbzeichen = await uiMain.buildProfileView({ guildId: WR2, userId: R2 });
+  check('das Profil baut trotzdem ein Embed', profilOhneAbzeichen.embeds?.length === 1);
+
   const ui = require('../src/achievementsUi');
   const ansicht = await ui.buildAchievementsView({ guildId: W, userId: K });
   check('die Ansicht baut ein Embed', ansicht.embeds?.length === 1);
@@ -362,6 +402,36 @@ const A = 'fx:anton', B = 'fx:berta';
   check('ein nicht verdienter Erfolgstitel wird abgelehnt',
     activity2.choose(W, K, 'ach:srv_origin') === false);
   activity2.choose(W, K, '');
+
+  console.log('--- Titel-Menü: faire Aufteilung statt stillem Abschneiden ---');
+  /*
+   * Alle 12 Aktivitäten UND acht Gold-Erfolge auf einem Konto – zusammen 20
+   * Titel, mehr als die 16 Plätze im Menü. Vorher gewannen die Aktivitäten
+   * immer, jetzt bekommt jede Seite mindestens die Hälfte.
+   */
+  const VIEL = 'fx:vielseitig';
+  const now = Date.now();
+  for (const kind of activity2.KINDS.map((k) => k.id)) db.setActivity(W, VIEL, kind, 50, now);
+  const goldIds = ['job_250', 'worth_1m', 'car_500k', 'realty_1m',
+    'heist_clean', 'casino_100k', 'depot_250k', 'coll_100k'];
+  for (const id of goldIds) db.awardAchievement(W, VIEL, id, now);
+
+  const vieleTitel = await uiMain.buildTitleView({ guildId: W, userId: VIEL });
+  const vieleButtons = vieleTitel.components.flatMap((r) => r.toJSON().components);
+  check('mindestens ein Erfolgstitel-Knopf bleibt übrig',
+    vieleButtons.some((b) => b.custom_id.includes('ach:')),
+    vieleButtons.map((b) => b.custom_id).join(', '));
+  check('der Hinweis auf gekürzte Titel steht in der Beschreibung',
+    vieleTitel.embeds[0].toJSON().description.includes('nicht mehr ins Menü'),
+    vieleTitel.embeds[0].toJSON().description);
+
+  // Zum Vergleich: ein Konto mit wenigen Titeln braucht keinen Hinweis.
+  const WENIG = 'fx:wenigtitel';
+  db.setActivity(W, WENIG, 'job', 5, now);
+  const wenigTitel = await uiMain.buildTitleView({ guildId: W, userId: WENIG });
+  check('ohne Kürzung steht der Hinweis auch nicht da',
+    !wenigTitel.embeds[0].toJSON().description.includes('nicht mehr ins Menü'),
+    wenigTitel.embeds[0].toJSON().description);
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
