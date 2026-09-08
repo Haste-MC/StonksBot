@@ -68,7 +68,7 @@ const START_SHARE = 0.45;
  */
 const UNPRICED_FROM = 'godlike';
 /** Wie lange eine einzelne Garage live ist. Tunbar über opts.lotDuration. */
-const LOT_DURATION_MS = 20 * MIN;
+const LOT_DURATION_MS = 60 * MIN;
 /** Pause zwischen dem Ende einer Runde und dem Start der nächsten. */
 const ROUND_GAP_MS = 0;
 /** Wie viele Garagen eine Runde hat. */
