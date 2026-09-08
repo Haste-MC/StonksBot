@@ -361,6 +361,24 @@ const A = 'fx:anton', B = 'fx:berta';
   const profilOhneAbzeichen = await uiMain.buildProfileView({ guildId: WR2, userId: R2 });
   check('das Profil baut trotzdem ein Embed', profilOhneAbzeichen.embeds?.length === 1);
 
+  /*
+   * Ein Konto NUR mit einem serverweiten Erfolg, ganz ohne private – so lässt
+   * sich beweisen, dass die Abzeichenzeile im Profil wirklich aus badgesFor()
+   * kommt (das kennt serverweite Erfolge) und nicht mehr aus listFor() (das
+   * kennt nur private, siehe "Emil" oben: dessen job_250 trägt zufällig
+   * dasselbe Emoji wie sein serverweiter Erfolg – ein Konto ohne private
+   * Erfolge umgeht diese Verwechslung). Reiner db.awardAchievement-Aufruf wie
+   * schon bei Karls 'castle' oben, ohne neue Spielsituation zu erfinden;
+   * db.claimFirst braucht es hier nicht, denn badgesFor() liest nur
+   * db.achievementsOf(), nicht die Ehrentafel.
+   */
+  const P = 'fx:preisverdaechtig';
+  db.awardAchievement(W, P, 'srv_millionaire', Date.now());
+  const profilMitAbzeichen = await uiMain.buildProfileView({ guildId: W, userId: P });
+  const profilAbzeichenText = JSON.stringify(profilMitAbzeichen.embeds[0].toJSON());
+  check('das Profil zeigt das Abzeichen des serverweiten Erfolgs (👑 Der erste Millionär)',
+    profilAbzeichenText.includes('👑'), profilAbzeichenText.slice(0, 300));
+
   const ui = require('../src/achievementsUi');
   const ansicht = await ui.buildAchievementsView({ guildId: W, userId: K });
   check('die Ansicht baut ein Embed', ansicht.embeds?.length === 1);
@@ -418,9 +436,17 @@ const A = 'fx:anton', B = 'fx:berta';
 
   const vieleTitel = await uiMain.buildTitleView({ guildId: W, userId: VIEL });
   const vieleButtons = vieleTitel.components.flatMap((r) => r.toJSON().components);
-  check('mindestens ein Erfolgstitel-Knopf bleibt übrig',
-    vieleButtons.some((b) => b.custom_id.includes('ach:')),
-    vieleButtons.map((b) => b.custom_id).join(', '));
+  /*
+   * 12 Aktivitäts- und 8 Erfolgstitel (20 zusammen) auf 16 Plätze: Bei
+   * fairer Aufteilung bekommt jede Seite die Hälfte, also genau 8
+   * Erfolgstitel-Knöpfe. Der alte, unfaire Algorithmus (Aktivitäten zuerst,
+   * Rest abgeschnitten) ließe hier nur 4 übrig – "mindestens einer" hätte
+   * das nicht bemerkt, die genaue Zahl schon.
+   */
+  const erfolgsKnoepfeViel = vieleButtons.filter((b) => b.custom_id.includes('ach:'));
+  check('bei fairer Aufteilung bekommen die Erfolgstitel die Hälfte der 16 Plätze (8 von 8)',
+    erfolgsKnoepfeViel.length === 8,
+    erfolgsKnoepfeViel.map((b) => b.custom_id).join(', ') || '(keine)');
   check('der Hinweis auf gekürzte Titel steht in der Beschreibung',
     vieleTitel.embeds[0].toJSON().description.includes('nicht mehr ins Menü'),
     vieleTitel.embeds[0].toJSON().description);
