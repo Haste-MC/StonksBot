@@ -267,7 +267,12 @@ Casino deckelt bei `MAX_BET = 1.000.000`, der Fahrzeugkatalog endet beim
 Koenigsegg Jesko (3,5 Mio), und das Schloss gibt es laut `stock: 1` genau
 einmal pro Welt. Höher geht dort schlicht nicht.
 
-### Serverweit (14)
+**Level 100 ist die Ausnahme** und bleibt es mit Absicht. 1 Mio XP bei
+`floor(sqrt(betrag))` je Buchung sind über 500 Goldtransporte – ein Vielfaches
+der zwei Monate oben. Genau dafür ist Platz: ein Erfolg, den auf Jahre niemand
+hat.
+
+### Serverweit (15)
 
 | | Erfolg | Bedingung | `measure` |
 |---|---|---|---|
@@ -276,6 +281,7 @@ einmal pro Welt. Höher geht dort schlicht nicht.
 | 🏰 | Der Schlossherr | besitzt das Schloss (`stock: 1`) | Immobilienwert |
 | 📈 | Der erste Großanleger | Depot ≥ 500k | Depotwert |
 | 💎 | Der erste perfekte Coup | Heist ohne Verluste | – (kein Nachtrag) |
+| 🚚 | Der Pate | 100 Mio Diebesgut | `criminals.loot_total` |
 | ⚙️ | Der erste Malocher | 250 Schichten | Schichten |
 | 🏬 | Der erste Großeinkauf | Zuschlag ≥ 100k | – (kein Nachtrag) |
 | 🟠 | Der erste Godlike-Fund | Fund ab Godlike | bester Rang in `storage_loot` |
@@ -357,3 +363,22 @@ Ein neuer Erfolg ist ein Eintrag in der Liste in `achievements.js` – sonst
 nichts. Braucht er ein Ereignis, das keine Geldbuchung ist, kommt eine Zeile
 `achievements.fire(...)` an die passende Stelle. Bewusst so gebaut, damit
 später „kranker Stuff" nachgerüstet werden kann, ohne die Mechanik anzufassen.
+
+### Schwellen ändern
+
+Kommt ein teureres Auto in den Katalog oder verschiebt sich die Wirtschaft,
+ist eine Schwelle eine Zahl in einer Zeile. Das ist gefahrlos, weil:
+
+- **Vergeben bleibt vergeben.** Erfolge stehen als Zeilen in `achievements`.
+  Wer `car_3m` hat, behält ihn, egal was die Regel danach sagt – eine Schwelle
+  lässt sich also jederzeit anheben, ohne jemandem etwas wegzunehmen.
+- **Die `id` ist der Schlüssel, nicht der Text.** Titel, Emoji, Beschreibung
+  und Schwelle sind frei änderbar. Eine neue `id` dagegen ist ein neuer
+  Erfolg, den alle erneut holen müssen und der eine Meldung auslöst.
+
+Deshalb: Schwellen und Texte gern anpassen, `id` niemals umbenennen.
+
+Mitwachsende Schwellen (`ctx.bestCar >= catalogTopPrice() * 0.9`) wären
+möglich, sind hier aber bewusst **nicht** gewählt: Ein Meilenstein soll
+vorhersagbar sein. Wer heute 200k vom Ziel entfernt ist, soll nicht durch
+einen Katalog-Commit weiter weg rutschen.
