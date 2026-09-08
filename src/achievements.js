@@ -133,7 +133,7 @@ const RULES = [
     test: (c) => (c.counts.rob ?? 0) >= 10, progress: (c) => [c.counts.rob ?? 0, 10] },
   { id: 'heist_clean', scope: 'privat', tier: 'gold', emoji: '💎',
     title: 'Sauber durchgezogen', text: 'Ein Heist ohne einen einzigen Fehler.',
-    on: 'fire:heist_perfect', test: () => true },
+    on: 'fire:heist_perfect', test: () => true, backfill: false },
   { id: 'loot_50m', scope: 'privat', tier: 'platin', emoji: '🧨', title: 'Beutezug',
     text: '50 Millionen Diebesgut über alle Dinger hinweg.', on: 'state',
     test: (c) => c.lootTotal >= 50_000_000, progress: (c) => [c.lootTotal, 50_000_000] },
@@ -187,7 +187,8 @@ const RULES = [
 
   // ----------------------------------------------------------------- Leben
   { id: 'move_1', scope: 'privat', tier: 'bronze', emoji: '✈️', title: 'Weltenbummler',
-    text: 'Ins Ausland gezogen.', on: 'fire:move', test: () => true },
+    text: 'Ins Ausland gezogen.', on: 'fire:move',
+    test: (c) => c.moves >= 1 },
   { id: 'level_25', scope: 'privat', tier: 'silber', emoji: '🏆', title: 'Aufsteiger',
     text: 'Level 25.', on: 'state',
     test: (c) => c.level >= 25, progress: (c) => [c.level, 25] },
@@ -433,6 +434,32 @@ async function report(guildId, userId, frisch) {
 }
 
 /**
+ * Der Zusammenhang für den Nachtrag: `stateCtx`, angereichert um das, was
+ * sich nur aus dem Bestand rekonstruieren lässt und im laufenden Betrieb
+ * über ein Ereignis (`fire`) kommt.
+ *
+ * `rarity`: die BESTE NOCH VORHANDENE Seltenheit der Sammlung – nicht der
+ * höchste je gefundene Wert, sondern was `db.listLoot` heute noch zeigt.
+ * Damit greift `abStufe(...)` und `godlike` wird korrekt aus dem Bestand
+ * nachgetragen, auch wenn das ursprüngliche Fundereignis lange vorbei ist.
+ *
+ * `moves`: aus `db.getStats` – die Zahl der Umzüge steht dort bereits, ganz
+ * ohne eigenes Ereignis.
+ */
+async function backfillCtx(guildId, userId) {
+  const ctx = await stateCtx(guildId, userId);
+  Object.defineProperties(ctx, {
+    rarity: {
+      get: () => db.listLoot(guildId, userId).reduce(
+        (bester, fund) => (rarityRank(fund.rarity) > rarityRank(bester) ? fund.rarity : bester),
+        ''),
+    },
+    moves: { get: () => db.getStats(guildId, userId).moves ?? 0 },
+  });
+  return ctx;
+}
+
+/**
  * ===========================================================================
  *  NACHTRAG FÜR BESTANDSSPIELER
  * ===========================================================================
@@ -446,27 +473,42 @@ async function report(guildId, userId, frisch) {
  * `activity.backfill()` und der Erstbefüllung des Treppchens gilt: Der erste
  * Durchlauf merkt sich den Stand, gefeiert wird ab der nächsten Veränderung.
  *
+ * Anders als im laufenden Betrieb läuft der Nachtrag NICHT über `check()`
+ * und dessen Andockpunkte, sondern direkt über die Regeln: Private und
+ * serverweite Erfolge teilen sich Andockpunkte (`state`, `kind:job`,
+ * `fire:loot`, `fire:heist_perfect`), und `check()` filtert dort nur nach
+ * `on`, nicht nach `scope`. Ein einzelner Konto-Nachtrag darf aber niemals
+ * einen serverweiten Erfolg per `claimFirst` an sich reißen – das entscheidet
+ * erst `backfillWorld` anhand des stärksten Kandidaten über alle Konten.
+ * Deshalb hier ausschließlich `scope: 'privat'` und ausschließlich
+ * `db.awardAchievement`.
+ *
+ * Regeln mit `backfill: false` bleiben außen vor: Für sie gibt es keine
+ * Daten aus der Vergangenheit (ein perfekter Coup wird nirgends festgehalten),
+ * sie starten leer und gehen an den Nächsten, der sie wirklich schafft.
+ *
  * @returns {Promise<number>} wie viele Erfolge nachgetragen wurden
  */
 async function backfill(guildId, userId, now = Date.now()) {
   if (db.getClaim(guildId, userId, 'ach_backfill')) return 0;
   db.setClaim(guildId, userId, 'ach_backfill', now);   // synchron, vor dem ersten await (§7)
 
-  const ctx = await stateCtx(guildId, userId);
+  const ctx = await backfillCtx(guildId, userId);
+  const schon = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
   let n = 0;
 
-  // Alle Andockpunkte durchgehen: Was zählbar ist, ist auch nachtragbar.
-  // `fire`-Erfolge ohne Daten in der Vergangenheit fallen dabei von selbst
-  // heraus – ihr `test` bekommt kein Ereignis und schlägt fehl.
-  for (const hook of hooksOf('privat')) {
-    n += check(guildId, userId, hook, ctx, now).length;
+  for (const rule of RULES) {
+    if (rule.scope !== 'privat' || rule.backfill === false) continue;
+    if (schon.has(rule.id)) continue;
+
+    let trifft = false;
+    try { trifft = Boolean(rule.test(ctx)); }
+    catch { continue; }          // eine kaputte Regel darf die anderen nicht mitreißen
+    if (!trifft) continue;
+
+    if (db.awardAchievement(guildId, userId, rule.id, now)) n++;
   }
   return n;
-}
-
-/** Alle Andockpunkte, die in Regeln dieser Sorte vorkommen. */
-function hooksOf(scope) {
-  return [...new Set(RULES.filter((r) => r.scope === scope).map((r) => r.on))];
 }
 
 /**
@@ -490,9 +532,11 @@ async function backfillWorld(guildId, konten = null, now = Date.now()) {
   const alle = konten ?? require('./networth').owners(guildId);
   if (!alle.length) return 0;
 
-  // Einmal je Konto den Zusammenhang bauen, nicht je Regel.
+  // Einmal je Konto den Zusammenhang bauen, nicht je Regel. Derselbe
+  // angereicherte Zusammenhang wie in `backfill()`, damit auch hier
+  // Raritäten aus dem Bestand zählen (`srv_godlike`, `srv_cosmic`, …).
   const ctxs = [];
-  for (const userId of alle) ctxs.push([userId, await stateCtx(guildId, userId)]);
+  for (const userId of alle) ctxs.push([userId, await backfillCtx(guildId, userId)]);
 
   let n = 0;
   for (const rule of RULES) {
@@ -520,5 +564,5 @@ async function backfillWorld(guildId, konten = null, now = Date.now()) {
 module.exports = {
   TIERS, RULES, byId, rarityRank,
   baseCtx, stateCtx, check, onActivity, state, fire,
-  backfill, backfillWorld, hooksOf,
+  backfill, backfillWorld,
 };

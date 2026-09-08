@@ -182,6 +182,50 @@ const A = 'fx:anton', B = 'fx:berta';
   check('und stehen in der Datenbank',
     db.achievementsOf(W, J).some((r) => r.ach_id === 'fish_500'));
 
+  console.log('--- Regression: Einzel-Nachtrag beansprucht keinen serverweiten Erfolg ---');
+  // Karl hat Fänge und Schichten, aber nie einen Heist gemacht. `check()`
+  // filtert Andockpunkte nicht nach `scope` – ein einzelner Konto-Nachtrag
+  // darf trotzdem keinen serverweiten Erfolg per claimFirst an sich reißen.
+  const WR1 = `${W}_R1`;
+  const R1 = 'fx:robert';
+  db.setActivity(WR1, R1, 'fishing', 600, 1000);
+  db.setActivity(WR1, R1, 'job', 300, 1000);
+  await ach.backfill(WR1, R1);
+  check('kein einziger serverweiter Erfolg wird beansprucht',
+    db.allFirsts(WR1).length === 0, JSON.stringify(db.allFirsts(WR1)));
+
+  console.log('--- Regression: ein frisches Konto bekommt nichts geschenkt ---');
+  // move_1 und heist_clean hatten `test: () => true` – ohne echte Prüfung
+  // feuern sie im Nachtrag bedingungslos, auch ganz ohne Vorgeschichte.
+  const WR2 = `${W}_R2`;
+  const R2 = 'fx:frisch';
+  await ach.backfill(WR2, R2);
+  check('kein move_1 und kein heist_clean ohne jede Aktivität',
+    !db.achievementsOf(WR2, R2).some((r) => ['move_1', 'heist_clean'].includes(r.ach_id)),
+    JSON.stringify(db.achievementsOf(WR2, R2)));
+  check('überhaupt nichts vergeben',
+    db.achievementsOf(WR2, R2).length === 0, JSON.stringify(db.achievementsOf(WR2, R2)));
+
+  console.log('--- Regression: Raritäten werden aus dem Bestand nachgetragen ---');
+  const WR3 = `${W}_R3`;
+  const R3 = 'fx:sammler';
+  db.addLoot(WR3, R3, 'Kristallschädel', 500_000, 'cosmic', 'gut', null);
+  await ach.backfill(WR3, R3);
+  check('ein Cosmic-Fundstück im Bestand trägt godlike nach',
+    db.achievementsOf(WR3, R3).some((r) => r.ach_id === 'godlike'),
+    JSON.stringify(db.achievementsOf(WR3, R3)));
+
+  console.log('--- Regression: serverweiter Nachtrag trotz vorherigem Einzel-Nachtrag ---');
+  const WR4 = `${W}_R4`;
+  db.setActivity(WR4, 'fx:wenig2', 'job', 260, 1000);
+  db.setActivity(WR4, 'fx:viel2', 'job', 900, 1000);
+  await ach.backfill(WR4, 'fx:wenig2');
+  await ach.backfill(WR4, 'fx:viel2');
+  await ach.backfillWorld(WR4, ['fx:wenig2', 'fx:viel2']);
+  const tafelR4 = db.allFirsts(WR4).find((r) => r.ach_id === 'srv_worker');
+  check('nach zwei Einzel-Nachträgen bekommt weiterhin der Stärkere den Serverrekord',
+    tafelR4?.user_id === 'fx:viel2', JSON.stringify(tafelR4));
+
   console.log('--- Nachtrag: alles auf einmal, aber lautlos ---');
   relay.broadcast = async (text, opts = {}) => { durchsagen.push({ text, ...opts }); return ['discord']; };
   durchsagen.length = 0;
@@ -207,6 +251,7 @@ const A = 'fx:anton', B = 'fx:berta';
   const W2 = `${W}_B`;
   db.setActivity(W2, 'fx:wenig', 'job', 260, 1000);
   db.setActivity(W2, 'fx:viel', 'job', 900, 1000);
+  const postfachVorher = db.listMessages(W2, 'fx:viel').total;
 
   // Die Konten werden ausdrücklich übergeben – so hängt der Test nicht an
   // networth.owners und damit nicht am Besitz in einer fremden Welt.
@@ -216,6 +261,9 @@ const A = 'fx:anton', B = 'fx:berta';
     JSON.stringify(tafel2));
   check('auch der serverweite Nachtrag war lautlos', durchsagen.length === 0,
     JSON.stringify(durchsagen));
+  check('und ohne Postfach-Eintrag',
+    db.listMessages(W2, 'fx:viel').total === postfachVorher,
+    `${postfachVorher} -> ${db.listMessages(W2, 'fx:viel').total}`);
   check('ohne Daten kein Nachtrag: der perfekte Coup bleibt frei',
     !db.allFirsts(W2).some((r) => r.ach_id === 'srv_heist'));
 
