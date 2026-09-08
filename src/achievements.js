@@ -256,4 +256,145 @@ function byId(id) {
   return RULE_BY_ID.get(String(id ?? '')) ?? null;
 }
 
-module.exports = { TIERS, RULES, byId, rarityRank };
+/**
+ * ===========================================================================
+ *  DER ZUSAMMENHANG (ctx)
+ * ===========================================================================
+ *
+ * Jede Regel bekommt ein `ctx` mit dem, was sie zum Prüfen braucht. Die
+ * teuren Werte sind **Getter**: Sie rechnen erst, wenn eine Regel danach
+ * fragt, und danach nie wieder.
+ *
+ * Das ist keine Spielerei, sondern der Grund, warum die Prüfung an jeder
+ * Geldbuchung hängen darf: Auf dem Buchungspfad laufen nur Regeln mit
+ * `kind:`-Andockpunkt, und die fragen ausschließlich nach der Strichliste –
+ * eine einzige Abfrage. Vermögen, Depot und Immobilien werden dort nie
+ * berechnet.
+ */
+function baseCtx(guildId, userId, extra = {}) {
+  const cache = new Map();
+  const once = (key, fn) => {
+    if (!cache.has(key)) cache.set(key, fn());
+    return cache.get(key);
+  };
+
+  return {
+    ...extra,
+    get counts() {
+      return once('counts', () => Object.fromEntries(
+        db.activityOf(guildId, userId).map((row) => [row.kind, row.count])));
+    },
+    get shifts() { return this.counts.job ?? 0; },
+    get cars() { return once('cars', () => db.carsOwned(guildId, userId)); },
+    get bestCar() {
+      return once('bestCar', () => db.getMostValuable(guildId, userId)?.price ?? 0);
+    },
+    get properties() {
+      return once('props', () => db.listOwnedProperties(guildId, userId).length);
+    },
+    get realty() { return once('realty', () => db.propertyValue(guildId, userId) || 0); },
+    get hasCastle() {
+      return once('castle', () => db.listOwnedProperties(guildId, userId)
+        .some((p) => String(p.name).toLowerCase() === 'schloss'));
+    },
+    get depot() {
+      return once('depot', () =>
+        Math.round(require('./wallstreet').portfolio(guildId, userId).value || 0));
+    },
+    get collection() {
+      return once('coll', () => db.lootSummary(guildId, userId).value || 0);
+    },
+    get crime() { return once('crime', () => db.peekCriminal(guildId, userId)); },
+    get heists() { return this.crime?.heists ?? 0; },
+    get lootTotal() { return this.crime?.loot_total ?? 0; },
+    get level() {
+      return once('level', () =>
+        require('./level').progress(db.getStats(guildId, userId).xp).level);
+    },
+    /** Bester Rang in der noch vorhandenen Sammlung – für den Nachtrag. */
+    get bestRarity() {
+      return once('bestRarity', () => db.listLoot(guildId, userId)
+        .reduce((best, item) => Math.max(best, rarityRank(item.rarity)), -1));
+    },
+  };
+}
+
+/**
+ * Der Zusammenhang für den `state`-Andockpunkt.
+ *
+ * Das Vermögen wird **übergeben**, nicht geholt: Profil und Startseite haben
+ * es ohnehin gerade berechnet. Ohne diesen Kniff käme bei jedem Blick eine
+ * zweite Guthabenabfrage über die API dazu.
+ */
+async function stateCtx(guildId, userId, worth = null) {
+  const total = worth?.total ?? (await require('./networth').of(guildId, userId)
+    .then((w) => w.total).catch(() => 0));
+  return baseCtx(guildId, userId, { worth: total });
+}
+
+/**
+ * Prüft alle Regeln eines Andockpunkts und vergibt, was zutrifft.
+ *
+ * **Synchron** – hier ist kein `await` (§7). Ein zweiter, schneller Klick
+ * findet die Zeile bereits vor, und bei einem serverweiten Erfolg entscheidet
+ * die Datenbank, wer der Erste war.
+ *
+ * Ein Verlierer bekommt bei `scope: 'server'` GAR NICHTS – auch keine private
+ * Kopie. Sonst stünde der Erfolg bei zwei Leuten im Profil, und die Ehrentafel
+ * würde ihre eigene Aussage widerlegen.
+ *
+ * @returns {Array} die frisch vergebenen Regeln (zum Melden)
+ */
+function check(guildId, userId, hook, ctx, now = Date.now()) {
+  const schon = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
+  const frisch = [];
+
+  for (const rule of RULES) {
+    if (rule.on !== hook) continue;
+    if (schon.has(rule.id)) continue;
+
+    let trifft = false;
+    try { trifft = Boolean(rule.test(ctx)); }
+    catch { continue; }          // eine kaputte Regel darf die anderen nicht mitreißen
+    if (!trifft) continue;
+
+    if (rule.scope === 'server' && !db.claimFirst(guildId, rule.id, userId, now)) continue;
+    if (!db.awardAchievement(guildId, userId, rule.id, now)) continue;
+    frisch.push(rule);
+  }
+
+  return frisch;
+}
+
+/** Andockpunkt 1: eine Geldbuchung mit `kind` (siehe unb.countActivity). */
+async function onActivity(guildId, userId, kind, now = Date.now()) {
+  const frisch = check(guildId, userId, `kind:${kind}`, baseCtx(guildId, userId), now);
+  await report(guildId, userId, frisch);
+  return frisch;
+}
+
+/** Andockpunkt 2: Profil und Startseite. `worth` spart die Guthabenabfrage. */
+async function state(guildId, userId, worth = null, now = Date.now()) {
+  const ctx = await stateCtx(guildId, userId, worth);
+  const frisch = check(guildId, userId, 'state', ctx, now);
+  await report(guildId, userId, frisch);
+  return frisch;
+}
+
+/** Andockpunkt 3: die Hintertür für Ereignisse ohne Geldbuchung. */
+async function fire(guildId, userId, name, daten = {}, now = Date.now()) {
+  const frisch = check(
+    guildId, userId, `fire:${name}`, baseCtx(guildId, userId, daten), now);
+  await report(guildId, userId, frisch);
+  return frisch;
+}
+
+/** Meldet frisch vergebene Erfolge. Wird in Task 4 ausgebaut. */
+async function report(guildId, userId, frisch) {
+  return frisch;
+}
+
+module.exports = {
+  TIERS, RULES, byId, rarityRank,
+  baseCtx, stateCtx, check, onActivity, state, fire,
+};

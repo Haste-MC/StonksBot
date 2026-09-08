@@ -78,6 +78,67 @@ const A = 'fx:anton', B = 'fx:berta';
   check('Mythic liegt darunter', ach.rarityRank('mythic') < ach.rarityRank('godlike'));
   check('Unbekanntes ist -1', ach.rarityRank('quatsch') === -1);
 
+  console.log('--- Vergeben: einmal, synchron, ohne Geld ---');
+  const C = 'fx:cem', D = 'fx:dora';
+
+  // §3: Die Geldschnittstelle wird ersetzt und mitgezählt. Sie darf nie
+  // angefasst werden – ein Erfolg ist Ruhm, keine Auszahlung.
+  const unb = require('../src/unb');
+  let geldAufrufe = 0;
+  // Das Original merken: Task 6 prüft den echten Andockpunkt in changeCash
+  // und braucht die unveränderte Funktion zurück.
+  const echtesChangeCash = unb.changeCash;
+  unb.changeCash = async () => { geldAufrufe++; return { cash: 0, bank: 0, total: 0 }; };
+  unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
+
+  db.setActivity(W, C, 'fishing', 100, 1000);
+  const ersteRunde = await ach.onActivity(W, C, 'fishing');
+  const idsRunde = ersteRunde.map((r) => r.id).sort();
+  check('Bronze und Silber gehen zusammen raus',
+    idsRunde.join(',') === 'fish_1,fish_100', idsRunde.join(','));
+  check('beim zweiten Mal nichts mehr',
+    (await ach.onActivity(W, C, 'fishing')).length === 0);
+  check('§3: kein einziger Geldaufruf', geldAufrufe === 0, String(geldAufrufe));
+
+  console.log('--- §7: die Zeile steht vor dem ersten await ---');
+  db.setActivity(W, D, 'fishing', 1, 1000);
+  const laeuft = ach.onActivity(W, D, 'fishing');
+  check('schon vor dem Auflösen in der Datenbank',
+    db.achievementsOf(W, D).some((r) => r.ach_id === 'fish_1'));
+  await laeuft;
+
+  console.log('--- Serverweit: genau einer, der andere geht leer aus ---');
+  const E = 'fx:emil', F = 'fx:frida';
+  db.setActivity(W, E, 'job', 250, 1000);
+  db.setActivity(W, F, 'job', 250, 1000);
+  const erster = await ach.onActivity(W, E, 'job');
+  const zweiter = await ach.onActivity(W, F, 'job');
+  check('der Erste bekommt ihn', erster.some((r) => r.id === 'srv_worker'));
+  check('der Zweite nicht', !zweiter.some((r) => r.id === 'srv_worker'));
+  check('aber seine privaten Erfolge schon',
+    zweiter.some((r) => r.id === 'job_250'), zweiter.map((r) => r.id).join(','));
+  check('und er hat auch keine stille Kopie',
+    !db.achievementsOf(W, F).some((r) => r.ach_id === 'srv_worker'));
+
+  console.log('--- fire: Ereignisse ohne Geldbuchung ---');
+  const G = 'fx:gustav';
+  check('ein Mythic reicht nicht',
+    (await ach.fire(W, G, 'loot', { rarity: 'mythic' })).length === 0);
+  const cosmic = await ach.fire(W, G, 'loot', { rarity: 'cosmic' });
+  check('ein Cosmic löst auch den Godlike-Erfolg aus (oder besser)',
+    cosmic.some((r) => r.id === 'godlike') && cosmic.some((r) => r.id === 'srv_cosmic'),
+    cosmic.map((r) => r.id).join(','));
+
+  console.log('--- Der Buchungspfad rechnet kein Vermögen ---');
+  const networth = require('../src/networth');
+  const echtesOf = networth.of;
+  let worthAufrufe = 0;
+  networth.of = async (...a) => { worthAufrufe++; return echtesOf(...a); };
+  db.setActivity(W, C, 'job', 1, 2000);
+  await ach.onActivity(W, C, 'job');
+  check('kein Networth auf dem Buchungspfad', worthAufrufe === 0, String(worthAufrufe));
+  networth.of = echtesOf;
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
