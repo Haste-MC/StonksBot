@@ -10,3 +10,4 @@ node_modules/
 # Lokale Shop-Datenbank (Artikel & Inventare) – NUR das Top-Level-data,
 # NICHT src/data/ (Kataloge)! Führender Slash = Anker an die Repo-Wurzel.
 /data/
+.superpowers/
