@@ -3097,22 +3097,24 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
    * geprüft: Das Vermögen liegt gerade vor, also kostet es keine zusätzliche
    * Abfrage.
    *
-   * `backfillWorld` NICHT mehr awaiten: Er baut je Besitzer einen
-   * Zusammenhang, und das löst je Besitzer eine Guthabenabfrage über
-   * UnbelievaBoat aus – bei 26 Besitzern 26 Abfragen nacheinander, das reißt
-   * Discords 3-Sekunden-Fenster für die Antwort auf diesen Klick. Er läuft
-   * jetzt im Hintergrund weiter; die Ansicht wartet auf nichts davon. Damit
-   * sich dabei nicht doch der erste Betrachter ein serverweites Abzeichen
-   * schnappt, bevor die Kandidaten verglichen wurden, sperrt `state()`
-   * serverweite Vergaben selbst, solange `backfillWorld` nicht fertig ist
-   * (siehe achievements.check()).
+   * Den Welt-Nachtrag (`backfillWorld`) stößt seit dem A3-Fix `state()`
+   * selbst an (achievements.js) – nicht mehr diese Ansicht. Grund: Nur dort
+   * gibt es EINE einzige Stelle, die aus JEDER Ansicht läuft, die den
+   * Zustand prüft (Profil UND Startseite), statt vom Zufall abzuhängen,
+   * welches Menü zuerst geöffnet wird. `state()` awaitet ihn ebenfalls
+   * nicht: Er baut je Besitzer einen Zusammenhang, und das löst je Besitzer
+   * eine Guthabenabfrage über UnbelievaBoat aus – bei 26 Besitzern 26
+   * Abfragen nacheinander, das reißt Discords 3-Sekunden-Fenster für die
+   * Antwort auf diesen Klick. Damit sich dabei nicht doch der erste
+   * Betrachter ein serverweites Abzeichen schnappt, bevor die Kandidaten
+   * verglichen wurden, sperrt `state()` serverweite Vergaben selbst, solange
+   * `backfillWorld` nicht fertig ist (siehe achievements.check()).
    */
   let erfolge = null;
   try { erfolge = require('./achievements'); }
   catch { /* ein Ladefehler bei den Erfolgen darf das Profil nicht kippen */ }
 
   if (erfolge) {
-    erfolge.backfillWorld(guildId).catch(() => {});
     await erfolge.backfill(guildId, owner).catch(() => {});
     erfolge.state(guildId, owner, worth).catch(() => {});
   }

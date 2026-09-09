@@ -392,14 +392,21 @@ const A = 'fx:anton', B = 'fx:berta';
   // A1-Fix: `buildProfileView` wartet nicht mehr auf `backfillWorld` (sonst
   // würde die erste Profilansicht nach dem Deploy an Discords 3-Sekunden-
   // Fenster scheitern, siehe Prüfbericht). Der Welt-Nachtrag läuft jetzt im
-  // Hintergrund weiter – für DIESEN Test (der genau sein Ergebnis prüft)
-  // fangen wir das erzeugte Promise kurz ab, um es hier gezielt abzuwarten.
-  const echtesBackfillWorld = ach.backfillWorld;
-  let backfillWorldPromise = null;
-  ach.backfillWorld = (...a) => { backfillWorldPromise = echtesBackfillWorld(...a); return backfillWorldPromise; };
+  // Hintergrund weiter.
+  //
+  // A3-Fix: Der Anstoß sitzt jetzt in `achievements.state()` selbst, nicht
+  // mehr in `buildProfileView` – ein Aufruf innerhalb DESSELBEN Moduls, den
+  // ein Monkeypatch von außen (wie vorher hier) nicht mehr abfangen kann.
+  // Für DIESEN Test (der genau das Vergleichsergebnis prüft) reicht es,
+  // aktiv auf den Fertig-Marker zu warten, statt eine bestimmte Aufrufstelle
+  // abzufangen – alles hier ist lokal und ohne Netz (§12), also kurze,
+  // wiederholte `setImmediate`-Sprünge statt eines festen Timeouts.
   await require('../src/ui').buildProfileView({ guildId: WA2, userId: SCHWACH });
-  await backfillWorldPromise;
-  ach.backfillWorld = echtesBackfillWorld;
+  for (let i = 0; i < 200 && !db.getClaim(WA2, '*', 'ach_backfill_world_fertig'); i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  check('der Welt-Nachtrag ist nach dem Profilaufruf tatsächlich fertig geworden',
+    Boolean(db.getClaim(WA2, '*', 'ach_backfill_world_fertig')));
 
   const inhaberA2 = db.allFirsts(WA2).find((r) => r.ach_id === 'srv_godlike');
   check('nach dem Profilaufruf für das schwächere Konto hält das stärkere den serverweiten Erfolg',
@@ -650,7 +657,19 @@ const A = 'fx:anton', B = 'fx:berta';
   check('und auch nicht auf der Ehrentafel reserviert',
     !db.allFirsts(WRACE).some((r) => r.ach_id === 'srv_millionaire'), JSON.stringify(db.allFirsts(WRACE)));
 
-  await ach.backfillWorld(WRACE);
+  // A3-Fix: `state()` stößt `backfillWorld` inzwischen SELBST an (fire-and-
+  // forget), sobald der Fertig-Marker fehlt – der Aufruf oben (Zeile 650) hat
+  // ihn also schon losgeschickt, intern und darum nicht mehr per Monkeypatch
+  // abfangbar (siehe die A2-Prüfung weiter oben, die das schon umgestellt
+  // hat). Ein zweiter, expliziter Aufruf hier wäre bei einer leeren Welt
+  // harmlos, aber nicht mehr nötig, um ihn abzuschließen: Warten reicht, um
+  // zu zeigen, dass er ganz von allein fertig wird.
+  for (let i = 0; i < 200 && !db.getClaim(WRACE, '*', 'ach_backfill_world_fertig'); i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  check('backfillWorld ist über state() selbst angelaufen, ganz ohne expliziten Aufruf',
+    Boolean(db.getClaim(WRACE, '*', 'ach_backfill_world_fertig')));
+
   await ach.state(WRACE, RACE1, { total: 2_000_000 });
   check('nach backfillWorld (Fertig-Marker gesetzt) vergibt state() serverweite Erfolge wieder normal',
     db.achievementsOf(WRACE, RACE1).some((r) => r.ach_id === 'srv_millionaire'),
@@ -665,6 +684,109 @@ const A = 'fx:anton', B = 'fx:berta';
     raceFrisch.some((r) => r.id === 'srv_worker'), raceFrisch.map((r) => r.id).join(','));
   check('WRACE2 hat wirklich (noch) keinen Fertig-Marker (Kontrolle)',
     !db.getClaim(WRACE2, '*', 'ach_backfill_world_fertig'));
+
+  console.log('--- A1: backfillWorld sperrt sich nach einem Absturz nicht mehr selbst aus ---');
+  // Bricht der Welt-Nachtrag mittendrin ab (hier: `networth.owners()` wirft,
+  // wie es auch aus einem Getter in baseCtx oder aus rule.measure(ctx)
+  // passieren könnte), verhinderte der Start-Marker bisher jeden weiteren
+  // Versuch, während der Fertig-Marker nie kam – sechs serverweite Erfolge
+  // wären für diese Welt für immer verloren, heilbar nur per
+  // Datenbankeingriff.
+  const WA1 = `${W}_A1FAIL`;
+  const networthMod = require('../src/networth');
+  const echtesOwners = networthMod.owners;
+  networthMod.owners = () => { throw new Error('kaputt: owners()'); };
+
+  await ach.backfillWorld(WA1).catch(() => {});
+  check('nach einem Absturz ist der Start-Marker WIEDER WEG',
+    !db.getClaim(WA1, '*', 'ach_backfill_world'));
+  check('und der Fertig-Marker ist (noch) nicht da',
+    !db.getClaim(WA1, '*', 'ach_backfill_world_fertig'));
+
+  networthMod.owners = echtesOwners;
+  const zweiterVersuchA1 = await ach.backfillWorld(WA1);
+  check('ein zweiter Aufruf läuft danach wieder ganz normal los',
+    typeof zweiterVersuchA1 === 'number', String(zweiterVersuchA1));
+  check('und bringt die Arbeit diesmal zu Ende (Fertig-Marker gesetzt)',
+    Boolean(db.getClaim(WA1, '*', 'ach_backfill_world_fertig')));
+
+  const RACE_A1 = 'fx:race_a1';
+  await ach.state(WA1, RACE_A1, { total: 2_000_000 });
+  check('state() vergibt nach dem geheilten Welt-Nachtrag wieder serverweite Erfolge',
+    db.achievementsOf(WA1, RACE_A1).some((r) => r.ach_id === 'srv_millionaire'),
+    JSON.stringify(db.achievementsOf(WA1, RACE_A1)));
+
+  console.log('--- A1: eine einzelne kaputte measure-Funktion reißt die übrigen Regeln nicht mit ---');
+  // `measure` stand vorher AUSSERHALB des try, das `test` umgibt – ein Wurf
+  // dort riss den GESAMTEN Welt-Nachtrag ab, nicht nur den einen Kandidaten
+  // oder die eine Regel.
+  const WA1M = `${W}_A1MEASURE`;
+  const STARK_A1 = 'fx:stark_a1';
+  db.setActivity(WA1M, STARK_A1, 'job', 900, 1000);        // erfüllt srv_worker
+  const walletA1M = require('../src/wallet');
+  await walletA1M.changeCash(WA1M, STARK_A1, 2_000_000, 'Testkapital', { xp: false });
+
+  const srvMillionaireRegel = ach.RULES.find((r) => r.id === 'srv_millionaire');
+  const echteMeasure = srvMillionaireRegel.measure;
+  srvMillionaireRegel.measure = () => { throw new Error('kaputte measure'); };
+
+  // `unb.getBalance` steht seit dem §3-Aufwärmen ganz oben auf einem Mock,
+  // der immer eine leere Bilanz liefert – ohne die kurze Umleitung auf die
+  // echte, lokale Wallet bliebe `ctx.worth` bei 0 und `srv_millionaire`s
+  // `test()` würde nie zutreffen, womit die (absichtlich kaputte) `measure`
+  // NIE aufgerufen würde und dieser Test gar nichts prüfte.
+  const echtesGetBalanceMockA1M = unb.getBalance;
+  unb.getBalance = (...a) => walletA1M.getBalance(...a);
+  let a1mFehler = null;
+  try { await ach.backfillWorld(WA1M, [STARK_A1]); }
+  catch (e) { a1mFehler = e; }
+  unb.getBalance = echtesGetBalanceMockA1M;
+  srvMillionaireRegel.measure = echteMeasure;
+
+  check('backfillWorld wirft NICHT, obwohl eine measure-Funktion kaputt ist',
+    a1mFehler === null, String(a1mFehler));
+  check('eine andere serverweite Regel wird trotzdem ganz normal vergeben (srv_worker)',
+    db.allFirsts(WA1M).some((r) => r.ach_id === 'srv_worker'),
+    JSON.stringify(db.allFirsts(WA1M)));
+  check('srv_millionaire selbst bleibt wegen der kaputten measure unvergeben, statt den Rest mitzureißen',
+    !db.allFirsts(WA1M).some((r) => r.ach_id === 'srv_millionaire'),
+    JSON.stringify(db.allFirsts(WA1M)));
+  check('und der Fertig-Marker ist trotzdem gesetzt',
+    Boolean(db.getClaim(WA1M, '*', 'ach_backfill_world_fertig')));
+
+  console.log('--- A2: activity.record kippt nicht, wenn die Erfolgs-Prüfung selbst wirft ---');
+  // `require('./achievements')` und die Marker-Abfrage standen bisher
+  // UNGESCHÜTZT vor jedem try/catch – ein Wurf dort würde `record` selbst
+  // werfen. `record` hängt aber UNGESCHÜTZT an sieben Stellen, u.a.
+  // robbery.js NACH dem Geldtransfer eines Überfalls und creator.js VOR der
+  // Auszahlung einer Aktion: Ein Wurf hier dürfte niemals einen Überfall oder
+  // eine Auszahlung kippen.
+  const KONTOA2 = 'fx:kontoa2';
+  const echtesGetClaimA2 = db.getClaim;
+  db.getClaim = () => { throw new Error('db kaputt'); };
+
+  let a2Wurf = false;
+  let a2Ergebnis;
+  try { a2Ergebnis = activity.record(W, KONTOA2, 'job'); }
+  catch { a2Wurf = true; }
+  db.getClaim = echtesGetClaimA2;
+
+  check('activity.record wirft NICHT, wenn db.getClaim wirft', !a2Wurf);
+  check('und liefert trotzdem true zurück', a2Ergebnis === true);
+  check('der Strich wurde trotzdem gesetzt (die Strichliste hat Vorrang vor dem Erfolg)',
+    db.activityOf(W, KONTOA2).some((r) => r.kind === 'job' && r.count >= 1),
+    JSON.stringify(db.activityOf(W, KONTOA2)));
+
+  console.log('--- A3: ein Aufbau der Startseite stößt den Welt-Nachtrag an, ganz ohne je ein Profil zu öffnen ---');
+  const WHOME = `${W}_HOMEVIEW`;
+  const HOMEOWNER = 'fx:homeowner';
+  db.addLoot(WHOME, HOMEOWNER, 'Fund', 1000, 'common', 'normal', null);
+  await require('../src/ui').buildHomeView({ guildId: WHOME, userId: HOMEOWNER });
+  for (let i = 0; i < 200 && !db.getClaim(WHOME, '*', 'ach_backfill_world_fertig'); i++) {
+    await new Promise((r) => setImmediate(r));
+  }
+  check('der Welt-Nachtrag lief, obwohl nie ein Profil geöffnet wurde – nur die Startseite',
+    Boolean(db.getClaim(WHOME, '*', 'ach_backfill_world_fertig')));
 
   console.log('--- Block B: neue Spieler verlieren ihren ersten Erfolg nicht mehr ---');
   const NEU1 = 'fx:neuling_b1';
