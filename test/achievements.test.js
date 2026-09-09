@@ -388,7 +388,19 @@ const A = 'fx:anton', B = 'fx:berta';
   const SCHWACH = 'fx:schwach', STARK = 'fx:stark';
   db.addLoot(WA2, SCHWACH, 'Fund', 1000, 'godlike', 'normal', null);
   db.addLoot(WA2, STARK, 'Fund', 1000, 'cosmic', 'normal', null);
+
+  // A1-Fix: `buildProfileView` wartet nicht mehr auf `backfillWorld` (sonst
+  // würde die erste Profilansicht nach dem Deploy an Discords 3-Sekunden-
+  // Fenster scheitern, siehe Prüfbericht). Der Welt-Nachtrag läuft jetzt im
+  // Hintergrund weiter – für DIESEN Test (der genau sein Ergebnis prüft)
+  // fangen wir das erzeugte Promise kurz ab, um es hier gezielt abzuwarten.
+  const echtesBackfillWorld = ach.backfillWorld;
+  let backfillWorldPromise = null;
+  ach.backfillWorld = (...a) => { backfillWorldPromise = echtesBackfillWorld(...a); return backfillWorldPromise; };
   await require('../src/ui').buildProfileView({ guildId: WA2, userId: SCHWACH });
+  await backfillWorldPromise;
+  ach.backfillWorld = echtesBackfillWorld;
+
   const inhaberA2 = db.allFirsts(WA2).find((r) => r.ach_id === 'srv_godlike');
   check('nach dem Profilaufruf für das schwächere Konto hält das stärkere den serverweiten Erfolg',
     inhaberA2?.user_id === STARK, JSON.stringify(inhaberA2));
@@ -600,6 +612,59 @@ const A = 'fx:anton', B = 'fx:berta';
   check('ohne Kürzung steht der Hinweis auch nicht da',
     !wenigTitel.embeds[0].toJSON().description.includes('nicht mehr ins Menü'),
     wenigTitel.embeds[0].toJSON().description);
+
+  console.log('--- Block A: die erste Profilansicht nach dem Deploy darf nicht kippen ---');
+  // Viele Besitzer, damit `backfillWorld` (ohne den Fix: streng sequenziell,
+  // eine Guthabenabfrage je Besitzer) etwas zum Abarbeiten hätte. Der Test
+  // beweist gerade, dass davon NICHTS mehr in den synchronen Ablauf von
+  // `buildProfileView` hineinragt.
+  const WBURST = `${W}_BURST`;
+  const BURST_OWNER = 'fx:burst_owner';
+  for (let i = 0; i < 8; i++) db.addLoot(WBURST, `fx:burst_${i}`, 'Fund', 1000, 'common', 'normal', null);
+  db.addLoot(WBURST, BURST_OWNER, 'Fund', 1000, 'common', 'normal', null);
+  // Der eigene (private) Nachtrag des Betrachters ist schon gelaufen – dieser
+  // Test prüft gezielt den WELT-Nachtrag, nicht das Zusammenspiel mit einem
+  // taufrischen eigenen Konto (das deckt Block B weiter oben ab).
+  await ach.backfill(WBURST, BURST_OWNER);
+
+  const echtesGetBalance = unb.getBalance;
+  let balanceAufrufe = 0;
+  unb.getBalance = async (...a) => { balanceAufrufe++; return echtesGetBalance(...a); };
+  await uiMain.buildProfileView({ guildId: WBURST, userId: BURST_OWNER });
+  unb.getBalance = echtesGetBalance;
+  check('buildProfileView löst höchstens eine Guthabenabfrage aus, auch mit vielen '
+    + 'Besitzern und ohne gelaufenen Welt-Nachtrag', balanceAufrufe <= 1, String(balanceAufrufe));
+
+  console.log('--- Block A: der Wettlauf um serverweite Erfolge ist gesperrt, bis der Welt-Nachtrag fertig ist ---');
+  const WRACE = `${W}_RACE`;
+  const RACE1 = 'fx:race1';
+  // Das Vermögen wird direkt übergeben (wie `state()` es von der Ansicht
+  // erwartet) – kein Netz nötig, um gezielt die Sperre zu prüfen.
+  await ach.state(WRACE, RACE1, { total: 2_000_000 });
+  check('private state-Erfolge werden trotzdem vergeben',
+    db.achievementsOf(WRACE, RACE1).some((r) => r.ach_id === 'worth_100k'),
+    JSON.stringify(db.achievementsOf(WRACE, RACE1)));
+  check('der serverweite Erfolg wird OHNE Fertig-Marker NICHT vergeben, obwohl die Bedingung erfüllt ist',
+    !db.achievementsOf(WRACE, RACE1).some((r) => r.ach_id === 'srv_millionaire'),
+    JSON.stringify(db.achievementsOf(WRACE, RACE1)));
+  check('und auch nicht auf der Ehrentafel reserviert',
+    !db.allFirsts(WRACE).some((r) => r.ach_id === 'srv_millionaire'), JSON.stringify(db.allFirsts(WRACE)));
+
+  await ach.backfillWorld(WRACE);
+  await ach.state(WRACE, RACE1, { total: 2_000_000 });
+  check('nach backfillWorld (Fertig-Marker gesetzt) vergibt state() serverweite Erfolge wieder normal',
+    db.achievementsOf(WRACE, RACE1).some((r) => r.ach_id === 'srv_millionaire'),
+    JSON.stringify(db.achievementsOf(WRACE, RACE1)));
+
+  const WRACE2 = `${W}_RACE2`;
+  const RACE2 = 'fx:race2';
+  await ach.backfill(WRACE2, RACE2);
+  db.setActivity(WRACE2, RACE2, 'job', 250, Date.now());
+  const raceFrisch = await ach.onActivity(WRACE2, RACE2, 'job');
+  check('onActivity vergibt serverweite Erfolge auch OHNE Fertig-Marker – eine Tat zählt immer',
+    raceFrisch.some((r) => r.id === 'srv_worker'), raceFrisch.map((r) => r.id).join(','));
+  check('WRACE2 hat wirklich (noch) keinen Fertig-Marker (Kontrolle)',
+    !db.getClaim(WRACE2, '*', 'ach_backfill_world_fertig'));
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);

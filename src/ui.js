@@ -3091,14 +3091,20 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   /*
    * Erfolge, die am Zustand hängen (Vermögen, Level, Fuhrpark), werden hier
    * geprüft: Das Vermögen liegt gerade vor, also kostet es keine zusätzliche
-   * Abfrage. Reihenfolge: erst der Welt-Nachtrag, dann der eigene, dann die
-   * laufende Prüfung. Die Welt zuerst, weil sonst der erste Betrachter sich
-   * ein serverweites Abzeichen schnappt, bevor die Kandidaten überhaupt
-   * verglichen wurden – danach kommt der stille Einzel-Nachtrag, sonst käme
-   * für einen Bestandsspieler beim ersten Blick eine Welle Meldungen.
+   * Abfrage.
+   *
+   * `backfillWorld` NICHT mehr awaiten: Er baut je Besitzer einen
+   * Zusammenhang, und das löst je Besitzer eine Guthabenabfrage über
+   * UnbelievaBoat aus – bei 26 Besitzern 26 Abfragen nacheinander, das reißt
+   * Discords 3-Sekunden-Fenster für die Antwort auf diesen Klick. Er läuft
+   * jetzt im Hintergrund weiter; die Ansicht wartet auf nichts davon. Damit
+   * sich dabei nicht doch der erste Betrachter ein serverweites Abzeichen
+   * schnappt, bevor die Kandidaten verglichen wurden, sperrt `state()`
+   * serverweite Vergaben selbst, solange `backfillWorld` nicht fertig ist
+   * (siehe achievements.check()).
    */
   const erfolge = require('./achievements');
-  await erfolge.backfillWorld(guildId).catch(() => {});
+  erfolge.backfillWorld(guildId).catch(() => {});
   await erfolge.backfill(guildId, owner).catch(() => {});
   erfolge.state(guildId, owner, worth).catch(() => {});
 

@@ -348,15 +348,27 @@ async function stateCtx(guildId, userId, worth = null) {
  * Kopie. Sonst stünde der Erfolg bei zwei Leuten im Profil, und die Ehrentafel
  * würde ihre eigene Aussage widerlegen.
  *
+ * @param {boolean} serverweitErlaubt Ob hier überhaupt serverweite Regeln
+ *   vergeben werden dürfen. `state()` reicht `false` durch, solange
+ *   `backfillWorld` für diese Welt noch nicht FERTIG ist: Ein Blick auf ein
+ *   Profil ist keine Leistung – ohne diese Sperre schnappt sich sonst wieder
+ *   der erste Betrachter nach dem Deploy ein serverweites Abzeichen, bevor
+ *   der Welt-Nachtrag die Kandidaten überhaupt verglichen hat. `onActivity`
+ *   und `fire` lassen den Parameter bewusst weg (Default `true`): Dort hängt
+ *   der Erfolg an einer echten Tat, nicht an einem Blick, und darf ganz normal
+ *   gewinnen – auch bevor der Welt-Nachtrag gelaufen ist. Wer serverweit
+ *   gewinnt, soll das also entweder durch eine Tat oder durch den Vergleich
+ *   im Welt-Nachtrag selbst tun.
  * @returns {Array} die frisch vergebenen Regeln (zum Melden)
  */
-function check(guildId, userId, hook, ctx, now = Date.now()) {
+function check(guildId, userId, hook, ctx, now = Date.now(), serverweitErlaubt = true) {
   const schon = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
   const frisch = [];
 
   for (const rule of RULES) {
     if (rule.on !== hook) continue;
     if (schon.has(rule.id)) continue;
+    if (rule.scope === 'server' && !serverweitErlaubt) continue;
 
     let trifft = false;
     try { trifft = Boolean(rule.test(ctx)); }
@@ -404,7 +416,15 @@ async function state(guildId, userId, worth = null, now = Date.now()) {
   if (!offenGibtEs) return [];
 
   const ctx = await stateCtx(guildId, userId, worth);
-  const frisch = check(guildId, userId, 'state', ctx, now);
+
+  // Solange `backfillWorld` für diese Welt nicht FERTIG ist, darf state()
+  // keine serverweiten Erfolge vergeben (siehe check()): Ein Blick aufs
+  // Profil ist keine Leistung. buildProfileView stößt den Welt-Nachtrag
+  // inzwischen nur noch an, statt auf ihn zu warten (ui.js) – ohne diese
+  // Sperre würde sich sonst wieder der erste Betrachter nach dem Deploy ein
+  // serverweites Abzeichen schnappen, bevor die Kandidaten verglichen wurden.
+  const weltFertig = Boolean(db.getClaim(guildId, '*', 'ach_backfill_world_fertig'));
+  const frisch = check(guildId, userId, 'state', ctx, now, weltFertig);
   await report(guildId, userId, frisch);
   return frisch;
 }
@@ -560,39 +580,66 @@ async function backfill(guildId, userId, now = Date.now()) {
  */
 async function backfillWorld(guildId, konten = null, now = Date.now()) {
   if (db.getClaim(guildId, '*', 'ach_backfill_world')) return 0;
-  db.setClaim(guildId, '*', 'ach_backfill_world', now);
+  db.setClaim(guildId, '*', 'ach_backfill_world', now);   // synchron, vor dem ersten await (§7)
+
+  // Erst hier zurück zum Event-Loop, BEVOR auch nur eine einzige
+  // Guthabenabfrage losläuft: `buildProfileView` ruft diese Funktion
+  // fire-and-forget auf (ui.js) – ohne diesen Sprung liefe die erste Gruppe
+  // von Kandidaten trotzdem noch INNERHALB desselben synchronen Aufrufs (eine
+  // async Funktion läuft bis zu ihrem ersten eigenen `await` synchron), und
+  // genau das soll die Ansicht ja nicht mehr blockieren.
+  await new Promise((resolve) => setImmediate(resolve));
 
   const alle = konten ?? require('./networth').owners(guildId);
-  if (!alle.length) return 0;
-
-  // Einmal je Konto den Zusammenhang bauen, nicht je Regel. Derselbe
-  // angereicherte Zusammenhang wie in `backfill()`, damit auch hier
-  // Raritäten aus dem Bestand zählen (`srv_godlike`, `srv_cosmic`, …).
-  const ctxs = [];
-  for (const userId of alle) ctxs.push([userId, await backfillCtx(guildId, userId)]);
-
   let n = 0;
-  for (const rule of RULES) {
-    if (rule.scope !== 'server' || rule.backfill === false) continue;
 
-    let bester = null;
-    let bestwert = -Infinity;
-    for (const [userId, ctx] of ctxs) {
-      let trifft = false;
-      try { trifft = Boolean(rule.test(ctx)); } catch { continue; }
-      if (!trifft) continue;
-
-      // Rückfall für künftige serverweite Regeln ohne eigenes Mass –
-      // aktuell bringt jede backfillbare Regel ein `measure` mit.
-      const wert = rule.measure ? rule.measure(ctx) : ctx.worth;
-      if (wert > bestwert) { bestwert = wert; bester = userId; }
+  if (alle.length) {
+    // Einmal je Konto den Zusammenhang bauen, nicht je Regel. Derselbe
+    // angereicherte Zusammenhang wie in `backfill()`, damit auch hier
+    // Raritäten aus dem Bestand zählen (`srv_godlike`, `srv_cosmic`, …).
+    //
+    // Höchstens 5 gleichzeitig statt alle auf einmal: UnbelievaBoat ist
+    // ratenbegrenzt – 26 Guthabenabfragen im selben Moment reißt schnell in
+    // ein Limit, fünf gleichzeitig laufende sind trotzdem deutlich schneller
+    // als die frühere, streng sequenzielle Reihe.
+    const GRUPPENGROESSE = 5;
+    const ctxs = [];
+    for (let i = 0; i < alle.length; i += GRUPPENGROESSE) {
+      const gruppe = alle.slice(i, i + GRUPPENGROESSE);
+      const teil = await Promise.all(
+        gruppe.map(async (userId) => [userId, await backfillCtx(guildId, userId)]));
+      ctxs.push(...teil);
     }
 
-    if (!bester) continue;
-    if (!db.claimFirst(guildId, rule.id, bester, now)) continue;
-    db.awardAchievement(guildId, bester, rule.id, now);
-    n++;
+    for (const rule of RULES) {
+      if (rule.scope !== 'server' || rule.backfill === false) continue;
+
+      let bester = null;
+      let bestwert = -Infinity;
+      for (const [userId, ctx] of ctxs) {
+        let trifft = false;
+        try { trifft = Boolean(rule.test(ctx)); } catch { continue; }
+        if (!trifft) continue;
+
+        // Rückfall für künftige serverweite Regeln ohne eigenes Mass –
+        // aktuell bringt jede backfillbare Regel ein `measure` mit.
+        const wert = rule.measure ? rule.measure(ctx) : ctx.worth;
+        if (wert > bestwert) { bestwert = wert; bester = userId; }
+      }
+
+      if (!bester) continue;
+      if (!db.claimFirst(guildId, rule.id, bester, now)) continue;
+      db.awardAchievement(guildId, bester, rule.id, now);
+      n++;
+    }
   }
+
+  // Fertig-Marker: ERST AB HIER darf `state()` wieder serverweite Erfolge
+  // vergeben (siehe check()/state()). Auch ohne Besitzer (leere Welt) muss
+  // er gesetzt werden – sonst bliebe state() für diese Welt für immer
+  // gesperrt, weil dieser Durchlauf dank des Start-Markers oben nie wieder
+  // läuft.
+  db.setClaim(guildId, '*', 'ach_backfill_world_fertig', now);
   return n;
 }
 
