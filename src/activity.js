@@ -61,7 +61,65 @@ function record(guildId, userId, id, at = Date.now()) {
   // Erst den Bestand übernehmen, dann den neuen Strich: Sonst wäre die Liste
   // nach der ersten Aktion nicht mehr leer und der Nachtrag käme nie.
   backfill(guildId, userId, at);
-  db.bumpActivity(guildId, userId, String(id), at);
+
+  // Der Andockpunkt für Erfolge sitzt HIER und nicht an der Geldbuchung
+  // (unb.changeCash): Überfall, Vermieten und Casino zählen bewusst OHNE
+  // `kind` (robbery.js, tenants.js, casinoPlay.js) – über den Buchungspfad
+  // liefe für sie also nie ein Erfolg mit. `record` ist dagegen der einzige
+  // Ort, den jede Aktivität durchläuft, auch die Buchung selbst
+  // (unb.countActivity ruft es auf). Fire-and-forget und in try/catch: ein
+  // Erfolg darf niemals eine Strichliste zum Kippen bringen.
+  //
+  // A2-Fix: `require('./achievements')` und die Marker-Abfrage liefen bisher
+  // UNGESCHÜTZT vor diesem try/catch. Wirft eine der beiden (ein kaputtes
+  // Erfolge-Modul, eine kaputte Datenbankabfrage), wirft `record` selbst –
+  // und `record` hängt an SIEBEN ungeschützten Stellen: robbery.js ruft es
+  // NACH dem Geldtransfer eines Überfalls, creator.js VOR der Auszahlung
+  // einer Aktion, dazu music.js, casinoPlay.js, tenants.js. Ein Wurf hier
+  // würde also einen Überfall kippen, NACHDEM das Geld schon verschoben ist,
+  // oder eine Auszahlung verhindern, BEVOR sie überhaupt versucht wurde.
+  // Deshalb im Fehlerfall den Zweig nehmen, der ZUERST hochzählt (unten):
+  // Die Strichliste ist Spielzustand, der Erfolg nur Schmuck – sie hat
+  // Vorrang vor jeder Erfolgs-Prüfung.
+  let achievements = null;
+  let nochNichtNachgetragen = false;
+  try {
+    achievements = require('./achievements');
+    // Die REIHENFOLGE zu `bumpActivity` hängt vom Erfolge-Nachtrag ab, und
+    // genau DAS ist der Grund für die Fallunterscheidung hier:
+    //
+    //   - Konto noch nie nachgetragen: `onActivity` stößt selbst den stillen
+    //     Nachtrag an, und der baut seinen Zusammenhang synchron BEIM AUFRUF
+    //     (siehe achievements.backfillCtx) – noch bevor `onActivity` bei
+    //     seinem eigenen `await backfill(...)` pausiert. Läuft `onActivity`
+    //     danach erst nach `bumpActivity`, hielte der Nachtrag den gerade
+    //     erst gezählten Strich für Vorgeschichte und würde z.B. "Erster
+    //     Arbeitstag" lautlos vergeben statt mit Postfach-Eintrag – also VOR
+    //     `bumpActivity` auslösen.
+    //   - Konto schon nachgetragen (der Normalfall): `onActivity` überspringt
+    //     seinen eigenen Nachtrag (Marker vorhanden) und läuft bis zu seinem
+    //     `check()` komplett synchron durch (§7) – OHNE ein dazwischenliegendes
+    //     `bumpActivity` sähe dieses `check()` den ALTEN Stand und würde die
+    //     gerade erst erreichte Schwelle verpassen – also NACH `bumpActivity`
+    //     auslösen, wie vor diesem Fix.
+    nochNichtNachgetragen = !db.getClaim(guildId, userId, 'ach_backfill');
+  } catch { /* Strichliste hat Vorrang – siehe Kommentar oben */ }
+
+  // `record` bleibt dabei in jedem Fall synchron und gibt sofort zurück;
+  // der eigentliche Nachtrag (falls nötig) läuft asynchron im Hintergrund
+  // weiter, unabhängig davon, wann diese Funktion zurückkehrt.
+  if (achievements && nochNichtNachgetragen) {
+    try { achievements.onActivity(guildId, userId, id, at).catch(() => {}); }
+    catch { /* dito */ }
+    db.bumpActivity(guildId, userId, String(id), at);
+  } else {
+    db.bumpActivity(guildId, userId, String(id), at);
+    if (achievements) {
+      try { achievements.onActivity(guildId, userId, id, at).catch(() => {}); }
+      catch { /* dito */ }
+    }
+  }
+
   return true;
 }
 
@@ -134,11 +192,26 @@ function unlocked(guildId, userId) {
  * Wahl gewinnt die häufigste Aktivität. Wer noch gar nichts gemacht hat,
  * bekommt keinen Titel – das ist kein Fehler, sondern der Anfang.
  *
+ * Ein Wunsch mit dem Präfix `ach:` kommt aus den Erfolgen (achievements.js).
+ * Die beiden Listen kennen einander nicht; das Präfix ist die ganze
+ * Schnittstelle – so bleibt es EIN Titelsystem statt zwei.
+ *
  * @returns {{id,emoji,title,count,tier,chosen:boolean}|null}
  */
 function titleOf(guildId, userId) {
   const wish = String(db.getStats(guildId, userId).title ?? '');
   if (wish === 'none') return null;
+
+  if (wish.startsWith('ach:')) {
+    const eigene = require('./achievements').titlesFor(guildId, userId);
+    const treffer = eigene.find((t) => t.id === wish);
+    // Kein Treffer heißt: Der Erfolg ist (noch) nicht verdient. Nicht
+    // schummeln – dann greift unten die Automatik.
+    if (treffer) {
+      return { id: treffer.id, emoji: treffer.emoji, title: treffer.title,
+        count: 0, tier: 0, chosen: true };
+    }
+  }
 
   const list = unlocked(guildId, userId);
   if (wish) {
@@ -152,6 +225,15 @@ function titleOf(guildId, userId) {
 /** Setzt den Wunsch: eine Kennung, '' für automatisch, 'none' für keinen. */
 function choose(guildId, userId, wish) {
   const value = String(wish ?? '');
+
+  if (value.startsWith('ach:')) {
+    // Nur verdiente Erfolgstitel – sonst könnte man sich "Origin" anheften.
+    const eigene = require('./achievements').titlesFor(guildId, userId);
+    if (!eigene.some((t) => t.id === value)) return false;
+    db.setTitle(guildId, userId, value);
+    return true;
+  }
+
   if (value && value !== 'none' && !byId.has(value)) return false;
   db.setTitle(guildId, userId, value);
   return true;

@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.27.0',
+    date: '2026-09-09',
+    title: '🏅 Erfolge',
+    lines: [
+      '🏅 **37 private Erfolge** in vier Stufen – Bronze, Silber, Gold, Platin – von der ersten Schicht bis Level 100.',
+      '👑 **15 serverweite Erfolge**, die nur *einer* haben kann. Wer zuerst da ist, behält sie – darunter Trophäen, die vermutlich nie jemand holt, etwa ein Fundstück der Stufe Cosmic (rund eine von 4.000 Garagen).',
+      '📣 Gold, Platin und serverweite Erfolge werden im Kanal angesagt; die kleinen landen still im Postfach.',
+      '📋 Neuer Menüpunkt **Erfolge** mit Fortschrittsanzeige und Ehrentafel der serverweiten Erfolge.',
+      '🎖️ Gold-, Platin- und serverweite Erfolge lassen sich als **Titel** tragen.',
+      '🤫 Wer schon lange dabei ist, bekommt seine Erfolge beim ersten Blick nachgetragen – lautlos, damit es keine Meldungswelle gibt.',
+    ],
+  },
+  {
     version: '1.26.0',
     date: '2026-09-06',
     title: 'Die Börse lohnt sich jetzt',

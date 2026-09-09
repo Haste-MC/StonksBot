@@ -319,3 +319,64 @@ auf `DEV_GUILD_ID` sofort aktiv, global bis zu 1 h.
 - Ein Automodell kann pro Spieler **nur einmal** besessen werden – der Zustand
   hängt am Besitzeintrag. Mehrere gleiche Autos bräuchten eine eigene
   Fahrzeug-Tabelle.
+
+## 14. Erfolge
+
+`src/achievements.js` hält ein deklaratives Regelwerk. Ein neuer Erfolg ist ein
+Eintrag in `RULES` – sonst nichts. Drei Andockpunkte:
+
+- `kind:<id>` – läuft in `activity.record`, dem einzigen Ort, den jede
+  Aktivität durchläuft: auch der Buchungspfad (`unb.countActivity`) landet
+  dort, aber ebenso Überfall, Vermieten und Casino, die bewusst ohne `kind`
+  buchen. Dort werden **nur** Regeln dieses `kind` geprüft; teure Werte
+  (Vermögen, Depot) werden ab dem **zweiten** Ereignis eines Kontos nie
+  berechnet. Beim allerersten Ereignis läuft davor einmalig der stille
+  Bestands-Nachtrag (`backfill`, siehe unten) – der rechnet dabei einmalig
+  das Vermögen, damit er den Fortschritt vor diesem Ereignis richtig
+  einordnet.
+- `state` – läuft beim Aufbau von Profil und Startseite. Im Profil liegt das
+  Vermögen ohnehin vor und wird übergeben; auf der Startseite holt `stateCtx`
+  es bei Bedarf selbst über die API – aber nur, wenn `state()` vorher billig
+  feststellt, dass überhaupt noch ein state-Erfolg offen ist.
+- `fire:<name>` – die Hintertür für Ereignisse ohne Geldbuchung
+  (`achievements.fire(...)` in heist.js, home.js, casinoPlay.js, storage.js).
+
+Die serverweite Einmaligkeit hängt am Primärschlüssel von
+`achievement_firsts`, nicht an einer Prüfung im Code (§7): Zwei gleichzeitige
+Spieler bestünden ein „gibt es den schon?" beide.
+
+Erfolge geben **kein Geld und keine XP** (§3). Das Modul bindet weder `unb`
+noch `wallet` ein – es hat also gar keinen Weg, etwas auszuzahlen. `level` wird
+nur gelesen (`progress()` rechnet aus vorhandener Erfahrung ein Level aus),
+nie vergeben.
+
+Der Nachtrag für Bestandsspieler ist **lautlos**: Beim ersten Blick eines
+Kontos wird alles bereits Erfüllte still vergeben, ohne Postfach und ohne
+Durchsage. Ohne das käme am Tag der Einführung für jeden langjährigen Spieler
+eine Meldungswelle. Erfolge, für die es keine Daten aus der Vergangenheit gibt
+(ein perfekter Coup wird nirgends festgehalten), tragen `backfill: false` und
+starten leer. `onActivity` und `fire` tragen zusätzlich selbst nach (über
+den vorhandenen Marker abgesichert, damit der Normalfall synchron bleibt,
+§7) – ein Bestandskonto, das nie eine Ansicht öffnet, sondern gleich
+arbeitet oder ins Casino geht, bekommt sonst genau dort seine Meldungswelle.
+`backfillWorld` läuft einmalig, angestoßen aus `state()`, damit ein
+serverweiter Erfolg beim Nachtrag an den stärksten Kandidaten geht statt an
+den zufällig ersten Betrachter.
+
+**Sperre, bis der Welt-Nachtrag fertig ist:** `state()` vergibt keine
+serverweiten Erfolge, solange der Marker `ach_backfill_world_fertig` für die
+Welt fehlt (siehe `check()`, Parameter `serverweitErlaubt`). Der Grund: Ein
+Blick aufs Profil oder die Startseite ist keine Leistung – ohne diese Sperre
+schnappt sich sonst der erste Betrachter nach einem Deploy ein serverweites
+Abzeichen, bevor `backfillWorld` überhaupt alle Kandidaten verglichen hat.
+Die Sperre fällt endgültig, sobald der Fertig-Marker gesetzt ist; `state()`
+stößt `backfillWorld` dafür bei jedem Aufruf ohne diesen Marker selbst an
+(fire-and-forget, dedupliziert über den eigenen Start-Marker von
+`backfillWorld`). `onActivity` und `fire` reichen den Parameter bewusst nicht
+durch (Default `true`): Dort hängt der Erfolg an einer echten Tat, nicht an
+einem Blick, und darf gewinnen, auch bevor der Welt-Nachtrag gelaufen ist.
+Der Start-Marker von `backfillWorld` (`ach_backfill_world`) wird im
+Fehlerfall (eine werfende Regel, ein Absturz beim Guthaben holen) wieder
+zurückgenommen, damit ein späterer Aufruf es erneut versucht – sonst käme
+der Fertig-Marker nie, und die sechs serverweiten Erfolge blieben für die
+Welt auf Dauer gesperrt, heilbar nur noch per Datenbankeingriff.

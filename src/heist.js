@@ -656,6 +656,16 @@ async function resolve(guildId, heist, crew, now = Date.now(), random = Math.ran
       last_heist_at: now,
     });
 
+    // Ein Ding ganz ohne Fehler – das gibt es nur bei `clean`, nicht bei
+    // `messy`. Kein Geldereignis, deshalb die Hintertür. Auch das `require`
+    // selbst kapseln (wie unb.js es tut): Ein Erfolg darf niemals einen
+    // Heist zum Kippen bringen, egal ob er synchron beim Laden des Moduls
+    // oder erst später scheitert.
+    if (outcome === 'clean') {
+      try { require('./achievements').fire(guildId, member.user_id, 'heist_perfect').catch(() => {}); }
+      catch { /* ein Erfolg darf einen Heist nicht kippen */ }
+    }
+
     const balance = amount !== 0
       ? await changeCash(
         guildId, member.user_id, amount,

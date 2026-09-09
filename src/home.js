@@ -141,8 +141,31 @@ async function setHome(guildId, userId, targetId, now = Date.now()) {
     return { ok: false, reason: 'too_poor', country: target, cost, have: balance?.total ?? 0 };
   }
 
-  // Zuerst der Zustand, dann das Geld.
-  db.setHome(guildId, userId, target.id, { move: true, at: now });
+  /*
+   * B1-Fix: dasselbe Erstlings-Problem wie in activity.record und
+   * storage.js openGarage, jetzt auch hier behoben. Ein Konto ohne
+   * `ach_backfill`-Marker baut seinen stillen Nachtrag SYNCHRON beim Aufruf
+   * von `fire()` (achievements.backfillCtx friert dabei `c.moves` sofort
+   * ein) – käme der Umzug in `db.setHome` DAVOR, hielte der Nachtrag ihn für
+   * Vorgeschichte und verschluckte "Weltenbummler" lautlos, statt ihn mit
+   * Postfach-Eintrag zu vergeben. Ein bereits nachgetragenes Konto braucht
+   * dagegen die UMGEKEHRTE Reihenfolge: `fire()` läuft dann bis zu seinem
+   * `check()` komplett synchron durch (kein `ach_backfill`-Marker fehlt, also
+   * kein `await`), und das sähe ohne den Umzug VORHER im Bestand die alte
+   * Zahl und würde die gerade erreichte Schwelle verpassen. Das `require`
+   * selbst kapseln (wie unb.js es tut): Ein Erfolg darf nicht ausgerechnet
+   * zwischen dem Vermerk des Umzugs und der Geldbuchung durchschlagen.
+   */
+  const frischesKonto = !db.getClaim(guildId, userId, 'ach_backfill');
+  if (frischesKonto) {
+    try { require('./achievements').fire(guildId, userId, 'move').catch(() => {}); }
+    catch { /* ein Erfolg darf einen Umzug nicht kippen */ }
+    db.setHome(guildId, userId, target.id, { move: true, at: now });
+  } else {
+    db.setHome(guildId, userId, target.id, { move: true, at: now });
+    try { require('./achievements').fire(guildId, userId, 'move').catch(() => {}); }
+    catch { /* dito */ }
+  }
   const rental = db.getRental(guildId, userId);
   if (rental) db.endRental(guildId, userId);
 

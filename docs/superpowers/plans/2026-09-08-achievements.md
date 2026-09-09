@@ -211,7 +211,7 @@ Im Export-Block ergänzen:
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `8 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 7: Commit**
 
@@ -564,7 +564,7 @@ module.exports = { TIERS, RULES, byId, rarityRank };
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `17 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 7: Commit**
 
@@ -602,6 +602,9 @@ An `test/achievements.test.js` anhängen:
   // angefasst werden – ein Erfolg ist Ruhm, keine Auszahlung.
   const unb = require('../src/unb');
   let geldAufrufe = 0;
+  // Das Original merken: Task 6 prüft den echten Andockpunkt in changeCash
+  // und braucht die unveränderte Funktion zurück.
+  const echtesChangeCash = unb.changeCash;
   unb.changeCash = async () => { geldAufrufe++; return { cash: 0, bank: 0, total: 0 }; };
   unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
 
@@ -827,7 +830,7 @@ module.exports = {
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `28 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 7: Commit**
 
@@ -954,7 +957,7 @@ async function report(guildId, userId, frisch, now = Date.now()) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `38 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 5: Commit**
 
@@ -1007,9 +1010,9 @@ An `test/achievements.test.js` anhängen:
   const W2 = `${W}_B`;
   db.setActivity(W2, 'fx:wenig', 'job', 260, 1000);
   db.setActivity(W2, 'fx:viel', 'job', 900, 1000);
-  db.awardAchievement(W2, 'fx:wenig', '__markiert', 1);   // damit beide bekannt sind
-  db.awardAchievement(W2, 'fx:viel', '__markiert', 1);
 
+  // Die Konten werden ausdrücklich übergeben – so hängt der Test nicht an
+  // networth.owners und damit nicht am Besitz in einer fremden Welt.
   await ach.backfillWorld(W2, ['fx:wenig', 'fx:viel']);
   const tafel2 = db.allFirsts(W2).find((r) => r.ach_id === 'srv_worker');
   check('der mit den meisten Schichten hält ihn', tafel2?.user_id === 'fx:viel',
@@ -1127,7 +1130,7 @@ Im `module.exports` ergänzen: `backfill, backfillWorld, hooksOf,`
 - [ ] **Step 5: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `47 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 6: Commit**
 
@@ -1159,7 +1162,11 @@ An `test/achievements.test.js` anhängen:
 
 ```js
   console.log('--- Der Andockpunkt an der Geldbuchung ---');
-  // §8: unb bindet activity und achievements spät ein, deshalb greift das hier.
+  // Ab hier wieder die echte Buchung: Sie ruft countActivity auf, und genau
+  // das ist der Andockpunkt, der hier geprüft wird. Für `fx:`-Konten läuft
+  // sie über das lokale Wallet, also ohne Netz (§12).
+  unb.changeCash = echtesChangeCash;
+
   const L = 'fx:lena';
   await unb.changeCash(W, L, 500, 'Schicht', { kind: 'job' });
   check('eine Buchung mit kind vergibt den Erfolg',
@@ -1203,7 +1210,7 @@ function countActivity(guildId, accountId, opts = {}) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `node test/achievements.test.js`
-Expected: PASS — `49 bestanden, 0 fehlgeschlagen`
+Expected: PASS — die Ausgabe endet mit `0 fehlgeschlagen`
 
 - [ ] **Step 5: Hook the state point into the profile**
 

@@ -252,6 +252,33 @@ db.exec(`
 `);
 
 /*
+ * Erfolge.
+ *
+ * Zwei Tabellen, obwohl es um dieselbe Sache geht – und genau darin liegt der
+ * Trick. `achievements` hält fest, wer was hat. `achievement_firsts` hat den
+ * Erfolg im PRIMÄRSCHLÜSSEL und kann deshalb je Welt nur EINE Zeile
+ * aufnehmen: Damit entscheidet die Datenbank, wer der Erste war, und nicht
+ * eine Prüfung im Code, die zwei gleichzeitige Spieler beide bestehen würden.
+ */
+db.exec(`
+  CREATE TABLE IF NOT EXISTS achievements (
+    guild_id TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    ach_id   TEXT    NOT NULL,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id, ach_id)
+  );
+
+  CREATE TABLE IF NOT EXISTS achievement_firsts (
+    guild_id TEXT    NOT NULL,
+    ach_id   TEXT    NOT NULL,
+    user_id  TEXT    NOT NULL,
+    at       INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, ach_id)
+  );
+`);
+
+/*
  * Wie oft jemand welche Aktivität gemacht hat.
  *
  * Daraus entsteht der automatische Titel im Profil ("Ganove", "Angler" …).
@@ -1497,6 +1524,17 @@ const stmt = {
   getLoot: db.prepare('SELECT * FROM storage_loot WHERE guild_id = ? AND id = ?'),
   removeLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ? AND id = ?'),
   clearLoot: db.prepare('DELETE FROM storage_loot WHERE guild_id = ? AND user_id = ?'),
+
+  // --- Erfolge ---
+  awardAchievement: db.prepare(
+    'INSERT OR IGNORE INTO achievements (guild_id, user_id, ach_id, at) VALUES (?, ?, ?, ?)'),
+  achievementsOf: db.prepare(
+    'SELECT ach_id, at FROM achievements WHERE guild_id = ? AND user_id = ? ORDER BY at DESC'),
+  claimFirst: db.prepare(
+    'INSERT OR IGNORE INTO achievement_firsts (guild_id, ach_id, user_id, at) VALUES (?, ?, ?, ?)'),
+  allFirsts: db.prepare(
+    'SELECT ach_id, user_id, at FROM achievement_firsts WHERE guild_id = ? ORDER BY at ASC'),
+
   // --- Fluxer-Menüzuordnung ---
   saveFluxerView: db.prepare(
     `INSERT INTO fluxer_views (message_id, user_id, channel_id, mapping, updated_at)
@@ -2618,6 +2656,34 @@ function claimLot(guildId, lotId) {
   return stmt.claimLot.run(lotId, guildId).changes > 0;
 }
 
+// ------------------------------------------------------------------ ERFOLGE
+
+/** Vergibt einen Erfolg. `true` nur beim ersten Mal – ein zweiter Aufruf ändert nichts. */
+function awardAchievement(guildId, userId, achId, at = Date.now()) {
+  return stmt.awardAchievement.run(guildId, userId, achId, at).changes > 0;
+}
+
+/** Alle Erfolge eines Kontos, neueste zuerst. */
+function achievementsOf(guildId, userId) {
+  return stmt.achievementsOf.all(guildId, userId);
+}
+
+/**
+ * Beansprucht einen serverweiten Erfolg. `true` nur für den Ersten.
+ *
+ * Die Einmaligkeit kommt aus dem Primärschlüssel, nicht aus einer Prüfung:
+ * Zwei Spieler, die in derselben Millisekunde fertig werden, bestünden ein
+ * "gibt es den schon?" beide. `INSERT OR IGNORE` kann nur einer gewinnen.
+ */
+function claimFirst(guildId, achId, userId, at = Date.now()) {
+  return stmt.claimFirst.run(guildId, achId, userId, at).changes > 0;
+}
+
+/** Die Ehrentafel: wer welchen serverweiten Erfolg hält. */
+function allFirsts(guildId) {
+  return stmt.allFirsts.all(guildId);
+}
+
 function finishLot(guildId, lotId, status) {
   return stmt.finishLot.run(status, lotId, guildId).changes > 0;
 }
@@ -3674,5 +3740,6 @@ module.exports = {
   markMessagesRead, expireMessages, cancelOffersFor, ownListings, touchListing,
   getGame, setGame, updateGame, clearGame,
   setCondition, carsByValue, getStreetWatch, setStreetWatch, clearStreetWatch,
+  awardAchievement, achievementsOf, claimFirst, allFirsts,
   PAGE_SIZE, MAX_LISTINGS_PER_USER,
 };

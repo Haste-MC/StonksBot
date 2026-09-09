@@ -2104,6 +2104,17 @@ async function buildHomeView({ guildId, userId }) {
   const market = home.marketOf(guildId, userId);
   const stats = db.getStats(guildId, userId);
 
+  // Diese Ansicht rechnet kein eigenes Vermögen aus: `state()` prüft zuerst
+  // billig, ob überhaupt noch ein state-Erfolg offen ist, und holt das
+  // Vermögen über die API nur, wenn das wirklich nötig ist.
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf die Heimat-Ansicht nicht kippen */ }
+  if (erfolge) {
+    await erfolge.backfill(guildId, userId).catch(() => {});
+    erfolge.state(guildId, userId, null).catch(() => {});
+  }
+
   const embed = new EmbedBuilder()
     .setTitle('🌍 Heimat & Sprache')
     .setColor(0x1abc9c)
@@ -3081,6 +3092,33 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const bal = await getBalance(guildId, owner).catch(() => null);
   const worth = await require('./networth').of(guildId, owner, bal);
 
+  /*
+   * Erfolge, die am Zustand hängen (Vermögen, Level, Fuhrpark), werden hier
+   * geprüft: Das Vermögen liegt gerade vor, also kostet es keine zusätzliche
+   * Abfrage.
+   *
+   * Den Welt-Nachtrag (`backfillWorld`) stößt seit dem A3-Fix `state()`
+   * selbst an (achievements.js) – nicht mehr diese Ansicht. Grund: Nur dort
+   * gibt es EINE einzige Stelle, die aus JEDER Ansicht läuft, die den
+   * Zustand prüft (Profil UND Startseite), statt vom Zufall abzuhängen,
+   * welches Menü zuerst geöffnet wird. `state()` awaitet ihn ebenfalls
+   * nicht: Er baut je Besitzer einen Zusammenhang, und das löst je Besitzer
+   * eine Guthabenabfrage über UnbelievaBoat aus – bei 26 Besitzern 26
+   * Abfragen nacheinander, das reißt Discords 3-Sekunden-Fenster für die
+   * Antwort auf diesen Klick. Damit sich dabei nicht doch der erste
+   * Betrachter ein serverweites Abzeichen schnappt, bevor die Kandidaten
+   * verglichen wurden, sperrt `state()` serverweite Vergaben selbst, solange
+   * `backfillWorld` nicht fertig ist (siehe achievements.check()).
+   */
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf das Profil nicht kippen */ }
+
+  if (erfolge) {
+    await erfolge.backfill(guildId, owner).catch(() => {});
+    erfolge.state(guildId, owner, worth).catch(() => {});
+  }
+
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);
 
@@ -3103,12 +3141,33 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // Der Titel: entweder selbst gewählt oder die häufigste Aktivität.
   const worn = require('./activity').titleOf(guildId, owner);
 
+  /*
+   * Abzeichen: die drei seltensten Erfolge, serverweit immer zuerst – den
+   * kann per Definition nur einer haben, seltener geht nicht. Der Zähler
+   * davor (`14/37`) bleibt rein privat, wie die Spec es verlangt; nur die
+   * Emojis dahinter kommen jetzt aus `badgesFor`, das beide Sorten kennt.
+   */
+  // `worth` liegt hier schon vor (siehe oben) – ohne es würde `listFor`
+  // intern `stateCtx` ohne Vermögen bauen und selbst noch einmal über die
+  // API nachfragen, ein zweiter Roundtrip für denselben Renderpfad.
+  let erfolgListe = { geholt: [], gesamt: 0 };
+  let abzeichenListe = [];
+  if (erfolge) {
+    erfolgListe = await erfolge.listFor(guildId, owner, worth)
+      .catch(() => ({ geholt: [], gesamt: 0 }));
+    try { abzeichenListe = erfolge.badgesFor(guildId, owner, 3); } catch { /* Abzeichen sind kein Pflichtfeld */ }
+  }
+  const abzeichen = abzeichenListe.map((r) => r.emoji).join(' ');
+
   const embed = new EmbedBuilder()
     .setTitle('👤 Profil')
     .setColor(0xf1c40f)
     .setDescription(
       `${identity.mention(owner)}\n` +
       (worn ? `${worn.emoji} **${worn.title}**\n` : '') +
+      (erfolgListe.gesamt
+        ? `🏅 ${erfolgListe.geholt.length}/${erfolgListe.gesamt}${abzeichen ? ` ${abzeichen}` : ''}\n`
+        : '') +
       `${home.id ? `${home.flag} ` : ''}${fame.emoji} ${fame.title}` +
       (lang.id ? ` · ${lang.emoji} ${lang.name}` : '') +
       (stats.tagline ? `\n> _${stats.tagline}_` : ''));
@@ -3255,21 +3314,78 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
  */
 async function buildTitleView({ guildId, userId }) {
   const activity = require('./activity');
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf die Titel-Ansicht nicht kippen */ }
   const list = activity.unlocked(guildId, userId);
   const current = activity.titleOf(guildId, userId);
   const wish = String(db.getStats(guildId, userId).title ?? '');
 
+  /*
+   * Erfolgstitel stehen gleichberechtigt zur Wahl – sie kommen nur aus einer
+   * anderen Quelle (achievements.js), erkennbar am Präfix `ach:`. Anders als
+   * Aktivitäten bringen sie kein `count`/`tier` mit; sie landen deshalb nur
+   * in der Button-Reihe unten, nicht im Feld „Freigespielt" (das rechnet
+   * mit der Häufigkeit, die es für einen Erfolg nicht gibt).
+   *
+   * Seltenstes zuerst: serverweit vor Platin vor Gold. Wer beim Kappen
+   * weiter unten landet, soll „Aushilfe" verlieren, nicht „Der erste
+   * Millionär".
+   */
+  const seltenheit = (t) => {
+    const regel = erfolge?.byId(t.id.slice(4));
+    if (regel?.scope === 'server') return 2;
+    if (regel?.tier === 'platin') return 1;
+    return 0;
+  };
+  let ausErfolgen = [];
+  if (erfolge) {
+    try { ausErfolgen = erfolge.titlesFor(guildId, userId).sort((a, b) => seltenheit(b) - seltenheit(a)); }
+    catch { /* Erfolgstitel sind kein Pflichtfeld für die Titel-Ansicht */ }
+  }
+
+  /*
+   * Discord erlaubt höchstens 5 Aktionsreihen je Nachricht; eine davon ist
+   * unten für Automatisch/Keiner/Zurück/Home reserviert. Bleiben 4 Reihen zu
+   * je 4 Buttons – 16 Titel. Reichen die nicht für beide Seiten, bekommt
+   * jede mindestens die Hälfte der Plätze: Sonst würde, wer alle 12
+   * Aktivitäten betreibt, seine Erfolgstitel lautlos verlieren (und
+   * umgekehrt). Braucht eine Seite weniger als ihre Hälfte, wandern die
+   * übrigen Plätze zur anderen.
+   */
+  const MAX_TITEL = 16;
+  const gesamtTitel = list.length + ausErfolgen.length;
+  let aktivitaetSlots = list.length;
+  let erfolgSlots = ausErfolgen.length;
+  if (gesamtTitel > MAX_TITEL) {
+    aktivitaetSlots = Math.floor(MAX_TITEL / 2);
+    erfolgSlots = MAX_TITEL - aktivitaetSlots;
+    if (list.length < aktivitaetSlots) {
+      aktivitaetSlots = list.length;
+      erfolgSlots = MAX_TITEL - aktivitaetSlots;
+    } else if (ausErfolgen.length < erfolgSlots) {
+      erfolgSlots = ausErfolgen.length;
+      aktivitaetSlots = MAX_TITEL - erfolgSlots;
+    }
+  }
+  // Wie viele Titel trotz fairer Aufteilung nicht mehr ins Menü passen –
+  // sichtbar machen, statt sie lautlos verschwinden zu lassen.
+  const fehlend = gesamtTitel - (aktivitaetSlots + erfolgSlots);
+  const hinweisGekuerzt = fehlend > 0
+    ? `\n\n_${fehlend} ${fehlend === 1 ? 'weiterer Titel passt' : 'weitere Titel passen'} nicht mehr ins Menü._`
+    : '';
+
   const embed = new EmbedBuilder()
     .setTitle('🏅 Dein Titel')
     .setColor(0xf1c40f)
-    .setDescription(list.length
+    .setDescription((list.length
       ? `Aktuell: ${current ? `${current.emoji} **${current.title}**` : '_keiner_'}` +
         (wish === '' && current ? ' _(automatisch)_' : '') +
         '\n\nDer Titel richtet sich sonst danach, **was du am häufigsten machst**. ' +
         'Wählen kannst du nur, was du auch getan hast – und je öfter, desto ' +
         'dicker der Titel.'
       : 'Noch nichts getan, noch kein Titel. Arbeite, angle, dreh ein Ding – '
-        + 'der Titel kommt von selbst.');
+        + 'der Titel kommt von selbst.') + hinweisGekuerzt);
 
   if (list.length) {
     embed.addFields({
@@ -3284,7 +3400,8 @@ async function buildTitleView({ guildId, userId }) {
   }
 
   const rows = [];
-  const buttons = list.slice(0, 8).map((t) => new ButtonBuilder()
+  const auswahl = [...list.slice(0, aktivitaetSlots), ...ausErfolgen.slice(0, erfolgSlots)];
+  const buttons = auswahl.map((t) => new ButtonBuilder()
     .setCustomId(`titleset|${t.id}|${userId}`)
     .setLabel(t.title.slice(0, 40)).setEmoji(t.emoji)
     .setStyle(wish === t.id ? ButtonStyle.Primary : ButtonStyle.Secondary));

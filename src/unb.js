@@ -88,6 +88,11 @@ async function changeCash(guildId, accountId, amount, reason, opts = {}) {
  * Profil (siehe activity.js). Gezählt wird nur, was ein `kind` mitbringt;
  * Storno- und Rückerstattungsbuchungen (`{ xp: false }`) zählen nie mit,
  * sonst stünde für eine abgebrochene Aktion ein Strich in der Liste.
+ *
+ * Erfolge hängen NICHT hier: Drei Aktivitäten (Überfall, Vermieten, Casino)
+ * buchen bewusst ohne `kind` und würden über diesen Pfad nie einen Erfolg
+ * auslösen. Der Andockpunkt sitzt deshalb in `activity.record` selbst – dem
+ * einzigen Ort, den auch sie durchlaufen (siehe activity.js).
  */
 function countActivity(guildId, accountId, opts = {}) {
   if (!opts.kind || opts.xp === false) return;

@@ -5,6 +5,7 @@ const {
 const casino = require('./casino');
 const casinoPlay = require('./casinoPlay');
 const casinoUi = require('./casinoUi');
+const achievementsUi = require('./achievementsUi');
 const db = require('./db');
 const { buy, buyUsed } = require('./purchase');
 const {
@@ -836,6 +837,16 @@ const buttons = {
       return interaction.editReply(texts[result.reason] ?? '❌ Hat nicht geklappt.');
     }
     return interaction.editReply(`↩️ **${result.listing.name}** steht wieder in deiner Garage.`);
+  },
+
+  /** Ehrentafel der serverweiten Erfolge öffnen. */
+  async 'erfolge-tafel'(interaction) {
+    await interaction.update(await achievementsUi.buildBoardView(context(interaction)));
+  },
+
+  /** Zurück zu den eigenen Erfolgen. */
+  async 'erfolge-meine'(interaction) {
+    await interaction.update(await achievementsUi.buildAchievementsView(context(interaction)));
   },
 };
 
