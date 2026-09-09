@@ -814,21 +814,66 @@ const A = 'fx:anton', B = 'fx:berta';
     + 'den Platin-Erfolg "Godlike" aus', durchsagen.some((d) => d.text.includes('Godlike')),
     JSON.stringify(durchsagen));
 
-  console.log('--- Block B: ein Bestandskonto bleibt beim ersten Ereignis weiterhin lautlos (Regression) ---');
-  const BESTAND = 'fx:bestand_b3';
-  db.setActivity(W, BESTAND, 'job', 300, 1000);   // Vorgeschichte, nie eine Ansicht geöffnet
-  durchsagen.length = 0;
-  const postfachVorherB3 = db.listMessages(W, BESTAND).total;
-  activity.record(W, BESTAND, 'job');
+  console.log('--- B1: dasselbe Erstlings-Problem wie in activity.record/storage.js, jetzt auch in home.js ---');
+  // home.setHome zählte den Umzug bisher VOR dem Anstoß des Erfolgs-Nachtrags
+  // – für ein Konto ohne `ach_backfill`-Marker schluckte der Nachtrag dadurch
+  // "Weltenbummler" lautlos (derselbe Fehler, der in activity.record und
+  // storage.js openGarage schon behoben ist). Die erste Länderwahl ist
+  // kostenlos und kein Umzug; erst der ZWEITE Ländertausch zählt als
+  // move_1 – dafür braucht das Konto Bargeld (lokales Wallet, ohne Netz,
+  // §12).
+  const UMZUG_NEU = 'fx:umzug_neu';
+  const walletMod = require('../src/wallet');
+  const homeMod = require('../src/home');
+  await walletMod.changeCash(W, UMZUG_NEU, 200_000, 'Testkapital', { xp: false });
+  // `unb.getBalance` steht seit ganz oben (§3-Aufwärmen) auf einem Mock, der
+  // immer eine leere Bilanz liefert – für DIESEN Test kurz auf die echte,
+  // lokale Wallet umleiten, damit `home.setHome` das eben gutgeschriebene
+  // Kapital auch wirklich sieht. Direkt danach wieder zurück, damit die
+  // späteren Tests unverändert weiterlaufen.
+  const echtesGetBalanceMock = unb.getBalance;
+  unb.getBalance = (...a) => walletMod.getBalance(...a);
+  await homeMod.setHome(W, UMZUG_NEU, 'de');
+  const umzugsErgebnis = await homeMod.setHome(W, UMZUG_NEU, 'tr');
+  unb.getBalance = echtesGetBalanceMock;
+  check('der Umzug hat geklappt', umzugsErgebnis.ok === true, JSON.stringify(umzugsErgebnis));
   await new Promise((r) => setImmediate(r));
-  check('keine Durchsage beim ersten Ereignis eines Bestandskontos mit viel Vorgeschichte',
-    durchsagen.length === 0, JSON.stringify(durchsagen));
-  check('kein Postfach-Eintrag',
-    db.listMessages(W, BESTAND).total === postfachVorherB3,
-    `${postfachVorherB3} -> ${db.listMessages(W, BESTAND).total}`);
-  check('der Nachtrag hat trotzdem alles Erfüllte vergeben',
-    db.achievementsOf(W, BESTAND).some((r) => r.ach_id === 'job_250'),
-    JSON.stringify(db.achievementsOf(W, BESTAND)));
+  check('ein brandneues Konto, das ins Ausland zieht, bekommt für move_1 einen Postfach-Eintrag',
+    db.listMessages(W, UMZUG_NEU).items.some((m) => m.title.includes('Weltenbummler')),
+    JSON.stringify(db.listMessages(W, UMZUG_NEU).items.map((m) => m.title)));
+
+  console.log('--- B2: ein Bestandskonto bleibt beim ersten Ereignis lautlos – der PRIVATE Nachtrag, '
+    + 'nicht der serverweite (Regression, frische Welt) ---');
+  /*
+   * In der geteilten Welt W ist `srv_worker` längst vergeben (siehe
+   * "Serverweit: genau einer" oben) – dort bliebe JEDE Meldung aus, ob der
+   * private Nachtrag nun lautlos ist oder nicht, und der alte Test behauptete
+   * damit mehr, als er wirklich prüfte. In einer FRISCHEN Welt ist
+   * `srv_worker` noch offen: Das erste Ereignis eines Bestandskontos mit 300
+   * Schichten gewinnt ihn über den echten `kind:job`-Andockpunkt in
+   * `check()` – nicht über den stillen Nachtrag (der rührt serverweite
+   * Regeln nie an, siehe backfill()). Die eigentliche Behauptung bleibt also:
+   * der PRIVATE Nachtrag ist lautlos, höchstens die serverweite Meldung
+   * kommt durch.
+   */
+  const WB2 = `${W}_B2FRESH`;
+  const BESTAND = 'fx:bestand_b3';
+  db.setActivity(WB2, BESTAND, 'job', 300, 1000);   // Vorgeschichte, nie eine Ansicht geöffnet
+  durchsagen.length = 0;
+  activity.record(WB2, BESTAND, 'job');
+  await new Promise((r) => setImmediate(r));
+  check('höchstens EINE Meldung kommt durch – die serverweite, nicht die privaten aus dem Nachtrag',
+    durchsagen.length === 1 && durchsagen[0].text.includes('als Erster'),
+    JSON.stringify(durchsagen));
+  check('dazu ein Postfach-Eintrag für den serverweiten Erfolg (nicht nur die privaten aus dem Nachtrag)',
+    db.listMessages(WB2, BESTAND).items.some((m) => m.title.includes('Der erste Malocher')),
+    JSON.stringify(db.listMessages(WB2, BESTAND).items.map((m) => m.title)));
+  check('der Nachtrag hat trotzdem alles private Erfüllte lautlos vergeben',
+    db.achievementsOf(WB2, BESTAND).some((r) => r.ach_id === 'job_250'),
+    JSON.stringify(db.achievementsOf(WB2, BESTAND)));
+  check('und den serverweiten Erfolg selbst gibt es jetzt auch – über check(), nicht über den Nachtrag',
+    db.achievementsOf(WB2, BESTAND).some((r) => r.ach_id === 'srv_worker'),
+    JSON.stringify(db.achievementsOf(WB2, BESTAND)));
 
   console.log('--- Block C1: der state()-Kurzschluss greift jetzt auch mit serverweiten Gegenstücken ---');
   const WSHORT = `${W}_SHORT`;
@@ -847,6 +892,27 @@ const A = 'fx:anton', B = 'fx:berta';
   await ach.state(WSHORT, VOLL2, null);
   check('kein Networth-Aufruf, wenn die serverweiten Gegenstücke einem anderen Konto gehören',
     worthAufrufeShort === 0, String(worthAufrufeShort));
+  networth.of = echtesOf;
+
+  console.log('--- B3: der Kurzschluss berücksichtigt jetzt auch die Welt-Nachtrag-Sperre ---');
+  /*
+   * Anders als beim Kurzschluss oben hat hier NOCH NIEMAND die serverweiten
+   * Gegenstücke – sie sind einfach nur GESPERRT, weil der Welt-Nachtrag für
+   * diese (frische) Welt nicht gelaufen ist. Ohne den B3-Fix hielte `state()`
+   * diese Regeln trotzdem für "offen" (niemand hat sie ja ausdrücklich),
+   * baute den Zusammenhang und fragte das Vermögen ab – obwohl `check()` sie
+   * wegen der Sperre sofort überspringen würde (siehe `serverweitErlaubt`).
+   */
+  const WSHORT2 = `${W}_SHORT2`;
+  const VOLL3 = 'fx:vollstaendig3';
+  for (const regel of ach.RULES.filter((r) => r.on === 'state' && r.scope === 'privat')) {
+    db.awardAchievement(WSHORT2, VOLL3, regel.id, Date.now());
+  }
+  let worthAufrufeShort2 = 0;
+  networth.of = async (...a) => { worthAufrufeShort2++; return echtesOf(...a); };
+  await ach.state(WSHORT2, VOLL3, null);
+  check('kein Networth-Aufruf, wenn nur noch WEGEN DER SPERRE unerreichbare serverweite Regeln offen wären',
+    worthAufrufeShort2 === 0, String(worthAufrufeShort2));
   networth.of = echtesOf;
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

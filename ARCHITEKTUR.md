@@ -359,6 +359,24 @@ starten leer. `onActivity` und `fire` tragen zusätzlich selbst nach (über
 den vorhandenen Marker abgesichert, damit der Normalfall synchron bleibt,
 §7) – ein Bestandskonto, das nie eine Ansicht öffnet, sondern gleich
 arbeitet oder ins Casino geht, bekommt sonst genau dort seine Meldungswelle.
-`backfillWorld` läuft einmalig aus dem Profil, VOR dem Einzel-Nachtrag,
-damit ein serverweiter Erfolg beim Nachtrag an den stärksten Kandidaten
-geht statt an den zufällig ersten Betrachter.
+`backfillWorld` läuft einmalig, angestoßen aus `state()`, damit ein
+serverweiter Erfolg beim Nachtrag an den stärksten Kandidaten geht statt an
+den zufällig ersten Betrachter.
+
+**Sperre, bis der Welt-Nachtrag fertig ist:** `state()` vergibt keine
+serverweiten Erfolge, solange der Marker `ach_backfill_world_fertig` für die
+Welt fehlt (siehe `check()`, Parameter `serverweitErlaubt`). Der Grund: Ein
+Blick aufs Profil oder die Startseite ist keine Leistung – ohne diese Sperre
+schnappt sich sonst der erste Betrachter nach einem Deploy ein serverweites
+Abzeichen, bevor `backfillWorld` überhaupt alle Kandidaten verglichen hat.
+Die Sperre fällt endgültig, sobald der Fertig-Marker gesetzt ist; `state()`
+stößt `backfillWorld` dafür bei jedem Aufruf ohne diesen Marker selbst an
+(fire-and-forget, dedupliziert über den eigenen Start-Marker von
+`backfillWorld`). `onActivity` und `fire` reichen den Parameter bewusst nicht
+durch (Default `true`): Dort hängt der Erfolg an einer echten Tat, nicht an
+einem Blick, und darf gewinnen, auch bevor der Welt-Nachtrag gelaufen ist.
+Der Start-Marker von `backfillWorld` (`ach_backfill_world`) wird im
+Fehlerfall (eine werfende Regel, ein Absturz beim Guthaben holen) wieder
+zurückgenommen, damit ein späterer Aufruf es erneut versucht – sonst käme
+der Fertig-Marker nie, und die sechs serverweiten Erfolge blieben für die
+Welt auf Dauer gesperrt, heilbar nur noch per Datenbankeingriff.

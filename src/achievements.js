@@ -418,8 +418,6 @@ async function state(guildId, userId, worth = null, now = Date.now()) {
   // stünden sie für alle übrigen Konten für immer als "offen" da, und der
   // Kurzschluss unten griffe bei keinem realen Konto.
   const vergebenServerweit = new Set(db.allFirsts(guildId).map((r) => r.ach_id));
-  const offenGibtEs = RULES.some((r) => r.on === 'state' && !schon.has(r.id)
-    && !(r.scope === 'server' && vergebenServerweit.has(r.id)));
 
   /*
    * A3-Fix: Der Anstoß für den Welt-Nachtrag sitzt HIER und nicht mehr in
@@ -434,10 +432,22 @@ async function state(guildId, userId, worth = null, now = Date.now()) {
    * ist harmlos, weil `backfillWorld` selbst über seinen Start-Marker
    * synchron dedupliziert (siehe dort). WICHTIG: `backfillWorld` ruft
    * `state()` nicht auf – sonst entstünde hier eine Endlosschleife.
+   *
+   * Deshalb steht dieser Check VOR dem Kurzschluss unten: Er muss auch dann
+   * laufen, wenn für DIESES Konto gerade nichts mehr offen ist.
    */
   const weltFertig = Boolean(db.getClaim(guildId, '*', 'ach_backfill_world_fertig'));
   if (!weltFertig) backfillWorld(guildId).catch(() => {});
 
+  // B3-Fix: Eine serverweite Regel, die die Sperre oben ohnehin ausbremst
+  // (Welt-Nachtrag nicht fertig, noch niemandem gehörend), zählt HIER
+  // ebenfalls nicht als "offen" – genau wie eine, die längst vergeben ist.
+  // Ohne das baute `state()` für ein Konto, dem nur noch gesperrte
+  // serverweite Regeln fehlen, trotzdem den Zusammenhang samt
+  // Guthabenabfrage, obwohl `check()` jeden Kandidaten wegen der Sperre
+  // sofort überspringt (siehe `serverweitErlaubt` dort).
+  const offenGibtEs = RULES.some((r) => r.on === 'state' && !schon.has(r.id)
+    && !(r.scope === 'server' && (vergebenServerweit.has(r.id) || !weltFertig)));
   if (!offenGibtEs) return [];
 
   const ctx = await stateCtx(guildId, userId, worth);
