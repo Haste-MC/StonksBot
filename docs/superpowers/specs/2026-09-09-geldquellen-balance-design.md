@@ -18,9 +18,12 @@ kommen aus der Messung — nicht aus Schätzungen.
 | 6 | **Startbonus**: Beim ersten Anlegen eines Kanals werden Follower in Höhe dieser Untergrenze einmalig echt gutgeschrieben — einmal je Konto **und Plattform**, gegen Löschen-und-neu-Anlegen gesichert. |
 | 7 | `SOCIAL_SPILL` bleibt bestehen. Ein Musiker mit großem Publikum hat große Socials — das ist gewollt und realistisch. |
 | 8 | Die Kanäle eines erfolgreichen Musikers wachsen **1,2-mal schneller** als die eines reinen Creators — **zusätzlich** zur allgemeinen Beschleunigung. Die Faktoren multiplizieren sich. |
-| 9 | **Konzerte werden gedämpft** auf rund 4 Mio über die gemessene Karriere (heute 5,33 Mio). |
-| 10 | **Tantiemen werden hart angehoben** — eigene Vermarktungskurve in Hörern statt der Creator-Kurve in Followern. Ziel ~3 Mio über die Karriere. |
-| 11 | **Merch wird hart angehoben** — Ziel ~3 Mio. Hilft auch dem reinen Creator, bei dem Merch heute 86 % der Einnahmen ausmacht. |
+| ~~9~~ | ~~Konzerte werden gedämpft.~~ **Zurückgenommen.** Beruhte auf einer fehlerhaften Messung. Konzerte sind mit `Hörer^0,7` der gut gebaute Teil und liegen ab 100.000 Hörern deutlich hinter den Tantiemen. Sie bleiben unverändert. |
+| ~~10~~ | ~~Tantiemen werden hart angehoben.~~ **Umgekehrt.** Tantiemen sind 97 % der Musik-Einnahmen und wachsen **überlinear** — sie werden **gedämpft**, siehe 16. |
+| 11 | **Merch wird hart angehoben** — Ziel: **250.000/Tag bei 2,6 Mio Followern**. Hilft vor allem dem reinen Creator, bei dem Merch 89 % der Einnahmen ausmacht. |
+| 16 | **Tantiemen werden unterlinear**: `k × Hörer^0,9` statt `Hörer × monetization`. Anker bei 194.661 Hörern — dort bleibt der heutige Wert von 27.610/Tag erhalten. |
+| 17 | **YouTube-Einnahmen werden unterlinear**: Exponent **0,85**, derselbe Ankerpunkt wie bei 16. |
+| 18 | **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
 | 12 | **Wachstum verdreifacht**, aber asymmetrisch: Creator leichter (~9 Monate bis 1 Mio Follower), Musik schwerer (~15 Monate). |
 | 13 | Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |
 | 14 | **Rangfolge als Ganzes:** Musik+Creator > nur Creator > Heists. „Nur Creator" bleibt eine tragfähige Spielweise. |
@@ -59,6 +62,36 @@ Instagram 456.275 · YouTube 139.858 · Twitch 29.706.
 
 Beim reinen Creator: Merch 881.081 · Instagram 278.849 · Twitch 1.232 ·
 YouTube 533.
+
+### Der Kernbefund: die Tantiemen wachsen überlinear
+
+Das ist die Ursache hinter allem anderen und ein Konstruktionsfehler, kein
+Balancing-Wert.
+
+Die `monetization`-Kurve wurde als **Bremse** für Creator gebaut, wo das
+Publikum selbst schon unterlinear wächst. Die Musik multipliziert sie aber auf
+eine Einnahme, die bereits **linear** in den Hörern ist:
+
+```
+Creator   Publikum^0,73 als Dämpfer auf die Einnahme je Aufruf   →  unterlinear
+Musik     Hörer  ×  Hörer^0,73                                   →  ÜBERLINEAR
+```
+
+Gemessen an den echten Funktionen:
+
+| Hörer | Vermarktung | Tantiemen/Tag |
+|---|---|---|
+| 10.000 | 6,0 % | 414 |
+| 100.000 | 12,6 % | 8.722 |
+| 194.661 | 20,6 % | 27.610 |
+| 872.183 | 61,4 % | 369.720 |
+| 2.000.000 | — | **1.380.000** |
+
+Achtzigfache Hörerzahl bringt das **893-Fache** an Geld. Alles andere im Spiel
+verhält sich brav: Konzerte `Hörer^0,7`, Merch `Reichweite^0,92`, Sponsoren
+`^0,65`. Die Tantiemen sind die einzige überlineare Einnahme — und damit die
+Erklärung dafür, dass Musik+Creator in der Messung das **51-Fache** eines
+reinen Creators verdient.
 
 ### Was daran falsch ist
 
@@ -160,23 +193,46 @@ entfallen.
 
 ### 3 · Musik-Einnahmen neu zusammengesetzt
 
-Zielbild, **Summe über die gemessene Karriere von 1.095 Tagen** (nicht pro Tag):
+Alle drei Einnahmen werden von der `monetization`-Konstruktion auf ein
+**reines Potenzgesetz** umgestellt: `Ertrag = k × Größe^Exponent`, Exponent
+kleiner als 1. Damit ist jede Einnahme im Spiel unterlinear.
 
-| Quelle | heute | Ziel | Hebel | Startwert |
-|---|---|---|---|---|
-| Konzerte | 5.331.719 | **~4.000.000** | `SHOW_PAY` | 8 → **6** |
-| Tantiemen | ~0 | **~3.000.000** | eigene Vermarktungskurve | neu: `MUSIC_MON_FULL` = **200.000 Hörer** |
-| Merch | 1.432.344 | **~3.000.000** | `MERCH_FACTOR` | 0,05 → **0,10** |
-| Plattformen | 626.000 | ~600.000 | — | unverändert |
+| Quelle | Formel neu | Exponent | Faktor `k` |
+|---|---|---|---|
+| Tantiemen | `k × Hörer^0,9` | 0,9 | so, dass bei **194.661 Hörern** der heutige Wert **27.610/Tag** erhalten bleibt |
+| YouTube | `k × Publikum^0,85` | 0,85 | derselbe Ankerpunkt |
+| Merch | `k × Reichweite^0,92` (Exponent unverändert) | 0,92 | `MERCH_FACTOR` 0,05 → **0,241**, sodass 2,6 Mio Follower **250.000/Tag** ergeben |
 
-Die Startwerte sind der Einstieg in die Kalibrierung, nicht das Ergebnis: Sie
-werden gegen die Messung nachgezogen, bis die Zielspalte steht.
+**Wirkung auf die Tantiemen** (Anker 194.661):
 
-**Musik bekommt eine eigene Vermarktungskurve.** Statt `MON_FULL = 1.700.000`
-**Followern** gilt für Tantiemen `MUSIC_MON_FULL`, gemessen in **Hörern**.
-Begründung: Streaming zahlt je Abruf ab dem ersten Tag, Werbevermarktung rampt.
-Bei 200.000 als Vollauslastung liegt ein Künstler mit 50.000 Hörern damit bei
-rund 36 % statt 7 %.
+| Hörer | heute | neu |
+|---|---|---|
+| 10.000 | 414 | **1.909** |
+| 100.000 | 8.722 | 15.161 |
+| 194.661 | 27.610 | 27.610 |
+| 500.000 | 141.202 | 64.535 |
+| 872.183 | 369.720 | **106.480** |
+| 2.000.000 | 1.380.000 | **224.724** |
+
+Kleine und mittlere Künstler verdienen **mehr** als heute, nur die Spitze wird
+gebändigt. Das Wachstum über die Spanne 10.000 → 872.183 Hörer fällt von 893×
+auf 56×.
+
+**Wirkung auf Merch** (`MERCH_FACTOR` 0,241, Heimatmarkt 1,3):
+
+| Follower | heute | neu |
+|---|---|---|
+| 215.376 | 5.241 | **25.276** |
+| 545.334 | 12.321 | **59.415** |
+| 1.000.000 | 21.524 | **103.792** |
+| 2.600.000 | 51.843 | **250.000** |
+
+Dieser Hebel wirkt vor allem auf den **reinen Creator**: Sein gemessenes
+Jahreseinkommen bestand zu 89 % aus Merch, wird also grob verfünffacht. Das
+schließt einen großen Teil des 51-fachen Abstands, ohne die Rangfolge zu drehen.
+
+`MERCH_DAILY_CAP` (heute 100.000) muss mit angehoben werden, sonst greift er
+ab etwa einer Million Followern.
 
 Der Merch-Hebel wirkt auch auf den **reinen Creator** — dort sind Merch heute
 86 % der Einnahmen. Das schließt einen Teil des Abstands, ohne die Rangfolge
