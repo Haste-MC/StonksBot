@@ -37,8 +37,10 @@ async function playRound(guildId, userId, bet, reason, play) {
   // Der Gewinn EINER Runde – nicht die Summe. Genau darum geht es beim
   // Hochroller: einmal groß, nicht oft klein.
   if (net > 0) {
-    require('./achievements').fire(guildId, userId, 'casino_win', { amount: net })
-      .catch(() => {});
+    try {
+      require('./achievements').fire(guildId, userId, 'casino_win', { amount: net })
+        .catch(() => {});
+    } catch { /* ein Erfolg darf eine Casino-Runde nicht kippen */ }
   }
 
   return { ok: true, outcome, bet, gross, net, newBalance };
@@ -122,8 +124,10 @@ async function finish(guildId, userId, game = null, random = Math.random) {
 
   const gewinn = gross - g.bet;
   if (gewinn > 0) {
-    require('./achievements').fire(guildId, userId, 'casino_win', { amount: gewinn })
-      .catch(() => {});
+    try {
+      require('./achievements').fire(guildId, userId, 'casino_win', { amount: gewinn })
+        .catch(() => {});
+    } catch { /* dito */ }
   }
 
   return { ok: true, status: 'done', state: g, bet: g.bet, result, gross, newBalance };

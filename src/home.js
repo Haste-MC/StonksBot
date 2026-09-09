@@ -141,10 +141,13 @@ async function setHome(guildId, userId, targetId, now = Date.now()) {
     return { ok: false, reason: 'too_poor', country: target, cost, have: balance?.total ?? 0 };
   }
 
-  // Zuerst der Zustand, dann das Geld.
+  // Zuerst der Zustand, dann das Geld. `move_1` liest den Umzugszähler aus
+  // der Statistik (`c.moves`), keine Nutzlast nötig. Das `require` selbst
+  // kapseln (wie unb.js es tut): Ein Erfolg darf nicht ausgerechnet zwischen
+  // dem Vermerk des Umzugs und der Geldbuchung durchschlagen.
   db.setHome(guildId, userId, target.id, { move: true, at: now });
-  require('./achievements').fire(guildId, userId, 'move', { country: target.id })
-    .catch(() => {});
+  try { require('./achievements').fire(guildId, userId, 'move').catch(() => {}); }
+  catch { /* dito */ }
   const rental = db.getRental(guildId, userId);
   if (rental) db.endRental(guildId, userId);
 

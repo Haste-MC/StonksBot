@@ -517,8 +517,19 @@ const A = 'fx:anton', B = 'fx:berta';
   check('sie nennt den Zähler', /\d+\s*\/\s*37/.test(text), text.slice(0, 200));
   check('und keine rohe Konto-ID', !text.includes('fx:karl'), text.slice(0, 200));
 
+  console.log('--- C1: Serverweite Erfolge stehen zusätzlich in "Meine Erfolge" ---');
   // Anton hält srv_millionaire aus dem allerersten Abschnitt (claimFirst
-  // oben) – ein Konto, das nachweislich einen serverweiten Erfolg hat.
+  // oben). `listFor` filtert bewusst auf privat (wegen der
+  // Fortschrittsanzeige) – der serverweite Erfolg muss trotzdem in der
+  // eigenen Ansicht auftauchen, nicht nur auf der Ehrentafel.
+  const ansichtAnton = await ui.buildAchievementsView({ guildId: W, userId: A });
+  const antonText = JSON.stringify(ansichtAnton.embeds[0].toJSON());
+  check('der serverweite Erfolg steht im Embed',
+    antonText.includes('Der erste Millionär') && antonText.includes('👑'),
+    antonText.slice(0, 300));
+
+  // Auch für die Ehrentafel unten: Anton ist nachweislich ein Konto mit
+  // einem serverweiten Erfolg.
   const tafelAnsicht = await ui.buildBoardView({ guildId: W, userId: A });
   check('die Ehrentafel baut ein Embed', tafelAnsicht.embeds?.length === 1);
   const tafelText = JSON.stringify(tafelAnsicht.embeds[0].toJSON());

@@ -44,6 +44,18 @@ async function buildAchievementsView({ guildId, userId, page = 1 }) {
       `${identity.mention(userId)} · **${geholt.length} / ${gesamt}**`
       + (geholt.length === gesamt ? '\nAlles geholt. Ernsthaft?' : ''));
 
+  // `listFor` filtert bewusst auf privat (wegen der Fortschrittsanzeige) –
+  // serverweite Erfolge stehen sonst nur auf der Ehrentafel und fehlen dem
+  // Halter in seiner eigenen Liste. Ganz oben, denn seltener als „kann nur
+  // einer haben" geht nicht; der Zähler darunter bleibt rein privat.
+  const serverweite = achievements.board(guildId).filter((e) => e.userId === userId);
+  if (serverweite.length) {
+    embed.addFields({
+      name: '👑 Serverweit',
+      value: serverweite.map((e) => `${e.rule.emoji} **${e.rule.title}**`).join('\n'),
+    });
+  }
+
   if (geholt.length) {
     embed.addFields({
       name: '✅ Geholt',
