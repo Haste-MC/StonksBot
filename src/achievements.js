@@ -488,7 +488,7 @@ async function report(guildId, userId, frisch) {
 }
 
 /**
- * Der Zusammenhang für den Nachtrag: `stateCtx`, angereichert um das, was
+ * Der Zusammenhang für den Nachtrag: `baseCtx`, angereichert um das, was
  * sich nur aus dem Bestand rekonstruieren lässt und im laufenden Betrieb
  * über ein Ereignis (`fire`) kommt.
  *
@@ -499,16 +499,36 @@ async function report(guildId, userId, frisch) {
  *
  * `moves`: aus `db.getStats` – die Zahl der Umzüge steht dort bereits, ganz
  * ohne eigenes Ereignis.
+ *
+ * WICHTIG – Reihenfolge: Erst werden ALLE lokalen (synchronen) Werte
+ * eingefroren, ERST DANACH kommt das Vermögen per Netzabfrage. Grund: Diese
+ * Funktion läuft über `backfill()` fire-and-forget (activity.record,
+ * storage.openGarage) – der Aufrufer nimmt GLEICH IM ANSCHLUSS selbst eine
+ * synchrone Zustandsänderung vor (`bumpActivity`, `addLoot`). Läse ein
+ * Getter erst NACH dem Vermögens-`await` aus der Datenbank, sähe er bereits
+ * den NEUEN Stand und hielte den gerade entstandenen Fortschritt für
+ * Vorgeschichte – die Ursache dafür, dass "Erster Arbeitstag" beim
+ * allerersten Ereignis stumm blieb und "Godlike" beim allerersten Fund
+ * lautlos statt mit Durchsage vergeben wurde. Das Vermögen selbst ändert
+ * sich durch `bumpActivity`/`addLoot` nicht – es darf also ruhig erst NACH
+ * dem Einfrieren ankommen.
  */
 async function backfillCtx(guildId, userId) {
-  const ctx = await stateCtx(guildId, userId);
-  Object.defineProperties(ctx, {
-    rarity: {
-      get: () => db.listLoot(guildId, userId).reduce(
-        (bester, fund) => (rarityRank(fund.rarity) > rarityRank(bester) ? fund.rarity : bester),
-        ''),
-    },
-  });
+  const ctx = baseCtx(guildId, userId, { worth: 0 });
+
+  // Erzwingt die (gecachten) Getter JETZT, synchron – siehe Kommentar oben.
+  // `depot` ist ebenfalls synchron (wallstreet.portfolio rechnet lokal).
+  void ctx.counts; void ctx.cars; void ctx.bestCar; void ctx.properties;
+  void ctx.realty; void ctx.hasCastle; void ctx.depot; void ctx.collection;
+  void ctx.crime; void ctx.level; void ctx.moves; void ctx.bestRarity;
+
+  // Ein einfacher Wert statt eines Getters (anders als in `baseCtx`): So
+  // liest ein späterer Zugriff garantiert den hier eingefrorenen Stand,
+  // statt still neu aus der (inzwischen veränderten) Datenbank nachzusehen.
+  ctx.rarity = db.listLoot(guildId, userId).reduce(
+    (bester, fund) => (rarityRank(fund.rarity) > rarityRank(bester) ? fund.rarity : bester), '');
+
+  ctx.worth = await require('./networth').of(guildId, userId).then((w) => w.total).catch(() => 0);
   return ctx;
 }
 

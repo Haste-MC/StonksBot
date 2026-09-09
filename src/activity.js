@@ -61,7 +61,8 @@ function record(guildId, userId, id, at = Date.now()) {
   // Erst den Bestand übernehmen, dann den neuen Strich: Sonst wäre die Liste
   // nach der ersten Aktion nicht mehr leer und der Nachtrag käme nie.
   backfill(guildId, userId, at);
-  db.bumpActivity(guildId, userId, String(id), at);
+
+  const achievements = require('./achievements');
 
   // Der Andockpunkt für Erfolge sitzt HIER und nicht an der Geldbuchung
   // (unb.changeCash): Überfall, Vermieten und Casino zählen bewusst OHNE
@@ -70,8 +71,39 @@ function record(guildId, userId, id, at = Date.now()) {
   // Ort, den jede Aktivität durchläuft, auch die Buchung selbst
   // (unb.countActivity ruft es auf). Fire-and-forget und in try/catch: ein
   // Erfolg darf niemals eine Strichliste zum Kippen bringen.
-  try { require('./achievements').onActivity(guildId, userId, id, at).catch(() => {}); }
-  catch { /* dito */ }
+  //
+  // Die REIHENFOLGE zu `bumpActivity` hängt vom Erfolge-Nachtrag ab, und
+  // genau DAS ist der Grund für die Fallunterscheidung hier:
+  //
+  //   - Konto noch nie nachgetragen: `onActivity` stößt selbst den stillen
+  //     Nachtrag an, und der baut seinen Zusammenhang synchron BEIM AUFRUF
+  //     (siehe achievements.backfillCtx) – noch bevor `onActivity` bei
+  //     seinem eigenen `await backfill(...)` pausiert. Läuft `onActivity`
+  //     danach erst nach `bumpActivity`, hielte der Nachtrag den gerade
+  //     erst gezählten Strich für Vorgeschichte und würde z.B. "Erster
+  //     Arbeitstag" lautlos vergeben statt mit Postfach-Eintrag – also VOR
+  //     `bumpActivity` auslösen.
+  //   - Konto schon nachgetragen (der Normalfall): `onActivity` überspringt
+  //     seinen eigenen Nachtrag (Marker vorhanden) und läuft bis zu seinem
+  //     `check()` komplett synchron durch (§7) – OHNE ein dazwischenliegendes
+  //     `bumpActivity` sähe dieses `check()` den ALTEN Stand und würde die
+  //     gerade erst erreichte Schwelle verpassen – also NACH `bumpActivity`
+  //     auslösen, wie vor diesem Fix.
+  //
+  // `record` bleibt dabei in jedem Fall synchron und gibt sofort zurück;
+  // der eigentliche Nachtrag (falls nötig) läuft asynchron im Hintergrund
+  // weiter, unabhängig davon, wann diese Funktion zurückkehrt.
+  const nochNichtNachgetragen = !db.getClaim(guildId, userId, 'ach_backfill');
+
+  if (nochNichtNachgetragen) {
+    try { achievements.onActivity(guildId, userId, id, at).catch(() => {}); }
+    catch { /* dito */ }
+    db.bumpActivity(guildId, userId, String(id), at);
+  } else {
+    db.bumpActivity(guildId, userId, String(id), at);
+    try { achievements.onActivity(guildId, userId, id, at).catch(() => {}); }
+    catch { /* dito */ }
+  }
 
   return true;
 }

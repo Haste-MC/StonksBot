@@ -666,6 +666,48 @@ const A = 'fx:anton', B = 'fx:berta';
   check('WRACE2 hat wirklich (noch) keinen Fertig-Marker (Kontrolle)',
     !db.getClaim(WRACE2, '*', 'ach_backfill_world_fertig'));
 
+  console.log('--- Block B: neue Spieler verlieren ihren ersten Erfolg nicht mehr ---');
+  const NEU1 = 'fx:neuling_b1';
+  // Ein wirklich brandneues Konto, über `activity.record()` – nicht über
+  // `ach.onActivity()` direkt: Genau die interne Reihenfolge von `record()`
+  // (Nachtrag VOR `bumpActivity`) ist der Fix.
+  activity.record(W, NEU1, 'job');
+  // record() ist synchron und fire-and-forget für den Erfolgs-Andockpunkt –
+  // kurz nachgeben, damit der Nachtrag im Hintergrund durchgelaufen ist.
+  await new Promise((r) => setImmediate(r));
+  check('die allererste Schicht eines brandneuen Kontos steht als "Erster Arbeitstag" im Postfach',
+    db.listMessages(W, NEU1).items.some((m) => m.title.includes('Erster Arbeitstag')),
+    JSON.stringify(db.listMessages(W, NEU1).items.map((m) => m.title)));
+
+  const NEU2 = 'fx:neuling_b2';
+  const storage = require('../src/storage');
+  const garageB2 = db.addGarage(W, NEU2, 'Testgarage', 1000, {
+    objects: [{ name: 'Kristallkugel', value: 500_000, rarity: 'cosmic', condition: 'gut' }],
+    cash: 0, car: null,
+  }, 500_000);
+  durchsagen.length = 0;
+  await storage.openGarage(W, NEU2, garageB2.id);
+  await new Promise((r) => setImmediate(r));
+  check('ein brandneues Konto, dessen erster Fund ein Cosmic ist, löst eine Durchsage für '
+    + 'den Platin-Erfolg "Godlike" aus', durchsagen.some((d) => d.text.includes('Godlike')),
+    JSON.stringify(durchsagen));
+
+  console.log('--- Block B: ein Bestandskonto bleibt beim ersten Ereignis weiterhin lautlos (Regression) ---');
+  const BESTAND = 'fx:bestand_b3';
+  db.setActivity(W, BESTAND, 'job', 300, 1000);   // Vorgeschichte, nie eine Ansicht geöffnet
+  durchsagen.length = 0;
+  const postfachVorherB3 = db.listMessages(W, BESTAND).total;
+  activity.record(W, BESTAND, 'job');
+  await new Promise((r) => setImmediate(r));
+  check('keine Durchsage beim ersten Ereignis eines Bestandskontos mit viel Vorgeschichte',
+    durchsagen.length === 0, JSON.stringify(durchsagen));
+  check('kein Postfach-Eintrag',
+    db.listMessages(W, BESTAND).total === postfachVorherB3,
+    `${postfachVorherB3} -> ${db.listMessages(W, BESTAND).total}`);
+  check('der Nachtrag hat trotzdem alles Erfüllte vergeben',
+    db.achievementsOf(W, BESTAND).some((r) => r.ach_id === 'job_250'),
+    JSON.stringify(db.achievementsOf(W, BESTAND)));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

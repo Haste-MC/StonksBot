@@ -545,6 +545,18 @@ async function openGarage(guildId, userId, garageId) {
   if (!db.removeGarage(guildId, userId, garageId)) return { ok: false, reason: 'not_found' };
 
   const c = garage.contents;
+
+  // Den stillen Nachtrag VOR dem ersten `db.addLoot` dieser Schleife
+  // anstoßen, nicht erst über das `fire('loot', …)` der ersten Fundzeile:
+  // Der Nachtrag baut seinen Zusammenhang synchron beim Aufruf (siehe
+  // achievements.backfillCtx) – käme er erst danach, hielte er den gerade
+  // erst hinzugefügten Fund für Vorgeschichte und würde z.B. den
+  // Platin-Erfolg "Godlike" beim allerersten Fund lautlos statt mit
+  // Durchsage vergeben. Das `require` selbst kapseln (wie unb.js es tut):
+  // Ein Erfolg darf das Aufdecken der Garage nicht kippen.
+  try { require('./achievements').backfill(guildId, userId).catch(() => {}); }
+  catch { /* dito */ }
+
   for (const o of c.objects || []) {
     db.addLoot(guildId, userId, o.name, o.value, o.rarity, o.condition, null);
     // Die Seltenheit zählt im Moment des Aufdeckens. Über den Zustand ginge
