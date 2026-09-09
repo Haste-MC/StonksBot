@@ -1,0 +1,278 @@
+# Rangfolge der Geldquellen
+
+Stand: 2026-09-09 · Zweig `main`
+
+## Ziel
+
+Die Einnahmequellen sollen eine klare, gewollte Rangfolge haben:
+
+1. **Musik + Creator** ist die beste Quelle im Spiel — verdient durch die
+   höchste Einstiegshürde und die Notwendigkeit, zwei Systeme zu beherrschen.
+2. **Nur Creator** bleibt eine tragfähige, deutlich leichtere Spielweise.
+3. **Heists** sind ein Ereignis, kein Job.
+
+Dazu wird die Zusammensetzung der Musik-Einnahmen umgebaut, das Wachstum
+beider Karrieren beschleunigt und die Querverbindung zwischen Creator und
+Musik auf eine Richtung reduziert.
+
+## Nicht-Ziele
+
+- Keine neue Spielart. Alle Änderungen bewegen vorhandene Stellschrauben.
+- Kein Scheduler (§4).
+- Die Preise (Chiron 3,2 Mio, Schloss 18 Mio) bleiben, wo sie sind.
+
+## Ausgangslage (gemessen, nicht geschätzt)
+
+Zwei Karrieren über 1.095 Tage, je 8 Zeiteinheiten am Tag, gleicher Würfel:
+
+| | Einnahmen/Tag | Follower | Hörer |
+|---|---|---|---|
+| nur Creator | 1.061 | 898.813 | — |
+| Musik + Creator | 6.749 | 1.093.017 | 50.280 |
+
+Aufschlüsselung der Musik-Karriere: Konzerte 5.331.719 · Merch 1.432.344 ·
+Instagram 456.275 · YouTube 139.858 · Twitch 29.706.
+
+Beim reinen Creator: Merch 881.081 · Instagram 278.849 · Twitch 1.232 ·
+YouTube 533.
+
+### Was daran falsch ist
+
+1. **Konzerte umgehen die Vermarktungskurve.** `SHOW_PAY × Hörer^0,7` ist
+   ungedämpft, während Tantiemen, Werbung und Merch durch `monetization`
+   laufen. Ergebnis: 72 % der Musik-Einnahmen kommen aus Konzerten.
+2. **Tantiemen sind praktisch null.** Sie benutzen die Creator-Kurve mit
+   `MON_FULL = 1.700.000` **Followern**. Ein Musiker mit 50.000 Hörern liegt
+   damit bei 7 % Vermarktung — obwohl 50.000 Hörer eine ernste Größe sind.
+   Streaming zahlt aber ab dem ersten Abruf, es rampt nicht wie Werbung.
+3. **Kanäle speisen Musik.** `CREATOR_SPILL = 0,08` rechnet Kanalreichweite in
+   den Hörer-Pool. Ein großer Streamer startet als Musiker nicht bei null.
+4. **Die Gegenrichtung ist toter Code.** `reachBonus` / `MUSIC_TO_CREATOR`
+   sind exportiert, werden aber nirgends aufgerufen.
+5. **Der Aufbau dauert zu lange.** Knapp eine Million Follower nach drei
+   Jahren täglichen Spielens.
+6. **Heists sind ein 12-Stunden-Rhythmus.** Ein Millionending alle zwölf
+   Stunden ist Klickarbeit, keine Entscheidung.
+
+### Korrekturen an früher genannten Zahlen
+
+Zwei Werte, die in diesem Projekt bereits dokumentiert sind, waren falsch:
+
+| | falsch | richtig | Ursache |
+|---|---|---|---|
+| Goldtransport | ~875.000/Tag | **214.627/Tag** | Beute wird durch die Crew geteilt (`crewFactor`, `LEADER_SHARE`), und die Strafe zahlt jedes Mitglied voll |
+| Musik bei 872k Hörern | ~706.000/Tag | **~434.000/Tag** | `monetization`-Faktor übersehen |
+
+Die erste Zahl steht in `docs/superpowers/specs/2026-09-08-achievements-design.md`
+und hat dort die Platin-Schwellen begründet. Sie wird dort korrigiert.
+
+## Die Änderungen
+
+### 1 · Heists: Sperre je Ziel
+
+`HEIST_COOLDOWN_MS` (eine Zahl für alle sieben Ziele) weicht einem Feld
+`cooldownH` je Ziel in `src/data/heists.js`.
+
+| Ziel | Sperre | Knast | EV/Tag heute | EV/Tag neu |
+|---|---|---|---|---|
+| Spätkauf | 12 h | 5 h | 5.234 | 5.234 |
+| Tankstelle | 12 h | 9 h | 16.806 | 16.806 |
+| Juwelier | 12 h | 18 h | 32.964 | 32.964 |
+| Kunstdepot | **18 h** | 24 h | 90.844 | 68.480 |
+| Filialbank | **18 h** | 36 h | 96.178 | 74.352 |
+| Kasino-Tresor | **40 h** | 48 h | 180.993 | 79.290 |
+| Goldtransport | **72 h** | 72 h | 214.627 | **85.851** |
+
+Die Werte sind so gewählt, dass die Kurve **aufsteigend** bleibt: Ein höheres
+Ziel muss pro Tag mehr abwerfen als ein niedrigeres, sonst lohnt der Aufstieg
+nicht. Eine naive Staffelung (18/24/48/72) hätte die Filialbank unter das
+Kunstdepot gedrückt.
+
+Der Einstieg bleibt unangetastet — die ersten drei Ziele behalten 12 h.
+
+**Knast läuft weiter parallel.** Beim Goldtransport sind Sperre und Knast damit
+beide 72 h; ein Fehlschlag kostet dort also nur die Geldstrafe, keine
+zusätzliche Zeit. Das ist eine bewusste Entscheidung und wird im Code als
+solche vermerkt, damit es später niemand für einen Fehler hält.
+
+**Umsetzung:** Neue Spalte `cooldown_until` auf `criminals`, beim Abschluss
+gesetzt. Bestandszeilen (`0`) fallen auf `last_heist_at + 12 h` zurück, damit
+durch das Update niemand eine laufende Sperre verliert.
+
+### 2 · Creator und Musik werden eine Einbahnstraße
+
+| Richtung | heute | neu |
+|---|---|---|
+| Kanäle → Hörer (`CREATOR_SPILL`) | aktiv, 0,08 | **entfernt** |
+| Hörer → Kanal-Publikum (`reachBonus`) | toter Code | **angeschlossen, als Untergrenze** |
+| Releases → echte Follower (`SOCIAL_SPILL`) | aktiv, 0,05 | **0,06** (×1,2) |
+
+**Ein großer Creator startet als Musiker bei null.** `reachOf` rechnet nur noch
+mit echten Hörern; der Parameter `cross` und die Übergabe von `creatorReach`
+entfallen.
+
+**Ein großer Musiker startet als Creator mit großen Kanälen.** Zwei Teile:
+
+- **Untergrenze:** `effektive Gesamtreichweite = max(Follower, Hörer × 0,18)`.
+  Kein Summand — ein Hörer zählt einmal, nicht zweimal. Die Grenze gilt auf die
+  **Gesamtreichweite**, nicht je Kanal; sonst zählte derselbe Hörer viermal.
+- **Startbonus:** Beim ersten Anlegen eines Kanals werden Follower in Höhe
+  dieser Untergrenze einmalig echt gutgeschrieben. Damit ist die Zahl sichtbar
+  statt nur rechnerisch. Weil die Untergrenze ohnehin gilt, verschenkt der
+  Bonus nichts Zusätzliches.
+- **Missbrauchsschutz:** einmal je Konto **und Plattform**, in der Datenbank
+  vermerkt. Sonst wäre Kanal löschen und neu anlegen eine Follower-Quelle, und
+  Follower speisen Merch und Sponsorenverträge.
+
+### 3 · Musik-Einnahmen neu zusammengesetzt
+
+Zielbild, **Summe über die gemessene Karriere von 1.095 Tagen** (nicht pro Tag):
+
+| Quelle | heute | Ziel | Hebel | Startwert |
+|---|---|---|---|---|
+| Konzerte | 5.331.719 | **~4.000.000** | `SHOW_PAY` | 8 → **6** |
+| Tantiemen | ~0 | **~3.000.000** | eigene Vermarktungskurve | neu: `MUSIC_MON_FULL` = **200.000 Hörer** |
+| Merch | 1.432.344 | **~3.000.000** | `MERCH_FACTOR` | 0,05 → **0,10** |
+| Plattformen | 626.000 | ~600.000 | — | unverändert |
+
+Die Startwerte sind der Einstieg in die Kalibrierung, nicht das Ergebnis: Sie
+werden gegen die Messung nachgezogen, bis die Zielspalte steht.
+
+**Musik bekommt eine eigene Vermarktungskurve.** Statt `MON_FULL = 1.700.000`
+**Followern** gilt für Tantiemen `MUSIC_MON_FULL`, gemessen in **Hörern**.
+Begründung: Streaming zahlt je Abruf ab dem ersten Tag, Werbevermarktung rampt.
+Bei 200.000 als Vollauslastung liegt ein Künstler mit 50.000 Hörern damit bei
+rund 36 % statt 7 %.
+
+Der Merch-Hebel wirkt auch auf den **reinen Creator** — dort sind Merch heute
+86 % der Einnahmen. Das schließt einen Teil des Abstands, ohne die Rangfolge
+umzudrehen.
+
+### 4 · Wachstum: asymmetrisch beschleunigt
+
+Heute: knapp eine Million Follower nach drei Jahren. Ziel: **eine Million in
+einem Jahr** — im Mittel dreifaches Tempo, aber **nicht gleich verteilt**:
+
+| | Ziel | heute |
+|---|---|---|
+| Creator (leichter) | 1 Mio Follower in **~9 Monaten** | 36 Monate |
+| Musik (schwerer) | die Hörerzahl, die das Zielbild aus Abschnitt 3 trägt, in **~15 Monaten** | 50.280 Hörer nach 36 Monaten |
+
+Das ist die ausdrückliche Vorgabe: „Artist schwerer, Creator einfacher". Die
+Musik zahlt ihre höhere Hürde durch das höhere Einkommen und den Übertrag auf
+die Kanäle zurück.
+
+**Die Hörerzahl ist bewusst kein eigener Zielwert.** Sie ergibt sich aus
+Abschnitt 3: Wenn Tantiemen ~3 Mio und Konzerte ~4 Mio über die Karriere
+tragen sollen, folgt daraus, wie viele Hörer wann da sein müssen. Eine zweite,
+frei gesetzte Zahl daneben würde der ersten widersprechen.
+
+Stellschrauben: für die Musik `REACH_K` und `CONVERSION`, für die Kanäle die
+Reichweitenkurve in `creator.js`. Welche davon wie weit bewegt wird, entscheidet
+die Messung — beide Kurven müssen unterlinear bleiben (§3).
+
+### 5 · Erfolgs-Schwellen neu rechnen
+
+Die Schwellen aus `2026-09-08-achievements-design.md` wurden gegen die alten
+Raten geeicht — teils gegen die falsche Heist-Zahl. Sie verschieben sich in
+**beide** Richtungen:
+
+| Erfolg | Grund | Richtung |
+|---|---|---|
+| `worth_50m` Schwerreich | Einkommen steigt | Schwelle **hoch** |
+| `depot_25m` Großkapital | Einkommen steigt | Schwelle **hoch** |
+| `loot_50m` Beutezug | Heist-Ertrag sinkt von 215k auf 86k/Tag | Schwelle **runter** |
+| `srv_pate` (100 Mio Diebesgut) | dito | Schwelle **runter** |
+| `job_1000`, `fish_1000`, `level_100` | zeitbasiert, unberührt | unverändert |
+
+Die neuen Werte werden aus der Messung abgeleitet, nicht geraten. Die `id`
+jeder Regel bleibt unverändert — wer einen Erfolg hat, behält ihn.
+
+## Wie die Zielwerte getroffen werden
+
+Nicht durch Raten. Das Messskript aus der Analyse wird ein **Test im Projekt**
+(`test/geldquellen.test.js`): Es fährt beide Karrieren mit festem Würfel,
+gibt die Aufschlüsselung aus und prüft Grenzen.
+
+Vorgehen: Stellschrauben drehen, messen, wiederholen, bis die Zielwerte stehen.
+Danach bleibt der Test liegen und schlägt an, wenn eine spätere Änderung die
+Zusammensetzung wieder kippt.
+
+**Die Messung ist nur so gut wie die simulierte Spielweise.** Der reine Creator
+verdient in der bisherigen Fassung über drei Jahre 1.232 auf Twitch und 533 auf
+YouTube — das liegt an der Strategie des Skripts (stur das zeitteuerste
+Format), nicht am Spiel. Vor dem Drehen der Stellschrauben muss die
+Creator-Strategie deshalb verbessert werden: je Zeitscheibe das Format mit dem
+besten Ertrag je Zeit, und Twitter regelmäßig für die Community, an der Merch
+hängt. Sonst wird gegen ein zu schwaches Vergleichsbild kalibriert.
+
+## §3 — kein Gelddrucker
+
+Die Rangfolge wird angehoben, die Grenze bleibt:
+
+| | |
+|---|---|
+| **Gemeinsames Zeitbudget** | `music.useTime` delegiert an `creator.useTime`; 8 Einheiten am Tag für Musik **und** Kanäle zusammen. Beides voll zu betreiben ist unmöglich. |
+| **Untergrenze statt Summe** | Ein Hörer zählt einmal. |
+| **Einbahnstraße** | Creator speist Musik nicht mehr — kein Kreislauf, der sich hochschaukeln kann. |
+| **Kurven bleiben unterlinear** | Vermarktung 0,73 · Merch 0,92 · Sponsoren 0,65 · Musik-Reichweite unterlinear |
+| **Konzerte werden gedämpft** | Die einzige Auszahlung ohne Kurve wird gesenkt. |
+
+Nachgerechnet wird das im Test, nicht behauptet.
+
+**Bewusst in Kauf genommen:** Das ist eine spürbare Ausweitung der Geldmenge.
+Endgame-Spieler verdienen nach der Änderung deutlich mehr, die Preise bleiben.
+Große Ziele rücken damit näher — das ist die Absicht, nicht ein Nebeneffekt.
+
+## Berührte Dateien
+
+| Datei | Änderung |
+|---|---|
+| `src/data/heists.js` | `cooldownH` je Ziel |
+| `src/heist.js` | Sperre je Ziel statt global |
+| `src/db.js` | Spalte `cooldown_until`, Startbonus-Merker |
+| `src/music.js` | `CREATOR_SPILL` raus, `reachBonus` angeschlossen, eigene Vermarktungskurve, `SHOW_PAY`, `SOCIAL_SPILL`, Wachstum |
+| `src/creator.js` | `MERCH_FACTOR`, Wachstum, Untergrenze auf die Gesamtreichweite, Startbonus |
+| `src/achievements.js` | vier Schwellen neu |
+| `test/geldquellen.test.js` | neu — die Messung als Test |
+| `test/heist.test.js`, `test/music.test.js`, `test/creator.test.js` | Anpassungen |
+| `docs/.../2026-09-08-achievements-design.md` | Zahl 875.000 korrigieren |
+| `ARCHITEKTUR.md` | Abschnitt zur Rangfolge der Geldquellen |
+| `src/data/patchnotes.js` | Eintrag |
+
+## Tests
+
+1. **Die Rangfolge stimmt:** Musik+Creator > nur Creator > Heists, gemessen
+   über simulierte Karrieren mit festem Würfel.
+2. **Die Zusammensetzung stimmt:** Konzerte, Tantiemen und Merch liegen je in
+   ihrem Zielkorridor; kein einzelner Posten trägt mehr als die Hälfte.
+3. **Die Heist-Kurve ist aufsteigend:** EV pro Tag steigt über alle sieben
+   Ziele monoton.
+4. **Einbahnstraße:** Ein Konto mit großen Kanälen und null Hörern bekommt
+   **keinen** Hörer-Vorteil. Ein Release bringt weiterhin Follower.
+5. **Untergrenze statt Summe:** Ein Konto mit Followern **über** der
+   Untergrenze bekommt durch Hörer keinen zusätzlichen Vorteil.
+6. **Startbonus einmalig:** Kanal löschen und neu anlegen bringt kein zweites
+   Mal Follower.
+7. **Sperren-Migration:** Eine Bestandszeile ohne `cooldown_until` verliert
+   ihre laufende Sperre nicht.
+8. **§3:** Kein Kreislauf — hunderte Karrieren, in denen geprüft wird, dass
+   sich Musik und Kanäle nicht gegenseitig hochschaukeln.
+9. **Wachstumstempo:** Die erste Million wird im Zielkorridor erreicht
+   (Creator ~9 Monate, Musik ~15 Monate).
+
+Alle Tests ohne Netz (§12), fester Würfel.
+
+## Reihenfolge der Umsetzung
+
+Die Teile hängen zusammen — die Messung muss zuletzt stimmen, nicht nach jedem
+Schritt. **Schritt 1 ist unabhängig vom Rest** und könnte auch allein
+ausgeliefert werden, falls der Wirtschaftsteil länger dauert:
+
+1. Heist-Sperren (unabhängig, kann zuerst und allein grün werden)
+2. Messskript mit verbesserter Creator-Strategie (misst den Ist-Zustand)
+3. Einbahnstraße Creator ↔ Musik
+4. Musik-Einnahmen neu zusammensetzen, gegen die Messung kalibriert
+5. Wachstum asymmetrisch beschleunigen, gegen die Messung kalibriert
+6. Erfolgs-Schwellen aus den neuen Messwerten ableiten
+7. Doku und Patchnotes
