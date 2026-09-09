@@ -105,7 +105,17 @@ durch das Update niemand eine laufende Sperre verliert.
 |---|---|---|
 | Kanäle → Hörer (`CREATOR_SPILL`) | aktiv, 0,08 | **entfernt** |
 | Hörer → Kanal-Publikum (`reachBonus`) | toter Code | **angeschlossen, als Untergrenze** |
-| Releases → echte Follower (`SOCIAL_SPILL`) | aktiv, 0,05 | **0,06** (×1,2) |
+| Releases → echte Follower (`SOCIAL_SPILL`) | aktiv, 0,05 | siehe unten |
+
+**Die Kanäle eines erfolgreichen Musikers wachsen 1,2-mal schneller als die
+eines reinen Creators — zusätzlich zur allgemeinen Beschleunigung aus
+Abschnitt 4.** Die beiden Faktoren multiplizieren sich also: Verdreifacht sich
+das Grundtempo, liegt der Musiker bei 3 × 1,2 = 3,6-fachem Kanalwachstum
+gegenüber heute, der reine Creator bei 3-fachem.
+
+Gemessen wird das am **Follower-Zuwachs pro Tag** im Vergleich zweier Konten
+mit gleichem Zeiteinsatz, nicht am Endstand — der Endstand hängt auch daran,
+wie viel Zeit ins Studio statt in die Kanäle geht.
 
 **Ein großer Creator startet als Musiker bei null.** `reachOf` rechnet nur noch
 mit echten Hörern; der Parameter `cross` und die Übergabe von `creatorReach`
@@ -198,13 +208,45 @@ Vorgehen: Stellschrauben drehen, messen, wiederholen, bis die Zielwerte stehen.
 Danach bleibt der Test liegen und schlägt an, wenn eine spätere Änderung die
 Zusammensetzung wieder kippt.
 
-**Die Messung ist nur so gut wie die simulierte Spielweise.** Der reine Creator
-verdient in der bisherigen Fassung über drei Jahre 1.232 auf Twitch und 533 auf
-YouTube — das liegt an der Strategie des Skripts (stur das zeitteuerste
-Format), nicht am Spiel. Vor dem Drehen der Stellschrauben muss die
-Creator-Strategie deshalb verbessert werden: je Zeitscheibe das Format mit dem
-besten Ertrag je Zeit, und Twitter regelmäßig für die Community, an der Merch
-hängt. Sonst wird gegen ein zu schwaches Vergleichsbild kalibriert.
+### Zwei Mängel der bisherigen Messung, die vor der Kalibrierung weg müssen
+
+**1 · Die simulierte Spielweise ist zu schwach.** Die Aktionszählung über drei
+Jahre ergab:
+
+```
+instagram/reel 1095 · twitter/ankuendigung 1095 · youtube/tutorial 86 · twitch/chatting 12
+```
+
+YouTube lief 86-mal, Twitch 12-mal — Instagram und Twitter fraßen das gesamte
+Zeitbudget, weil das Skript stur das erste Format nimmt, das durchgeht. Daher
+die auffällig niedrigen Werte (533 auf YouTube, 1.232 auf Twitch über drei
+Jahre). Das ist ein Fehler des Skripts, nicht des Spiels.
+
+Die Strategie muss vor der Kalibrierung: je Zeitscheibe das Format mit dem
+besten **Ertrag je Zeiteinheit** wählen statt das erste passende, und Twitter
+gezielt für die Community fahren, an der Merch hängt.
+
+**2 · Ohne festen Würfel ist die Streuung größer als der Effekt.** Zwei Läufe
+mit praktisch identischem Code:
+
+| | Lauf A | Lauf B |
+|---|---|---|
+| Hörer nach 3 Jahren | 50.280 | 907 |
+| Einnahmen/Tag | 6.749 | 1.391 |
+| Faktor gegen reinen Creator | 6,36× | 1,07× |
+
+Musikwachstum verstärkt sich selbst: Frühe gute Würfe wachsen sich aus, frühe
+schlechte nie. Ein einzelner Lauf sagt deshalb nichts.
+
+**Die Messung braucht:** festen Würfel (`mulberry32` wie in den übrigen Tests),
+mindestens **50 Läufe je Archetyp**, und die Auswertung über den **Median**,
+nicht den Mittelwert — bei einer Verteilung mit schwerem Ende zieht ein
+einzelner Ausreißer den Mittelwert beliebig weit. Zusätzlich das 25-%- und
+75-%-Quantil ausgeben, damit sichtbar ist, wie breit die Streuung ist.
+
+Erst wenn diese beiden Punkte stehen, wird eine einzige Stellschraube bewegt.
+**Alle bisher in dieser Spec genannten Ist-Zahlen sind damit vorläufig** und
+werden durch die erste saubere Messung ersetzt.
 
 ## §3 — kein Gelddrucker
 
@@ -270,7 +312,11 @@ Schritt. **Schritt 1 ist unabhängig vom Rest** und könnte auch allein
 ausgeliefert werden, falls der Wirtschaftsteil länger dauert:
 
 1. Heist-Sperren (unabhängig, kann zuerst und allein grün werden)
-2. Messskript mit verbesserter Creator-Strategie (misst den Ist-Zustand)
+2. **Messskript, das etwas taugt**: bessere Creator-Strategie, fester Würfel,
+   50 Läufe je Archetyp, Auswertung über Median und Quantile. Ergebnis ist der
+   belastbare Ist-Zustand — er ersetzt alle vorläufigen Zahlen dieser Spec.
+   **Dieser Schritt endet mit einer Vorlage der Messwerte, bevor irgendeine
+   Stellschraube bewegt wird.**
 3. Einbahnstraße Creator ↔ Musik
 4. Musik-Einnahmen neu zusammensetzen, gegen die Messung kalibriert
 5. Wachstum asymmetrisch beschleunigen, gegen die Messung kalibriert
