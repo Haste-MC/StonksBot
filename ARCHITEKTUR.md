@@ -329,7 +329,11 @@ Eintrag in `RULES` – sonst nichts. Drei Andockpunkte:
   Aktivität durchläuft: auch der Buchungspfad (`unb.countActivity`) landet
   dort, aber ebenso Überfall, Vermieten und Casino, die bewusst ohne `kind`
   buchen. Dort werden **nur** Regeln dieses `kind` geprüft; teure Werte
-  (Vermögen, Depot) werden auf diesem Pfad nie berechnet.
+  (Vermögen, Depot) werden ab dem **zweiten** Ereignis eines Kontos nie
+  berechnet. Beim allerersten Ereignis läuft davor einmalig der stille
+  Bestands-Nachtrag (`backfill`, siehe unten) – der rechnet dabei einmalig
+  das Vermögen, damit er den Fortschritt vor diesem Ereignis richtig
+  einordnet.
 - `state` – läuft beim Aufbau von Profil und Startseite. Im Profil liegt das
   Vermögen ohnehin vor und wird übergeben; auf der Startseite holt `stateCtx`
   es bei Bedarf selbst über die API – aber nur, wenn `state()` vorher billig

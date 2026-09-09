@@ -708,6 +708,25 @@ const A = 'fx:anton', B = 'fx:berta';
     db.achievementsOf(W, BESTAND).some((r) => r.ach_id === 'job_250'),
     JSON.stringify(db.achievementsOf(W, BESTAND)));
 
+  console.log('--- Block C1: der state()-Kurzschluss greift jetzt auch mit serverweiten Gegenstücken ---');
+  const WSHORT = `${W}_SHORT`;
+  const HALTER = 'fx:halter', VOLL2 = 'fx:vollstaendig2';
+  // Die serverweiten Gegenstücke gehören einem ANDEREN Konto.
+  for (const regel of ach.RULES.filter((r) => r.on === 'state' && r.scope === 'server')) {
+    db.claimFirst(WSHORT, regel.id, HALTER, Date.now());
+    db.awardAchievement(WSHORT, HALTER, regel.id, Date.now());
+  }
+  // VOLL2 selbst hat alle PRIVATEN state-Erfolge.
+  for (const regel of ach.RULES.filter((r) => r.on === 'state' && r.scope === 'privat')) {
+    db.awardAchievement(WSHORT, VOLL2, regel.id, Date.now());
+  }
+  let worthAufrufeShort = 0;
+  networth.of = async (...a) => { worthAufrufeShort++; return echtesOf(...a); };
+  await ach.state(WSHORT, VOLL2, null);
+  check('kein Networth-Aufruf, wenn die serverweiten Gegenstücke einem anderen Konto gehören',
+    worthAufrufeShort === 0, String(worthAufrufeShort));
+  networth.of = echtesOf;
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

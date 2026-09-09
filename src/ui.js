@@ -2107,9 +2107,13 @@ async function buildHomeView({ guildId, userId }) {
   // Diese Ansicht rechnet kein eigenes Vermögen aus: `state()` prüft zuerst
   // billig, ob überhaupt noch ein state-Erfolg offen ist, und holt das
   // Vermögen über die API nur, wenn das wirklich nötig ist.
-  const erfolge = require('./achievements');
-  await erfolge.backfill(guildId, userId).catch(() => {});
-  erfolge.state(guildId, userId, null).catch(() => {});
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf die Heimat-Ansicht nicht kippen */ }
+  if (erfolge) {
+    await erfolge.backfill(guildId, userId).catch(() => {});
+    erfolge.state(guildId, userId, null).catch(() => {});
+  }
 
   const embed = new EmbedBuilder()
     .setTitle('🌍 Heimat & Sprache')
@@ -3103,10 +3107,15 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
    * serverweite Vergaben selbst, solange `backfillWorld` nicht fertig ist
    * (siehe achievements.check()).
    */
-  const erfolge = require('./achievements');
-  erfolge.backfillWorld(guildId).catch(() => {});
-  await erfolge.backfill(guildId, owner).catch(() => {});
-  erfolge.state(guildId, owner, worth).catch(() => {});
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf das Profil nicht kippen */ }
+
+  if (erfolge) {
+    erfolge.backfillWorld(guildId).catch(() => {});
+    await erfolge.backfill(guildId, owner).catch(() => {});
+    erfolge.state(guildId, owner, worth).catch(() => {});
+  }
 
   const stats = db.getStats(guildId, owner);
   const prog = level.progress(stats.xp);
@@ -3139,10 +3148,13 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   // `worth` liegt hier schon vor (siehe oben) – ohne es würde `listFor`
   // intern `stateCtx` ohne Vermögen bauen und selbst noch einmal über die
   // API nachfragen, ein zweiter Roundtrip für denselben Renderpfad.
-  const erfolgListe = await erfolge.listFor(guildId, owner, worth)
-    .catch(() => ({ geholt: [], gesamt: 0 }));
+  let erfolgListe = { geholt: [], gesamt: 0 };
   let abzeichenListe = [];
-  try { abzeichenListe = erfolge.badgesFor(guildId, owner, 3); } catch { /* Abzeichen sind kein Pflichtfeld */ }
+  if (erfolge) {
+    erfolgListe = await erfolge.listFor(guildId, owner, worth)
+      .catch(() => ({ geholt: [], gesamt: 0 }));
+    try { abzeichenListe = erfolge.badgesFor(guildId, owner, 3); } catch { /* Abzeichen sind kein Pflichtfeld */ }
+  }
   const abzeichen = abzeichenListe.map((r) => r.emoji).join(' ');
 
   const embed = new EmbedBuilder()
@@ -3300,7 +3312,9 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
  */
 async function buildTitleView({ guildId, userId }) {
   const activity = require('./activity');
-  const erfolge = require('./achievements');
+  let erfolge = null;
+  try { erfolge = require('./achievements'); }
+  catch { /* ein Ladefehler bei den Erfolgen darf die Titel-Ansicht nicht kippen */ }
   const list = activity.unlocked(guildId, userId);
   const current = activity.titleOf(guildId, userId);
   const wish = String(db.getStats(guildId, userId).title ?? '');
@@ -3317,13 +3331,16 @@ async function buildTitleView({ guildId, userId }) {
    * Millionär".
    */
   const seltenheit = (t) => {
-    const regel = erfolge.byId(t.id.slice(4));
+    const regel = erfolge?.byId(t.id.slice(4));
     if (regel?.scope === 'server') return 2;
     if (regel?.tier === 'platin') return 1;
     return 0;
   };
-  const ausErfolgen = erfolge.titlesFor(guildId, userId)
-    .sort((a, b) => seltenheit(b) - seltenheit(a));
+  let ausErfolgen = [];
+  if (erfolge) {
+    try { ausErfolgen = erfolge.titlesFor(guildId, userId).sort((a, b) => seltenheit(b) - seltenheit(a)); }
+    catch { /* Erfolgstitel sind kein Pflichtfeld für die Titel-Ansicht */ }
+  }
 
   /*
    * Discord erlaubt höchstens 5 Aktionsreihen je Nachricht; eine davon ist

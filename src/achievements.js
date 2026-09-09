@@ -412,7 +412,14 @@ async function onActivity(guildId, userId, kind, now = Date.now()) {
  */
 async function state(guildId, userId, worth = null, now = Date.now()) {
   const schon = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
-  const offenGibtEs = RULES.some((r) => r.on === 'state' && !schon.has(r.id));
+  // Serverweite Regeln, die laut Ehrentafel schon jemandem gehören, zählen
+  // auch für JEDEN ANDEREN als "nicht mehr offen": Von 25 state-Regeln sind
+  // 6 serverweit – die kann global nur einer halten. Ohne diesen Abgleich
+  // stünden sie für alle übrigen Konten für immer als "offen" da, und der
+  // Kurzschluss unten griffe bei keinem realen Konto.
+  const vergebenServerweit = new Set(db.allFirsts(guildId).map((r) => r.ach_id));
+  const offenGibtEs = RULES.some((r) => r.on === 'state' && !schon.has(r.id)
+    && !(r.scope === 'server' && vergebenServerweit.has(r.id)));
   if (!offenGibtEs) return [];
 
   const ctx = await stateCtx(guildId, userId, worth);
