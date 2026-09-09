@@ -2,6 +2,30 @@
 
 Stand: 2026-09-09 · Zweig `main`
 
+## Beschlossene Anpassungen
+
+Der Stand der Absprachen, damit er nicht in einem Gesprächsverlauf verloren
+geht. **Diese Punkte sind entschieden.** Alle Zahlenwerte, die sie brauchen,
+kommen aus der Messung — nicht aus Schätzungen.
+
+| # | Beschluss |
+|---|---|
+| 1 | Heists bekommen eine **Sperre je Ziel** statt einer globalen. Staffelung 12/12/12/18/18/40/72 h. Der Einstieg (erste drei Ziele) bleibt bei 12 h. |
+| 2 | **Knast läuft weiter parallel** zur Sperre, nicht obendrauf. Folge beim Goldtransport: Ein Fehlschlag kostet nur die Geldstrafe. Bewusst so. |
+| 3 | Die Heist-Kurve muss **aufsteigend** bleiben: Ein höheres Ziel wirft pro Tag mehr ab als ein niedrigeres. |
+| 4 | `CREATOR_SPILL` wird **entfernt**. Ein großer Creator startet als Musiker bei null. |
+| 5 | `reachBonus` wird **angeschlossen**, aber als **Untergrenze** auf die Gesamtreichweite (`max(Follower, Hörer × 0,18)`), nicht als Summand. |
+| 6 | **Startbonus**: Beim ersten Anlegen eines Kanals werden Follower in Höhe dieser Untergrenze einmalig echt gutgeschrieben — einmal je Konto **und Plattform**, gegen Löschen-und-neu-Anlegen gesichert. |
+| 7 | `SOCIAL_SPILL` bleibt bestehen. Ein Musiker mit großem Publikum hat große Socials — das ist gewollt und realistisch. |
+| 8 | Die Kanäle eines erfolgreichen Musikers wachsen **1,2-mal schneller** als die eines reinen Creators — **zusätzlich** zur allgemeinen Beschleunigung. Die Faktoren multiplizieren sich. |
+| 9 | **Konzerte werden gedämpft** auf rund 4 Mio über die gemessene Karriere (heute 5,33 Mio). |
+| 10 | **Tantiemen werden hart angehoben** — eigene Vermarktungskurve in Hörern statt der Creator-Kurve in Followern. Ziel ~3 Mio über die Karriere. |
+| 11 | **Merch wird hart angehoben** — Ziel ~3 Mio. Hilft auch dem reinen Creator, bei dem Merch heute 86 % der Einnahmen ausmacht. |
+| 12 | **Wachstum verdreifacht**, aber asymmetrisch: Creator leichter (~9 Monate bis 1 Mio Follower), Musik schwerer (~15 Monate). |
+| 13 | Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |
+| 14 | **Rangfolge als Ganzes:** Musik+Creator > nur Creator > Heists. „Nur Creator" bleibt eine tragfähige Spielweise. |
+| 15 | **Erst messen, dann ändern.** Keine Stellschraube wird bewegt, bevor belastbare Messwerte vorliegen. |
+
 ## Ziel
 
 Die Einnahmequellen sollen eine klare, gewollte Rangfolge haben:
