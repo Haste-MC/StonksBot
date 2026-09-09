@@ -189,6 +189,34 @@ const A = 'fx:anton', B = 'fx:berta';
   check('kein Networth auf dem Buchungspfad', worthAufrufe === 0, String(worthAufrufe));
   networth.of = echtesOf;
 
+  console.log('--- B1: listFor bekommt das Vermögen übergeben statt es zu holen ---');
+  // `listFor` baut intern `stateCtx` – ohne übergebenes Vermögen holt das
+  // `networth.of` per HTTP nach. Das Profil hat das Vermögen aber schon
+  // zehn Zeilen darüber berechnet; ein zweiter Roundtrip im Renderpfad wäre
+  // reine Verschwendung.
+  const BILANZ = 'fx:bilanzprobe';
+  let worthAufrufeListFor = 0;
+  networth.of = async (...a) => { worthAufrufeListFor++; return echtesOf(...a); };
+  await ach.listFor(W, BILANZ, { total: 123_456 });
+  check('kein Networth-Aufruf, wenn das Vermögen schon übergeben wird',
+    worthAufrufeListFor === 0, String(worthAufrufeListFor));
+  networth.of = echtesOf;
+
+  console.log('--- B2: state() rechnet das Vermögen nur, wenn noch etwas offen ist ---');
+  // Ein Konto mit JEDEM state-Erfolg soll für einen Menü-Aufruf keinen
+  // Netzwerk-Roundtrip fürs Vermögen mehr bezahlen – `state()` prüft das
+  // billig über `achievementsOf`, bevor es `stateCtx` überhaupt baut.
+  const VOLL = 'fx:vollstaendig';
+  for (const regel of ach.RULES.filter((r) => r.on === 'state')) {
+    db.awardAchievement(W, VOLL, regel.id, Date.now());
+  }
+  let worthAufrufeState = 0;
+  networth.of = async (...a) => { worthAufrufeState++; return echtesOf(...a); };
+  await ach.state(W, VOLL, null);
+  check('kein Networth-Aufruf mehr, wenn schon alle state-Erfolge geholt sind',
+    worthAufrufeState === 0, String(worthAufrufeState));
+  networth.of = echtesOf;
+
   console.log('--- Meldungen: leise unten, laut oben ---');
   const relay = require('../src/relay');
   const durchsagen = [];

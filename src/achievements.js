@@ -389,8 +389,20 @@ async function onActivity(guildId, userId, kind, now = Date.now()) {
   return frisch;
 }
 
-/** Andockpunkt 2: Profil und Startseite. `worth` spart die Guthabenabfrage. */
+/**
+ * Andockpunkt 2: Profil und Startseite. `worth` spart die Guthabenabfrage.
+ *
+ * Wer schon jeden `state`-Erfolg hat, soll dafür bei jeder Menü-Ansicht
+ * trotzdem nicht mehr zahlen: `achievementsOf` ist eine billige Abfrage,
+ * `stateCtx` dagegen holt ohne übergebenes `worth` das Vermögen über die
+ * API. Ohne übrige Kandidaten gibt es nichts mehr zu prüfen, also erst gar
+ * nicht bauen.
+ */
 async function state(guildId, userId, worth = null, now = Date.now()) {
+  const schon = new Set(db.achievementsOf(guildId, userId).map((r) => r.ach_id));
+  const offenGibtEs = RULES.some((r) => r.on === 'state' && !schon.has(r.id));
+  if (!offenGibtEs) return [];
+
   const ctx = await stateCtx(guildId, userId, worth);
   const frisch = check(guildId, userId, 'state', ctx, now);
   await report(guildId, userId, frisch);
@@ -591,10 +603,13 @@ async function backfillWorld(guildId, konten = null, now = Date.now()) {
  * und einem Ziel: „37 / 250 Schichten" sagt einem, dass man dran ist –
  * „Arbeitstier: gesperrt" sagt gar nichts.
  */
-async function listFor(guildId, userId) {
+async function listFor(guildId, userId, worth = null) {
   const privat = RULES.filter((r) => r.scope === 'privat');
   const haben = new Map(db.achievementsOf(guildId, userId).map((r) => [r.ach_id, r.at]));
-  const ctx = await stateCtx(guildId, userId);
+  // `worth` durchreichen wie `state()` es tut: Das Profil hat das Vermögen
+  // meist schon berechnet, ein zweiter Guthaben-Roundtrip im Renderpfad wäre
+  // reine Verschwendung.
+  const ctx = await stateCtx(guildId, userId, worth);
 
   const geholt = [];
   const offen = [];

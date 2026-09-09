@@ -2104,8 +2104,9 @@ async function buildHomeView({ guildId, userId }) {
   const market = home.marketOf(guildId, userId);
   const stats = db.getStats(guildId, userId);
 
-  // Diese Ansicht rechnet kein eigenes Vermögen aus – `stateCtx` holt es sich
-  // seinerseits selbst, wenn eine Regel danach fragt.
+  // Diese Ansicht rechnet kein eigenes Vermögen aus: `state()` prüft zuerst
+  // billig, ob überhaupt noch ein state-Erfolg offen ist, und holt das
+  // Vermögen über die API nur, wenn das wirklich nötig ist.
   const erfolge = require('./achievements');
   await erfolge.backfill(guildId, userId).catch(() => {});
   erfolge.state(guildId, userId, null).catch(() => {});
@@ -3129,7 +3130,11 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
    * davor (`14/37`) bleibt rein privat, wie die Spec es verlangt; nur die
    * Emojis dahinter kommen jetzt aus `badgesFor`, das beide Sorten kennt.
    */
-  const erfolgListe = await erfolge.listFor(guildId, owner).catch(() => ({ geholt: [], gesamt: 0 }));
+  // `worth` liegt hier schon vor (siehe oben) – ohne es würde `listFor`
+  // intern `stateCtx` ohne Vermögen bauen und selbst noch einmal über die
+  // API nachfragen, ein zweiter Roundtrip für denselben Renderpfad.
+  const erfolgListe = await erfolge.listFor(guildId, owner, worth)
+    .catch(() => ({ geholt: [], gesamt: 0 }));
   let abzeichenListe = [];
   try { abzeichenListe = erfolge.badgesFor(guildId, owner, 3); } catch { /* Abzeichen sind kein Pflichtfeld */ }
   const abzeichen = abzeichenListe.map((r) => r.emoji).join(' ');

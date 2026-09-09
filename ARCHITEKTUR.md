@@ -325,11 +325,15 @@ auf `DEV_GUILD_ID` sofort aktiv, global bis zu 1 h.
 `src/achievements.js` hält ein deklaratives Regelwerk. Ein neuer Erfolg ist ein
 Eintrag in `RULES` – sonst nichts. Drei Andockpunkte:
 
-- `kind:<id>` – läuft in `unb.countActivity`, also an jeder Geldbuchung mit
-  `kind`. Dort werden **nur** Regeln dieses `kind` geprüft; teure Werte
+- `kind:<id>` – läuft in `activity.record`, dem einzigen Ort, den jede
+  Aktivität durchläuft: auch der Buchungspfad (`unb.countActivity`) landet
+  dort, aber ebenso Überfall, Vermieten und Casino, die bewusst ohne `kind`
+  buchen. Dort werden **nur** Regeln dieses `kind` geprüft; teure Werte
   (Vermögen, Depot) werden auf diesem Pfad nie berechnet.
-- `state` – läuft beim Aufbau von Profil und Startseite, wo das Vermögen
-  ohnehin vorliegt und übergeben wird.
+- `state` – läuft beim Aufbau von Profil und Startseite. Im Profil liegt das
+  Vermögen ohnehin vor und wird übergeben; auf der Startseite holt `stateCtx`
+  es bei Bedarf selbst über die API – aber nur, wenn `state()` vorher billig
+  feststellt, dass überhaupt noch ein state-Erfolg offen ist.
 - `fire:<name>` – die Hintertür für Ereignisse ohne Geldbuchung
   (`achievements.fire(...)` in heist.js, home.js, casinoPlay.js, storage.js).
 
@@ -347,4 +351,10 @@ Kontos wird alles bereits Erfüllte still vergeben, ohne Postfach und ohne
 Durchsage. Ohne das käme am Tag der Einführung für jeden langjährigen Spieler
 eine Meldungswelle. Erfolge, für die es keine Daten aus der Vergangenheit gibt
 (ein perfekter Coup wird nirgends festgehalten), tragen `backfill: false` und
-starten leer.
+starten leer. `onActivity` und `fire` tragen zusätzlich selbst nach (über
+den vorhandenen Marker abgesichert, damit der Normalfall synchron bleibt,
+§7) – ein Bestandskonto, das nie eine Ansicht öffnet, sondern gleich
+arbeitet oder ins Casino geht, bekommt sonst genau dort seine Meldungswelle.
+`backfillWorld` läuft einmalig aus dem Profil, VOR dem Einzel-Nachtrag,
+damit ein serverweiter Erfolg beim Nachtrag an den stärksten Kandidaten
+geht statt an den zufällig ersten Betrachter.
