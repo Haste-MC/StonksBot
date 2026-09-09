@@ -3090,10 +3090,14 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   /*
    * Erfolge, die am Zustand hängen (Vermögen, Level, Fuhrpark), werden hier
    * geprüft: Das Vermögen liegt gerade vor, also kostet es keine zusätzliche
-   * Abfrage. Erst der Nachtrag (still), dann die laufende Prüfung – sonst
-   * käme für einen Bestandsspieler beim ersten Blick eine Welle Meldungen.
+   * Abfrage. Reihenfolge: erst der Welt-Nachtrag, dann der eigene, dann die
+   * laufende Prüfung. Die Welt zuerst, weil sonst der erste Betrachter sich
+   * ein serverweites Abzeichen schnappt, bevor die Kandidaten überhaupt
+   * verglichen wurden – danach kommt der stille Einzel-Nachtrag, sonst käme
+   * für einen Bestandsspieler beim ersten Blick eine Welle Meldungen.
    */
   const erfolge = require('./achievements');
+  await erfolge.backfillWorld(guildId).catch(() => {});
   await erfolge.backfill(guildId, owner).catch(() => {});
   erfolge.state(guildId, owner, worth).catch(() => {});
 

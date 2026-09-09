@@ -62,6 +62,17 @@ function record(guildId, userId, id, at = Date.now()) {
   // nach der ersten Aktion nicht mehr leer und der Nachtrag käme nie.
   backfill(guildId, userId, at);
   db.bumpActivity(guildId, userId, String(id), at);
+
+  // Der Andockpunkt für Erfolge sitzt HIER und nicht an der Geldbuchung
+  // (unb.changeCash): Überfall, Vermieten und Casino zählen bewusst OHNE
+  // `kind` (robbery.js, tenants.js, casinoPlay.js) – über den Buchungspfad
+  // liefe für sie also nie ein Erfolg mit. `record` ist dagegen der einzige
+  // Ort, den jede Aktivität durchläuft, auch die Buchung selbst
+  // (unb.countActivity ruft es auf). Fire-and-forget und in try/catch: ein
+  // Erfolg darf niemals eine Strichliste zum Kippen bringen.
+  try { require('./achievements').onActivity(guildId, userId, id, at).catch(() => {}); }
+  catch { /* dito */ }
+
   return true;
 }
 

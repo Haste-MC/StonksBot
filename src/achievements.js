@@ -371,8 +371,19 @@ function check(guildId, userId, hook, ctx, now = Date.now()) {
   return frisch;
 }
 
-/** Andockpunkt 1: eine Geldbuchung mit `kind` (siehe unb.countActivity). */
+/**
+ * Andockpunkt 1: eine Aktivität mit `kind` (siehe activity.record).
+ *
+ * `backfill` läuft sonst nur aus den Ansichten (ui.js) – ein Bestandsspieler,
+ * der nach dem Update zuerst arbeitet statt ins Menü zu schauen, bekäme sonst
+ * beim allerersten Ereignis die volle Meldungswelle, die der stille Nachtrag
+ * gerade verhindern soll. Der Marker-Check ist absichtlich VOR dem `await`:
+ * Ist ein Konto schon nachgetragen (der Normalfall), bleibt diese Funktion
+ * bis zum `check()` synchron (§7) – nur ein wirklich frisches Konto zahlt den
+ * einen zusätzlichen Umlauf.
+ */
 async function onActivity(guildId, userId, kind, now = Date.now()) {
+  if (!db.getClaim(guildId, userId, 'ach_backfill')) await backfill(guildId, userId, now);
   const frisch = check(guildId, userId, `kind:${kind}`, baseCtx(guildId, userId), now);
   await report(guildId, userId, frisch);
   return frisch;
@@ -386,8 +397,15 @@ async function state(guildId, userId, worth = null, now = Date.now()) {
   return frisch;
 }
 
-/** Andockpunkt 3: die Hintertür für Ereignisse ohne Geldbuchung. */
+/**
+ * Andockpunkt 3: die Hintertür für Ereignisse ohne Geldbuchung.
+ *
+ * Derselbe Sicherheitsnetz-Nachtrag wie in `onActivity` (siehe dort): auch
+ * ein Ereignis wie `move` oder `loot` kann das erste Lebenszeichen eines
+ * Bestandskontos sein, das noch nie eine Ansicht geöffnet hat.
+ */
 async function fire(guildId, userId, name, daten = {}, now = Date.now()) {
+  if (!db.getClaim(guildId, userId, 'ach_backfill')) await backfill(guildId, userId, now);
   const frisch = check(
     guildId, userId, `fire:${name}`, baseCtx(guildId, userId, daten), now);
   await report(guildId, userId, frisch);

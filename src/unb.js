@@ -85,20 +85,19 @@ async function changeCash(guildId, accountId, amount, reason, opts = {}) {
 
 /**
  * Führt Strichliste darüber, was jemand tut – daraus entsteht der Titel im
- * Profil (siehe activity.js) und, seit den Erfolgen, auch das Abzeichen.
- * Gezählt wird nur, was ein `kind` mitbringt; Storno- und Rückerstattungs-
- * buchungen (`{ xp: false }`) zählen nie mit, sonst stünde für eine
- * abgebrochene Aktion ein Strich in der Liste.
+ * Profil (siehe activity.js). Gezählt wird nur, was ein `kind` mitbringt;
+ * Storno- und Rückerstattungsbuchungen (`{ xp: false }`) zählen nie mit,
+ * sonst stünde für eine abgebrochene Aktion ein Strich in der Liste.
+ *
+ * Erfolge hängen NICHT hier: Drei Aktivitäten (Überfall, Vermieten, Casino)
+ * buchen bewusst ohne `kind` und würden über diesen Pfad nie einen Erfolg
+ * auslösen. Der Andockpunkt sitzt deshalb in `activity.record` selbst – dem
+ * einzigen Ort, den auch sie durchlaufen (siehe activity.js).
  */
 function countActivity(guildId, accountId, opts = {}) {
   if (!opts.kind || opts.xp === false) return;
   try { require('./activity').record(guildId, accountId, opts.kind); }
   catch { /* ein Strich in der Liste darf keine Buchung scheitern lassen */ }
-
-  // Erfolge hängen an derselben Stelle – hier ist bekannt, WAS jemand getan
-  // hat. Bewusst ohne await: Ein Glückwunsch darf eine Schicht nicht bremsen.
-  try { require('./achievements').onActivity(guildId, accountId, opts.kind).catch(() => {}); }
-  catch { /* dito */ }
 }
 
 /**

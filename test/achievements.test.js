@@ -91,6 +91,12 @@ const A = 'fx:anton', B = 'fx:berta';
   unb.changeCash = async () => { geldAufrufe++; return { cash: 0, bank: 0, total: 0 }; };
   unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
 
+  // Der stille Nachtrag (A3-Fix) läuft sonst automatisch VOR dieser Prüfung
+  // an und würde fish_1/fish_100 schon selbst vergeben – dieser Test will
+  // aber gezielt den `kind`-Andockpunkt in `check()` sehen, nicht das
+  // Zusammenspiel mit einem taufrischen, nie nachgetragenen Konto (das
+  // deckt die eigene A3-Prüfung weiter unten ab).
+  await ach.backfill(W, C);
   db.setActivity(W, C, 'fishing', 100, 1000);
   const ersteRunde = await ach.onActivity(W, C, 'fishing');
   const idsRunde = ersteRunde.map((r) => r.id).sort();
@@ -101,6 +107,12 @@ const A = 'fx:anton', B = 'fx:berta';
   check('§3: kein einziger Geldaufruf', geldAufrufe === 0, String(geldAufrufe));
 
   console.log('--- §7: die Zeile steht vor dem ersten await ---');
+  // D hat den stillen Nachtrag (A3-Fix) schon hinter sich – genau wie ein
+  // Konto, das vorher einmal die Ansicht geöffnet hat. Nur dann bleibt
+  // `onActivity` bis zum `check()` synchron; auf einem wirklich frischen
+  // Konto müsste `onActivity` selbst erst den Nachtrag abwarten (siehe die
+  // A3-Prüfung weiter unten, die genau diesen Fall abdeckt).
+  await ach.backfill(W, D);
   db.setActivity(W, D, 'fishing', 1, 1000);
   const laeuft = ach.onActivity(W, D, 'fishing');
   check('schon vor dem Auflösen in der Datenbank',
@@ -109,6 +121,10 @@ const A = 'fx:anton', B = 'fx:berta';
 
   console.log('--- Serverweit: genau einer, der andere geht leer aus ---');
   const E = 'fx:emil', F = 'fx:frida';
+  // Beide vorab nachtragen (bei 0 Schichten – noch nichts zu holen), damit
+  // dieser Test wie vor dem A3-Fix den `kind`-Andockpunkt selbst prüft.
+  await ach.backfill(W, E);
+  await ach.backfill(W, F);
   db.setActivity(W, E, 'job', 250, 1000);
   db.setActivity(W, F, 'job', 250, 1000);
   const erster = await ach.onActivity(W, E, 'job');
@@ -119,6 +135,40 @@ const A = 'fx:anton', B = 'fx:berta';
     zweiter.some((r) => r.id === 'job_250'), zweiter.map((r) => r.id).join(','));
   check('und er hat auch keine stille Kopie',
     !db.achievementsOf(W, F).some((r) => r.ach_id === 'srv_worker'));
+
+  console.log('--- A1: Aktivitäten ohne `kind` an der Buchung lösen ihren Erfolg trotzdem aus ---');
+  // rent_1, rob_10 und casino_1 hängen an Aktivitäten, die BEWUSST ohne
+  // `kind` buchen (robbery.js, tenants.js, casinoPlay.js) und darum nie über
+  // unb.countActivity liefen. Der Andockpunkt sitzt jetzt in
+  // `activity.record` selbst – dort laufen alle drei ebenso durch wie der
+  // Buchungspfad.
+  // `activity.record` ruft den Erfolgs-Andockpunkt fire-and-forget auf
+  // (genau wie in der Produktion, siehe robbery.js & Co.) – ohne den
+  // Vorab-Nachtrag müsste `onActivity` selbst noch den stillen Nachtrag
+  // abwarten (A3-Fix), und die Prüfung direkt im Anschluss ohne jedes
+  // `await` wäre reine Glückssache. Bei 0 Vorkommen gibt es dabei nichts
+  // nachzutragen, nur die Markierung wird gesetzt.
+  const RAEUBER = 'fx:raeuber';
+  await ach.backfill(W, RAEUBER);
+  db.setActivity(W, RAEUBER, 'rob', 9, Date.now());
+  activity.record(W, RAEUBER, 'rob');
+  check('der zehnte Überfall löst rob_10 aus',
+    db.achievementsOf(W, RAEUBER).some((r) => r.ach_id === 'rob_10'),
+    JSON.stringify(db.achievementsOf(W, RAEUBER)));
+
+  const VERMIETER = 'fx:vermieter';
+  await ach.backfill(W, VERMIETER);
+  activity.record(W, VERMIETER, 'landlord');
+  check('die erste Mieteinnahme löst rent_1 aus',
+    db.achievementsOf(W, VERMIETER).some((r) => r.ach_id === 'rent_1'),
+    JSON.stringify(db.achievementsOf(W, VERMIETER)));
+
+  const ZOCKER = 'fx:zocker';
+  await ach.backfill(W, ZOCKER);
+  activity.record(W, ZOCKER, 'casino');
+  check('die erste Casino-Runde löst casino_1 aus',
+    db.achievementsOf(W, ZOCKER).some((r) => r.ach_id === 'casino_1'),
+    JSON.stringify(db.achievementsOf(W, ZOCKER)));
 
   console.log('--- fire: Ereignisse ohne Geldbuchung ---');
   const G = 'fx:gustav';
@@ -146,6 +196,10 @@ const A = 'fx:anton', B = 'fx:berta';
   require('../src/currency').getSymbol = async () => '🪙';
 
   const H = 'fx:heinz';
+  // Vorab nachtragen (bei 0 Fängen – noch nichts zu holen), damit die
+  // erste Bronze-Meldung gleich unten wirklich aus `check()` kommt und
+  // nicht schon vom automatischen Nachtrag lautlos vorweggenommen wird.
+  await ach.backfill(W, H);
   db.setActivity(W, H, 'fishing', 1, 1000);
   await ach.onActivity(W, H, 'fishing');
   check('Bronze geht NICHT in den Kanal', durchsagen.length === 0,
@@ -176,6 +230,12 @@ const A = 'fx:anton', B = 'fx:berta';
   console.log('--- Eine kaputte Meldung kippt die Vergabe nicht ---');
   relay.broadcast = async () => { throw new Error('kein Kanal'); };
   const J = 'fx:jonas';
+  // Vorab nachtragen (bei 0 Fängen), sonst würde der automatische Nachtrag
+  // fish_1/100/500 schon lautlos selbst vergeben, bevor `check()` überhaupt
+  // drankommt – der Witz dieses Tests ist aber gerade `check()` plus ein
+  // kaputtes `relay.broadcast`, nicht der Nachtrag (der ruft `report()` nie
+  // auf und bräuchte diesen Test also gar nicht).
+  await ach.backfill(W, J);
   db.setActivity(W, J, 'fishing', 500, 3000);
   const trotzdem = await ach.onActivity(W, J, 'fishing');
   check('die Erfolge sind trotzdem vergeben', trotzdem.length >= 3, String(trotzdem.length));
@@ -245,6 +305,27 @@ const A = 'fx:anton', B = 'fx:berta';
     db.achievementsOf(W, K).some((r) => r.ach_id === 'fish_500'));
   check('ein zweiter Nachtrag tut nichts mehr', (await ach.backfill(W, K)) === 0);
 
+  console.log('--- A3: der stille Nachtrag greift auch über den Buchungspfad ---');
+  // Bisher lief `backfill()` nur aus den Ansichten (ui.js). Ein
+  // Bestandsspieler, der nach dem Update zuerst arbeitet statt ins Menü zu
+  // schauen, bekäme sonst beim allerersten Ereignis die volle Meldungswelle
+  // statt gar keine. `onActivity` trägt jetzt selbst lautlos nach, BEVOR es
+  // seinen eigenen Andockpunkt prüft.
+  durchsagen.length = 0;
+  const OHNE_ANSICHT = 'fx:unsichtbar';
+  db.setActivity(W, OHNE_ANSICHT, 'fishing', 600, 1000);
+  const postfachVorherA3 = db.listMessages(W, OHNE_ANSICHT).total;
+  await ach.onActivity(W, OHNE_ANSICHT, 'fishing');
+  check('keine Durchsage beim allerersten Ereignis ohne vorherigen Ansichtsbesuch',
+    durchsagen.length === 0, JSON.stringify(durchsagen));
+  check('kein Postfach-Eintrag',
+    db.listMessages(W, OHNE_ANSICHT).total === postfachVorherA3,
+    `${postfachVorherA3} -> ${db.listMessages(W, OHNE_ANSICHT).total}`);
+  check('die Erfolge sind trotzdem vergeben',
+    ['fish_1', 'fish_100', 'fish_500'].every((id) =>
+      db.achievementsOf(W, OHNE_ANSICHT).some((r) => r.ach_id === id)),
+    JSON.stringify(db.achievementsOf(W, OHNE_ANSICHT)));
+
   console.log('--- Serverweiter Nachtrag geht an den Stärksten ---');
   // Zwei Konten erfüllen "Der erste Malocher". Der mit den meisten Schichten
   // soll ihn bekommen – nicht der, der zufällig zuerst geprüft wird.
@@ -267,6 +348,23 @@ const A = 'fx:anton', B = 'fx:berta';
   check('ohne Daten kein Nachtrag: der perfekte Coup bleibt frei',
     !db.allFirsts(W2).some((r) => r.ach_id === 'srv_heist'));
 
+  console.log('--- A2: der Welt-Nachtrag läuft aus dem Profil, nicht zufällig aus der ersten Ansicht ---');
+  // Ohne den Aufruf in buildProfileView ginge ein serverweiter Erfolg an den,
+  // der zufällig zuerst hinschaut – nicht an den stärksten Kandidaten. Beide
+  // Konten bekommen ein Fundstück, das für `srv_godlike` reicht (Rang
+  // "godlike oder besser"); der Fund mit dem höheren Rang muss gewinnen. Die
+  // Fundstücke landen in `storage_loot`, darüber findet `networth.owners()`
+  // (also `db.assetOwners()`) beide Konten von selbst – kein expliziter
+  // Konten-Parameter wie in den Tests oben nötig.
+  const WA2 = `${W}_A2`;
+  const SCHWACH = 'fx:schwach', STARK = 'fx:stark';
+  db.addLoot(WA2, SCHWACH, 'Fund', 1000, 'godlike', 'normal', null);
+  db.addLoot(WA2, STARK, 'Fund', 1000, 'cosmic', 'normal', null);
+  await require('../src/ui').buildProfileView({ guildId: WA2, userId: SCHWACH });
+  const inhaberA2 = db.allFirsts(WA2).find((r) => r.ach_id === 'srv_godlike');
+  check('nach dem Profilaufruf für das schwächere Konto hält das stärkere den serverweiten Erfolg',
+    inhaberA2?.user_id === STARK, JSON.stringify(inhaberA2));
+
   console.log('--- Der Umzug wirkt auch im laufenden Betrieb ---');
   const N = 'fx:norbert';
   // Ohne Umzug in der Akte passiert nichts – auch wenn das Ereignis kommt.
@@ -288,6 +386,11 @@ const A = 'fx:anton', B = 'fx:berta';
   unb.changeCash = echtesChangeCash;
 
   const L = 'fx:lena';
+  // Der stille Nachtrag (A3-Fix) ist schon gelaufen – wie bei D im §7-Test
+  // oben geht es hier um den `kind`-Andockpunkt selbst, nicht um das
+  // Zusammenspiel mit einem allerersten, noch nie nachgetragenen Konto (das
+  // deckt die eigene A3-Prüfung weiter oben ab).
+  await ach.backfill(W, L);
   await unb.changeCash(W, L, 500, 'Schicht', { kind: 'job' });
   check('eine Buchung mit kind vergibt den Erfolg',
     db.achievementsOf(W, L).some((r) => r.ach_id === 'job_1'),
