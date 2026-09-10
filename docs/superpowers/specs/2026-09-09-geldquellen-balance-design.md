@@ -23,7 +23,7 @@ kommen aus der Messung — nicht aus Schätzungen.
 | 11 | **Merch wird hart angehoben** — Ziel: **250.000/Tag bei 2,6 Mio Followern**. Hilft vor allem dem reinen Creator, bei dem Merch 89 % der Einnahmen ausmacht. |
 | ~~16~~ | ~~Tantiemen `Hörer^0,9`, Anker 194.661.~~ **Ersetzt durch 19.** |
 | 19 | **Tantiemen: `k × Hörer^1,2`**, Anker bei **363.900 Hörern** (gemessener Ein-Jahres-Stand), wo der heutige Wert von 81.493/Tag erhalten bleibt. Der Exponent bestimmt die *Spreizung* zwischen Anfang und Endgame, der Anker nur die *Höhe* — `^0,9` hätte den Anfang angehoben und die Spitze gekappt, genau umgekehrt zum Ziel. Spreizung 10.000 → 2,6 Mio Hörer: heute 4.333×, künftig 791×. |
-| 20 | **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 1 bis 1,5 Mio Hörer.** Heute gemessen: 363.900. Das Wachstum wird entsprechend angehoben, sofern nichts Gravierendes dazwischenkommt (Ereignisse wie Shitstorms bleiben als Risiko bestehen). |
+| 20 | **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 500.000 bis 700.000 Hörer** — als Median ohne Ereignisse, die das anheben oder drücken (viraler Clip, Shitstorm). Heute gemessen: 363.900, das Wachstum steigt also um rund das 1,6-Fache. Daraus folgt bei Beschluss 19 ein Ein-Jahres-Ertrag von rund 119.000 bis 179.000/Tag, also das 1,4- bis 2,1-Fache des gebremsten Goldtransports. |
 | 17 | **YouTube-Einnahmen werden unterlinear**: Exponent **0,85**, derselbe Ankerpunkt wie bei 16. |
 | 18 | **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
 | 12 | **Wachstum verdreifacht**, aber asymmetrisch: Creator leichter (~9 Monate bis 1 Mio Follower), Musik schwerer (~15 Monate). |
