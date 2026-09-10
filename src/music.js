@@ -67,8 +67,16 @@ const CHURN_PER_DAY = 0.012;
 const MAX_IDLE_DAYS = 30;
 const IDLE_GRACE_DAYS = 2;          // Musik verzeiht länger als ein Kanal
 
-/** Wie stark Kanalreichweite in die Musik hineinzählt. */
-const CREATOR_SPILL = 0.08;
+/*
+ * KEINE Rückkopplung von den Kanälen in die Musik.
+ *
+ * Früher zählte Kanalreichweite über `CREATOR_SPILL` in den Hörer-Pool: Ein
+ * großer Streamer startete als Musiker nicht bei null. Das ist bewusst weg –
+ * die Verbindung ist eine EINBAHNSTRASSE. Musik zahlt auf die Kanäle ein
+ * (`SOCIAL_SPILL` und `reachBonus`), die Kanäle nicht auf die Musik. Sonst
+ * fütterten sich beide gegenseitig, und genau das ist die Konstruktion, vor
+ * der §3 warnt.
+ */
 
 /** Wie stark Hörer als Publikum auf den Kanälen zählen. */
 const MUSIC_TO_CREATOR = 0.18;
@@ -177,8 +185,8 @@ function keepFactor(row, market, now) {
  * eine halb so große Szene eine sechsmal kleinere Decke gewesen – Rumänien
  * wäre unspielbar geworden.
  */
-function reachOf(listeners, cross = 0, market = { scene: 1, pool: 1 }) {
-  const pool = Math.max(0, listeners) + CREATOR_SPILL * Math.max(0, cross);
+function reachOf(listeners, market = { scene: 1, pool: 1 }) {
+  const pool = Math.max(0, listeners);
   return (BASE_REACH + REACH_K * Math.pow(pool, REACH_EXP))
     * Math.pow(Math.max(0.05, market.scene), 1 - REACH_EXP);
 }
@@ -345,7 +353,7 @@ function record(guildId, userId, now = Date.now(), random = Math.random) {
  * nachrechnen lässt (test/music.test.js). Dieselbe Trennung wie beim Creator.
  */
 function simulateRelease(state, {
-  type, genre: g, persona: p, market, idol = null, creatorReach = 0,
+  type, genre: g, persona: p, market, idol = null,
   idleDays: idle = 0, random = Math.random,
 }) {
   // 1. Was die Pause gekostet hat.
@@ -357,7 +365,7 @@ function simulateRelease(state, {
   // 2. Wen die Veröffentlichung erreicht.
   const roll = 0.6 + random() * 0.9;
   const audience = Math.max(1, Math.round(
-    reachOf(startListeners, creatorReach, market) * roll * state.hype * g.reach * type.spike));
+    reachOf(startListeners, market) * roll * state.hype * g.reach * type.spike));
 
   /*
    * 3. Hörer. Zwei Beschleuniger – Agenturschub und Sprachtempo – wirken auf
@@ -409,9 +417,8 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const contract = db.activeContract(guildId, userId);
   const idol = contract ? data.IDOL : null;
 
-  const creatorReach = require('./creator').status(guildId, userId).total;
   const sim = simulateRelease(row, {
-    type, genre: g, persona: p, market, idol, creatorReach,
+    type, genre: g, persona: p, market, idol,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
   });
 
@@ -718,7 +725,7 @@ function status(guildId, userId, now = Date.now()) {
 module.exports = {
   GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS, IDOL: data.IDOL,
   BASE_REACH, REACH_K, REACH_EXP, CHURN_PER_RELEASE, CHURN_PER_DAY, MAX_IDLE_DAYS,
-  IDLE_GRACE_DAYS, CREATOR_SPILL, MUSIC_TO_CREATOR, SOCIAL_SPILL,
+  IDLE_GRACE_DAYS, MUSIC_TO_CREATOR, SOCIAL_SPILL,
   PLAYS_PER_LISTENER, ROYALTY, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
   TEMPO, CONVERSION,
   RECORD_TIME, RECORD_COOLDOWN_MIN, RELEASE_COOLDOWN_MIN,

@@ -251,6 +251,32 @@ function reachOf(p, followers, cross = 0) {
   return p.base + p.k * Math.pow(pool, p.exp);
 }
 
+/**
+ * ===========================================================================
+ *  DIE MUSIK ALS UNTERGRENZE DER REICHWEITE
+ * ===========================================================================
+ *
+ * Wer als Musiker ein Publikum hat, tritt auf den Kanälen nicht bei null an –
+ * ein Künstler mit 872.000 Hörern wirkt dort wie jemand mit 157.000 Followern.
+ *
+ * Bewusst als **Untergrenze**, nicht als Summand: Ein Hörer zählt EINMAL. Wer
+ * mit seinen Kanälen über diese Grenze hinauswächst, für den zählt der Kanal.
+ * Als Summand wäre es eine zweite Zählung derselben Leistung – und zusammen
+ * mit dem Übertrag in die Gegenrichtung ein Kreislauf, der sich selbst füttert.
+ *
+ * Die Grenze gilt auf die GESAMTreichweite, nicht je Kanal: Sonst zählte
+ * derselbe Hörer bei Twitch, YouTube, Instagram und Twitter viermal.
+ */
+function musikBoden(guildId, userId) {
+  try { return require('./music').reachBonus(guildId, userId) || 0; }
+  catch { return 0; }
+}
+
+/** Gesamtreichweite eines Kontos – mindestens das, was die Musik hergibt. */
+function reachTotalOf(guildId, userId, followerSumme) {
+  return Math.max(Math.max(0, followerSumme), musikBoden(guildId, userId));
+}
+
 /** Braucht diese Plattform Ausrüstung, und hat der Spieler sie? */
 function hasGear(guildId, userId, p) {
   if (!p.gear) return true;
@@ -507,7 +533,8 @@ async function settle(guildId, userId, now = Date.now()) {
   const days = Math.min(YT_MAX_SETTLE_DAYS, elapsed / DAY_MS);
   const released = row.stock * (1 - Math.pow(YT_TAIL_KEEP, days));
   // Auch Katalogaufrufe zahlen nach dem heutigen Vermarktungsgrad.
-  const reach = db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0);
+  const reach = reachTotalOf(guildId, userId,
+    db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0));
   const market = require('./home').marketOf(guildId, userId);
   const amount = Math.round(released * YT_RPV * monetization(reach, market.pool) * market.money);
 
@@ -537,7 +564,7 @@ async function settle(guildId, userId, now = Date.now()) {
 async function settleMerch(guildId, userId, now = Date.now()) {
   const state = db.getCreatorState(guildId, userId, now);
   const rows = db.allCreator(guildId, userId);
-  const reach = rows.reduce((sum, r) => sum + r.followers, 0);
+  const reach = reachTotalOf(guildId, userId, rows.reduce((sum, r) => sum + r.followers, 0));
 
   if (!state.merch_at) {
     db.saveCreatorState(guildId, userId, { ...state, merch_at: now });
@@ -813,8 +840,9 @@ async function act(
   }
 
   // --- Meldet sich eine Marke? ---
-  const reachTotal = [...rows.values()].reduce((sum, r) => sum + r.followers, 0)
-    + sim.followers - own.followers;
+  const reachTotal = reachTotalOf(guildId, userId,
+    [...rows.values()].reduce((sum, r) => sum + r.followers, 0)
+    + sim.followers - own.followers);
   const offer = rollDeal(guildId, userId, reachTotal, now, random);
 
   // ... und ob heute etwas passiert, das eine Entscheidung verlangt.
@@ -920,7 +948,7 @@ function status(guildId, userId, now = Date.now()) {
     };
   });
 
-  const total = platforms.reduce((s, p) => s + p.followers, 0);
+  const total = reachTotalOf(guildId, userId, platforms.reduce((s, p) => s + p.followers, 0));
   const market = require('./home').marketOf(guildId, userId);
 
   return {
@@ -1056,7 +1084,7 @@ module.exports = {
   HYPE_MIN, HYPE_MAX, BOOST_MAX, BOOST_MS, COMMUNITY_MAX, COMMUNITY_CHURN_CUT,
   IDLE_GRACE_DAYS,
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
-  platform, format, formats, reachOf, hasGear, remainingMs, budget, today, cleanTitle,
+  platform, format, formats, reachOf, reachTotalOf, musikBoden, hasGear, remainingMs, budget, today, cleanTitle,
   monetization, MON_FULL, MON_EXP, MON_MIN,
   idleDays, communityNow, churnFactor, keepFactor, activeBoost, useTime,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,

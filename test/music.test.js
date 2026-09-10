@@ -428,6 +428,75 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       creator.budget(G, U, run.end).max === creator.TIME_PER_DAY);
   }
 
+  console.log('--- Einbahnstraße: Kanäle bringen keine Hörer ---');
+  {
+    /*
+     * Die Verbindung zwischen Musik und Kanälen läuft nur in EINE Richtung.
+     * Früher zählte Kanalreichweite über `CREATOR_SPILL` in den Hörer-Pool –
+     * ein großer Streamer startete als Musiker nicht bei null. Zusammen mit
+     * dem Übertrag in die Gegenrichtung war das ein Kreislauf, der sich
+     * selbst füttert.
+     */
+    const MIT = await player('de', 'deutsch', 'pop', 'face');
+    const OHNE = await player('de', 'deutsch', 'pop', 'face');
+    // Dem einen grosse Kanaele geben, dem anderen nicht.
+    for (const p of creator.PLATFORM_IDS) {
+      const row = db.getCreator(G, MIT, p, Date.now());
+      db.saveCreator(G, MIT, p, { ...row, followers: 500_000 });
+    }
+    check('das Konto hat wirklich grosse Kanäle',
+      creator.status(G, MIT).total >= 2_000_000, de(creator.status(G, MIT).total));
+
+    const t = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+    // Beide bekommen DENSELBEN Würfel – sonst misst der Test den Zufall.
+    const wuerfel = () => {
+      let a2 = 424242;
+      return () => {
+        a2 = (a2 + 0x6d2b79f5) >>> 0;
+        let x = Math.imul(a2 ^ (a2 >>> 15), 1 | a2);
+        x = (x + Math.imul(x ^ (x >>> 7), 61 | x)) ^ x;
+        return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
+      };
+    };
+    music.record(G, MIT, t, wuerfel());
+    music.record(G, OHNE, t, wuerfel());
+    const a = music.publish(G, MIT, 'single', t + 3.6e6, wuerfel());
+    const b = music.publish(G, OHNE, 'single', t + 3.6e6, wuerfel());
+    check('beide Veröffentlichungen gingen durch', a.ok && b.ok,
+      `${a.reason ?? 'ok'} / ${b.reason ?? 'ok'}`);
+    check('gleiche Reichweite trotz riesiger Kanäle',
+      music.reachOf(0) === music.reachOf(0),
+      `${de(music.reachOf(0))}`);
+    check('die Hörerzahl hängt nicht an den Kanälen',
+      Math.abs(music.status(G, MIT, t + 4e6).listeners
+        - music.status(G, OHNE, t + 4e6).listeners) < 1,
+      `${de(music.status(G, MIT, t + 4e6).listeners)} vs `
+      + `${de(music.status(G, OHNE, t + 4e6).listeners)}`);
+  }
+
+  console.log('--- Musik hebt die Kanäle, aber als Untergrenze ---');
+  {
+    const KLEIN = await player('de', 'deutsch', 'pop', 'face');
+    const row = db.getArtist(G, KLEIN);
+    db.saveArtist(G, KLEIN, { ...row, listeners: 500_000 });
+    const boden = Math.round(500_000 * music.MUSIC_TO_CREATOR);
+    check('ohne eigene Follower zählt die Musik als Publikum',
+      creator.status(G, KLEIN).total >= boden,
+      `${de(creator.status(G, KLEIN).total)} >= ${de(boden)}`);
+
+    const GROSS = await player('de', 'deutsch', 'pop', 'face');
+    const r2 = db.getArtist(G, GROSS);
+    db.saveArtist(G, GROSS, { ...r2, listeners: 100_000 });
+    for (const p of creator.PLATFORM_IDS) {
+      const c = db.getCreator(G, GROSS, p, Date.now());
+      db.saveCreator(G, GROSS, p, { ...c, followers: 400_000 });
+    }
+    const echte = 4 * 400_000;
+    check('wer darüber hinauswächst, bekommt nichts obendrauf',
+      creator.status(G, GROSS).total <= echte,
+      `${de(creator.status(G, GROSS).total)} <= ${de(echte)}`);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
