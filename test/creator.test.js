@@ -297,12 +297,18 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
       fixedPoints.map((x) => `${x.p.emoji} ${de(x.F)}`).join(' · '));
 
     /*
-     * 2. Der Ertrag wächst im Aufstieg ABSICHTLICH schneller als die
-     *    Reichweite – erst ab einer gewissen Größe lässt sich Reichweite
-     *    überhaupt vermarkten (monetization()). Das ist kein Gelddrucker,
-     *    solange zwei Dinge gelten: Der Vermarktungsgrad ist bei 1 gedeckelt,
-     *    und OBERHALB dieses Deckels wächst das Geld wieder langsamer als die
-     *    Reichweite. Beides wird hier geprüft.
+     * 2. Der Ertrag wächst LANGSAMER als die Reichweite – über den ganzen
+     *    Bereich, nicht erst oberhalb eines Deckels.
+     *
+     *    Früher war es umgekehrt: Die Vermarktungskurve wirkte im Aufstieg
+     *    als VERSTÄRKER (bei 10.000 Followern nur 6 %, bei 1,7 Mio 100 %), und
+     *    Geld wuchs schneller als Reichweite. Das war zugleich der Grund,
+     *    warum ein Video bei 10.000 Followern nur 27 einbrachte, obwohl der
+     *    Satz 0,35 je Aufruf verspricht.
+     *
+     *    Die Bremse ist weg. Gedämpft wird jetzt allein über die
+     *    Reichweitenkurve (`reachOf`, Exponent 0,58 bei Twitch) – eine
+     *    Bremse statt zwei gegenläufiger.
      */
     const p = creator.platform('twitch');
     const f = creator.format('twitch', 'gaming');
@@ -313,10 +319,10 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     check('der Vermarktungsgrad ist bei 100 % gedeckelt',
       creator.monetization(creator.MON_FULL * 50) === 1
       && creator.monetization(Number.MAX_SAFE_INTEGER) === 1);
-    check('im Aufstieg wächst das Geld schneller als die Reichweite (so gewollt)',
-      money(1_000_000) > money(100_000) * 10,
+    check('der Ertrag wächst langsamer als die Reichweite',
+      money(1_000_000) < money(100_000) * 10,
       `${de(money(100_000))} -> ${de(money(1_000_000))}`);
-    check('oberhalb des Deckels wächst es wieder langsamer als die Reichweite',
+    check('und das gilt auch ganz oben',
       money(creator.MON_FULL * 10) < money(creator.MON_FULL) * 10,
       `${de(money(creator.MON_FULL))} -> ${de(money(creator.MON_FULL * 10))}`);
     check('dasselbe gilt für Merch oberhalb des Deckels',

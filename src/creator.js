@@ -459,7 +459,22 @@ function simulate(state, p, fmt, ctx = {}) {
   // 5. Geld – jede Plattform auf ihre Art, mal dem Vermarktungsgrad des
   //    GESAMTEN Netzwerks: Marken und Werbekunden schauen auf die Person,
   //    nicht auf den einzelnen Kanal.
-  const mon = monetization(startFollowers + cross, market.pool);
+  /*
+   * ===================== KEINE VERMARKTUNGSBREMSE MEHR =====================
+   * Früher wurde jede Einnahme mit `monetization(reichweite)` multipliziert –
+   * einer Kurve, die erst bei 1,7 Mio Followern auf 100 % kommt. Ein Kanal mit
+   * 10.000 Followern lag damit bei 6 %: Aus den 0,35 je Aufruf, die die
+   * Konstante verspricht, wurden real 0,021, und ein Video brachte 27.
+   *
+   * Die Bremse ist weg. Der Satz je Aufruf ist jetzt der, der dasteht. Die
+   * Dämpfung kommt weiterhin von der Reichweitenkurve selbst (`reachOf` mit
+   * Exponent 0,58 bei YouTube) – die ist unterlinear und damit die Grenze,
+   * die §3 verlangt. Zwei Bremsen übereinander waren eine zu viel.
+   *
+   * `result.monetization` bleibt für die Anzeige erhalten und steht auf 1.
+   * =========================================================================
+   */
+  const mon = 1;
   result.monetization = mon;
   result.market = market;
 
@@ -536,7 +551,8 @@ async function settle(guildId, userId, now = Date.now()) {
   const reach = reachTotalOf(guildId, userId,
     db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0));
   const market = require('./home').marketOf(guildId, userId);
-  const amount = Math.round(released * YT_RPV * monetization(reach, market.pool) * market.money);
+  // Auch der Katalog zahlt den vollen Satz – siehe die Begründung in `act`.
+  const amount = Math.round(released * YT_RPV * market.money);
 
   // Erst schreiben, dann buchen (§7).
   db.saveCreator(guildId, userId, 'youtube', {

@@ -31,6 +31,17 @@
  * Kein Netz: die Geldschnittstelle wird ersetzt und mitgeschrieben.
  */
 
+/*
+ * EIGENE Datenbank, bevor irgendein Modul geladen wird.
+ *
+ * Ohne das schreibt der Messlauf in `data/shop.db` – die echte Spieldatenbank.
+ * Das verfälscht nichts, macht die Datei aber gross und den Lauf dadurch
+ * quälend langsam: gemessen 11 Minuten Laufzeit für 30 Sekunden Rechnen, der
+ * Rest Warten auf die Platte.
+ */
+process.env.DATA_DIR = process.env.DATA_DIR
+  || require('node:path').join(require('node:os').tmpdir(), `messung-${process.pid}`);
+
 const db = require('../src/db');
 const creator = require('../src/creator');
 const music = require('../src/music');
@@ -204,13 +215,28 @@ async function kanaltag(G, U, strat, now, rand) {
   for (let b = 0; b < (strat.bindung ?? 0); b++) {
     for (const c of strat.bindungsreihe) {
       if (c.bindung <= 0) break;          // ohne Bindung bringt es hier nichts
+      if (creator.remainingMs(G, U, c.p, now + t * 60_000) > 0) continue;
       const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
       if (r.ok) break;
     }
   }
   for (let i = 0; i < 12; i++) {
+    /*
+     * VORHER fragen statt hinterher absagen lassen.
+     *
+     * Jede Plattform hat eine eigene Sperre (YouTube 180 Minuten). Wer nach
+     * jeder Aktion die ganze Formatliste neu durchprobiert, holt sich 51
+     * Absagen für 4 Treffer – gemessen 93 % Ausschuss und damit der Grund,
+     * warum ein Messlauf über eine Stunde brauchte. `remainingMs` und
+     * `budget` sind billige Abfragen, `act` ist es nicht.
+     */
+    const zeit = creator.budget(G, U, now).left;
+    if (zeit <= 0) return;
+
     let gemacht = false;
     for (const c of strat.reihe) {
+      if (c.time > zeit) continue;
+      if (creator.remainingMs(G, U, c.p, now + t * 60_000) > 0) continue;
       const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
       if (r.ok) { gemacht = true; break; }
     }

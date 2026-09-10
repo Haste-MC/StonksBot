@@ -2,13 +2,41 @@ const { DatabaseSync } = require('node:sqlite');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const dataDir = path.join(__dirname, '..', 'data');
+/*
+ * Wohin die Datenbank schreibt.
+ *
+ * Standard ist `data/` neben dem Projekt – die echte Spieldatenbank. Über
+ * `DATA_DIR` lässt sich das umlenken, und genau das brauchen Tests und
+ * Messläufe: Sie legten bisher ihre Welten in derselben Datei ab wie der
+ * laufende Bot. Bei 2.253 Welten, von denen zwei echt sind, ist die Datei auf
+ * 60 MB gewachsen – und weil SQLite jede Schreiboperation auf die Platte
+ * zwingt, wurde ein Messlauf dadurch von Sekunden auf Minuten gebremst
+ * (gemessen: 11 Minuten Laufzeit, davon 30 Sekunden Rechnen).
+ */
+const dataDir = process.env.DATA_DIR
+  ? path.resolve(process.env.DATA_DIR)
+  : path.join(__dirname, '..', 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new DatabaseSync(path.join(dataDir, 'shop.db'));
 
 // WAL macht gleichzeitige Lese-/Schreibzugriffe robuster.
 db.exec('PRAGMA journal_mode = WAL');
+
+/*
+ * Wie oft auf die Platte gewartet wird.
+ *
+ * `FULL` (der Standard) erzwingt bei JEDEM Schreibvorgang ein fsync. Im
+ * Zusammenspiel mit WAL ist `NORMAL` der übliche und sichere Kompromiss: Ein
+ * Absturz des Prozesses kostet nichts, nur ein Stromausfall im falschen
+ * Moment könnte die letzte Transaktion kosten.
+ *
+ * Für Wegwerf-Datenbanken (Tests, Messläufe – erkennbar an `DATA_DIR`) fällt
+ * die Wartezeit ganz weg. Der Unterschied ist nicht kosmetisch: Ein Messlauf
+ * brauchte damit 6 Sekunden statt 11 Minuten, bei 30 Sekunden Rechenzeit –
+ * der Rest war reines Warten auf die Platte.
+ */
+db.exec(`PRAGMA synchronous = ${process.env.DATA_DIR ? 'OFF' : 'NORMAL'}`);
 db.exec('PRAGMA foreign_keys = ON');
 
 db.exec(`

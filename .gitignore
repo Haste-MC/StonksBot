@@ -11,3 +11,4 @@ node_modules/
 # NICHT src/data/ (Kataloge)! Führender Slash = Anker an die Repo-Wurzel.
 /data/
 .superpowers/
+.testdata/
