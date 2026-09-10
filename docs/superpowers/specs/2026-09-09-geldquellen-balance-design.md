@@ -26,7 +26,7 @@ kommen aus der Messung — nicht aus Schätzungen.
 | 20 | **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 500.000 bis 700.000 Hörer** — als Median ohne Ereignisse, die das anheben oder drücken (viraler Clip, Shitstorm). Heute gemessen: 363.900, das Wachstum steigt also um rund das 1,6-Fache. Daraus folgt bei Beschluss 19 ein Ein-Jahres-Ertrag von rund 119.000 bis 179.000/Tag, also das 1,4- bis 2,1-Fache des gebremsten Goldtransports. |
 | 17 | **YouTube-Einnahmen werden unterlinear**: Exponent **0,85**, derselbe Ankerpunkt wie bei 16. |
 | 18 | **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
-| 12 | **Wachstum verdreifacht**, aber asymmetrisch: Creator leichter (~9 Monate bis 1 Mio Follower), Musik schwerer (~15 Monate). |
+| 12 | **Wachstum beschleunigt, asymmetrisch.** Für die **Musik** gilt Beschluss 20 (500.000–700.000 Hörer nach einem Jahr, Faktor ~1,5). Für den **Creator** bleibt es bei **1 Mio Follower in ~9 Monaten** — gemessen sind heute 458.743 nach einem Jahr, nötig ist also etwa Faktor 1,8. |
 | 13 | Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |
 | 14 | **Rangfolge als Ganzes:** Musik+Creator > nur Creator > Heists. „Nur Creator" bleibt eine tragfähige Spielweise. |
 | 15 | **Erst messen, dann ändern.** Keine Stellschraube wird bewegt, bevor belastbare Messwerte vorliegen. |
