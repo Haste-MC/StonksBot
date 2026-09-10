@@ -242,7 +242,9 @@ function musiktag(G, U, now, rand, konzertZuerst = false) {
 
 // ------------------------------------------------------------ Ein Lauf
 
-async function karriere(G, U, { musik, strat }, tage, seed) {
+async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
+  const erreicht = {};
+  const tagesgeld = [];
   const rand = rng(seed);
   ausruesten(G, U);
   await home.setHome(G, U, 'de');
@@ -275,6 +277,27 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
     await creator.settle(G, U, now + 20e6);
     await creator.settleMerch(G, U, now + 20e6);
     await creator.settleDeals(G, U, now + 20e6);
+
+    /*
+     * Meilensteine festhalten: Wann wird welche Hörerzahl erreicht, und was
+     * verdient der Spieler an diesem Tag? Der Tagesertrag wird aus den
+     * letzten 30 Tagen gemittelt – ein einzelner Tag schwankt zu stark
+     * (Konzerte kommen nur alle drei Tage).
+     */
+    if (marken) {
+      tagesgeld.push(konto[U] ?? 0);
+      const hoerer = musik ? (music.status(G, U, now + 21e6).listeners ?? 0) : 0;
+      for (const m of marken) {
+        if (erreicht[m] || hoerer < m) continue;
+        const j = Math.max(0, tagesgeld.length - 31);
+        erreicht[m] = {
+          tag: d + 1,
+          hoerer: Math.round(hoerer),
+          follower: db.allCreator(G, U).reduce((x, r) => x + r.followers, 0),
+          proTag: ((konto[U] ?? 0) - tagesgeld[j]) / Math.max(1, tagesgeld.length - 1 - j),
+        };
+      }
+    }
     now += DAY;
   }
 
@@ -291,6 +314,7 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
     quellen: quellen[U] ?? {},
     follower: db.allCreator(G, U).reduce((s, r) => s + r.followers, 0),
     hoerer: musik ? Math.round(music.status(G, U, now).listeners ?? 0) : 0,
+    erreicht,
   };
 }
 
@@ -384,7 +408,43 @@ function heists() {
 
 // ------------------------------------------------------------ Ausgabe
 
+/**
+ * Verlaufsmodus: Eine lange Musikkarriere, aufgezeichnet an Meilensteinen.
+ *
+ * Beantwortet: Wie lange bis zu einer bestimmten Hörerzahl, wie viele
+ * Follower hat der Künstler dann, und was verdient er an diesem Punkt?
+ */
+async function verlauf(laeufe, tage) {
+  const MARKEN = [100_000, 250_000, 500_000, 1_000_000, 2_000_000, 2_600_000];
+  const strat = strategien(true).find((x) => x.name === 'Reichweite zuerst +3B +K')
+    ?? strategien(true)[0];
+  console.log(`\n=== Verlauf einer Musikkarriere: ${laeufe} Läufe à ${tage} Tage ===`);
+  console.log(`    Spielweise: "${strat.name}"\n`);
+
+  const proMarke = {};
+  for (let i = 0; i < laeufe; i++) {
+    const kennung = `verlauf_${i}`;
+    const r = await karriere(welt(kennung), `fx:${kennung}`, { musik: true, strat }, tage, 2000 + i, MARKEN);
+    for (const [m, v] of Object.entries(r.erreicht)) (proMarke[m] ??= []).push(v);
+    console.log(`    Lauf ${i + 1}: ${de(r.hoerer)} Hörer, ${de(r.follower)} Follower nach ${tage} Tagen`);
+  }
+
+  console.log(`\n  Hörer      erreicht nach   Follower dort   Ertrag/Tag dort`);
+  for (const m of MARKEN) {
+    const l = proMarke[m] ?? [];
+    if (!l.length) { console.log(`  ${de(m).padStart(9)}   nicht erreicht`); continue; }
+    const tag = median(l.map((v) => v.tag));
+    console.log(`  ${de(m).padStart(9)}   ${(Math.round(tag) + ' Tagen').padStart(13)}   ` +
+      `${de(median(l.map((v) => v.follower))).padStart(13)}   ${de(median(l.map((v) => v.proTag))).padStart(15)}`);
+  }
+  console.log();
+}
+
 (async () => {
+  if (process.argv[2] === 'verlauf') {
+    await verlauf(Number(process.argv[3] || 3), Number(process.argv[4] || 1500));
+    return;
+  }
   const LAEUFE = Number(process.argv[2] || 30);
   const TAGE = Number(process.argv[3] || 730);
 
