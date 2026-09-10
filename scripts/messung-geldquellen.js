@@ -88,7 +88,21 @@ function welt(n) {
   return `MESS_${process.pid}_${n}`;
 }
 
-/** Legt die Ausrüstung an, die Kanäle und Studio verlangen. */
+/**
+ * Sorgt dafür, dass die Ausrüstung DA IST – auch nach einem Defekt.
+ *
+ * Zwei Dinge, an denen ein Lauf gescheitert ist:
+ *
+ *  - Ausrüstung geht im Spiel kaputt (`BREAK_CHANCE` in creator.js). Wer nicht
+ *    nachkauft, wird stillschweigend handlungsunfähig und verdient ab da
+ *    nichts mehr – ohne dass irgendetwas nach einem Fehler aussieht. Die Tests
+ *    des Projekts kaufen aus demselben Grund nach (`refill`).
+ *  - Der Gegenstand darf je Welt nur EINMAL angelegt werden (eindeutiger
+ *    Index über Welt und Name). Deshalb wird die Kennung gemerkt und beim
+ *    Nachkaufen wiederverwendet.
+ */
+const gegenstaende = new Map();       // "welt|name" -> item.id
+
 function ausruesten(G, U) {
   const namen = new Set([music.GEAR]);
   for (const p of creator.PLATFORMS) {
@@ -97,10 +111,15 @@ function ausruesten(G, U) {
   }
   for (const name of namen) {
     if (db.ownsNamed(G, U, name)) continue;
-    const item = db.createItem({
-      guildId: G, name, price: 1, kind: 'gear', stock: null, createdBy: 'mess',
-    });
-    db.reservePurchase(G, U, item.id, 1);
+    const key = `${G}|${name}`;
+    let id = gegenstaende.get(key);
+    if (id === undefined) {
+      id = db.createItem({
+        guildId: G, name, price: 1, kind: 'gear', stock: null, createdBy: 'mess',
+      }).id;
+      gegenstaende.set(key, id);
+    }
+    db.reservePurchase(G, U, id, 1);
   }
 }
 
@@ -241,6 +260,7 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
    */
   let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
   for (let d = 0; d < tage; d++) {
+    ausruesten(G, U);                 // Defekte von gestern ersetzen
     if (musik) {
       // Erst abrechnen, dann handeln: So liegt ein voller Tag zwischen zwei
       // Abrechnungen (`MIN_SETTLE_MS` verlangt mindestens eine Stunde).
@@ -284,9 +304,16 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
  * interessieren.
  */
 async function archetyp(name, musik, laeufe, tage) {
+  /*
+   * Die Suchphase laeuft mit wenigen Laeufen UND verkuerzter Karriere: Welche
+   * Strategie vorn liegt, steht deutlich frueher fest als die Endzahlen. Die
+   * volle Laenge kostet in der Suche ein Vielfaches, ohne die Rangfolge zu
+   * aendern.
+   */
   const suchLaeufe = Math.max(2, Math.min(3, laeufe));
-  const gefunden = await durchlauf(name, musik, suchLaeufe, tage, strategien(musik), true);
-  console.log(`    -> beste Strategie: "${gefunden.strategie}", jetzt ${laeufe} Läufe`);
+  const suchTage = Math.min(tage, 180);
+  const gefunden = await durchlauf(name, musik, suchLaeufe, suchTage, strategien(musik), true);
+  console.log(`    -> beste Strategie: "${gefunden.strategie}" (aus ${suchTage} Tagen), jetzt ${laeufe} Läufe à ${tage} Tage`);
   const nur = strategien(musik).filter((s) => s.name === gefunden.strategie);
   return durchlauf(name, musik, laeufe, tage, nur, false);
 }
