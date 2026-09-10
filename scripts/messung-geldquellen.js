@@ -120,6 +120,8 @@ function alleKombis() {
       out.push({
         p: p.id, f: f.id, time: p.time ?? 1,
         money: f.money ?? 0, follow: f.follow ?? 1, reach: f.reach ?? 1,
+        // Bindung baut Community auf, an der Merch haengt (siehe creator.js).
+        bindung: (p.community ?? 0) * (f.community ?? 1),
       });
     }
   }
@@ -130,20 +132,45 @@ function alleKombis() {
  * Die Strategien, gegen die jeder Archetyp antritt. Gewertet wird die beste –
  * gemessen werden soll das Spiel, nicht die Fantasie des Skripts.
  */
-function strategien() {
+function strategien(musik = false) {
   const k = alleKombis();
   const nachGeld = [...k].sort((a, b) => (b.money / b.time) - (a.money / a.time));
   const nachReichweite = [...k].sort((a, b) => (b.reach / b.time) - (a.reach / a.time));
   const nachFollowern = [...k].sort((a, b) => (b.follow / b.time) - (a.follow / a.time));
-  const twitter = k.filter((c) => c.p === 'twitter');
 
-  return [
-    { name: 'Ertrag je Zeit', reihe: nachGeld, community: false },
-    { name: 'Ertrag + Community', reihe: nachGeld, community: true },
-    { name: 'Reichweite zuerst', reihe: nachReichweite, community: true },
-    { name: 'Follower zuerst', reihe: nachFollowern, community: true },
-    { name: 'Reichweite, dann Ertrag', reihe: [...nachReichweite.slice(0, 3), ...nachGeld], community: true },
-  ].map((s) => ({ ...s, twitter }));
+  /*
+   * Bindungsaufbau nach ERTRAG je Zeiteinheit, nicht nach Reihenfolge im
+   * Datensatz. `twitter/community` bringt 2,42 je Zeiteinheit,
+   * `twitter/ankuendigung` nur 0,66 – ein Probelauf nahm blind den zweiten
+   * und blieb damit bei einem Gleichgewicht von 8 statt 30 von 100. Merch
+   * hängt direkt daran, und Merch ist der größte Posten des reinen Creators.
+   */
+  const nachBindung = [...k].sort((a, b) => (b.bindung / b.time) - (a.bindung / a.time));
+
+  const basis = [
+    { name: 'Ertrag je Zeit', reihe: nachGeld },
+    { name: 'Reichweite zuerst', reihe: nachReichweite },
+    { name: 'Follower zuerst', reihe: nachFollowern },
+    { name: 'Reichweite, dann Ertrag', reihe: [...nachReichweite.slice(0, 3), ...nachGeld] },
+  ];
+
+  // Wie viel Zeit am Tag in die Bindung geht: gar nichts, wenig, viel.
+  const out = [];
+  for (const b of basis) {
+    for (const bindung of [0, 1, 3]) {
+      // Die Konzert-Entscheidung gibt es nur fuer die Musikseite; fuer den
+      // reinen Creator wuerde sie den Suchraum nur verdoppeln.
+      for (const konzert of (musik ? [false, true] : [false])) {
+        out.push({
+          ...b,
+          name: `${b.name} +${bindung}B${konzert ? ' +K' : ''}`,
+          bindung, konzert,
+          bindungsreihe: nachBindung,
+        });
+      }
+    }
+  }
+  return out;
 }
 
 /**
@@ -155,8 +182,9 @@ function strategien() {
  */
 async function kanaltag(G, U, strat, now, rand) {
   let t = 0;
-  if (strat.community && strat.twitter.length) {
-    for (const c of strat.twitter) {
+  for (let b = 0; b < (strat.bindung ?? 0); b++) {
+    for (const c of strat.bindungsreihe) {
+      if (c.bindung <= 0) break;          // ohne Bindung bringt es hier nichts
       const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
       if (r.ok) break;
     }
@@ -171,8 +199,20 @@ async function kanaltag(G, U, strat, now, rand) {
   }
 }
 
-/** Ein Musiktag nach dem Muster aus test/music.test.js: Songs sammeln, dann veröffentlichen. */
-function musiktag(G, U, now, rand) {
+/**
+ * Ein Musiktag: Songs sammeln, dann veröffentlichen.
+ *
+ * `konzertZuerst` ist die Entscheidung, die ein früherer Lauf nie getroffen
+ * hat: Studio (3) + Release (2) + Konzert (4) sind 9 von 8 Zeiteinheiten. Wer
+ * immer ins Studio geht, spielt NIE ein Konzert – obwohl eines bei 194.661
+ * Hörern 54.245 zahlt gegen 27.610 Tantiemen am Tag. An Konzerttagen bleibt
+ * das Studio deshalb zu.
+ */
+function musiktag(G, U, now, rand, konzertZuerst = false) {
+  if (konzertZuerst) {
+    const vor = music.status(G, U, now);
+    if (vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS) return vor;
+  }
   music.record(G, U, now, rand);
   const s = music.status(G, U, now + 1e6);
   if (s.songs >= 1 && s.releaseMs <= 0) {
@@ -206,7 +246,7 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
       // Abrechnungen (`MIN_SETTLE_MS` verlangt mindestens eine Stunde).
       await music.settle(G, U, now);
       music.settleContracts(G, U, now + 1e5);
-      const s = musiktag(G, U, now + 2e5, rand);
+      const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
       if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
         await music.show(G, U, now + 4e6, rand);
       }
@@ -235,9 +275,25 @@ async function karriere(G, U, { musik, strat }, tage, seed) {
 }
 
 /** Ein Archetyp über viele Läufe und alle Strategien; zurück kommt die beste. */
+/**
+ * Ein Archetyp in zwei Phasen.
+ *
+ * Erst wird die beste Strategie mit WENIGEN Läufen gesucht, dann wird nur
+ * diese mit ALLEN Läufen gemessen. Alle Strategien voll durchzurechnen wäre
+ * ein Vielfaches der Laufzeit, ohne dass die Verlierer irgendjemanden
+ * interessieren.
+ */
 async function archetyp(name, musik, laeufe, tage) {
+  const suchLaeufe = Math.max(2, Math.min(3, laeufe));
+  const gefunden = await durchlauf(name, musik, suchLaeufe, tage, strategien(musik), true);
+  console.log(`    -> beste Strategie: "${gefunden.strategie}", jetzt ${laeufe} Läufe`);
+  const nur = strategien(musik).filter((s) => s.name === gefunden.strategie);
+  return durchlauf(name, musik, laeufe, tage, nur, false);
+}
+
+async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
   let beste = null;
-  for (const strat of strategien()) {
+  for (const strat of liste) {
     const geld = [];
     const follower = [];
     const hoerer = [];
@@ -263,9 +319,11 @@ async function archetyp(name, musik, laeufe, tage) {
         Object.entries(summe).map(([k, v]) => [k, v / laeufe]).sort((a, b) => b[1] - a[1])),
     };
     if (!beste || erg.median > beste.median) beste = erg;
-    console.log(`    ${strat.name.padEnd(24)} Median ${de(erg.median).padStart(12)}` +
-      `   ${de(erg.follower).padStart(9)} Follower` +
-      (musik ? `   ${de(erg.hoerer).padStart(8)} Hörer` : ''));
+    if (!kurz || laeufe <= 3) {
+      console.log(`    ${strat.name.padEnd(30)} Median ${de(erg.median).padStart(12)}` +
+        `   ${de(erg.follower).padStart(9)} Follower` +
+        (musik ? `   ${de(erg.hoerer).padStart(8)} Hörer` : ''));
+    }
   }
   return beste;
 }
