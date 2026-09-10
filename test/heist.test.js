@@ -464,6 +464,59 @@ async function playThrough(leader, at, random = Math.random, choose = null) {
     }
   }
 
+  console.log('--- Sperre je Ziel ---');
+  {
+    const data = require('../src/data/heists');
+    const orte = data.LOCATIONS ?? data.HEISTS;
+    const H = (id) => orte.find((o) => o.id === id);
+    check('der Spätkauf sperrt 12 Stunden', heist.cooldownOf(H('kiosk')) === 12 * HOUR);
+    check('das Kasino 40', heist.cooldownOf(H('casino')) === 40 * HOUR);
+    check('der Goldtransport 72', heist.cooldownOf(H('goldtransport')) === 72 * HOUR);
+    check('ein Ziel ohne eigene Angabe fällt auf 12 zurück', heist.cooldownOf({}) === 12 * HOUR);
+  }
+
+  console.log('--- Der Ertrag steigt über die Ziele hinweg ---');
+  {
+    /*
+     * Ein höheres Ziel muss pro Tag MEHR abwerfen als ein niedrigeres, sonst
+     * lohnt der Aufstieg nicht mehr. Beim Entwurf der Staffelung war genau das
+     * einmal gebrochen: 18/24/48/72 hätte die Filialbank unter das Kunstdepot
+     * gedrückt. Die Regel steht deshalb hier, nicht nur im Kopf.
+     */
+    const data = require('../src/data/heists');
+    const gear = data.GEAR_TIERS ?? data.TIERS ?? [];
+    const top = gear[gear.length - 1] ?? { risk: 0 };
+    const preps = data.PREPS ?? [];
+    let vorher = 0;
+    let bricht = null;
+    for (const loc of (data.LOCATIONS ?? data.HEISTS)) {
+      const done = (loc.preps ?? []).map((id) => preps.find((p) => p.id === id)).filter(Boolean);
+      const chance = heist.oddsOf({ loc, done, tier: top, crewSize: loc.minCrew, heat: 0 }).chance;
+      const brutto = ((loc.loot[0] + loc.loot[1]) / 2)
+        * (1 + done.reduce((sum, p) => sum + (p.loot ?? 0), 0));
+      const anteil = brutto / (heist.LEADER_SHARE + loc.minCrew - 1);
+      const ev = chance * anteil - (1 - chance) * loc.fine;
+      const sperre = loc.cooldownH ?? 12;
+      const warten = chance * sperre + (1 - chance) * Math.max(sperre, loc.jailHours);
+      const proTag = ev / (warten / 24);
+      if (proTag < vorher) bricht = `${loc.id}: ${Math.round(proTag)} < ${Math.round(vorher)}`;
+      vorher = proTag;
+    }
+    check('EV pro Tag steigt monoton über alle sieben Ziele', bricht === null, bricht ?? '');
+  }
+
+  console.log('--- Bestandszeilen verlieren ihre Sperre nicht ---');
+  {
+    const B = player();
+    const jetzt = Date.now();
+    const akte = db.getCriminal(G, B, jetzt);
+    // Wie vor dem Update: last_heist_at gesetzt, cooldown_until noch 0.
+    db.saveCriminal(G, B, { ...akte, last_heist_at: jetzt, cooldown_until: 0 });
+    const rest = heist.recordOf(G, B, jetzt + HOUR).cooldownMs;
+    check('ohne cooldown_until gilt die alte 12-Stunden-Rechnung',
+      rest > 10.5 * HOUR && rest <= 11 * HOUR, `${(rest / HOUR).toFixed(1)} h`);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

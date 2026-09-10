@@ -391,7 +391,7 @@ function heists() {
   const top = gear[gear.length - 1] ?? { risk: 0 };
   const preps = heistData.PREPS ?? [];
   const orte = heistData.LOCATIONS ?? heistData.HEISTS ?? [];
-  const sperreH = 12;   // heute global
+  // Sperre je Ziel (data/heists.js). Frueher eine Zahl fuer alle sieben.
 
   return orte.map((loc) => {
     const done = (loc.preps ?? []).map((id) => preps.find((p) => p.id === id)).filter(Boolean);
@@ -401,8 +401,9 @@ function heists() {
     const brutto = ((loc.loot[0] + loc.loot[1]) / 2) * lootF;
     const anteil = brutto / (1.15 + (crew - 1));
     const ev = chance * anteil - (1 - chance) * loc.fine;
+    const sperreH = loc.cooldownH ?? 12;
     const wartenH = chance * sperreH + (1 - chance) * Math.max(sperreH, loc.jailHours);
-    return { id: loc.id, chance, anteil, ev, proTag: ev / (wartenH / 24) };
+    return { id: loc.id, chance, anteil, ev, sperreH, proTag: ev / (wartenH / 24) };
   });
 }
 
@@ -475,6 +476,7 @@ async function verlauf(laeufe, tage) {
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);
   for (const h of heists()) {
     console.log(`  ${h.id.padEnd(14)} ${(h.chance * 100).toFixed(0).padStart(3)} %   ` +
+      `Sperre ${String(h.sperreH).padStart(2)} h   ` +
       `Anteil ${de(h.anteil).padStart(9)}   EV/Versuch ${de(h.ev).padStart(9)}   ` +
       `EV/Tag ${de(h.proTag).padStart(9)}`);
   }

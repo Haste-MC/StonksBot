@@ -859,6 +859,25 @@ db.exec(`
   );
 `);
 
+/*
+ * Wann der nächste Coup frühestens möglich ist.
+ *
+ * Früher hing die Sperre an EINER Zahl für alle sieben Ziele – auf drei Tage
+ * gesetzt hätte sie auch den Spätkauf mit 3.000 Beute drei Tage gesperrt und
+ * damit den Einstieg abgewürgt. Jetzt bringt jedes Ziel seine eigene Sperre
+ * mit (`cooldownH` in data/heists.js). Weil die Fahndungsakte nicht weiß,
+ * WELCHES Ding zuletzt lief, steht hier direkt der Zeitpunkt.
+ *
+ * Bestandszeilen stehen auf 0; heist.js fällt für sie auf die alte Rechnung
+ * `last_heist_at + 12 h` zurück, damit durch das Update niemand eine laufende
+ * Sperre verliert.
+ */
+const criminalCols = new Set(
+  db.prepare('PRAGMA table_info(criminals)').all().map((c) => c.name));
+if (!criminalCols.has('cooldown_until')) {
+  db.exec('ALTER TABLE criminals ADD COLUMN cooldown_until INTEGER NOT NULL DEFAULT 0');
+}
+
 // ---------------------------------------------------------------- WALLET
 // Eigene Wirtschaft (Fluxer-Branch): Auf Fluxer gibt es kein UnbelievaBoat,
 // deshalb liegt das Geld hier. Struktur bewusst wie bei UnbelievaBoat –
@@ -1750,7 +1769,8 @@ const stmt = {
      ON CONFLICT (guild_id, user_id) DO NOTHING`),
   saveCriminal: db.prepare(
     `UPDATE criminals SET heat = ?, heat_at = ?, jailed_until = ?, heists = ?,
-       busted = ?, loot_total = ?, last_heist_at = ?, last_prep_at = ?
+       busted = ?, loot_total = ?, last_heist_at = ?, last_prep_at = ?,
+       cooldown_until = ?
      WHERE guild_id = ? AND user_id = ?`),
   topCriminals: db.prepare(
     `SELECT * FROM criminals WHERE guild_id = ? AND loot_total > 0
@@ -3140,7 +3160,8 @@ function getCriminal(guildId, userId, now = Date.now()) {
 function saveCriminal(guildId, userId, c) {
   stmt.saveCriminal.run(
     c.heat, c.heat_at, c.jailed_until, c.heists, c.busted, c.loot_total,
-    c.last_heist_at ?? 0, c.last_prep_at ?? 0, guildId, String(userId));
+    c.last_heist_at ?? 0, c.last_prep_at ?? 0, c.cooldown_until ?? 0,
+    guildId, String(userId));
 }
 
 /** Die erfolgreichsten Diebe der Welt. */

@@ -38,8 +38,25 @@ const changeCash = (...a) => unb.changeCash(...a);
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-/** Pause zwischen zwei Dingern (auch bei Erfolg). */
-const HEIST_COOLDOWN_MS = 12 * HOUR_MS;
+/**
+ * Pause zwischen zwei Dingern – je Ziel verschieden (`cooldownH` in
+ * data/heists.js).
+ *
+ * Vorher war es EINE Zahl für alle sieben Ziele. Damit ließ sich der
+ * Goldtransport nicht entschleunigen, ohne den Spätkauf mit 3.000 Beute
+ * gleich mitzusperren. Die Staffelung ist so gewählt, dass der Ertrag pro Tag
+ * über die Ziele hinweg **aufsteigend** bleibt – sonst lohnte der Aufstieg
+ * nicht mehr (siehe test/heist.test.js).
+ *
+ * Der Knast läuft weiter PARALLEL, nicht obendrauf: Beim Goldtransport sind
+ * beide 72 h, ein Fehlschlag kostet dort also nur die Geldstrafe. Bewusst so.
+ */
+const HEIST_COOLDOWN_MS = 12 * HOUR_MS;      // Rückfall für Ziele ohne eigene Angabe
+
+/** Die Sperre dieses Ziels in Millisekunden. */
+function cooldownOf(loc) {
+  return (loc?.cooldownH ?? 12) * HOUR_MS;
+}
 
 /** Fahndung: klingt pro Tag um diesen Anteil ab. */
 const HEAT_DECAY = 0.12;
@@ -126,7 +143,13 @@ function recordOf(guildId, userId, now = Date.now()) {
     ...row,
     heat: heatNow(row, now),
     jailedMs: jailedMs(row, now),
-    cooldownMs: Math.max(0, (row.last_heist_at ?? 0) + HEIST_COOLDOWN_MS - now),
+    /*
+     * Bestandszeilen kennen `cooldown_until` noch nicht (Standard 0). Für sie
+     * gilt die alte Rechnung, damit durch das Update niemand eine laufende
+     * Sperre verliert – und niemand eine geschenkt bekommt.
+     */
+    cooldownMs: Math.max(0, (row.cooldown_until
+      || (row.last_heist_at ?? 0) + HEIST_COOLDOWN_MS) - now),
   };
 }
 
@@ -654,6 +677,7 @@ async function resolve(guildId, heist, crew, now = Date.now(), random = Math.ran
       busted: row.busted + (success ? 0 : 1),
       loot_total: row.loot_total + Math.max(0, amount),
       last_heist_at: now,
+      cooldown_until: now + cooldownOf(loc),
     });
 
     // Ein Ding ganz ohne Fehler – das gibt es nur bei `clean`, nicht bei
@@ -696,7 +720,7 @@ async function resolve(guildId, heist, crew, now = Date.now(), random = Math.ran
 
 module.exports = {
   LOCATIONS: data.LOCATIONS, PREPS: data.PREPS, TIERS: data.TIERS,
-  HEIST_COOLDOWN_MS, HEAT_DECAY, HEAT_MAX, HEAT_RISK, HEAT_FINE,
+  HEIST_COOLDOWN_MS, cooldownOf, HEAT_DECAY, HEAT_MAX, HEAT_RISK, HEAT_FINE,
   CREW_BONUS, CREW_BONUS_MAX, MIN_CHANCE, MAX_CHANCE, MESSY_LOOT, LEADER_SHARE,
   location, prep, prepsFor, heatNow, jailedMs, recordOf, tierOf, crewTier,
   oddsOf, lootFactor, crewFactor, status, plan, join, leave, doPrep, execute,
