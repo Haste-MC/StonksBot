@@ -22,6 +22,7 @@ const home = require('../src/home');
 const unb = require('../src/unb');
 const { MUSIC_DECISIONS } = require('../src/data/musicDecisions');
 const { DECISIONS } = require('../src/data/decisions');
+const { MUSIC_EVENTS, candidates } = require('../src/data/musicEvents');
 
 let pass = 0, fail = 0;
 const check = (label, ok, extra = '') => {
@@ -382,6 +383,64 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     check('… mit Faktor 1,6 auf den Verlust', nach === erwartet, `${de(vor)} -> ${de(nach)}, erwartet ${de(erwartet)}`);
     check('danach ist nichts mehr offen', decisions.pending(G, U, now + decisions.DECIDE_MS + 2) === null);
     check('er steht in der Historie', decisions.history(G, U, 1)[0]?.status === 'expired');
+  }
+
+  console.log('\n--- Leichte Ereignisse: jedes feuert ---');
+  {
+    check('zwölf Ereignisse plus none', MUSIC_EVENTS.length === 13, String(MUSIC_EVENTS.length));
+    check('none steht vorn mit Gewicht 110',
+      MUSIC_EVENTS[0].id === 'none' && MUSIC_EVENTS[0].weight === 110);
+    const KEYS = new Set(['id', 'weight', 'on', 'risky', 'text',
+      'songs', 'breaks', 'hype', 'audience', 'pay', 'gain']);
+    const strays = MUSIC_EVENTS.flatMap((e) => Object.keys(e).filter((k) => !KEYS.has(k)).map((k) => `${e.id}.${k}`));
+    check('keine unbekannten Felder', strays.length === 0, strays.join(' '));
+    check('jedes Ereignis außer none hat Text und genau eine Aktion',
+      MUSIC_EVENTS.slice(1).every((e) => e.text && Array.isArray(e.on) && e.on.length === 1));
+
+    const pop = music.genre('pop');
+    for (const action of ['record', 'publish', 'show']) {
+      const counts = {};
+      const rand = rng(11);
+      for (let i = 0; i < 2000; i++) {
+        const e = music.rollMusicEvent(action, pop, rand);
+        counts[e.id] = (counts[e.id] ?? 0) + 1;
+      }
+      const ids = MUSIC_EVENTS.filter((e) => e.on?.includes(action)).map((e) => e.id);
+      check(`${action}: vier Ereignisse (${ids.join(', ')})`, ids.length === 4);
+      check(`${action}: jedes kommt mindestens 15-mal`,
+        ids.every((id) => (counts[id] ?? 0) >= 15),
+        ids.map((id) => `${id}=${counts[id] ?? 0}`).join(' '));
+      check(`${action}: none ist die Mehrheit`,
+        counts.none > 1000, `none=${counts.none}`);
+      check(`${action}: kein fremdes Ereignis`,
+        Object.keys(counts).every((id) => id === 'none' || ids.includes(id)),
+        Object.keys(counts).join(' '));
+    }
+  }
+
+  console.log('\n--- Das Genre-Risiko wirkt ---');
+  {
+    const risky = new Set(MUSIC_EVENTS.filter((e) => e.risky).map((e) => e.id));
+    check('sechs riskante Ereignisse', risky.size === 6, [...risky].join(' '));
+    const count = (genreId) => {
+      const g = music.genre(genreId);
+      const rand = rng(23);
+      let hits = 0;
+      for (const action of ['record', 'publish', 'show']) {
+        for (let i = 0; i < 2000; i++) if (risky.has(music.rollMusicEvent(action, g, rand).id)) hits++;
+      }
+      return hits;
+    };
+    const hiphop = count('hiphop');
+    const klassik = count('klassik');
+    // Erwartung: 1,3 / 0,5 = 2,6 auf die Gewichte; durch das feste none-Gewicht
+    // liegt das Verhältnis der Treffer etwas darunter. Spanne aus der Spec: 2–3.
+    check('Hip-Hop trifft Pannen 2- bis 3-mal so oft wie Klassik',
+      hiphop / klassik >= 2 && hiphop / klassik <= 3,
+      `${hiphop} / ${klassik} = ${(hiphop / klassik).toFixed(2)}`);
+    check('candidates() liefert die Gewichte, mit denen gewürfelt wird',
+      candidates('record', 1.3).find((c) => c.event.id === 'aufnahme').weight === 7 * 1.3
+      && candidates('record', 1.3).find((c) => c.event.id === 'flow').weight === 7);
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

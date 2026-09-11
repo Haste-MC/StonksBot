@@ -1,5 +1,6 @@
 const db = require('./db');
 const data = require('./data/music');
+const { candidates, MUSIC_EVENTS } = require('./data/musicEvents');
 // Spät gebunden, damit Tests die Geldschnittstelle ersetzen können (§8).
 const unb = require('./unb');
 
@@ -361,6 +362,24 @@ function remainingMs(row, field, minutes, now) {
 /** Besitzt der Spieler die nötige Technik? */
 function hasGear(guildId, userId) {
   return Boolean(db.ownsNamed(guildId, userId, GEAR));
+}
+
+/** Das Nicht-Ereignis – damit Aufrufer nie auf null prüfen müssen. */
+const NO_EVENT = MUSIC_EVENTS[0];
+
+/**
+ * Würfelt ein leichtes Ereignis; riskante Genres ziehen die Pannen an.
+ * Kopie von creator.rollEvent mit `genre.risk` statt `fmt.risk`.
+ */
+function rollMusicEvent(action, g, random = Math.random) {
+  const list = candidates(action, g?.risk ?? 1);
+  const total = list.reduce((s, c) => s + c.weight, 0);
+  let roll = random() * total;
+  for (const c of list) {
+    if (roll < c.weight) return c.event;
+    roll -= c.weight;
+  }
+  return NO_EVENT;
 }
 
 /**
@@ -791,7 +810,7 @@ module.exports = {
   RECORD_TIME, RECORD_COOLDOWN_MIN, RELEASE_COOLDOWN_MIN,
   SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP,
   GEAR, HYPE_MIN, HYPE_MAX, CONTRACT_CHANCE, CONTRACT_OFFER_MS, AGENCIES,
-  GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH,
+  GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH, MUSIC_EVENTS, NO_EVENT, rollMusicEvent,
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,
   reachOf, reachBonus, contractOf, terms, simulateRelease,
   setup, setGenre, reveal, record, publish, show, settle, status,
