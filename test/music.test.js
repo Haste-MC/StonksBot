@@ -497,6 +497,60 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       `${de(creator.status(G, GROSS).total)} <= ${de(echte)}`);
   }
 
+  console.log('--- Startbonus: der erste Kanal bringt das Publikum mit ---');
+  {
+    // Gegenstaende einmal je Welt anlegen und wiederverwenden – der Name ist
+    // je Welt eindeutig, ein zweites createItem schluege fehl.
+    // Das Streaming-Setup ist zugleich das Studio (music.GEAR) und existiert
+    // oben schon als `setup` – nicht noch einmal anlegen.
+    const geraete = { [music.GEAR]: setup };
+    for (const p of creator.PLATFORMS) {
+      const g = require('../src/data/gear').findGear(p.gear);
+      if (g && !geraete[g.name]) {
+        geraete[g.name] = db.createItem({ guildId: G, name: g.name, price: 1, kind: 'gear', stock: null, createdBy: 't' });
+      }
+    }
+    const setupC = (U) => {
+      for (const [name, it] of Object.entries(geraete)) {
+        if (!db.ownsNamed(G, U, name)) db.reservePurchase(G, U, it.id, 1);
+      }
+    };
+    const t = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+
+    // Ein Musiker mit Publikum, aber ohne Kanal.
+    const M = await player('de', 'deutsch', 'pop', 'face');
+    setupC(M);
+    const r0 = db.getArtist(G, M);
+    db.saveArtist(G, M, { ...r0, listeners: 500_000 });
+    const erwartet = Math.round(500_000 * music.MUSIC_TO_CREATOR);
+
+    const erste = await creator.act(G, M, 'twitch', 'chatting', t);
+    check('die erste Aktion schreibt den Bonus gut',
+      erste.ok && erste.startbonus >= erwartet * 0.99, `${erste.startbonus} (erwartet ~${erwartet})`);
+    check('und der Kanal zeigt die Follower auch',
+      db.getCreator(G, M, 'twitch', t).followers >= erwartet * 0.99,
+      de(db.getCreator(G, M, 'twitch', t).followers));
+
+    const zweite = await creator.act(G, M, 'instagram', 'reel', t + 3.6e6);
+    check('ein zweiter Kanal bekommt nichts mehr – einmal je Konto',
+      zweite.ok && zweite.startbonus === 0, String(zweite.startbonus));
+
+    // Missbrauch: Kanal loeschen, neu anlegen – kein zweiter Bonus.
+    db.clearCreator(G, M);
+    setupC(M);
+    const nochmal = await creator.act(G, M, 'twitch', 'chatting', t + 2 * 864e5);
+    check('nach Loeschen und Neuanlegen gibt es keinen zweiten',
+      nochmal.ok && nochmal.startbonus === 0, String(nochmal.startbonus));
+
+    // Ein reiner Creator ohne Musik: nichts – und kein Marker, der ihn spaeter blockiert.
+    const C = await player('de', 'deutsch', null, null);
+    setupC(C);
+    const ohne = await creator.act(G, C, 'twitch', 'chatting', t);
+    check('ohne Musik kein Bonus', ohne.ok && ohne.startbonus === 0, String(ohne.startbonus));
+    check('und kein Marker, der ihn spaeter aussperrt',
+      db.getClaim(G, C, 'startbonus') === null);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

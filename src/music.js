@@ -87,8 +87,14 @@ const IDLE_GRACE_DAYS = 2;          // Musik verzeiht länger als ein Kanal
 /** Wie stark Hörer als Publikum auf den Kanälen zählen. */
 const MUSIC_TO_CREATOR = 0.18;
 
-/** Anteil des Release-Publikums, der auf den Kanälen hängenbleibt. */
-const SOCIAL_SPILL = 0.05;
+/**
+ * Anteil des Release-Publikums, der auf den Kanälen hängenbleibt.
+ *
+ * 0,06 statt 0,05: Die Kanäle eines erfolgreichen Musikers sollen 1,2-mal
+ * schneller wachsen als die eines reinen Creators – zusätzlich zur
+ * allgemeinen Beschleunigung (`GROWTH` in creator.js), die beide bekommen.
+ */
+const SOCIAL_SPILL = 0.06;
 
 // ------------------------------------------------------------------ Geld
 

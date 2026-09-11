@@ -298,6 +298,36 @@ function musikBoden(guildId, userId) {
   catch { return 0; }
 }
 
+/**
+ * Der Startbonus: Beim ERSTEN Kanal eines Musikers werden die Follower, die
+ * seine Musik ohnehin als Untergrenze hergibt, einmalig echt gutgeschrieben.
+ *
+ * Warum überhaupt, wenn die Untergrenze schon gilt? Weil eine Untergrenze
+ * unsichtbar ist – der Kanal zeigt „0 Follower", obwohl er wie einer mit
+ * 157.000 verdient. Der Bonus macht die Zahl greifbar. Er verschenkt dabei
+ * nichts Zusätzliches: Nach der Gutschrift ist `max(Follower, Boden)` genau
+ * derselbe Wert wie vorher.
+ *
+ * Einmal je KONTO, nicht je Plattform: Sonst zählte derselbe Hörer auf
+ * Twitch, YouTube, Instagram und Twitter viermal – und Kanal löschen und neu
+ * anlegen wäre eine Follower-Quelle. Der Marker liegt in `income_claims`,
+ * gesetzt synchron vor jedem `await` (§7).
+ *
+ * @returns {number} gutgeschriebene Follower, 0 wenn nichts zu holen war
+ */
+function startbonus(guildId, userId, platformId, own, now = Date.now()) {
+  if (db.getClaim(guildId, userId, 'startbonus')) return 0;
+  const boden = musikBoden(guildId, userId);
+  if (boden <= 0) return 0;           // kein Marker: wer später Musik macht, bekommt ihn dann
+  db.setClaim(guildId, userId, 'startbonus', now);
+  const gutschrift = Math.max(0, boden - (own.followers ?? 0));
+  if (gutschrift > 0) {
+    db.saveCreator(guildId, userId, platformId, { ...own, followers: own.followers + gutschrift });
+    own.followers += gutschrift;
+  }
+  return gutschrift;
+}
+
 /** Gesamtreichweite eines Kontos – mindestens das, was die Musik hergibt. */
 function reachTotalOf(guildId, userId, followerSumme) {
   return Math.max(Math.max(0, followerSumme), musikBoden(guildId, userId));
@@ -783,6 +813,8 @@ async function act(
 
   const rows = new Map(db.allCreator(guildId, userId).map((r) => [r.platform, r]));
   const own = rows.get(platformId) ?? db.getCreator(guildId, userId, platformId, now);
+  // Ein Musiker, der hier zum ersten Mal sendet, bringt sein Publikum mit.
+  const mitgebracht = startbonus(guildId, userId, platformId, own, now);
   const title = wish ?? pick(fmt.titles, random);
   const cross = [...rows.values()]
     .filter((r) => r.platform !== platformId)
@@ -892,6 +924,7 @@ async function act(
 
   return {
     ok: true,
+    startbonus: mitgebracht,
     platform: p, format: fmt,
     title, customTitle: Boolean(wish),
     intro: pick(data.INTROS, random),
@@ -1126,7 +1159,7 @@ module.exports = {
   HYPE_MIN, HYPE_MAX, BOOST_MAX, BOOST_MS, COMMUNITY_MAX, COMMUNITY_CHURN_CUT,
   IDLE_GRACE_DAYS,
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
-  platform, format, formats, reachOf, reachTotalOf, musikBoden, hasGear, remainingMs, budget, today, cleanTitle,
+  platform, format, formats, reachOf, reachTotalOf, musikBoden, startbonus, hasGear, remainingMs, budget, today, cleanTitle,
   monetization, MON_FULL, MON_EXP, MON_MIN,
   idleDays, communityNow, churnFactor, keepFactor, activeBoost, useTime,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
