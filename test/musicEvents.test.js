@@ -71,15 +71,21 @@ const setup = db.createItem({
 });
 
 let n = 0;
-/** Ein Künstler mit Ausrüstung, Heimat Deutschland (kein Idol-Markt). */
-async function artist({ genre = 'pop', persona = 'face', listeners = 0, songs = 0, land = 'de' } = {}) {
+/**
+ * Ein Künstler mit Ausrüstung, Heimat Deutschland (kein Idol-Markt).
+ *
+ * `lang: null` lässt die Sprache ungewählt – so läuft auch
+ * scripts/messung-geldquellen.js, und so wurde Beschluss 20 kalibriert. Mit
+ * „deutsch" (Heimvorteil, speed 1,495 statt 1) liegt ein Jahr rund 40 % höher.
+ */
+async function artist({ genre = 'pop', persona = 'face', listeners = 0, songs = 0, land = 'de', lang = 'deutsch' } = {}) {
   const U = `fx:e${n++}`;
   db.clearArtist(G, U);
   db.clearCreator(G, U);
   db.clearEvents(G, U);
   if (!db.ownsNamed(G, U, music.GEAR)) db.reservePurchase(G, U, setup.id, 1);
   await home.setHome(G, U, land);
-  home.setLanguage(G, U, 'deutsch');
+  if (lang) home.setLanguage(G, U, lang);
   music.setup(G, U, genre, persona);
   const now = Date.now();
   const row = db.getArtist(G, U, now);
@@ -548,6 +554,92 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     check('solange einer offen ist, kommt kein zweiter', r2.ok && r2.incident === null);
     await decisions.choose(G, U, r.incident.id, s.incident.decision.options[0].id, t0 + 2, () => 0.5);
     check('danach ist incident wieder null', music.status(G, U, t0 + 3).incident === null);
+  }
+
+  /**
+   * Ein Jahr Karriere, Tagesroutine wie in scripts/messung-geldquellen.js:
+   * abrechnen → Konzert-Tag (dann kein Studio) oder Studio + Release → Konzert
+   * wenn möglich. Täglich `decisions.settle()`, und ein offener Vorfall wird
+   * wie von einem Spieler entschieden: zufällige Option.
+   *
+   * Startet HEUTE 6:00 und läuft vorwärts (siehe messfehler-vermeiden.md).
+   */
+  async function jahr(U, seed, events) {
+    const rand = rng(seed);
+    const opts = { events };
+    let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    let vorfaelle = 0;
+    let zweiOffen = 0;
+    let zuDicht = 0;
+    let letzter = 0;
+    for (let d = 0; d < 365; d++) {
+      refill(U);
+      await music.settle(G, U, now);
+      music.settleContracts(G, U, now + 1e5);
+      await decisions.settle(G, U, now + 1.5e5);
+      const vor = music.status(G, U, now + 2e5);
+      if (!(vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS)) {
+        music.record(G, U, now + 2e5, rand, opts);
+        const s = music.status(G, U, now + 1.2e6);
+        if (s.songs >= 1 && s.releaseMs <= 0) {
+          music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 2.2e6, rand, opts);
+        }
+      }
+      const s = music.status(G, U, now + 3.2e6);
+      if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
+        await music.show(G, U, now + 4e6, rand, opts);
+      }
+      const open = decisions.pending(G, U, now + 5e6);
+      if (open) {
+        vorfaelle++;
+        if (open.created_at - letzter < decisions.MIN_GAP_MS && letzter) zuDicht++;
+        letzter = open.created_at;
+        const o = open.decision.options[Math.floor(rand() * open.decision.options.length)];
+        await decisions.choose(G, U, open.id, o.id, now + 5e6, rand);
+        // Nach dem Entscheiden darf nichts mehr offen sein – sonst waren es zwei.
+        if (decisions.pending(G, U, now + 5.1e6)) zweiOffen++;
+      }
+      now += DAY_MS;
+    }
+    return {
+      hoerer: Math.round(music.status(G, U, now).listeners),
+      vorfaelle, zweiOffen, zuDicht,
+    };
+  }
+  const medianOf = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
+
+  console.log('\n--- Ein Jahr mit Ereignissen: Vorfälle kommen, aber nicht zu oft ---');
+  console.log('\n--- §3-Messung: 5 Karrieren mit und ohne Ereignisse ---');
+  {
+    const mit = [], ohne = [], counts = [], countsOhne = [];
+    // Ohne Sprache wie im Messskript – nur so ist die Referenz (581.796) vergleichbar.
+    for (let seed = 1; seed <= 5; seed++) {
+      const A = await artist({ lang: null }); const ra = await jahr(A, seed, true);
+      const B = await artist({ lang: null }); const rb = await jahr(B, seed, false);
+      mit.push(ra.hoerer); ohne.push(rb.hoerer); counts.push(ra); countsOhne.push(rb);
+      console.log(`    Seed ${seed}: mit ${de(ra.hoerer)} (${ra.vorfaelle} Vorfälle) · ohne ${de(rb.hoerer)}`);
+    }
+    const mMit = medianOf(mit), mOhne = medianOf(ohne);
+    console.log(`    Median: mit ${de(mMit)} · ohne ${de(mOhne)} · Faktor ${(mMit / mOhne).toFixed(3)}`);
+
+    check('ohne Ereignisse: alle 5 Läufe bringen Hörer (keine stille Null)', ohne.every((h) => h > 100_000), ohne.map(de).join(' '));
+    check('ohne Ereignisse bleibt der Median in 500.000–700.000 (Beschluss 20)',
+      mOhne >= 500_000 && mOhne <= 700_000, de(mOhne));
+    check('ohne Ereignisse: kein Vorfall', countsOhne.every((c) => c.vorfaelle === 0),
+      countsOhne.map((c) => c.vorfaelle).join(' '));
+    check('mit Ereignissen: Median höchstens 10 % über ohne (§3)',
+      mMit <= mOhne * 1.1, `${de(mMit)} vs ${de(mOhne)}`);
+    // Erwartung ≈ 11 Vorfälle je Jahr am 2 %-Boden (riskFor bleibt unter 750.000 Hörern bei RISK_MIN).
+    // „≥ 10 je Lauf" wäre gegen die Poisson-Streuung ein Münzwurf; die Summe über fünf Läufe
+    // ist es nicht (P(Σ < 35 | λ = 55) < 0,3 %).
+    const summe = counts.reduce((s, c) => s + c.vorfaelle, 0);
+    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (Erwartung ≈ 55)',
+      summe >= 35, String(summe));
+    check('… und in keinem Lauf weniger als 3',
+      counts.every((c) => c.vorfaelle >= 3), counts.map((c) => c.vorfaelle).join(' '));
+    check('… und höchstens 60', counts.every((c) => c.vorfaelle <= 60), counts.map((c) => c.vorfaelle).join(' '));
+    check('nie zwei gleichzeitig offen', counts.every((c) => c.zweiOffen === 0));
+    check('nie zwei innerhalb von 36 Stunden', counts.every((c) => c.zuDicht === 0), counts.map((c) => c.zuDicht).join(' '));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
