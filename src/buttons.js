@@ -192,6 +192,14 @@ async function settleCreator(guildId, userId) {
   return lines.length ? lines.join('\n') : null;
 }
 
+/** Hinweiszeile, wenn eine Musik-Aktion einen Vorfall ausgelöst hat. */
+function incidentNote(incident) {
+  if (!incident) return '';
+  const d = require('./decisions').decision(incident.kind);
+  return `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+    'du musst dich entscheiden (⚠️ Vorfall).';
+}
+
 /**
  * Rechnet die laufenden Tantiemen ab und beendet abgelaufene Verträge.
  * Läuft beim Öffnen des Studios (faule Abrechnung, §4).
@@ -1776,11 +1784,7 @@ Object.assign(buttons, {
         `im Kasten${res.quality > 1.2 ? ' – und der hier sitzt.' : '.'}`;
       if (res.event) note += `\n${res.event.text}`;
       if (res.event?.id === 'equipment') note += `\n💥 Dein **${music.GEAR}** ist hin (🧰 Ausrüstung).`;
-      if (res.incident) {
-        const d = require('./decisions').decision(res.incident.kind);
-        note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
-          'du musst dich entscheiden (⚠️ Vorfall).';
-      }
+      note += incidentNote(res.incident);
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -1833,11 +1837,7 @@ Object.assign(buttons, {
         note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
       }
       if (res.event) note += `\n${res.event.text}`;
-      if (res.incident) {
-        const d = require('./decisions').decision(res.incident.kind);
-        note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
-          'du musst dich entscheiden (⚠️ Vorfall).';
-      }
+      note += incidentNote(res.incident);
       note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -1865,7 +1865,7 @@ Object.assign(buttons, {
       } else if (res.reason === 'no_time') {
         note = `😴 Ein Konzert kostet **${res.need}** Zeit, übrig sind **${res.left}**.`;
       } else note = '🎤 Starte zuerst deine Karriere.';
-    } else if (res.amount === 0 && res.event) {
+    } else if (res.cancelled) {
       note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
     } else {
       note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
@@ -1873,11 +1873,7 @@ Object.assign(buttons, {
         `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
       if (res.event) note += `\n${res.event.text}`;
     }
-    if (res.ok && res.incident) {
-      const d = require('./decisions').decision(res.incident.kind);
-      note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
-        'du musst dich entscheiden (⚠️ Vorfall).';
-    }
+    if (res.ok) note += incidentNote(res.incident);
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 

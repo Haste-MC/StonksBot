@@ -629,7 +629,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   return {
     ok: true, gross, cut, amount: net, gained, quality, genre: g,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
-    incident,
+    incident, cancelled,
     text: pick(data.SHOWS, random), balance, time,
     listeners: Math.round(before.listeners + gained),
   };

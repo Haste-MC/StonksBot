@@ -528,6 +528,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
         rd.gained === 0 && db.getArtist(G, D).shows === showsVor);
       check('abgesagt: Sperre und Zeit trotzdem verbraucht',
         music.status(G, D, t0 + 1).showMs > 0 && rd.time.ok);
+      check('abgesagt: cancelled-Flag gesetzt', rd.cancelled === true && rb.cancelled === false);
     }
   }
 
