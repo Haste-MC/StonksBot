@@ -92,6 +92,47 @@ const PLAYS_PER_LISTENER = 0.5;
 /** Was ein Abruf abwirft, vor Land und Vermarktung. */
 const ROYALTY = 1.2;
 
+/**
+ * ===========================================================================
+ *  TANTIEMEN – unterlinear in der Größe, nicht überlinear
+ * ===========================================================================
+ *
+ * Früher: `Streams × ROYALTY × monetization(Hörer)`. Die Vermarktungskurve
+ * war für Creator gebaut, wo das Publikum selbst schon unterlinear wächst.
+ * Auf eine Einnahme, die bereits linear in den Hörern ist, wirkte sie als
+ * VERSTÄRKER: Geld ~ Hörer × Hörer^0,73 = Hörer^1,73. Gemessen brachte die
+ * 87-fache Hörerzahl das 893-Fache an Geld – die einzige überlineare
+ * Einnahme im ganzen Spiel, und der Grund, warum Musik+Creator das 51-Fache
+ * eines reinen Creators verdiente.
+ *
+ * Jetzt: `k × Hörer^ROYALTY_EXP` je Tag. Der Exponent bestimmt die Spreizung
+ * zwischen Anfang und Endgame, der Anker die Höhe:
+ *
+ *   - ROYALTY_EXP = 1,2 statt der effektiven 1,73 → Spreizung 10.000 bis
+ *     2,6 Mio Hörer von 4.333× auf 791×. Klein bleibt klein, groß bleibt
+ *     groß, aber die Kurve läuft nicht mehr davon.
+ *   - Anker 363.900 Hörer (gemessener Stand nach einem Jahr): Dort bleibt der
+ *     bisherige Wert erhalten. Darunter verdient man MEHR als früher (bei
+ *     10.000 Hörern 1.091 statt 414), darüber weniger (bei 2,6 Mio 862.800
+ *     statt 1.794.000).
+ *
+ * Nachgerechnet in test/geldquellen.test.js und scripts/messung-geldquellen.js.
+ */
+const ROYALTY_EXP = 1.2;
+const ROYALTY_ANCHOR = 363_900;
+/** Tagesertrag am Anker im neutralen Markt (royalty 1,0) – die bisherige Formel dort. */
+const ROYALTY_ANCHOR_PER_DAY = 70_863;
+const ROYALTY_K = ROYALTY_ANCHOR_PER_DAY / Math.pow(ROYALTY_ANCHOR, ROYALTY_EXP);
+
+/**
+ * Tantiemen je Tag bei dieser Hörerzahl – vor Persona, Vertrag und Level.
+ * Eine Stelle für Abrechnung, Vorschuss, Vertragsstrafe und Anzeige, damit
+ * sie nie auseinanderlaufen.
+ */
+function royaltyPerDay(listeners, market = { royalty: 1 }) {
+  return ROYALTY_K * Math.pow(Math.max(0, listeners), ROYALTY_EXP) * (market.royalty ?? 1);
+}
+
 /** Der Schub aus einer Veröffentlichung klingt so schnell ab. */
 const BUZZ_KEEP = 0.82;
 const BUZZ_PER_LISTENER = 9;
@@ -552,8 +593,11 @@ async function settle(guildId, userId, now = Date.now()) {
   const fromBuzz = row.buzz * (1 - Math.pow(BUZZ_KEEP, days));
   const streams = steady + fromBuzz;
 
-  const mon = require('./creator').monetization(row.listeners, market.pool);
-  const gross = Math.round(streams * ROYALTY * market.royalty * mon);
+  // Der Tagessatz aus der Größe; Buzz-Abrufe zählen zum selben Satz je Stream
+  // wie die stetigen – so bleibt eine Veröffentlichung weiterhin ein Schub.
+  const steadyGeld = royaltyPerDay(row.listeners, market) * p.plays * days;
+  const jeStream = steady > 0 ? steadyGeld / steady : 0;
+  const gross = Math.round(steadyGeld + fromBuzz * jeStream);
 
   const contract = db.activeContract(guildId, userId);
   const cut = contract ? Math.round(gross * data.IDOL.cut) : 0;
@@ -624,7 +668,7 @@ async function sign(guildId, userId, contractId, now = Date.now()) {
   const artist = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
   const advance = require('./perks').payout(guildId, userId, Math.round(
-    artist.listeners * PLAYS_PER_LISTENER * ROYALTY * market.royalty * IDOL_ADVANCE_DAYS));
+    royaltyPerDay(artist.listeners, market) * IDOL_ADVANCE_DAYS));
   const balance = advance > 0
     ? await changeCash(guildId, userId, advance, `Vorschuss: ${row.agency}`) : null;
 
@@ -654,7 +698,7 @@ async function leave(guildId, userId, now = Date.now()) {
 
   const row = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
-  const perDay = row.listeners * PLAYS_PER_LISTENER * ROYALTY * market.royalty;
+  const perDay = royaltyPerDay(row.listeners, market);
   const penalty = Math.round(perDay * data.IDOL.exitPenaltyDays);
 
   db.setContractStatus(guildId, contract.id, 'broken', {
@@ -697,8 +741,7 @@ function status(guildId, userId, now = Date.now()) {
 
   const budget = require('./creator').budget(guildId, userId, now);
   const perDay = Math.round(
-    after.listeners * PLAYS_PER_LISTENER * (p.plays ?? 1) * ROYALTY * market.royalty
-    * require('./creator').monetization(after.listeners, market.pool)
+    royaltyPerDay(after.listeners, market) * (p.plays ?? 1)
     * (contract ? 1 - data.IDOL.cut : 1));
 
   return {
@@ -726,7 +769,7 @@ module.exports = {
   GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS, IDOL: data.IDOL,
   BASE_REACH, REACH_K, REACH_EXP, CHURN_PER_RELEASE, CHURN_PER_DAY, MAX_IDLE_DAYS,
   IDLE_GRACE_DAYS, MUSIC_TO_CREATOR, SOCIAL_SPILL,
-  PLAYS_PER_LISTENER, ROYALTY, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
+  PLAYS_PER_LISTENER, ROYALTY, ROYALTY_EXP, ROYALTY_ANCHOR, ROYALTY_K, royaltyPerDay, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
   TEMPO, CONVERSION,
   RECORD_TIME, RECORD_COOLDOWN_MIN, RELEASE_COOLDOWN_MIN,
   SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP,
