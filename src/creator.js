@@ -167,9 +167,18 @@ const MERCH_MIN_REACH = 5000;
  * aber steil: Unter 250.000 Followern ist Merch ein Zubrot, darüber eine
  * tragende Säule.
  */
-const MERCH_FACTOR = 0.05;
+/*
+ * Der Faktor ist gemessen, nicht geraten: Ein gut gespielter Kanal hält seine
+ * Community bei rund 63 von 100 (eine Bindungs-Aktion am Tag, ein Jahr lang
+ * simuliert). Bei 2,6 Mio Followern und Heimatmarkt 1,3 ergibt das mit 0,383
+ * genau die 250.000 am Tag, die Merch im Endgame tragen soll. Vorher (0,05)
+ * waren es 32.661 – Merch war ein Zubrot, obwohl es beim reinen Creator der
+ * größte Posten war.
+ */
+const MERCH_FACTOR = 0.383;
 const MERCH_REACH_EXP = 0.92;
-const MERCH_DAILY_CAP = 100000;       // reine Notbremse, greift nie im Normalbetrieb
+/** Notbremse. Muss über dem liegen, was 2,6 Mio Follower ergeben, sonst deckelt sie das Endgame. */
+const MERCH_DAILY_CAP = 500000;
 const MERCH_MAX_DAYS = 7;
 const MERCH_MIN_SETTLE_MS = 60 * 60 * 1000;
 
