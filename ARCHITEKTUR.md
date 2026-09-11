@@ -380,3 +380,53 @@ Fehlerfall (eine werfende Regel, ein Absturz beim Guthaben holen) wieder
 zurückgenommen, damit ein späterer Aufruf es erneut versucht – sonst käme
 der Fertig-Marker nie, und die sechs serverweiten Erfolge blieben für die
 Welt auf Dauer gesperrt, heilbar nur noch per Datenbankeingriff.
+
+## 15. Die Rangfolge der Geldquellen
+
+Die Einnahmequellen sind gegeneinander **gemessen**, nicht geschätzt – mit
+`scripts/messung-geldquellen.js`: simulierte Karrieren über ein bis zwei Jahre,
+fester Würfel, mehrere Spielweisen je Archetyp (gewertet wird die beste),
+Median statt Mittelwert. Stand 2026-09-11:
+
+| nach 2 Jahren täglichen Spielens | Ertrag/Tag |
+|---|---|
+| Musik + Creator | ~490.000 |
+| nur Creator | ~315.000 |
+| Goldtransport (je Crew-Mitglied) | ~86.000 |
+
+Die Rangfolge ist gewollt: Musik+Creator ist die beste Quelle, weil sie zwei
+Systeme und ein gemeinsames Zeitbudget verlangt. „Nur Creator" bleibt eine
+tragfähige Spielweise. Heists sind ein Ereignis, kein Job.
+
+### Eine Bremse, nicht zwei
+
+Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,
+und keine überlineare. Beides gab es:
+
+- Die Creator-Plattformen hatten `reachOf` (Exponent 0,58) **und** die
+  Vermarktungskurve `monetization()` (6 % bei 10.000 Followern). Zwei Bremsen;
+  die zweite ist weg. Der Satz je Aufruf ist jetzt der, der im Code steht.
+- Die Musik multiplizierte `monetization()` auf eine Einnahme, die bereits
+  linear in den Hörern war – das ergab `Hörer^1,73`, die einzige überlineare
+  Einnahme im Spiel. Jetzt `k × Hörer^1,2` (`royaltyPerDay`), unterlinear in der
+  Zeit, weil die Hörer selbst unterlinear wachsen.
+
+Wer eine Einnahme anfasst, prüft danach die Messung neu. Die Kalibrierwerte
+(`REACH_K`, `GROWTH`, `MERCH_FACTOR`, `ROYALTY_ANCHOR`) tragen im Code den
+gemessenen Grund für ihre Höhe.
+
+### Musik und Kanäle: eine Einbahnstraße
+
+Musik zahlt auf die Kanäle ein (`SOCIAL_SPILL`, `reachBonus` als Untergrenze
+der Gesamtreichweite, Startbonus beim ersten Kanal). Die Kanäle zahlen **nicht**
+auf die Musik ein – `CREATOR_SPILL` ist entfernt. Beides zusammen wäre ein
+Kreislauf, der sich selbst füttert.
+
+### Tests und Messläufe schreiben nicht in die Spieldatenbank
+
+`DATA_DIR` lenkt die Datenbank um; `npm test` legt seine Welten in `.testdata`
+an. Vorher schrieb alles in `data/shop.db` – die Datei war auf 60 MB mit 2.253
+Welten gewachsen, und weil SQLite jeden Schreibvorgang auf die Platte zwang,
+lief ein Messlauf elf Minuten für dreißig Sekunden Rechenzeit. `synchronous`
+steht im Betrieb auf `NORMAL` (mit WAL der übliche Kompromiss), für
+Wegwerf-Datenbanken auf `OFF`.

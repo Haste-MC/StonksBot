@@ -18,6 +18,20 @@
  */
 module.exports = [
   {
+    version: '1.28.0',
+    date: '2026-09-11',
+    title: '⚖️ Die große Balance-Runde',
+    lines: [
+      '📡 **Creator lohnt sich endlich.** Die versteckte Vermarktungsbremse ist weg – ein Video bei 10.000 Followern brachte bisher 27, jetzt zahlt es den Satz, der draufsteht. Dazu **Merch verachtfacht**: bei 2,6 Mio Followern 250.000 am Tag statt 33.000.',
+      '🚀 **Schnellerer Aufbau.** Ein Jahr tägliches Spielen bringt jetzt 500.000–700.000 Hörer statt 350.000 – und Creator erreichen die erste Million Follower nach rund neun Monaten statt nach über drei Jahren.',
+      '🎵 **Tantiemen neu gerechnet.** Kleine Künstler verdienen mehr als vorher (bei 10.000 Hörern 1.091 statt 414 am Tag), die Spitze wächst nicht mehr ins Unendliche. Musik bleibt die beste Geldquelle, aber sie läuft nicht mehr davon.',
+      '🔀 **Einbahnstraße.** Musik füttert die Kanäle – als Musiker startest du mit einem Publikum, der erste Kanal bringt es als echte Follower mit. Die Kanäle füttern die Musik aber nicht mehr: Als Streamer fängst du mit der Musik bei null an.',
+      '🚚 **Heists sind ein Ereignis, kein Job.** Jedes Ziel hat jetzt seine eigene Sperre: Spätkauf bis Juwelier weiter 12 Stunden, Kunstdepot und Bank 18, Kasino 40, Goldtransport 72. Der Einstieg bleibt, das Endgame wird entschleunigt.',
+      '📣 **Pingen über die Brücke.** Schreib `@Name` auf Fluxer, und der Discord-Nutzer bekommt eine echte Erwähnung mit Benachrichtigung – und umgekehrt. Nur bei eindeutigem Namen; @everyone und Rollen bleiben stumm.',
+      '🏅 **Erfolge nachjustiert.** „Beutezug" braucht jetzt 25 statt 50 Millionen Diebesgut, „Der Pate" 60 statt 100 – gerechnet gegen den gebremsten Goldtransport. Wer sie schon hat, behält sie.',
+    ],
+  },
+  {
     version: '1.27.0',
     date: '2026-09-09',
     title: '🏅 Erfolge',

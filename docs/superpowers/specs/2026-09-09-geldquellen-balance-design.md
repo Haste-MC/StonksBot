@@ -1,6 +1,6 @@
 # Rangfolge der Geldquellen
 
-Stand: 2026-09-09 · Zweig `main`
+Stand: 2026-09-11 · Zweig `main` · **Umgesetzt** bis auf Beschluss 22 (Musik-Ereignisse, eigenes Feature)
 
 ## Beschlossene Anpassungen
 
@@ -11,26 +11,26 @@ kommen aus der Messung — nicht aus Schätzungen.
 | # | Beschluss |
 |---|---|
 | 1 | ✅ Heists bekommen eine **Sperre je Ziel** statt einer globalen. Staffelung 12/12/12/18/18/40/72 h. Der Einstieg (erste drei Ziele) bleibt bei 12 h. |
-| 2 | **Knast läuft weiter parallel** zur Sperre, nicht obendrauf. Folge beim Goldtransport: Ein Fehlschlag kostet nur die Geldstrafe. Bewusst so. |
-| 3 | Die Heist-Kurve muss **aufsteigend** bleiben: Ein höheres Ziel wirft pro Tag mehr ab als ein niedrigeres. |
+| 2 | ✅ **Knast läuft weiter parallel** zur Sperre, nicht obendrauf. Folge beim Goldtransport: Ein Fehlschlag kostet nur die Geldstrafe. Bewusst so. |
+| 3 | ✅ Die Heist-Kurve muss **aufsteigend** bleiben: Ein höheres Ziel wirft pro Tag mehr ab als ein niedrigeres. |
 | 4 | ✅ `CREATOR_SPILL` wird **entfernt**. Ein großer Creator startet als Musiker bei null. |
 | 5 | ✅ `reachBonus` wird **angeschlossen**, aber als **Untergrenze** auf die Gesamtreichweite (`max(Follower, Hörer × 0,18)`), nicht als Summand. |
-| 6 | **Startbonus**: Beim ersten Anlegen eines Kanals werden Follower in Höhe dieser Untergrenze einmalig echt gutgeschrieben — einmal je Konto **und Plattform**, gegen Löschen-und-neu-Anlegen gesichert. |
-| 7 | `SOCIAL_SPILL` bleibt bestehen. Ein Musiker mit großem Publikum hat große Socials — das ist gewollt und realistisch. |
-| 8 | Die Kanäle eines erfolgreichen Musikers wachsen **1,2-mal schneller** als die eines reinen Creators — **zusätzlich** zur allgemeinen Beschleunigung. Die Faktoren multiplizieren sich. |
+| 6 | ✅ **Startbonus**: Bei der ersten Aktion auf einem Kanal werden Follower in Höhe der Untergrenze einmalig echt gutgeschrieben — **einmal je Konto** (nicht je Plattform: sonst zählte derselbe Hörer viermal), gegen Löschen-und-neu-Anlegen gesichert. |
+| 7 | ✅ `SOCIAL_SPILL` bleibt bestehen. Ein Musiker mit großem Publikum hat große Socials — das ist gewollt und realistisch. |
+| 8 | ✅ Die Kanäle eines erfolgreichen Musikers wachsen **1,2-mal schneller** als die eines reinen Creators — **zusätzlich** zur allgemeinen Beschleunigung. Die Faktoren multiplizieren sich. |
 | ~~9~~ | ~~Konzerte werden gedämpft.~~ **Zurückgenommen.** Beruhte auf einer fehlerhaften Messung. Konzerte sind mit `Hörer^0,7` der gut gebaute Teil und liegen ab 100.000 Hörern deutlich hinter den Tantiemen. Sie bleiben unverändert. |
 | ~~10~~ | ~~Tantiemen werden hart angehoben.~~ **Umgekehrt.** Tantiemen sind 97 % der Musik-Einnahmen und wachsen **überlinear** — sie werden **gedämpft**, siehe 16. |
-| 11 | **Merch wird hart angehoben** — Ziel: **250.000/Tag bei 2,6 Mio Followern**. Hilft vor allem dem reinen Creator, bei dem Merch 89 % der Einnahmen ausmacht. |
+| 11 | ✅ **Merch wird hart angehoben** — Ziel: **250.000/Tag bei 2,6 Mio Followern**. Hilft vor allem dem reinen Creator, bei dem Merch 89 % der Einnahmen ausmacht. |
 | ~~16~~ | ~~Tantiemen `Hörer^0,9`, Anker 194.661.~~ **Ersetzt durch 19.** |
-| 19 | **Tantiemen: `k × Hörer^1,2`**, Anker bei **363.900 Hörern** (gemessener Ein-Jahres-Stand), wo der heutige Wert von 81.493/Tag erhalten bleibt. Der Exponent bestimmt die *Spreizung* zwischen Anfang und Endgame, der Anker nur die *Höhe* — `^0,9` hätte den Anfang angehoben und die Spitze gekappt, genau umgekehrt zum Ziel. Spreizung 10.000 → 2,6 Mio Hörer: heute 4.333×, künftig 791×. |
-| 20 | **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 500.000 bis 700.000 Hörer** — als Median ohne Ereignisse, die das anheben oder drücken (viraler Clip, Shitstorm). Heute gemessen: 363.900, das Wachstum steigt also um rund das 1,6-Fache. Daraus folgt bei Beschluss 19 ein Ein-Jahres-Ertrag von rund 119.000 bis 179.000/Tag, also das 1,4- bis 2,1-Fache des gebremsten Goldtransports. |
+| 19 | ✅ **Tantiemen: `k × Hörer^1,2`**, Anker bei **363.900 Hörern** (gemessener Ein-Jahres-Stand), wo der heutige Wert von 81.493/Tag erhalten bleibt. Der Exponent bestimmt die *Spreizung* zwischen Anfang und Endgame, der Anker nur die *Höhe* — `^0,9` hätte den Anfang angehoben und die Spitze gekappt, genau umgekehrt zum Ziel. Spreizung 10.000 → 2,6 Mio Hörer: heute 4.333×, künftig 791×. |
+| 20 | ✅ **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 500.000 bis 700.000 Hörer** — als Median ohne Ereignisse, die das anheben oder drücken (viraler Clip, Shitstorm). Heute gemessen: 363.900, das Wachstum steigt also um rund das 1,6-Fache. Daraus folgt bei Beschluss 19 ein Ein-Jahres-Ertrag von rund 119.000 bis 179.000/Tag, also das 1,4- bis 2,1-Fache des gebremsten Goldtransports. |
 | ~~17~~ | ~~YouTube `^0,85`~~, dann ~~`^0,99` mit Anker 500k~~. **Ersetzt durch 21.** Gemessen lag YouTube schon bei `^1,08` — das Problem war nicht die Kurve, sondern die Bremse. |
-| 21 | **Die Vermarktungsbremse fällt für alle vier Plattformen.** `monetization()` stand bei 10.000 Followern auf 6 % und machte aus den versprochenen 0,35 je Aufruf real 0,021 — ein Video brachte 27. Gedämpft wird jetzt allein über die Reichweitenkurve (`reachOf`, Exponent 0,58). Gemessen: reiner Creator 6.266 → 14.628/Tag, Musik+Creator unverändert, Faktor 6,8 → 3,0. **Umgesetzt.** |
+| 21 | ✅ **Die Vermarktungsbremse fällt für alle vier Plattformen.** `monetization()` stand bei 10.000 Followern auf 6 % und machte aus den versprochenen 0,35 je Aufruf real 0,021 — ein Video brachte 27. Gedämpft wird jetzt allein über die Reichweitenkurve (`reachOf`, Exponent 0,58). Gemessen: reiner Creator 6.266 → 14.628/Tag, Musik+Creator unverändert, Faktor 6,8 → 3,0. **Umgesetzt.** |
 | 22 | **Musik bekommt eigene, schwerere Zufallsereignisse** — separat von den Creator-Ereignissen. Eigenes Feature, eigene Spec, nach Abschluss dieser Balance-Runde. |
-| 18 | **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
-| 12 | **Wachstum beschleunigt, asymmetrisch.** Für die **Musik** gilt Beschluss 20 (500.000–700.000 Hörer nach einem Jahr, Faktor ~1,5). Für den **Creator** bleibt es bei **1 Mio Follower in ~9 Monaten** — gemessen sind heute 458.743 nach einem Jahr, nötig ist also etwa Faktor 1,8. |
-| 13 | Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |
-| 14 | **Rangfolge als Ganzes:** Musik+Creator > nur Creator > Heists. „Nur Creator" bleibt eine tragfähige Spielweise. |
+| 18 | ✅ **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
+| 12 | ✅ **Wachstum beschleunigt, asymmetrisch.** Für die **Musik** gilt Beschluss 20 (500.000–700.000 Hörer nach einem Jahr, Faktor ~1,5). Für den **Creator** bleibt es bei **1 Mio Follower in ~9 Monaten** — gemessen sind heute 458.743 nach einem Jahr, nötig ist also etwa Faktor 1,8. |
+| 13 | ✅ Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |
+| 14 | ✅ **Rangfolge als Ganzes:** Musik+Creator > nur Creator > Heists. „Nur Creator" bleibt eine tragfähige Spielweise. |
 | 15 | **Erst messen, dann ändern.** Keine Stellschraube wird bewegt, bevor belastbare Messwerte vorliegen. |
 
 ## Ziel
