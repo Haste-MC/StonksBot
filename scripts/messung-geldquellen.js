@@ -50,8 +50,19 @@ const unb = require('../src/unb');
 const gearData = require('../src/data/gear');
 const heistData = require('../src/data/heists');
 const heist = require('../src/heist');
+const decisions = require('../src/decisions');
 
 const DAY = 24 * 60 * 60 * 1000;
+/** `--ohne-ereignisse`: Musik ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
+const OHNE_EREIGNISSE = process.argv.includes('--ohne-ereignisse');
+const musikOpts = { events: !OHNE_EREIGNISSE };
+/*
+ * `--strategie=<Name>`: Suchphase überspringen und nur die genannte Strategie
+ * messen (Name exakt wie hinter `via "…"` ausgegeben). Mit Ereignissen ist die
+ * kurze Suchphase verrauscht und kann eine andere Strategie wählen als der
+ * Lauf ohne Ereignisse – dann misst man die Wahl, nicht die Ereignisse.
+ */
+const STRATEGIE = (process.argv.find((a) => a.startsWith('--strategie=')) ?? '').slice('--strategie='.length) || null;
 const de = (n) => Math.round(n).toLocaleString('de-DE');
 
 // ------------------------------------------------------------------ Würfel
@@ -258,10 +269,10 @@ function musiktag(G, U, now, rand, konzertZuerst = false) {
     const vor = music.status(G, U, now);
     if (vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS) return vor;
   }
-  music.record(G, U, now, rand);
+  music.record(G, U, now, rand, musikOpts);
   const s = music.status(G, U, now + 1e6);
   if (s.songs >= 1 && s.releaseMs <= 0) {
-    music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 2e6, rand);
+    music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 2e6, rand, musikOpts);
   }
   return music.status(G, U, now + 3e6);
 }
@@ -296,13 +307,26 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
       music.settleContracts(G, U, now + 1e5);
       const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
       if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
-        await music.show(G, U, now + 4e6, rand);
+        await music.show(G, U, now + 4e6, rand, musikOpts);
       }
     }
     await kanaltag(G, U, strat, now + 6e6, rand);
     await creator.settle(G, U, now + 20e6);
     await creator.settleMerch(G, U, now + 20e6);
     await creator.settleDeals(G, U, now + 20e6);
+
+    /*
+     * Vorfälle wie ein Spieler behandeln: Verfallene abrechnen, offene mit
+     * zufälliger Option entscheiden. Ohne das bleibt der erste Vorfall des
+     * Jahres ewig offen und blockiert alle weiteren – genau so hat eine
+     * frühere Messung „einen Vorfall pro Jahr" gemeldet.
+     */
+    await decisions.settle(G, U, now + 20.5e6);
+    const offen = decisions.pending(G, U, now + 20.6e6);
+    if (offen) {
+      const o = offen.decision.options[Math.floor(rand() * offen.decision.options.length)];
+      await decisions.choose(G, U, offen.id, o.id, now + 20.6e6, rand);
+    }
 
     /*
      * Meilensteine festhalten: Wann wird welche Hörerzahl erreicht, und was
@@ -354,6 +378,16 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
  * interessieren.
  */
 async function archetyp(name, musik, laeufe, tage) {
+  // Festgelegte Strategie: keine Suche. Gibt es sie für diesen Archetyp nicht
+  // (die Konzert-Varianten „+K" existieren nur für Musik), läuft die Suche wie gewohnt.
+  if (STRATEGIE) {
+    const fest = strategien(musik).filter((s) => s.name === STRATEGIE);
+    if (fest.length) {
+      console.log(`    -> Strategie festgelegt: "${STRATEGIE}", ${laeufe} Läufe à ${tage} Tage`);
+      return durchlauf(name, musik, laeufe, tage, fest, false);
+    }
+    console.log(`    -> Strategie "${STRATEGIE}" gibt es für diesen Archetyp nicht, Suche wie gewohnt`);
+  }
   /*
    * Die Suchphase laeuft mit wenigen Laeufen UND verkuerzter Karriere: Welche
    * Strategie vorn liegt, steht deutlich frueher fest als die Endzahlen. Die
@@ -475,7 +509,7 @@ async function verlauf(laeufe, tage) {
   const LAEUFE = Number(process.argv[2] || 30);
   const TAGE = Number(process.argv[3] || 730);
 
-  console.log(`\n=== Messung: ${LAEUFE} Läufe à ${TAGE} Tage, fester Würfel ===\n`);
+  console.log(`\n=== Messung: ${LAEUFE} Läufe à ${TAGE} Tage, fester Würfel${STRATEGIE ? ' (Strategie festgelegt)' : ''} ===\n`);
 
   console.log('  nur Creator');
   const a = await archetyp('creator', false, LAEUFE, TAGE);

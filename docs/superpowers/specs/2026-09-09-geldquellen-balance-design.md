@@ -1,6 +1,6 @@
 # Rangfolge der Geldquellen
 
-Stand: 2026-09-11 · Zweig `main` · **Umgesetzt** bis auf Beschluss 22 (Musik-Ereignisse, eigenes Feature)
+Stand: 2026-09-11 · Zweig `main` · **Alle 22 Beschlüsse umgesetzt** (Beschluss 22: `2026-09-11-musik-ereignisse-design.md`)
 
 ## Beschlossene Anpassungen
 
@@ -26,7 +26,7 @@ kommen aus der Messung — nicht aus Schätzungen.
 | 20 | ✅ **Eine Musikkarriere erreicht nach einem Jahr täglichen Spielens 500.000 bis 700.000 Hörer** — als Median ohne Ereignisse, die das anheben oder drücken (viraler Clip, Shitstorm). Heute gemessen: 363.900, das Wachstum steigt also um rund das 1,6-Fache. Daraus folgt bei Beschluss 19 ein Ein-Jahres-Ertrag von rund 119.000 bis 179.000/Tag, also das 1,4- bis 2,1-Fache des gebremsten Goldtransports. |
 | ~~17~~ | ~~YouTube `^0,85`~~, dann ~~`^0,99` mit Anker 500k~~. **Ersetzt durch 21.** Gemessen lag YouTube schon bei `^1,08` — das Problem war nicht die Kurve, sondern die Bremse. |
 | 21 | ✅ **Die Vermarktungsbremse fällt für alle vier Plattformen.** `monetization()` stand bei 10.000 Followern auf 6 % und machte aus den versprochenen 0,35 je Aufruf real 0,021 — ein Video brachte 27. Gedämpft wird jetzt allein über die Reichweitenkurve (`reachOf`, Exponent 0,58). Gemessen: reiner Creator 6.266 → 14.628/Tag, Musik+Creator unverändert, Faktor 6,8 → 3,0. **Umgesetzt.** |
-| 22 | **Musik bekommt eigene, schwerere Zufallsereignisse** — separat von den Creator-Ereignissen. Eigenes Feature, eigene Spec, nach Abschluss dieser Balance-Runde. |
+| 22 | ✅ **Musik bekommt eigene, schwerere Zufallsereignisse** — separat von den Creator-Ereignissen. Eigenes Feature, eigene Spec, nach Abschluss dieser Balance-Runde. |
 | 18 | ✅ **`MERCH_DAILY_CAP` wird angehoben.** Er steht auf 100.000 und würde nach der Merch-Anhebung ab etwa einer Million Followern greifen. |
 | 12 | ✅ **Wachstum beschleunigt, asymmetrisch.** Für die **Musik** gilt Beschluss 20 (500.000–700.000 Hörer nach einem Jahr, Faktor ~1,5). Für den **Creator** bleibt es bei **1 Mio Follower in ~9 Monaten** — gemessen sind heute 458.743 nach einem Jahr, nötig ist also etwa Faktor 1,8. |
 | 13 | ✅ Die **Erfolgs-Schwellen** aus der Spec vom 2026-09-08 werden gegen die neuen Raten neu gerechnet. `id` bleibt, wer einen Erfolg hat, behält ihn. |

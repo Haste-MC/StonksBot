@@ -3358,6 +3358,11 @@ function lastEventAt(guildId, userId) {
   return stmt.lastEvent.get(guildId, String(userId))?.at ?? 0;
 }
 
+/** Löscht alle Vorfälle eines Spielers – domänenübergreifend (Tests). */
+function clearEvents(guildId, userId) {
+  stmt.clearEvents.run(guildId, String(userId));
+}
+
 /** Sperrt eine Plattform bis zu einem Zeitpunkt. */
 function lockCreator(guildId, userId, platform, until) {
   stmt.lockCreator.run(until, guildId, String(userId), platform);
@@ -3420,7 +3425,7 @@ function clearCreator(guildId, userId) {
   stmt.clearCreator.run(guildId, String(userId));
   stmt.clearCreatorState.run(guildId, String(userId));
   stmt.clearDeals.run(guildId, String(userId));
-  stmt.clearEvents.run(guildId, String(userId));
+  clearEvents(guildId, userId);
 }
 
 // -------------------------------------------------------- Staatskasse
@@ -3751,7 +3756,7 @@ module.exports = {
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,
-  lastEventAt, lockCreator,
+  lastEventAt, clearEvents, lockCreator,
   insertDeal, getDeal, listDeals, activeDeal, countOffers, acceptDeal,
   setDealStatus, advanceDeal, expireOffers, dealHistory,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,

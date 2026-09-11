@@ -1,5 +1,6 @@
 const db = require('./db');
 const { DECISIONS } = require('./data/decisions');
+const { MUSIC_DECISIONS } = require('./data/musicDecisions');
 // Spät gebunden: creator.js zieht dieses Modul selbst herein (Kreis vermeiden).
 const unb = require('./unb');
 
@@ -61,7 +62,8 @@ const IGNORE_PENALTY = 1.6;
 const SEVERITY_MAX = 1.6;
 const SEVERITY_FULL = 3_000_000;
 
-const byId = new Map(DECISIONS.map((d) => [d.id, d]));
+/** Beide Kataloge in einer Map – die Zeile in der DB kennt nur die `kind`. */
+const byId = new Map([...DECISIONS, ...MUSIC_DECISIONS].map((d) => [d.id, d]));
 
 const clamp = (min, max, v) => Math.min(max, Math.max(min, v));
 
@@ -99,25 +101,147 @@ function pickOutcome(option, random = Math.random) {
 }
 
 /**
+ * Zulassung eines Musik-Vorfalls: Persona, vorhandene Titel, Vertrag.
+ *
+ * Ohne diese Prüfung träfe „Das Label will verschieben" jemanden ohne Label
+ * und „Album im Netz" jemanden ohne Album – Vorfälle ins Leere.
+ */
+function musicEligible(d, artist, contract) {
+  const r = d.requires ?? {};
+  if (r.persona && artist.persona !== r.persona) return false;
+  if (r.songs && (artist.songs ?? 0) < r.songs) return false;
+  if (r.contract && !contract) return false;
+  return true;
+}
+
+/**
  * Würfelt einen Vorfall aus. Höchstens einer gleichzeitig, und nicht öfter
  * als MIN_GAP_MS – sonst wäre der Kanal ein Katastrophengebiet.
+ *
+ * `size` ist bei Creator die Reichweite, bei Musik die Hörerzahl – dieselbe
+ * Risikokurve. Die Sperre „solange einer offen ist" gilt über beide Domänen:
+ * Wer gerade ein Creator-Drama hat, bekommt kein Musik-Drama obendrauf.
  */
-function roll(guildId, userId, reach, now = Date.now(), random = Math.random) {
+function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator') {
   if (db.openEvent(guildId, userId)) return null;
   if (now - db.lastEventAt(guildId, userId) < MIN_GAP_MS) return null;
-  if (random() >= riskFor(reach)) return null;
+  if (random() >= riskFor(size)) return null;
 
-  const possible = DECISIONS.filter((d) => reach >= d.minReach);
+  let possible;
+  if (domain === 'music') {
+    const artist = db.getArtist(guildId, userId, now);
+    const contract = db.activeContract(guildId, userId);
+    possible = MUSIC_DECISIONS.filter((d) =>
+      size >= d.minListeners && musicEligible(d, artist, contract));
+  } else {
+    possible = DECISIONS.filter((d) => size >= d.minReach);
+  }
   if (!possible.length) return null;
   const picked = possible[Math.floor(random() * possible.length)];
 
   return db.insertEvent({
     guildId, userId,
     kind: picked.id,
-    platform: picked.platform ?? '',
+    platform: domain === 'music' ? 'music' : (picked.platform ?? ''),
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
+}
+
+/**
+ * Wendet eine Musik-Wirkung an – nur auf die Künstlerzeile, nie auf Kanäle.
+ *
+ * Reihenfolge: erst alles, was synchron in die Künstlerzeile geht (§7), dann
+ * Ausrüstung, dann die erzwungene Veröffentlichung, dann das, was bucht
+ * (Vertragsbruch ODER Geld – nie beides, siehe Katalogtest, §9).
+ *
+ * Verluste werden wie beim Creator verstärkt: Härte nach Größe, × 1,6 bei
+ * Schweigen, × 2 unter Idol-Vertrag. Gewinne nicht.
+ */
+async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
+  const music = require('./music');
+  const artist = db.getArtist(guildId, userId, now);
+  const market = music.marketOf(guildId, userId);
+  const contract = music.contractOf(guildId, userId);
+  const weight = severityFor(artist.listeners)
+    * (ignored ? IGNORE_PENALTY : 1)
+    * (contract ? music.IDOL.scandalFactor : 1);
+  const scaled = (v) => (v < 0 ? v * weight : v);
+  const done = {
+    listeners: 0, songs: 0, cash: 0, hype: effect.hype ?? 0,
+    lockRelease: 0, lockShow: 0, gear: null, contract: null, published: null,
+  };
+
+  // --- Künstlerzeile: ein synchroner Schreibvorgang ---
+  const next = { ...artist };
+  if (effect.listeners) {
+    next.listeners = Math.max(0, Math.round(artist.listeners * (1 + scaled(effect.listeners))));
+    done.listeners = next.listeners - artist.listeners;
+  }
+  if (effect.songsShare) {
+    // Anteil, nicht verstärkt: mehr als „alle weg" gibt es nicht.
+    next.songs = Math.max(0, Math.round(artist.songs * (1 + Math.max(-1, effect.songsShare))));
+    done.songs = next.songs - artist.songs;
+  }
+  if (effect.hype) {
+    next.hype = clamp(music.HYPE_MIN, music.HYPE_MAX, artist.hype * effect.hype);
+  }
+  // Sperren: der Zeitstempel wird so weit vorgeschoben, dass die Restzeit
+  // genau `Tage` beträgt (remainingMs = at + Sperre − now).
+  if (effect.lockRelease) {
+    next.last_release_at = now + effect.lockRelease * DAY_MS - music.RELEASE_COOLDOWN_MIN * 60_000;
+    done.lockRelease = effect.lockRelease;
+  }
+  if (effect.lockShow) {
+    next.last_show_at = now + effect.lockShow * DAY_MS - music.SHOW_COOLDOWN_MIN * 60_000;
+    done.lockShow = effect.lockShow;
+  }
+  db.saveArtist(guildId, userId, next);
+
+  // --- Ausrüstung ---
+  if (effect.gear && db.consumeNamed(guildId, userId, music.GEAR)) done.gear = music.GEAR;
+
+  // --- Erzwungene Veröffentlichung: alles Aufgenommene, sofort ---
+  if (effect.publish) {
+    const a = db.getArtist(guildId, userId, now);
+    const type = a.songs >= 6 ? 'album' : a.songs >= 3 ? 'ep' : 'single';
+    const res = music.publish(guildId, userId, type, now, random,
+      { events: false, force: true, audience: effect.audience ?? 1 });
+    done.published = res;
+    // Das Material ist so oder so draußen – auch wenn `publish` selbst nichts
+    // mehr zu tun fand (z. B. schon 0 Titel), bleiben keine Songs übrig.
+    const after = db.getArtist(guildId, userId, now);
+    db.saveArtist(guildId, userId, { ...after, songs: 0 });
+  }
+
+  // --- Vertragsbruch: bucht die Strafe selbst (genau eine Buchung) ---
+  if (effect.contract === 'break' && contract) {
+    const res = await music.leave(guildId, userId, now);
+    if (res.ok) {
+      done.contract = res.contract;
+      done.cash = -res.penalty;
+      done.balance = res.balance;
+      // `leave` kürzt Hörer und Hype selbst (×0,9/×0,8) – das Delta muss den
+      // Effekt-Schritt oben und diesen zweiten Schritt zusammen abbilden.
+      const after = db.getArtist(guildId, userId, now);
+      done.listeners = after.listeners - artist.listeners;
+    }
+  }
+
+  // --- Geld: in Tagen Tantiemen, genau eine Buchung ---
+  if (effect.cash) {
+    const perDay = music.royaltyPerDay(artist.listeners, market);
+    const days = effect.cash < 0 ? scaled(effect.cash) : effect.cash;
+    const amount = require('./perks').payout(guildId, userId, Math.round(days * perDay));
+    if (amount !== 0) {
+      const title = decision(row.kind)?.title ?? 'Vorfall';
+      done.cash = amount;
+      done.balance = await changeCash(guildId, userId, amount, `Vorfall: ${title}`)
+        .catch(() => null);
+    }
+  }
+
+  return done;
 }
 
 /**
@@ -126,7 +250,9 @@ function roll(guildId, userId, reach, now = Date.now(), random = Math.random) {
  * Alles Zustandsbehaftete wird **vor** der Geldbuchung geschrieben (§7), und
  * gebucht wird genau einmal (§9).
  */
-async function apply(guildId, userId, row, effect, now = Date.now(), ignored = false) {
+async function apply(guildId, userId, row, effect, now = Date.now(), ignored = false,
+  random = Math.random) {
+  if (row.platform === 'music') return applyMusic(guildId, userId, row, effect, now, ignored, random);
   const creator = require('./creator');
   const rows = db.allCreator(guildId, userId);
   const reach = rows.reduce((s, r) => s + r.followers, 0);
@@ -258,7 +384,7 @@ async function choose(guildId, userId, eventId, optionId, now = Date.now(), rand
   });
   if (!closed) return { ok: false, reason: 'gone', row };
 
-  const done = await apply(guildId, userId, row, outcome, now);
+  const done = await apply(guildId, userId, row, outcome, now, false, random);
   return { ok: true, decision: d, option, outcome, effect: done };
 }
 
@@ -306,9 +432,9 @@ function history(guildId, userId, limit = 5) {
 }
 
 module.exports = {
-  DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
+  DECISIONS, MUSIC_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
   SEVERITY_MAX, SEVERITY_FULL,
   IGNORE_PENALTY,
-  decision, riskFor, severityFor, scaleMoney, pickOutcome,
-  roll, apply, choose, expire, settle, pending, history,
+  decision, riskFor, severityFor, scaleMoney, pickOutcome, musicEligible,
+  roll, apply, applyMusic, choose, expire, settle, pending, history,
 };

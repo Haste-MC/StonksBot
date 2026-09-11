@@ -58,7 +58,8 @@ gewichtete Liste mit einem `none`-Eintrag, `on` schränkt auf Aktionen ein,
 ### Die Liste
 
 `none` hat Gewicht **110**, wie beim Creator. Damit liegt die Ereignisquote je
-Aktion bei rund einem Viertel – gemessen beim Creator: 23 %.
+Aktion bei 15–17 % (Pop) – niedriger als beim Creator, dessen Ereignisliste je
+Plattform 45–58 Gewicht gegen dieselben 110 stellt.
 
 | Aktion | id | Gewicht | risky | Wirkung | Text (Kurzform) |
 |---|---|---|---|---|---|

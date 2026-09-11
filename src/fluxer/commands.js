@@ -108,6 +108,7 @@ const COMMANDS = [
       const music = require('../music');
       await music.settle(guildId, userId).catch(() => null);
       music.settleContracts(guildId, userId);
+      await require('../decisions').settle(guildId, userId).catch(() => []);
       return { view: await ui.buildMusicView({ guildId, userId }) };
     },
   },

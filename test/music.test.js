@@ -52,16 +52,19 @@ async function player(land, sprache, genre, persona) {
   return U;
 }
 
+// Ereignisse sind hier aus – dieser Test prüft das Gleichgewicht ohne Zufall;
+// die Ereignisse prüft test/musicEvents.test.js.
+
 /** Fährt eine Karriere: täglich Studio + Release, wenn möglich. */
 async function career(U, days, { sign = false, shows = true, start } = {}) {
   let now = start ?? new Date(new Date().setHours(6, 0, 0, 0)).getTime();
   let signed = false;
   let signedDay = null;
   for (let d = 0; d < days; d++) {
-    music.record(G, U, now);
+    music.record(G, U, now, Math.random, { events: false });
     const s = music.status(G, U, now + 1e6);
     if (s.songs >= 1 && s.releaseMs <= 0) {
-      music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 3.6e6);
+      music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 3.6e6, Math.random, { events: false });
     }
     const s2 = music.status(G, U, now + 4e6);
     if (sign && s2.offer && !signed) {
@@ -69,7 +72,7 @@ async function career(U, days, { sign = false, shows = true, start } = {}) {
       signed = true; signedDay = d;
     }
     if (shows && s2.showMs <= 0 && s2.listeners >= music.SHOW_MIN_LISTENERS) {
-      await music.show(G, U, now + 6e6);
+      await music.show(G, U, now + 6e6, Math.random, { events: false });
     }
     await music.settle(G, U, now + 7e6);
     music.settleContracts(G, U, now + 7.2e6);
@@ -207,17 +210,17 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
     const t0 = new Date(new Date().setHours(7, 0, 0, 0)).getTime();
 
     check('ohne Titel keine Veröffentlichung',
-      music.publish(G, U, 'single', t0).reason === 'no_songs');
+      music.publish(G, U, 'single', t0, Math.random, { events: false }).reason === 'no_songs');
 
-    const rec = music.record(G, U, t0);
+    const rec = music.record(G, U, t0, Math.random, { events: false });
     check('eine Session bringt einen Titel', rec.ok && rec.songs === 1, rec.reason ?? '');
     check('sie kostet Zeit aus dem gemeinsamen Budget',
       creator.budget(G, U, t0).used === music.RECORD_TIME,
       String(creator.budget(G, U, t0).used));
     check('sofort nochmal geht nicht',
-      music.record(G, U, t0 + 1000).reason === 'cooldown');
+      music.record(G, U, t0 + 1000, Math.random, { events: false }).reason === 'cooldown');
 
-    const pub = music.publish(G, U, 'single', t0 + 60_000);
+    const pub = music.publish(G, U, 'single', t0 + 60_000, Math.random, { events: false });
     check('mit Titel klappt die Veröffentlichung', pub.ok === true, pub.reason ?? '');
     check('sie verbraucht den Titel', music.status(G, U).songs === 0);
     check('und bringt Hörer', pub.listeners > 0, String(pub.listeners));
@@ -225,7 +228,7 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       music.release('album').songs > music.release('single').songs);
 
     check('ohne Hörer kein Konzert',
-      (await music.show(G, U, t0 + 120_000)).reason === 'too_small');
+      (await music.show(G, U, t0 + 120_000, Math.random, { events: false })).reason === 'too_small');
 
     // Ein großer Künstler kann spielen.
     const row = db.getArtist(G, U);
@@ -233,7 +236,7 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
     // Am nächsten Tag: Studio und Release haben das heutige Budget verbraucht.
     const t1 = t0 + DAY_MS;
     cash = 0; bookings = 0;
-    const show = await music.show(G, U, t1);
+    const show = await music.show(G, U, t1, Math.random, { events: false });
     check('ein Konzert zahlt sofort', show.ok && show.amount > 0, de(show.amount ?? 0));
     check('und genau einmal (§9)', bookings === 1, String(bookings));
     check('es bindet Hörer', show.gained > 0);
@@ -458,10 +461,10 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
         return ((x ^ (x >>> 14)) >>> 0) / 4294967296;
       };
     };
-    music.record(G, MIT, t, wuerfel());
-    music.record(G, OHNE, t, wuerfel());
-    const a = music.publish(G, MIT, 'single', t + 3.6e6, wuerfel());
-    const b = music.publish(G, OHNE, 'single', t + 3.6e6, wuerfel());
+    music.record(G, MIT, t, wuerfel(), { events: false });
+    music.record(G, OHNE, t, wuerfel(), { events: false });
+    const a = music.publish(G, MIT, 'single', t + 3.6e6, wuerfel(), { events: false });
+    const b = music.publish(G, OHNE, 'single', t + 3.6e6, wuerfel(), { events: false });
     check('beide Veröffentlichungen gingen durch', a.ok && b.ok,
       `${a.reason ?? 'ok'} / ${b.reason ?? 'ok'}`);
     check('gleiche Reichweite trotz riesiger Kanäle',

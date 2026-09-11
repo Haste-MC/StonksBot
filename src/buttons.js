@@ -192,6 +192,14 @@ async function settleCreator(guildId, userId) {
   return lines.length ? lines.join('\n') : null;
 }
 
+/** Hinweiszeile, wenn eine Musik-Aktion einen Vorfall ausgelöst hat. */
+function incidentNote(incident) {
+  if (!incident) return '';
+  const d = require('./decisions').decision(incident.kind);
+  return `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+    'du musst dich entscheiden (⚠️ Vorfall).';
+}
+
 /**
  * Rechnet die laufenden Tantiemen ab und beendet abgelaufene Verträge.
  * Läuft beim Öffnen des Studios (faule Abrechnung, §4).
@@ -207,6 +215,14 @@ async function settleMusic(guildId, userId) {
       `${royalties.streams.toLocaleString('de-DE')} Abrufe` +
       (royalties.cut > 0 ? ` _(nach ${money(symbol, royalties.cut)} Agenturanteil)_` : '') +
       '.');
+  }
+
+  // Abgelaufene Vorfälle wirken jetzt – sonst bliebe ein Musik-Vorfall für
+  // jemanden, der die Creator-Seite nie öffnet, ewig offen und blockierte
+  // jeden weiteren.
+  for (const gone of await require('./decisions').settle(guildId, userId).catch(() => [])) {
+    lines.push(`⚠️ **${gone.decision.emoji} ${gone.decision.title}** – du hast nicht ` +
+      `reagiert.\n_${gone.outcome.text}_`);
   }
 
   const contract = music.settleContracts(guildId, userId);
@@ -395,10 +411,14 @@ const buttons = {
 
     // Vor dem Anzeigen abrechnen, damit Stellplätze und Mietstatus stimmen.
     const settled = RENT_RELEVANT.has(entryId) ? await settle(interaction) : null;
+    // Das Studio rechnet Tantiemen, Verträge und verfallene Vorfälle ab (§4) –
+    // derselbe Weg wie über den Knopf `musik` und den Befehl /musik.
+    const studio = entryId === 'musik'
+      ? await settleMusic(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, nudge].filter(Boolean).join('\n\n') || null;
+    const notice = [news, settled, studio, nudge].filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1745,6 +1765,9 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    // §4 faule Abrechnung: der Verfall läuft, wenn gehandelt wird, nicht nur
+    // beim Öffnen – sonst blockierte ein liegengebliebener Vorfall den Wurf.
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = music.record(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1766,6 +1789,9 @@ Object.assign(buttons, {
     } else {
       note = `🎙️ _${res.text}_\n**${res.songs}** ${res.songs === 1 ? 'Titel' : 'Titel'} ` +
         `im Kasten${res.quality > 1.2 ? ' – und der hier sitzt.' : '.'}`;
+      if (res.event) note += `\n${res.event.text}`;
+      if (res.event?.id === 'equipment') note += `\n💥 Dein **${music.GEAR}** ist hin (🧰 Ausrüstung).`;
+      note += incidentNote(res.incident);
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -1786,6 +1812,7 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = music.publish(guildId, userId, typeId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1817,6 +1844,8 @@ Object.assign(buttons, {
       if (res.offer) {
         note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
       }
+      if (res.event) note += `\n${res.event.text}`;
+      note += incidentNote(res.incident);
       note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -1830,6 +1859,7 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = await music.show(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1844,11 +1874,15 @@ Object.assign(buttons, {
       } else if (res.reason === 'no_time') {
         note = `😴 Ein Konzert kostet **${res.need}** Zeit, übrig sind **${res.left}**.`;
       } else note = '🎤 Starte zuerst deine Karriere.';
+    } else if (res.cancelled) {
+      note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
     } else {
       note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
         (res.cut > 0 ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : '') +
         `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
+      if (res.event) note += `\n${res.event.text}`;
     }
+    if (res.ok) note += incidentNote(res.incident);
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -2089,6 +2123,18 @@ Object.assign(buttons, {
       if (e.locked?.length) {
         parts.push(`⛔ gesperrt: ${e.locked.map((id) =>
           require('./creator').platform(id)?.name ?? id).join(', ')}`);
+      }
+      // Musik-Wirkungen (applyMusic) – die Felder gibt es nur dort.
+      if (e.listeners) {
+        parts.push(`${e.listeners > 0 ? '👂 +' : '📉 '}${e.listeners.toLocaleString('de-DE')} Hörer`);
+      }
+      if (e.songs) parts.push(`${e.songs > 0 ? '🎼 +' : '🗑️ '}${e.songs} Titel`);
+      if (e.lockRelease) parts.push(`⛔ ${e.lockRelease} Tage kein Release`);
+      if (e.lockShow) parts.push(`⛔ ${e.lockShow} Tage kein Konzert`);
+      if (e.contract) parts.push(`📜 Vertrag mit ${e.contract.agency} geplatzt`);
+      if (e.published?.ok) {
+        parts.push(`💿 ${e.published.release.name} draußen, ` +
+          `${e.published.audience.toLocaleString('de-DE')} haben reingehört`);
       }
 
       note = `${res.decision.emoji} **${res.option.label}**\n_${res.outcome.text}_` +
@@ -2389,5 +2435,5 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge,
+  homeNudge, settleMusic,
 };

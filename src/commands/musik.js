@@ -1,6 +1,5 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const ui = require('../ui');
-const music = require('../music');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -11,10 +10,13 @@ module.exports = {
     await interaction.deferReply();
     const ctx = { guildId: interaction.guildId, userId: interaction.user.id };
 
-    // Beim Öffnen laufen Tantiemen und Vertragsfristen mit (§4).
-    await music.settle(ctx.guildId, ctx.userId).catch(() => null);
-    music.settleContracts(ctx.guildId, ctx.userId);
+    // Beim Öffnen laufen Tantiemen, Vertragsfristen und der Verfall offener
+    // Vorfälle mit (§4) – dieselbe Abrechnung wie über den Knopf.
+    const note = await require('../buttons').settleMusic(ctx.guildId, ctx.userId);
 
-    return interaction.editReply(await ui.buildMusicView(ctx));
+    await interaction.editReply(await ui.buildMusicView(ctx));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
   },
 };

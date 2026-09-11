@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.29.0',
+    date: '2026-09-11',
+    title: '🎲 Die Musik wird unberechenbar',
+    lines: [
+      '🎵 **Zwölf Ereignisse im Studio, beim Release und auf der Bühne.** Ein Flow bringt zwei Songs, ein Hit verdreifacht das Publikum, ein Flop lässt es verpuffen, ein abgesagtes Konzert kostet die Zeit ohne Gage. Etwa jede sechste Aktion trifft eines.',
+      '🎸 **Das Genre-Risiko zählt jetzt.** Hip-Hop zieht Pannen 1,3-mal so oft an wie Pop, Klassik halb so oft – die Zahl stand schon immer im Genre, jetzt tut sie etwas.',
+      '⚠️ **Fünf Vorfälle mit Entscheidung:** Plagiatsvorwurf, ein altes Video (nur mit Gesicht), Stimme weg vor der Tour, Album im Netz, das Label will verschieben (nur mit Vertrag). Wer nicht reagiert, fährt schlechter – wie bei den Creator-Vorfällen. Zu finden unter ⚠️ Vorfall, auch direkt aus dem Studio.',
+      '📏 **Gemessen, nicht geschätzt:** Ein Jahr durchgehend spielen bringt weiter 500.000–700.000 Hörer. Mit Ereignissen liegt der Hörer-Median rund 10 % darunter.',
+    ],
+  },
+  {
     version: '1.28.0',
     date: '2026-09-11',
     title: '⚖️ Die große Balance-Runde',
