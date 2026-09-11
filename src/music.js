@@ -407,7 +407,7 @@ function record(guildId, userId, now = Date.now(), random = Math.random) {
  */
 function simulateRelease(state, {
   type, genre: g, persona: p, market, idol = null,
-  idleDays: idle = 0, random = Math.random,
+  idleDays: idle = 0, random = Math.random, audienceFactor = 1,
 }) {
   // 1. Was die Pause gekostet hat.
   const keep = idle > 0
@@ -418,7 +418,7 @@ function simulateRelease(state, {
   // 2. Wen die Veröffentlichung erreicht.
   const roll = 0.6 + random() * 0.9;
   const audience = Math.max(1, Math.round(
-    reachOf(startListeners, market) * roll * state.hype * g.reach * type.spike));
+    reachOf(startListeners, market) * roll * state.hype * g.reach * type.spike * audienceFactor));
 
   /*
    * 3. Hörer. Zwei Beschleuniger – Agenturschub und Sprachtempo – wirken auf
@@ -448,7 +448,8 @@ function simulateRelease(state, {
  * Veröffentlichen. Verbraucht aufgenommene Titel, bringt Hörer und einen
  * Schub an Abrufen – und manchmal eine Chartplatzierung.
  */
-function publish(guildId, userId, typeId, now = Date.now(), random = Math.random) {
+function publish(guildId, userId, typeId, now = Date.now(), random = Math.random,
+  { events = true, force = false, audience: audienceFactor = 1 } = {}) {
   const type = release(typeId);
   if (!type) return { ok: false, reason: 'unknown_release' };
 
@@ -458,10 +459,12 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     return { ok: false, reason: 'no_songs', need: type.songs, have: row.songs, release: type };
   }
 
-  const left = remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now);
+  // `force`: eine erzwungene Veröffentlichung (Vorfall „Album im Netz") kennt
+  // weder Sperre noch Zeitbudget – das Material ist ohnehin schon draußen.
+  const left = force ? 0 : remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, release: type };
 
-  const time = useTime(guildId, userId, type.time, now);
+  const time = force ? { ok: true, forced: true } : useTime(guildId, userId, type.time, now);
   if (!time.ok) return { ok: false, reason: 'no_time', need: type.time, release: type, ...time };
 
   const market = marketOf(guildId, userId);
@@ -473,6 +476,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const sim = simulateRelease(row, {
     type, genre: g, persona: p, market, idol,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
+    audienceFactor,
   });
 
   const { audience, gained, lost, listeners, buzz, position } = sim;
@@ -510,6 +514,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   return {
     ok: true, release: type, genre: g, persona: p,
     audience, gained, lost, lostToIdle: sim.lostToIdle,
+    audienceFactor,
     listeners: Math.round(listeners), listenersBefore: row.listeners,
     buzz, position: charted ? position : 0, best,
     spill, spilled, offer, time,
