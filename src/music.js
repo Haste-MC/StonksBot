@@ -388,7 +388,7 @@ function rollMusicEvent(action, g, random = Math.random) {
  * Kostet Zeit aus dem gemeinsamen Tagesbudget – wer aufnimmt, streamt heute
  * nicht mehr viel.
  */
-function record(guildId, userId, now = Date.now(), random = Math.random) {
+function record(guildId, userId, now = Date.now(), random = Math.random, { events = true } = {}) {
   const row = db.getArtist(guildId, userId, now);
   if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
   if (!hasGear(guildId, userId)) {
@@ -401,19 +401,31 @@ function record(guildId, userId, now = Date.now(), random = Math.random) {
   const time = useTime(guildId, userId, RECORD_TIME, now);
   if (!time.ok) return { ok: false, reason: 'no_time', need: RECORD_TIME, ...time };
 
+  // Der Ereigniswürfel ist der ERSTE random()-Aufruf – so lässt sich ein
+  // Ereignis im Test mit einer festen Zahlenfolge erzwingen.
+  const g = genre(row.genre);
+  const event = events ? rollMusicEvent('record', g, random) : NO_EVENT;
   const quality = 0.7 + random() * 0.7;
+  const songs = row.songs + (event.songs ?? 1);
   db.saveArtist(guildId, userId, {
     ...row,
-    songs: row.songs + 1,
-    hype: clamp(HYPE_MIN, HYPE_MAX, row.hype * 0.85 + quality * 0.15),
+    songs,
+    hype: clamp(HYPE_MIN, HYPE_MAX, (row.hype * 0.85 + quality * 0.15) * (event.hype ?? 1)),
     last_action_at: now, last_record_at: now, touched_at: now,
   });
+  if (event.breaks) db.consumeNamed(guildId, userId, GEAR);
 
   // Zählt für den Titel im Profil – ein Song ist Arbeit, auch ohne Buchung.
   require('./activity').record(guildId, userId, 'music', now);
 
+  // … und ob heute etwas passiert, das eine Entscheidung verlangt (§8: spät gebunden).
+  const incident = events
+    ? require('./decisions').roll(guildId, userId, row.listeners, now, random, 'music') : null;
+
   return {
-    ok: true, songs: row.songs + 1, quality,
+    ok: true, songs, quality,
+    event: event.id === 'none' ? null : { id: event.id, text: event.text },
+    incident,
     text: pick(data.STUDIO, random), time,
   };
 }
@@ -492,10 +504,13 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const contract = db.activeContract(guildId, userId);
   const idol = contract ? data.IDOL : null;
 
+  // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
+  const event = events ? rollMusicEvent('publish', g, random) : NO_EVENT;
+
   const sim = simulateRelease(row, {
     type, genre: g, persona: p, market, idol,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
-    audienceFactor,
+    audienceFactor: audienceFactor * (event.audience ?? 1),
   });
 
   const { audience, gained, lost, listeners, buzz, position } = sim;
@@ -511,7 +526,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     buzz,
     best_chart: best,
     peak_listeners: Math.max(row.peak_listeners, Math.round(listeners)),
-    hype: sim.hype,
+    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1)),
     last_action_at: now, last_release_at: now, touched_at: now,
     paid_through: row.paid_through || now,
   });
@@ -528,6 +543,9 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   // 7. Klopft eine Agentur an?
   const offer = rollContract(guildId, userId, listeners, market, now, random);
 
+  const incident = events
+    ? require('./decisions').roll(guildId, userId, listeners, now, random, 'music') : null;
+
   require('./activity').record(guildId, userId, 'music', now);
 
   return {
@@ -537,6 +555,8 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     listeners: Math.round(listeners), listenersBefore: row.listeners,
     buzz, position: charted ? position : 0, best,
     spill, spilled, offer, time,
+    event: event.id === 'none' ? null : { id: event.id, text: event.text },
+    incident,
     songsLeft: row.songs - type.songs,
     text: charted
       ? pick(data.CHART_NEWS, random).replace('{platz}', String(position))
@@ -548,7 +568,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
  * Ein Konzert. Zahlt sofort und richtig – aber nur, wer genug Hörer hat,
  * bekommt eine Halle voll.
  */
-async function show(guildId, userId, now = Date.now(), random = Math.random) {
+async function show(guildId, userId, now = Date.now(), random = Math.random, { events = true } = {}) {
   const row = db.getArtist(guildId, userId, now);
   if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
 
@@ -572,32 +592,44 @@ async function show(guildId, userId, now = Date.now(), random = Math.random) {
   const contract = db.activeContract(guildId, userId);
   const idol = contract ? data.IDOL : null;
 
+  // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
+  const event = events ? rollMusicEvent('show', g, random) : NO_EVENT;
   const quality = 0.75 + random() * 0.6;
   const gross = Math.round(
     Math.pow(before.listeners, SHOW_EXP) * SHOW_PAY
     * market.scene * market.deal * g.live * p.live * quality
-    * (idol ? idol.liveBonus : 1));
+    * (idol ? idol.liveBonus : 1)
+    * (event.pay ?? 1));
 
   // Ein Konzert bindet: Wer live gesehen hat, bleibt eher.
-  const gained = Math.round(before.listeners * 0.02 * quality);
+  const gained = Math.round(before.listeners * 0.02 * quality * (event.gain ?? 1));
+  const cancelled = (event.pay ?? 1) === 0;
 
   db.saveArtist(guildId, userId, {
     ...row,
-    shows: row.shows + 1,
+    shows: row.shows + (cancelled ? 0 : 1),
     listeners: before.listeners + gained,
     peak_listeners: Math.max(row.peak_listeners, Math.round(before.listeners + gained)),
-    hype: clamp(HYPE_MIN, HYPE_MAX, row.hype * 0.8 + quality * 0.3),
+    hype: clamp(HYPE_MIN, HYPE_MAX, (row.hype * 0.8 + quality * 0.3) * (event.hype ?? 1)),
     last_action_at: now, last_show_at: now, touched_at: now,
   });
 
+  const incident = events
+    ? require('./decisions').roll(guildId, userId, before.listeners + gained, now, random, 'music')
+    : null;
+
   const cut = idol ? Math.round(gross * idol.cut) : 0;
   // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
-  const net = require('./perks').payout(guildId, userId, gross - cut);
-  const balance = await changeCash(
-    guildId, userId, net, `Konzert: ${g.name}`, { kind: 'music' });
+  const net = cancelled ? 0 : require('./perks').payout(guildId, userId, gross - cut);
+  // Bei 0 wird nicht gebucht: Die UnbelievaBoat-API lehnt Nulländerungen ab.
+  const balance = net !== 0
+    ? await changeCash(guildId, userId, net, `Konzert: ${g.name}`, { kind: 'music' })
+    : null;
 
   return {
     ok: true, gross, cut, amount: net, gained, quality, genre: g,
+    event: event.id === 'none' ? null : { id: event.id, text: event.text },
+    incident,
     text: pick(data.SHOWS, random), balance, time,
     listeners: Math.round(before.listeners + gained),
   };
@@ -798,6 +830,8 @@ function status(guildId, userId, now = Date.now()) {
     releaseMs: remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now),
     showMs: remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now),
     hasGear: hasGear(guildId, userId),
+    // Der offene Vorfall – egal welcher Domäne: Beide blockieren die Musik.
+    incident: require('./decisions').pending(guildId, userId, now),
   };
 }
 

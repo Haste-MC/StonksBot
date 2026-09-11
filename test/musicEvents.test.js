@@ -443,6 +443,112 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       && candidates('record', 1.3).find((c) => c.event.id === 'flow').weight === 7);
   }
 
+  /** Zufallszahl, die bei dieser Aktion und diesem Genre genau `id` trifft. */
+  function forceValue(action, g, id) {
+    const list = candidates(action, g.risk);
+    const total = list.reduce((s, c) => s + c.weight, 0);
+    let before = 0;
+    for (const c of list) {
+      if (c.event.id === id) return (before + c.weight / 2) / total;
+      before += c.weight;
+    }
+    throw new Error(`kein Ereignis ${id} bei ${action}`);
+  }
+  const pop = music.genre('pop');
+
+  console.log('\n--- Jede leichte Wirkung landet im Zustand ---');
+  {
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+
+    // Studio
+    {
+      const U = await artist({ listeners: 50_000 });
+      // Ein Studio-Tag kostet 3 von 8 Zeiteinheiten, das Budget gilt je
+      // Kalendertag – deshalb ein Tag Abstand zwischen den Sessions.
+      const tag = (k) => t0 + k * DAY_MS;
+      let r = music.record(G, U, tag(0), seq(forceValue('record', pop, 'flow')));
+      check('flow: zwei Songs', r.ok && r.songs === 2 && r.event?.id === 'flow', JSON.stringify(r.event ?? r));
+      r = music.record(G, U, tag(1), seq(forceValue('record', pop, 'aufnahme')));
+      check('aufnahme: kein Song, aber Zeit verbraucht',
+        r.ok && r.songs === 2 && r.event?.id === 'aufnahme' && r.time.ok, JSON.stringify(r.event ?? r));
+      const budgetVor = music.status(G, U, tag(2)).budget.left;
+      r = music.record(G, U, tag(2), seq(forceValue('record', pop, 'equipment')));
+      check('equipment: Setup weg, kein Song', r.ok && r.songs === 2 && !gear(U) && r.event?.id === 'equipment');
+      check('… und die Zeit ist weg', music.status(G, U, tag(2)).budget.left === budgetVor - music.RECORD_TIME);
+      refill(U);
+      r = music.record(G, U, tag(3), seq(forceValue('record', pop, 'geistesblitz')));
+      const hypeNach = db.getArtist(G, U).hype;
+      // Kein `songs`-Schlüssel am Geistesblitz: Der Song entsteht wie immer.
+      check('geistesblitz: Hype gestiegen, ein Song',
+        r.ok && r.event?.id === 'geistesblitz' && hypeNach > 1 && r.songs === 3, JSON.stringify(r.event ?? r));
+      r = music.record(G, U, tag(4), seq(forceValue('record', pop, 'none')));
+      check('none: ein Song, kein Ereignis', r.ok && r.songs === 4 && r.event === null, JSON.stringify(r.event ?? r));
+      r = music.record(G, U, tag(5), seq(forceValue('record', pop, 'flow')), { events: false });
+      check('events:false – kein Würfel, ein Song', r.ok && r.songs === 5 && r.event === null, JSON.stringify(r.event ?? r));
+    }
+
+    // Release: hit verdreifacht das Publikum gegenüber none bei gleichem Rest-Würfel.
+    {
+      const A = await artist({ listeners: 50_000, songs: 1 });
+      const B = await artist({ listeners: 50_000, songs: 1 });
+      const ra = music.publish(G, A, 'single', t0, seq(forceValue('publish', pop, 'none'), 0.5));
+      const rb = music.publish(G, B, 'single', t0, seq(forceValue('publish', pop, 'hit'), 0.5));
+      check('hit: Publikum × 3', ra.ok && rb.ok && rb.event?.id === 'hit'
+        && Math.abs(rb.audience / ra.audience - 3) < 0.01, `${ra.audience} -> ${rb.audience}`);
+      check('hit: Hype × 1,25 zusätzlich',
+        Math.abs(db.getArtist(G, B).hype - Math.min(music.HYPE_MAX, db.getArtist(G, A).hype * 1.25)) < 1e-9);
+      const C = await artist({ listeners: 50_000, songs: 1 });
+      const rc = music.publish(G, C, 'single', t0, seq(forceValue('publish', pop, 'flop'), 0.5));
+      check('flop: Publikum × 0,4', rc.ok && Math.abs(rc.audience / ra.audience - 0.4) < 0.01,
+        `${ra.audience} -> ${rc.audience}`);
+    }
+
+    // Konzert
+    {
+      const A = await artist({ listeners: 50_000 });
+      const B = await artist({ listeners: 50_000 });
+      cash = 0; bookings = 0;
+      const ra = await music.show(G, A, t0, seq(forceValue('show', pop, 'none'), 0.5));
+      const geldA = cash;
+      cash = 0; bookings = 0;
+      const rb = await music.show(G, B, t0, seq(forceValue('show', pop, 'ausverkauft'), 0.5));
+      check('ausverkauft: Gage × 1,6', ra.ok && rb.ok && Math.abs(rb.gross / ra.gross - 1.6) < 0.01,
+        `${ra.gross} -> ${rb.gross}`);
+      check('ausverkauft: neue Hörer × 1,5', Math.abs(rb.gained / ra.gained - 1.5) < 0.05,
+        `${ra.gained} -> ${rb.gained}`);
+      check('… gebucht wurde die Gage', cash === rb.amount && bookings === 1);
+
+      const D = await artist({ listeners: 50_000 });
+      cash = 0; bookings = 0;
+      const showsVor = db.getArtist(G, D).shows;
+      const rd = await music.show(G, D, t0, seq(forceValue('show', pop, 'abgesagt'), 0.5));
+      check('abgesagt: keine Buchung (§ Nullbuchung)', rd.ok && rd.amount === 0 && bookings === 0,
+        `${bookings} Buchungen, amount ${rd.amount}`);
+      check('abgesagt: keine neuen Hörer, kein gezähltes Konzert',
+        rd.gained === 0 && db.getArtist(G, D).shows === showsVor);
+      check('abgesagt: Sperre und Zeit trotzdem verbraucht',
+        music.status(G, D, t0 + 1).showMs > 0 && rd.time.ok);
+    }
+  }
+
+  console.log('\n--- Der Vorfall ist auffindbar ---');
+  {
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    const U = await artist({ listeners: 100_000, songs: 3 });
+    check('ohne Vorfall: status().incident ist null', music.status(G, U, t0).incident === null);
+    // Der Vorfall-Würfel ist der letzte random()-Aufruf: erst Ereignis (none),
+    // dann Qualität, dann Vorfall (0 → trifft) und Auswahl (0 → erster).
+    const r = music.record(G, U, t0, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
+    check('eine Aktion kann einen Vorfall auslösen', r.ok && r.incident?.platform === 'music',
+      JSON.stringify(r.incident));
+    const s = music.status(G, U, t0 + 1);
+    check('status().incident zeigt ihn mit Vorlage', s.incident?.decision?.id === r.incident.kind);
+    const r2 = music.record(G, U, t0 + 7 * 3600e3, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
+    check('solange einer offen ist, kommt kein zweiter', r2.ok && r2.incident === null);
+    await decisions.choose(G, U, r.incident.id, s.incident.decision.options[0].id, t0 + 2, () => 0.5);
+    check('danach ist incident wieder null', music.status(G, U, t0 + 3).incident === null);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
