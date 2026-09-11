@@ -45,6 +45,23 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Zeitbudget pro Tag. Ein Stream kostet 2, ein Video 3, ein Post 1. */
 const TIME_PER_DAY = 8;
 
+/**
+ * Wie schnell die Kanaele wachsen – EIN Regler statt vier Plattformwerten.
+ *
+ * Ziel: eine Million Follower nach neun Monaten taeglichen Spielens. Der Wert
+ * wird gemessen, nicht geraten (scripts/messung-geldquellen.js); die Zahl
+ * hier ist das Ergebnis der Kalibrierung, siehe Kommentar am Wert.
+ */
+/*
+ * Gemessen (3 Laeufe, fester Wuerfel, 270 Tage):
+ *   1,0 -> 424.585 Follower nach 365 Tagen (Ausgangslage)
+ *   2,0 ->   949.554        2,1 -> 956.253        2,2 -> 1.293.032
+ * Mit 2,1 faellt die Million um Tag 278 - neun Monate und eine Woche.
+ * 2,2 ueberschiesst um fast ein Drittel. Die Antwort ist nicht linear, weil
+ * die beste Spielweise mit den Followern mitwandert.
+ */
+const GROWTH = 2.1;
+
 /** Wie stark fremde Reichweite in die eigene hineinzählt. */
 const SPILL = 0.25;
 
@@ -426,7 +443,7 @@ function simulate(state, p, fmt, ctx = {}) {
    */
   const poolShift = Math.pow(Math.max(0.05, market.pool), -(1 - p.exp));
   const churnPerAction = p.churnPerAction * market.speed * poolShift;
-  const followRate = p.follow * market.speed;
+  const followRate = p.follow * market.speed * GROWTH;
 
   // 1. Was die Pause gekostet hat – abgefedert durch die Community.
   const dayLoss = p.churnPerDay * churnFactor(community) * market.speed;

@@ -356,8 +356,16 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
       growth(300, 600) < growth(150, 300) && growth(600, 1200) < growth(300, 600),
       `150→300: ${growth(150, 300).toFixed(2)} · 300→600: ${growth(300, 600).toFixed(2)} ` +
       `· 600→1200: ${growth(600, 1200).toFixed(2)}`);
+    /*
+     * Die Obergrenze ist eine Folge des Wachstumsziels, kein Naturgesetz: Mit
+     * GROWTH = 1 lag sie bei 15 Mio Followern. Seit die Million nach neun
+     * Monaten fallen soll (GROWTH 2,1), sind es nach dreieinhalb Jahren
+     * Vollzeitspiel rund 30 Mio. Entscheidend fuer §3 ist die Pruefung
+     * darueber - dass jede Verdopplung der Spielzeit weniger bringt als die
+     * vorige. Die bleibt bestehen; diese Zahl hier ist nur die Leitplanke.
+     */
     check('auch nach über drei Jahren bleibt alles im Rahmen',
-      quantile(at[1200], 0.99) < 20_000_000 && quantile(perDay, 0.95) < 1_000_000,
+      quantile(at[1200], 0.99) < 40_000_000 && quantile(perDay, 0.95) < 1_000_000,
       `${de(quantile(at[1200], 0.99))} Follower · ${de(quantile(perDay, 0.95))} pro Tag`);
     console.log(`     ℹ️  Reichweite: ` + MARKS.map((k) => `Tag ${k}: ${de(m[k])}`).join(' · '));
     console.log(`     ℹ️  Einnahmen am Ende: ${de(median(perDay))} pro Tag`);

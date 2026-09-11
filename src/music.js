@@ -43,7 +43,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Hörer, die ein Release ohne jede Fanbasis erreicht. */
 const BASE_REACH = 40;
-const REACH_K = 3.5;
+/*
+ * Gemessen, nicht geraten: Mit 3,5 erreichte eine taeglich gespielte
+ * Karriere nach einem Jahr 345.669 Hoerer, mit 5,0 waren es 692.981. Das
+ * Ziel sind 500.000 bis 700.000 - 4,5 trifft mit 577.022 die Mitte.
+ * (scripts/messung-geldquellen.js, 3 Laeufe, fester Wuerfel)
+ */
+const REACH_K = 4.5;
 const REACH_EXP = 0.60;
 
 /**
