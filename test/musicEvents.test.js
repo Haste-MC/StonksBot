@@ -556,6 +556,31 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     check('danach ist incident wieder null', music.status(G, U, t0 + 3).incident === null);
   }
 
+  console.log('\n--- Ein verfallener Vorfall blockiert den nächsten Wurf nicht ---');
+  {
+    // Wer den Vorfall liegen lässt, darf nicht ewig verschont bleiben: der
+    // Verfall läuft vor jeder Aktion (buttons: mstudio/mpub/mshow), und danach
+    // ist der Weg für einen neuen Vorfall frei.
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    const U = await artist({ listeners: 100_000, songs: 3 });
+    const alt = t0 - 3 * DAY_MS;          // weit genug für MIN_GAP_MS (36 h)
+    const ev = db.insertEvent({
+      guildId: G, userId: U, kind: 'plagiat', platform: 'music',
+      createdAt: alt, expiresAt: alt + decisions.DECIDE_MS,
+    });
+    check('der überfällige Vorfall gilt als offen', db.openEvent(G, U)?.id === ev.id);
+    const blocked = music.record(G, U, t0, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
+    check('ohne Abrechnung blockiert er den Wurf', blocked.ok && blocked.incident === null);
+
+    const gone = await decisions.settle(G, U, t0 + 1);
+    check('settle schließt ihn als verfallen', gone.length === 1 && gone[0].decision.id === 'plagiat'
+      && db.openEvent(G, U) === null);
+    const r = music.record(G, U, t0 + 7 * 3600e3, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
+    check('danach kann die nächste Aktion einen neuen Vorfall würfeln',
+      r.ok && r.incident !== null && r.incident.id !== ev.id, JSON.stringify(r.incident));
+    db.clearEvents(G, U);
+  }
+
   /**
    * Ein Jahr Karriere, Tagesroutine wie in scripts/messung-geldquellen.js:
    * abrechnen → Konzert-Tag (dann kein Studio) oder Studio + Release → Konzert

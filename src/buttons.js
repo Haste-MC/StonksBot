@@ -411,10 +411,14 @@ const buttons = {
 
     // Vor dem Anzeigen abrechnen, damit Stellplätze und Mietstatus stimmen.
     const settled = RENT_RELEVANT.has(entryId) ? await settle(interaction) : null;
+    // Das Studio rechnet Tantiemen, Verträge und verfallene Vorfälle ab (§4) –
+    // derselbe Weg wie über den Knopf `musik` und den Befehl /musik.
+    const studio = entryId === 'musik'
+      ? await settleMusic(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, nudge].filter(Boolean).join('\n\n') || null;
+    const notice = [news, settled, studio, nudge].filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1761,6 +1765,9 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    // §4 faule Abrechnung: der Verfall läuft, wenn gehandelt wird, nicht nur
+    // beim Öffnen – sonst blockierte ein liegengebliebener Vorfall den Wurf.
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = music.record(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1805,6 +1812,7 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = music.publish(guildId, userId, typeId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1851,6 +1859,7 @@ Object.assign(buttons, {
     const music = require('./music');
     const symbol = await getSymbol(guildId);
 
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = await music.show(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2426,5 +2435,5 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge,
+  homeNudge, settleMusic,
 };
