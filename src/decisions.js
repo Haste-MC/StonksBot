@@ -207,12 +207,11 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
     const type = a.songs >= 6 ? 'album' : a.songs >= 3 ? 'ep' : 'single';
     const res = music.publish(guildId, userId, type, now, random,
       { events: false, force: true, audience: effect.audience ?? 1 });
-    if (res.ok) {
-      done.published = res;
-      // Was das Release nicht verbraucht hat, ist trotzdem draußen.
-      const after = db.getArtist(guildId, userId, now);
-      db.saveArtist(guildId, userId, { ...after, songs: 0 });
-    }
+    done.published = res;
+    // Das Material ist so oder so draußen – auch wenn `publish` selbst nichts
+    // mehr zu tun fand (z. B. schon 0 Titel), bleiben keine Songs übrig.
+    const after = db.getArtist(guildId, userId, now);
+    db.saveArtist(guildId, userId, { ...after, songs: 0 });
   }
 
   // --- Vertragsbruch: bucht die Strafe selbst (genau eine Buchung) ---
@@ -222,6 +221,10 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
       done.contract = res.contract;
       done.cash = -res.penalty;
       done.balance = res.balance;
+      // `leave` kürzt Hörer und Hype selbst (×0,9/×0,8) – das Delta muss den
+      // Effekt-Schritt oben und diesen zweiten Schritt zusammen abbilden.
+      const after = db.getArtist(guildId, userId, now);
+      done.listeners = after.listeners - artist.listeners;
     }
   }
 

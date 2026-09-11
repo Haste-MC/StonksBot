@@ -312,13 +312,17 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       const U = await artist({ listeners: H, songs: 6 });
       let ev = openMusic(U, 'album_leak', now);
       const relVor = db.getArtist(G, U).releases;
+      // Sperre aktiv setzen: ohne `force` läge ein normales Release jetzt auf
+      // Kühlung – die folgenden Prüfungen beweisen so, dass `force` wirklich
+      // durchgreift, statt zufällig auf einen freien Slot zu treffen.
+      db.saveArtist(G, U, { ...db.getArtist(G, U), last_release_at: now });
       const r = await decisions.choose(G, U, ev.id, 'sofort', now, first);
       const a = db.getArtist(G, U);
       check('album_leak/sofort: ein Release entsteht, alle Titel weg',
         a.releases === relVor + 1 && a.songs === 0 && r.effect.published?.ok === true,
         `releases ${relVor} -> ${a.releases}, songs ${a.songs}`);
       check('… mit Publikum × 0,7 (Faktor durchgereicht)',
-        r.effect.published.audienceFactor === 0.7, String(r.effect.published?.audienceFactor));
+        r.effect.published?.audienceFactor === 0.7, String(r.effect.published?.audienceFactor));
 
       const V = await artist({ listeners: H, songs: 4 });
       ev = openMusic(V, 'album_leak', now);
@@ -330,6 +334,15 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       ev = openMusic(W, 'album_leak', now);
       await decisions.choose(G, W, ev.id, 'ignorieren', now, first);
       check('album_leak/ignorieren (gut): die Hälfte bleibt', db.getArtist(G, W).songs === 2);
+
+      // Ohne Titel: `publish` findet nichts zu tun (ok: false), trotzdem
+      // bleiben songs = 0 – das Material ist so oder so draußen.
+      const X = await artist({ listeners: H, songs: 0 });
+      ev = openMusic(X, 'album_leak', now);
+      const rx = await decisions.choose(G, X, ev.id, 'sofort', now, first);
+      check('album_leak/sofort ohne Titel: publish scheitert, songs bleiben 0',
+        rx.ok === true && rx.effect.published?.ok === false && db.getArtist(G, X).songs === 0,
+        JSON.stringify(rx.effect.published));
     }
 
     // label
