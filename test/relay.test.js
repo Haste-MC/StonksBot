@@ -145,8 +145,12 @@ const msg = (over = {}) => ({
   check('Nachricht wird gespiegelt',
     (await relay.fromFluxer(msg({ channelId: 'FX_KANAL' }))) === true);
   check('kam im Discord-Kanal an', sentToDiscord.length === 1);
+  // Kein Ping-Spam: `parse` bleibt leer (nie @everyone/@here/Rollen), und
+  // ohne ausdrückliche Erwähnung ist auch die Nutzerliste leer.
+  const am = sentToDiscord[0].allowedMentions;
   check('erwähnt niemanden (kein Ping-Spam)',
-    JSON.stringify(sentToDiscord[0].allowedMentions) === '{"parse":[]}');
+    Array.isArray(am?.parse) && am.parse.length === 0 && (am.users ?? []).length === 0,
+    JSON.stringify(am));
 
   console.log('--- SCHLEIFENSCHUTZ ---');
   const before = sentToFluxer.length + sentToDiscord.length;
@@ -276,6 +280,62 @@ const msg = (over = {}) => ({
       JSON.stringify(geerbt.LANES.wirtschaft));
   }
 
+  console.log('--- Klartext @Name pingt, wenn er eindeutig ist ---');
+  {
+    /*
+     * Der Fall aus der Praxis: Ein reiner Discord-Nutzer hat keine Fluxer-ID,
+     * also kann ihn von Fluxer aus niemand "richtig" erwähnen. Bleibt nur
+     * `@Name` als Text – und der muss auf Discord zur echten Erwähnung werden
+     * UND klingeln. Ohne @ davor passiert nichts.
+     */
+    const dbx = require('../src/db');
+    const idn = require('../src/identity');
+    // Eindeutiger Name je Lauf: `account_names` ist weltübergreifend, und der
+    // Doppelgänger-Schritt weiter unten würde sonst den nächsten Lauf kippen.
+    const NAME = `Bergmann${Date.now() % 100000}`;
+    const NUR_DISCORD = '700000000000000001';
+    const DOPPEL = '700000000000000002';
+    dbx.setAccountName(NUR_DISCORD, NAME);
+    dbx.setAccountName(DOPPEL, 'niemand-sonst');
+    sentToDiscord.length = 0;
+
+    await relay.fromFluxer(msg({ channelId: 'FX_KANAL', content: `hey @${NAME} bist du da?` }));
+    const gesendet = sentToDiscord[sentToDiscord.length - 1];
+    check('@Name wird zur echten Discord-Erwähnung',
+      gesendet?.content.includes(`<@${NUR_DISCORD}>`), gesendet?.content);
+    check('und genau dieser Nutzer darf gepingt werden',
+      JSON.stringify(gesendet?.allowedMentions?.users) === JSON.stringify([NUR_DISCORD]),
+      JSON.stringify(gesendet?.allowedMentions));
+    check('parse bleibt leer – kein @everyone über die Hintertür',
+      gesendet?.allowedMentions?.parse?.length === 0);
+
+    sentToDiscord.length = 0;
+    await relay.fromFluxer(msg({ channelId: 'FX_KANAL', content: `${NAME} war gestern gut` }));
+    const ohne = sentToDiscord[sentToDiscord.length - 1];
+    check('ohne @ wird nicht erwähnt und nicht gepingt',
+      !ohne?.content.includes('<@') && (ohne?.allowedMentions?.users ?? []).length === 0,
+      ohne?.content);
+
+    sentToDiscord.length = 0;
+    await relay.fromFluxer(msg({ channelId: 'FX_KANAL', content: '@everyone @here aufwachen' }));
+    const alle = sentToDiscord[sentToDiscord.length - 1];
+    check('@everyone und @here bleiben Text und pingen nie',
+      (alle?.allowedMentions?.users ?? []).length === 0 && !alle?.content.includes('<@'),
+      JSON.stringify(alle?.allowedMentions));
+
+    // Zwei Konten mit demselben Namen: kein Treffer, kein Ping.
+    dbx.setAccountName(DOPPEL, NAME);
+    sentToDiscord.length = 0;
+    await relay.fromFluxer(msg({ channelId: 'FX_KANAL', content: `@${NAME}?` }));
+    const doppelt = sentToDiscord[sentToDiscord.length - 1];
+    check('bei zwei gleichnamigen Konten wird niemand gepingt',
+      (doppelt?.allowedMentions?.users ?? []).length === 0 && doppelt?.content.includes(`@${NAME}`),
+      doppelt?.content);
+    check('platformIdByName ist dabei eindeutig-oder-nichts',
+      idn.platformIdByName(NAME, 'discord') === null);
+    dbx.setAccountName(DOPPEL, 'niemand-sonst');   // aufräumen
+  }
+
   await personaTests();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
@@ -397,8 +457,10 @@ async function personaTests() {
     hookSends[0]?.avatarURL === 'https://cdn.discord/kevin.png', hookSends[0]?.avatarUrl);
   check('kein "Name:"-Präfix mehr im Text',
     hookSends[0]?.content === 'Hallo von Discord', hookSends[0]?.content);
+  const am2 = hookSends[0]?.allowedMentions;
   check('erwähnt niemanden',
-    JSON.stringify(hookSends[0]?.allowedMentions) === '{\"parse\":[]}');
+    Array.isArray(am2?.parse) && am2.parse.length === 0 && (am2.users ?? []).length === 0,
+    JSON.stringify(am2));
 
   console.log('--- Webhook wird wiederverwendet, nicht neu angelegt ---');
   await bridge.fromDiscord({ ...fromDc, content: 'Noch eine' });

@@ -18,8 +18,19 @@ const identity = require('../identity');
  *   3. **Sonst der Name als Text** (`@Diabilon`). Kein Ping, kein Pill –
  *      aber man sieht, wer gemeint war.
  *
- * Gepingt wird dabei nie: Die Brücke setzt `allowedMentions: { parse: [] }`.
- * Die Erwähnung soll lesbar sein, nicht jemanden aus dem Bett klingeln.
+ * ===================== WER GEPINGT WIRD, UND WER NICHT =====================
+ * Früher pingte die Brücke nie (`allowedMentions: { parse: [] }`). Das hatte
+ * eine Lücke: Wer nur auf Discord ist, war von Fluxer aus nicht erreichbar –
+ * er hat keine Fluxer-ID, die man erwähnen könnte, und Klartext `@Kevin`
+ * wurde nicht ausgewertet.
+ *
+ * Jetzt gilt: **Ausdrückliche** Erwähnungen (`<@id>` oder Klartext `@Name`)
+ * werden übersetzt UND pingen, wenn sie eindeutig auf ein Konto der Gegenseite
+ * zeigen. Alles andere bleibt stumm: `@everyone`, `@here`, Rollen, und Namen,
+ * die zwei Konten treffen könnten. `translateFull` liefert dafür neben dem
+ * Text die Liste der IDs, die tatsächlich benachrichtigt werden dürfen – die
+ * Brücke setzt genau diese in `allowedMentions.users`, nie `parse`.
+ * ===========================================================================
  *
  * Rollen (`<@&…>`) und Kanäle (`<#…>`) gibt es drüben gar nicht – die werden
  * zu ihrem Namen, damit keine kaputte Klammer stehen bleibt.
@@ -27,6 +38,14 @@ const identity = require('../identity');
 
 /** Nutzer-Erwähnung, Rolle, Kanal. */
 const USER = /<@!?([0-9a-zA-Z:_-]+)>/g;
+
+/**
+ * Klartext `@Name` – die einzige Möglichkeit, jemanden zu meinen, der auf der
+ * eigenen Plattform gar kein Konto hat. Nicht hinter `<` (das ist die echte
+ * Erwähnung) und nicht mitten in einem Wort (`mail@host` ist keine Anrede).
+ */
+const PLAIN = /(?<![\w<@])@([^\s@<>#&][^\s@<>]{0,31})/g;
+const NEVER_PING = new Set(['everyone', 'here']);
 const ROLE = /<@&([0-9]+)>/g;
 const CHANNEL = /<#([0-9]+)>/g;
 
@@ -80,13 +99,16 @@ function labelsFrom(message) {
  * @param from    Plattform, von der die Nachricht stammt
  * @param to      Zielplattform
  */
-function translate(text, message, from, to) {
-  if (typeof text !== 'string' || !text.includes('<')) return text;
+function translateFull(text, message, from, to) {
+  const users = new Set();
+  if (typeof text !== 'string' || !(text.includes('<') || text.includes('@'))) {
+    return { text, users: [] };
+  }
 
   const names = namesFrom(message);
   const { roles, channels } = labelsFrom(message);
 
-  return text
+  const out = text
     .replace(USER, (whole, id) => {
       const platformId = String(id);
       const account = identity.account(from, platformId);
@@ -94,19 +116,30 @@ function translate(text, message, from, to) {
       // 1) Verknüpft? Dann kennt die Gegenseite eine echte ID.
       let target = identity.platformIdOf(account, to);
 
-      // 2) Sonst über den Namen versuchen (nur Richtung Discord möglich –
-      //    dort liegen die Konten, gegen die wir abgleichen).
+      // 2) Sonst über den Namen – auf der Zielplattform, egal welche.
       const name = names.get(platformId) ?? identity.nameOf(account);
-      if (!target && to === 'discord' && name) {
-        const guess = identity.accountByName(name);
-        if (guess) target = guess;
-      }
+      if (!target && name) target = identity.platformIdByName(name, to);
 
-      if (target) return `<@${target}>`;
+      if (target) { users.add(String(target)); return `<@${target}>`; }
       return name ? `@${name}` : '@jemand';
     })
     .replace(ROLE, (whole, id) => `@${roles.get(String(id)) ?? 'Rolle'}`)
-    .replace(CHANNEL, (whole, id) => `#${channels.get(String(id)) ?? 'kanal'}`);
+    .replace(CHANNEL, (whole, id) => `#${channels.get(String(id)) ?? 'kanal'}`)
+    // 3) Klartext `@Name`: eindeutig auf der Zielplattform -> echte Erwähnung.
+    .replace(PLAIN, (whole, name) => {
+      if (NEVER_PING.has(name.toLowerCase())) return whole;
+      const target = identity.platformIdByName(name, to);
+      if (!target) return whole;
+      users.add(String(target));
+      return `<@${target}>`;
+    });
+
+  return { text: out, users: [...users] };
+}
+
+/** Nur der Text – für Aufrufer, die keine Ping-Liste brauchen. */
+function translate(text, message, from, to) {
+  return translateFull(text, message, from, to).text;
 }
 
 /** Fluxer-Nachricht für Discord aufbereiten. */
@@ -115,4 +148,11 @@ const toDiscord = (text, message) => translate(text, message, 'fluxer', 'discord
 /** Discord-Nachricht für Fluxer aufbereiten. */
 const toFluxer = (text, message) => translate(text, message, 'discord', 'fluxer');
 
-module.exports = { USER, ROLE, CHANNEL, namesFrom, labelsFrom, translate, toDiscord, toFluxer };
+/** Dasselbe mit Ping-Liste – für die Brücke. */
+const toDiscordFull = (text, message) => translateFull(text, message, 'fluxer', 'discord');
+const toFluxerFull = (text, message) => translateFull(text, message, 'discord', 'fluxer');
+
+module.exports = {
+  USER, ROLE, CHANNEL, PLAIN, namesFrom, labelsFrom,
+  translate, translateFull, toDiscord, toFluxer, toDiscordFull, toFluxerFull,
+};

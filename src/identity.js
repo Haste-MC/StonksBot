@@ -157,6 +157,29 @@ function accountByName(name) {
   return hits.size === 1 ? [...hits][0] : null;
 }
 
+/**
+ * Wie `accountByName`, aber für eine bestimmte Zielplattform: Gesucht ist das
+ * eindeutige Konto mit diesem Namen, das auf `platform` erreichbar ist.
+ *
+ * Gebraucht von der Brücke, wenn jemand drüben nur als Klartext `@Name`
+ * erwähnt wird – für Discord-Ziele reicht `accountByName`, für Fluxer-Ziele
+ * muss das Konto eine Fluxer-Seite haben (verknüpft oder `fx:`).
+ *
+ * @returns {string|null} die Plattform-ID auf `platform`, sonst null
+ */
+function platformIdByName(name, platform) {
+  const key = nameKey(name);
+  if (!key) return null;
+
+  const hits = new Set();
+  for (const row of db.allAccountNames()) {
+    if (nameKey(row.name) !== key) continue;
+    const id = platformIdOf(row.account_id, platform);
+    if (id) hits.add(id);
+  }
+  return hits.size === 1 ? [...hits][0] : null;
+}
+
 /** Die Plattform-ID eines Kontos auf der anderen Seite (oder null). */
 function platformIdOf(accountId, platform) {
   if (platform === 'discord') return isDiscordAccount(accountId) ? String(accountId) : null;
@@ -209,6 +232,6 @@ function mention(accountId) {
 module.exports = {
   WORLD_ID, FLUXER_PREFIX,
   world, account, isDiscordAccount, isLinked, remember, nameOf, display, mention,
-  nameKey, accountByName, platformIdOf, resolve,
+  nameKey, accountByName, platformIdByName, platformIdOf, resolve,
   checkWorld,
 };

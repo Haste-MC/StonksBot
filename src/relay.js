@@ -473,7 +473,7 @@ function announce() {
  * Spiegelt als Persona. `false` heißt "hat nicht geklappt" – dann übernimmt
  * der Aufrufer mit der Textform.
  */
-async function sendAsPersona(platform, channelId, message, text, sourcePlatform) {
+async function sendAsPersona(platform, channelId, message, text, sourcePlatform, users = []) {
   if (!WEBHOOKS) return false;
   const hook = await webhookFor(platform, channelId);
   if (!hook) return false;
@@ -487,7 +487,7 @@ async function sendAsPersona(platform, channelId, message, text, sourcePlatform)
     // Die Plattformen schreiben das Feld unterschiedlich – beide mitgeben.
     avatarURL: face.avatarURL ?? undefined,
     avatarUrl: face.avatarURL ?? undefined,
-    allowedMentions: { parse: [] },
+    allowedMentions: pings(users),
   };
 
   try {
@@ -580,6 +580,21 @@ function destination(message, platform) {
  */
 const forFluxer = (text, message) => mentions.toFluxer(emoji.toFluxer(text), message);
 const forDiscord = (text, message) => mentions.toDiscord(emoji.toDiscord(text), message);
+
+/*
+ * Dieselbe Übersetzung, aber mit der Liste derer, die gepingt werden dürfen.
+ *
+ * Bis hierher pingte die Brücke nie. Das machte Leute unerreichbar, die nur
+ * auf einer Seite sind: Von Fluxer aus ließ sich ein reiner Discord-Nutzer
+ * nur als Klartext `@Kevin` schreiben, und der klingelte nicht. Jetzt
+ * benachrichtigt eine ausdrückliche, eindeutig auflösbare Erwähnung – und
+ * NUR die. `parse` bleibt leer, also nie @everyone, @here oder Rollen.
+ */
+const forFluxerFull = (text, message) => mentions.toFluxerFull(emoji.toFluxer(text), message);
+const forDiscordFull = (text, message) => mentions.toDiscordFull(emoji.toDiscord(text), message);
+
+/** `allowedMentions` für eine Liste aufgelöster Nutzer – oder stumm, wenn leer. */
+const pings = (users) => ({ parse: [], users: users?.length ? users : [] });
 
 /** Von einem fremden Webhook – und sollen die übersprungen werden? */
 function ignored(message) {
@@ -743,15 +758,17 @@ async function fromDiscord(message) {
 
   const target = destination(message, 'discord');
   if (!target || !body(message)) return false;
+  const uebersetzt = forFluxerFull(body(message) ?? '', message);
   const asPersona = await sendAsPersona(
-    'fluxer', target, message, forFluxer(body(message) ?? '', message), 'discord');
+    'fluxer', target, message, uebersetzt.text, 'discord', uebersetzt.users);
   if (asPersona) return true;
 
   const text = format(message, { platform: 'discord' });
   if (!text) return false;
+  const rueckfall = forFluxerFull(text, message);
   await clients.fluxer.channels.send(target, {
-    content: forFluxer(text, message),
-    allowedMentions: { parse: [] },
+    content: rueckfall.text,
+    allowedMentions: pings(rueckfall.users),
   });
   return true;
 }
@@ -763,15 +780,16 @@ async function fromFluxer(message) {
 
   const target = destination(message, 'fluxer');
   if (!target || !body(message)) return false;
+  const uebersetzt = forDiscordFull(body(message) ?? '', message);
   const asPersona = await sendAsPersona(
-    'discord', target, message, forDiscord(body(message) ?? '', message), 'fluxer');
+    'discord', target, message, uebersetzt.text, 'fluxer', uebersetzt.users);
   if (asPersona) return true;
 
   const text = format(message, { platform: 'fluxer' });
   if (!text) return false;
   const channel = await clients.discord.channels.fetch(target);
-  // Keine Erwähnungen auslösen: gespiegelter Text soll niemanden anpingen.
-  await channel.send({ content: forDiscord(text, message), allowedMentions: { parse: [] } });
+  const rueckfall = forDiscordFull(text, message);
+  await channel.send({ content: rueckfall.text, allowedMentions: pings(rueckfall.users) });
   return true;
 }
 
@@ -782,7 +800,7 @@ module.exports = {
   fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
   body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
-  forFluxer, forDiscord,
+  forFluxer, forDiscord, forFluxerFull, forDiscordFull, pings,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, ownWebhookIds, hooks,
   broadcast, announcesTo, announceOverview, LANES, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
