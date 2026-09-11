@@ -209,6 +209,14 @@ async function settleMusic(guildId, userId) {
       '.');
   }
 
+  // Abgelaufene Vorfälle wirken jetzt – sonst bliebe ein Musik-Vorfall für
+  // jemanden, der die Creator-Seite nie öffnet, ewig offen und blockierte
+  // jeden weiteren.
+  for (const gone of await require('./decisions').settle(guildId, userId).catch(() => [])) {
+    lines.push(`⚠️ **${gone.decision.emoji} ${gone.decision.title}** – du hast nicht ` +
+      `reagiert.\n_${gone.outcome.text}_`);
+  }
+
   const contract = music.settleContracts(guildId, userId);
   if (contract.ended) {
     lines.push(`📜 Dein Vertrag mit **${contract.ended.agency}** ist ausgelaufen – ` +
@@ -1766,6 +1774,13 @@ Object.assign(buttons, {
     } else {
       note = `🎙️ _${res.text}_\n**${res.songs}** ${res.songs === 1 ? 'Titel' : 'Titel'} ` +
         `im Kasten${res.quality > 1.2 ? ' – und der hier sitzt.' : '.'}`;
+      if (res.event) note += `\n${res.event.text}`;
+      if (res.event?.id === 'equipment') note += `\n💥 Dein **${music.GEAR}** ist hin (🧰 Ausrüstung).`;
+      if (res.incident) {
+        const d = require('./decisions').decision(res.incident.kind);
+        note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+          'du musst dich entscheiden (⚠️ Vorfall).';
+      }
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -1817,6 +1832,12 @@ Object.assign(buttons, {
       if (res.offer) {
         note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
       }
+      if (res.event) note += `\n${res.event.text}`;
+      if (res.incident) {
+        const d = require('./decisions').decision(res.incident.kind);
+        note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+          'du musst dich entscheiden (⚠️ Vorfall).';
+      }
       note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -1844,10 +1865,18 @@ Object.assign(buttons, {
       } else if (res.reason === 'no_time') {
         note = `😴 Ein Konzert kostet **${res.need}** Zeit, übrig sind **${res.left}**.`;
       } else note = '🎤 Starte zuerst deine Karriere.';
+    } else if (res.amount === 0 && res.event) {
+      note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
     } else {
       note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
         (res.cut > 0 ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : '') +
         `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
+      if (res.event) note += `\n${res.event.text}`;
+    }
+    if (res.ok && res.incident) {
+      const d = require('./decisions').decision(res.incident.kind);
+      note += `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
+        'du musst dich entscheiden (⚠️ Vorfall).';
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -2089,6 +2118,18 @@ Object.assign(buttons, {
       if (e.locked?.length) {
         parts.push(`⛔ gesperrt: ${e.locked.map((id) =>
           require('./creator').platform(id)?.name ?? id).join(', ')}`);
+      }
+      // Musik-Wirkungen (applyMusic) – die Felder gibt es nur dort.
+      if (e.listeners) {
+        parts.push(`${e.listeners > 0 ? '👂 +' : '📉 '}${e.listeners.toLocaleString('de-DE')} Hörer`);
+      }
+      if (e.songs) parts.push(`🎼 ${e.songs} Titel`);
+      if (e.lockRelease) parts.push(`⛔ ${e.lockRelease} Tage kein Release`);
+      if (e.lockShow) parts.push(`⛔ ${e.lockShow} Tage kein Konzert`);
+      if (e.contract) parts.push(`📜 Vertrag mit ${e.contract.agency} geplatzt`);
+      if (e.published?.ok) {
+        parts.push(`💿 ${e.published.release.name} draußen, ` +
+          `${e.published.audience.toLocaleString('de-DE')} haben reingehört`);
       }
 
       note = `${res.decision.emoji} **${res.option.label}**\n_${res.outcome.text}_` +

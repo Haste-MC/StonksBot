@@ -1851,6 +1851,15 @@ async function buildMusicView({ guildId, userId }) {
     });
   }
 
+  if (s.incident) {
+    embed.addFields({
+      name: '⚠️ Offener Vorfall',
+      value: `**${s.incident.decision.emoji} ${s.incident.decision.title}** – noch ` +
+        `**${require('./income').formatRemaining(s.incident.remainingMs)}**. ` +
+        'Entscheiden im Menü *Vorfälle* (⚠️).',
+    });
+  }
+
   if (s.lostToIdle > 0) {
     embed.addFields({
       name: '📉 Vergessen',
@@ -1899,6 +1908,10 @@ async function buildMusicView({ guildId, userId }) {
   if (s.persona.id === 'anon' && !s.contract) {
     extra.push(new ButtonBuilder().setCustomId(`mreveal|${userId}`)
       .setLabel('Gesicht zeigen').setEmoji('🎭').setStyle(ButtonStyle.Danger));
+  }
+  if (s.incident) {
+    extra.push(new ButtonBuilder().setCustomId(`vorfall|${userId}`)
+      .setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger));
   }
   extra.push(homeButton(userId));
   rows.push(new ActionRowBuilder().addComponents(...extra));
@@ -2404,7 +2417,7 @@ async function buildDecisionView({ guildId, userId }) {
           + 'desto öfter musst du dich entscheiden.');
     for (const p of past) {
       embed.addFields({
-        name: `${p.decision.emoji} ${p.decision.title}`,
+        name: `${p.platform === 'music' ? '🎵 ' : ''}${p.decision.emoji} ${p.decision.title}`,
         value: `${p.status === 'expired' ? '⏱️ _nicht reagiert_' : '✅ entschieden'}\n`
           + `_${p.outcome}_`,
       });
@@ -2419,10 +2432,11 @@ async function buildDecisionView({ guildId, userId }) {
   }
 
   const d = open.decision;
-  const platform = open.platform ? creator.platform(open.platform) : null;
+  const isMusic = open.platform === 'music';
+  const platform = !isMusic && open.platform ? creator.platform(open.platform) : null;
 
   const embed = new EmbedBuilder()
-    .setTitle(`${d.emoji} ${d.title}`)
+    .setTitle(`${isMusic ? '🎵 ' : ''}${d.emoji} ${d.title}`)
     .setColor(0xe74c3c)
     .setDescription(d.text)
     .addFields({
@@ -2431,7 +2445,8 @@ async function buildDecisionView({ guildId, userId }) {
         + 'Wer nicht entscheidet, bekommt das Ergebnis, das Schweigen eben hat.',
     })
     .setFooter({
-      text: platform ? `Betrifft ${platform.name}` : 'Betrifft dein ganzes Netzwerk',
+      text: isMusic ? 'Betrifft deine Musik'
+        : platform ? `Betrifft ${platform.name}` : 'Betrifft dein ganzes Netzwerk',
     });
 
   const rows = [new ActionRowBuilder().addComponents(...d.options.map((o) =>
@@ -2440,8 +2455,11 @@ async function buildDecisionView({ guildId, userId }) {
       .setLabel(o.label.slice(0, 78)).setEmoji(o.emoji)
       .setStyle(ButtonStyle.Secondary)))];
   rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
-      .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
+    isMusic
+      ? new ButtonBuilder().setCustomId(ID.menu('musik', 1, userId))
+        .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary)
+      : new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+        .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
     homeButton(userId)));
 
   return { embeds: [embed], components: rows };
