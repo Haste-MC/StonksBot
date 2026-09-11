@@ -239,28 +239,36 @@ also sofort etwas zu holen. Gold ist Monate entfernt, Platin die Laufbahn.
 
 #### Der Endgame-Maßstab
 
+> **Korrektur vom 2026-09-11.** Die ursprüngliche Fassung dieses Abschnitts
+> rechnete mit ~875.000 Beute pro Tag aus dem Goldtransport. Das war falsch:
+> Die Beute wird durch die Crew geteilt, und die Strafe von 900.000 zahlt bei
+> einem Fehlschlag jedes Mitglied voll. Real waren es ~215.000 pro Kopf – und
+> seit der Sperre von 72 Stunden sind es ~86.000. Die Schwellen unten sind gegen
+> die **gemessenen** Raten neu gesetzt (`scripts/messung-geldquellen.js`).
+
 Der heutige Höchststand taugt nur für Bronze und Silber. Platin muss sich am
-**Endgame-Ertrag** messen, sonst ist es in zwei Wochen abgeräumt. Maßgeblich
-ist der Goldtransport (`src/data/heists.js`), voll vorbereitet:
+**Endgame-Ertrag** messen, sonst ist es in zwei Wochen abgeräumt.
 
-| | |
+Die Maßstäbe, gemessen über simulierte Karrieren mit festem Würfel:
+
+| Quelle | gemessen |
 |---|---|
-| Beute | 900k–2,4 Mio, Mittel 1,65 Mio |
-| Vorbereitungs-Boni | auskundschaften +5 %, insider +20 %, sprengung +35 %, hehler +18 % = **+78 %** → ~2,94 Mio je Erfolg |
-| Erfolgschance | `base` 20 % + ~35 % aus den Vorbereitungen ≈ **55 %** |
-| Taktung | 12 h Sperre, bei Fehlschlag zusätzlich **72 h Knast** |
+| Goldtransport, Diebesgut je Tag (nur Erfolge zählen für `loot_total`) | **169.851** |
+| Musik + Creator, Ertrag je Tag nach einem Jahr | **134.407** |
+| Musik + Creator, Ertrag je Tag nach zwei Jahren | **490.099** |
 
-Erwartungswert je Versuch 1,62 Mio, Zeitkosten 12 h + 0,45 × 72 h = 44 h.
-Macht **~875.000 Beute pro Tag** im Dauerbetrieb.
+Daran hängen die Platin-Werte, die sich nicht an einer Systemgrenze
+festmachen lassen. Ziel: **rund fünf Monate bis ein Jahr Endgame-Spiel.**
 
-Daran hängen die drei Platin-Werte, die sich nicht an einer Systemgrenze
-festmachen lassen. Ziel: **rund zwei Monate Endgame-Dauerbetrieb.**
-
-| Erfolg | Schwelle | ≈ Tage |
+| Erfolg | Schwelle | ≈ Zeit |
 |---|---|---|
-| Beutezug | 50 Mio Diebesgut | ~57 |
-| Schwerreich | 50 Mio Vermögen | ~57 |
-| Großkapital | 25 Mio im Depot | ~29 (dazu das Kursrisiko) |
+| Beutezug | **25 Mio** Diebesgut (vorher 50) | ~5 Monate Goldtransport im Dauerbetrieb |
+| Schwerreich | 50 Mio Vermögen | ~1 Jahr Musik+Creator auf Topniveau |
+| Großkapital | 25 Mio im Depot | ~½ Jahr (dazu das Kursrisiko) |
+| Der Pate (serverweit) | **60 Mio** Diebesgut (vorher 100) | ~1 Jahr Dauerbetrieb |
+
+Die `id`s (`loot_50m`, `srv_pate`) bleiben trotz neuer Schwelle unverändert –
+wer den Erfolg hat, behält ihn.
 
 Die übrigen Platin-Werte sind **Systemgrenzen** und bleiben, wie sie sind: das
 Casino deckelt bei `MAX_BET = 1.000.000`, der Fahrzeugkatalog endet beim

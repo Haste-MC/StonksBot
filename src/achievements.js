@@ -134,9 +134,13 @@ const RULES = [
   { id: 'heist_clean', scope: 'privat', tier: 'gold', emoji: '💎',
     title: 'Sauber durchgezogen', text: 'Ein Heist ohne einen einzigen Fehler.',
     on: 'fire:heist_perfect', test: () => true, backfill: false },
+  // Die `id` bleibt loot_50m, obwohl die Schwelle jetzt 25 Mio ist: Wer den
+  // Erfolg hat, behaelt ihn. Neu gerechnet gegen den gebremsten Goldtransport
+  // (169.851 Diebesgut je Tag im Dauerbetrieb): 25 Mio sind rund fuenf Monate,
+  // 50 Mio waeren zehn gewesen - laenger als jedes andere Platin.
   { id: 'loot_50m', scope: 'privat', tier: 'platin', emoji: '🧨', title: 'Beutezug',
-    text: '50 Millionen Diebesgut über alle Dinger hinweg.', on: 'state',
-    test: (c) => c.lootTotal >= 50_000_000, progress: (c) => [c.lootTotal, 50_000_000] },
+    text: '25 Millionen Diebesgut über alle Dinger hinweg.', on: 'state',
+    test: (c) => c.lootTotal >= 25_000_000, progress: (c) => [c.lootTotal, 25_000_000] },
 
   // ---------------------------------------------------------------- Zocken
   { id: 'casino_1', scope: 'privat', tier: 'bronze', emoji: '🎰', title: 'Anfängerglück',
@@ -218,9 +222,11 @@ const RULES = [
   { id: 'srv_heist', scope: 'server', emoji: '💎', title: 'Der erste perfekte Coup',
     text: 'Als Erster ein Ding ohne einen einzigen Fehler.',
     on: 'fire:heist_perfect', test: () => true, backfill: false },
+  // 60 statt 100 Mio: gegen den gebremsten Goldtransport ist das rund ein
+  // Jahr Dauerbetrieb - 100 Mio waeren zwanzig Monate gewesen.
   { id: 'srv_pate', scope: 'server', emoji: '🚚', title: 'Der Pate',
-    text: 'Als Erster 100 Millionen Diebesgut.', on: 'state',
-    test: (c) => c.lootTotal >= 100_000_000, measure: (c) => c.lootTotal },
+    text: 'Als Erster 60 Millionen Diebesgut.', on: 'state',
+    test: (c) => c.lootTotal >= 60_000_000, measure: (c) => c.lootTotal },
   { id: 'srv_worker', scope: 'server', emoji: '⚙️', title: 'Der erste Malocher',
     text: 'Als Erster 250 Schichten.', on: 'kind:job',
     test: (c) => c.shifts >= 250, measure: (c) => c.shifts },
