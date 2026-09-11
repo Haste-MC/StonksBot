@@ -515,7 +515,6 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       const B = await artist({ listeners: 50_000 });
       cash = 0; bookings = 0;
       const ra = await music.show(G, A, t0, seq(forceValue('show', pop, 'none'), 0.5));
-      const geldA = cash;
       cash = 0; bookings = 0;
       const rb = await music.show(G, B, t0, seq(forceValue('show', pop, 'ausverkauft'), 0.5));
       check('ausverkauft: Gage × 1,6', ra.ok && rb.ok && Math.abs(rb.gross / ra.gross - 1.6) < 0.01,
@@ -633,8 +632,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
   }
   const medianOf = (xs) => { const s = [...xs].sort((a, b) => a - b); return s[Math.floor(s.length / 2)]; };
 
-  console.log('\n--- Ein Jahr mit Ereignissen: Vorfälle kommen, aber nicht zu oft ---');
-  console.log('\n--- §3-Messung: 5 Karrieren mit und ohne Ereignisse ---');
+  console.log('\n--- §3-Messung: 5 Karrieren mit und ohne Ereignisse, Vorfallshäufigkeit und Abstand ---');
   {
     const mit = [], ohne = [], counts = [], countsOhne = [];
     // Ohne Sprache wie im Messskript – nur so ist die Referenz (581.796) vergleichbar.

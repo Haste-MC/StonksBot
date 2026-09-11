@@ -504,7 +504,9 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const contract = db.activeContract(guildId, userId);
   const idol = contract ? data.IDOL : null;
 
-  // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
+  // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record). Achtung:
+  // zwischen Ereignis- und Vorfallswürfel kann rollContract in Idol-Märkten
+  // random() verbrauchen – wer im Test einen Vorfall erzwingen will, nimmt record.
   const event = events ? rollMusicEvent('publish', g, random) : NO_EVENT;
 
   const sim = simulateRelease(row, {

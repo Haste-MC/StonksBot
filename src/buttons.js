@@ -2128,7 +2128,7 @@ Object.assign(buttons, {
       if (e.listeners) {
         parts.push(`${e.listeners > 0 ? '👂 +' : '📉 '}${e.listeners.toLocaleString('de-DE')} Hörer`);
       }
-      if (e.songs) parts.push(`🎼 ${e.songs} Titel`);
+      if (e.songs) parts.push(`${e.songs > 0 ? '🎼 +' : '🗑️ '}${e.songs} Titel`);
       if (e.lockRelease) parts.push(`⛔ ${e.lockRelease} Tage kein Release`);
       if (e.lockShow) parts.push(`⛔ ${e.lockShow} Tage kein Konzert`);
       if (e.contract) parts.push(`📜 Vertrag mit ${e.contract.agency} geplatzt`);

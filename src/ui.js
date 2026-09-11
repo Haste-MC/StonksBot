@@ -1856,7 +1856,7 @@ async function buildMusicView({ guildId, userId }) {
       name: '⚠️ Offener Vorfall',
       value: `**${s.incident.decision.emoji} ${s.incident.decision.title}** – noch ` +
         `**${require('./income').formatRemaining(s.incident.remainingMs)}**. ` +
-        'Entscheiden im Menü *Vorfälle* (⚠️).',
+        'Entscheiden über den Knopf ⚠️ Vorfall.',
     });
   }
 
