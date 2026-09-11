@@ -1,5 +1,6 @@
 const db = require('./db');
 const { DECISIONS } = require('./data/decisions');
+const { MUSIC_DECISIONS } = require('./data/musicDecisions');
 // Spät gebunden: creator.js zieht dieses Modul selbst herein (Kreis vermeiden).
 const unb = require('./unb');
 
@@ -61,7 +62,8 @@ const IGNORE_PENALTY = 1.6;
 const SEVERITY_MAX = 1.6;
 const SEVERITY_FULL = 3_000_000;
 
-const byId = new Map(DECISIONS.map((d) => [d.id, d]));
+/** Beide Kataloge in einer Map – die Zeile in der DB kennt nur die `kind`. */
+const byId = new Map([...DECISIONS, ...MUSIC_DECISIONS].map((d) => [d.id, d]));
 
 const clamp = (min, max, v) => Math.min(max, Math.max(min, v));
 
@@ -99,22 +101,48 @@ function pickOutcome(option, random = Math.random) {
 }
 
 /**
+ * Zulassung eines Musik-Vorfalls: Persona, vorhandene Titel, Vertrag.
+ *
+ * Ohne diese Prüfung träfe „Das Label will verschieben" jemanden ohne Label
+ * und „Album im Netz" jemanden ohne Album – Vorfälle ins Leere.
+ */
+function musicEligible(d, artist, contract) {
+  const r = d.requires ?? {};
+  if (r.persona && artist.persona !== r.persona) return false;
+  if (r.songs && (artist.songs ?? 0) < r.songs) return false;
+  if (r.contract && !contract) return false;
+  return true;
+}
+
+/**
  * Würfelt einen Vorfall aus. Höchstens einer gleichzeitig, und nicht öfter
  * als MIN_GAP_MS – sonst wäre der Kanal ein Katastrophengebiet.
+ *
+ * `size` ist bei Creator die Reichweite, bei Musik die Hörerzahl – dieselbe
+ * Risikokurve. Die Sperre „solange einer offen ist" gilt über beide Domänen:
+ * Wer gerade ein Creator-Drama hat, bekommt kein Musik-Drama obendrauf.
  */
-function roll(guildId, userId, reach, now = Date.now(), random = Math.random) {
+function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator') {
   if (db.openEvent(guildId, userId)) return null;
   if (now - db.lastEventAt(guildId, userId) < MIN_GAP_MS) return null;
-  if (random() >= riskFor(reach)) return null;
+  if (random() >= riskFor(size)) return null;
 
-  const possible = DECISIONS.filter((d) => reach >= d.minReach);
+  let possible;
+  if (domain === 'music') {
+    const artist = db.getArtist(guildId, userId, now);
+    const contract = db.activeContract(guildId, userId);
+    possible = MUSIC_DECISIONS.filter((d) =>
+      size >= d.minListeners && musicEligible(d, artist, contract));
+  } else {
+    possible = DECISIONS.filter((d) => size >= d.minReach);
+  }
   if (!possible.length) return null;
   const picked = possible[Math.floor(random() * possible.length)];
 
   return db.insertEvent({
     guildId, userId,
     kind: picked.id,
-    platform: picked.platform ?? '',
+    platform: domain === 'music' ? 'music' : (picked.platform ?? ''),
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
@@ -306,9 +334,9 @@ function history(guildId, userId, limit = 5) {
 }
 
 module.exports = {
-  DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
+  DECISIONS, MUSIC_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
   SEVERITY_MAX, SEVERITY_FULL,
   IGNORE_PENALTY,
-  decision, riskFor, severityFor, scaleMoney, pickOutcome,
+  decision, riskFor, severityFor, scaleMoney, pickOutcome, musicEligible,
   roll, apply, choose, expire, settle, pending, history,
 };

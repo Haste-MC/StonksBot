@@ -132,6 +132,92 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
         || Object.keys(d.requires).every((k) => ['persona', 'songs', 'contract'].includes(k))));
   }
 
+  console.log('\n--- Domänen bleiben getrennt ---');
+  {
+    const musicIds = new Set(MUSIC_DECISIONS.map((d) => d.id));
+    const creatorIds = new Set(DECISIONS.map((d) => d.id));
+
+    // Ein reiner Musiker: 1.000 Würfe mit Würfel, der immer einen Vorfall zieht.
+    const U = await artist({ listeners: 100_000, songs: 5 });
+    const got = new Set();
+    let now = Date.now();
+    for (let i = 0; i < 1000; i++) {
+      const rand = rng(i + 1);
+      const ev = decisions.roll(G, U, 100_000, now, hit(rand), 'music');
+      if (ev) { got.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
+      now += decisions.MIN_GAP_MS + 1000;
+    }
+    check('ein Musiker bekommt nur Musik-Vorfälle',
+      [...got].every((k) => musicIds.has(k)), [...got].join(' '));
+    check('… und zwar alle ohne Zulassungshürde (plagiat, stimme, album_leak)',
+      got.has('plagiat') && got.has('stimme') && got.has('album_leak'), [...got].join(' '));
+    check('… und skandal (100.000 Hörer, Gesicht)',
+      got.has('skandal'), [...got].join(' '));
+    check('… und nie label (kein Vertrag)', !got.has('label'));
+    check('die Zeile trägt platform = music',
+      decisions.roll(G, U, 100_000, now, () => 0, 'music')?.platform === 'music');
+    db.clearEvents(G, U);
+
+    // Ein reiner Creator: Standard-Domäne, keine Musik-IDs.
+    const C = `fx:c${n++}`;
+    db.clearCreator(G, C); db.clearEvents(G, C);
+    const share = { twitch: 0.52, youtube: 0.24, instagram: 0.11, twitter: 0.13 };
+    for (const [id, part] of Object.entries(share)) {
+      const row = db.getCreator(G, C, id, now);
+      db.saveCreator(G, C, id, { ...row, followers: Math.round(1_000_000 * part), touched_at: now });
+    }
+    const gotC = new Set();
+    for (let i = 0; i < 300; i++) {
+      const rand = rng(i + 7);
+      const ev = decisions.roll(G, C, 1_000_000, now, hit(rand));
+      if (ev) { gotC.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
+      now += decisions.MIN_GAP_MS + 1000;
+    }
+    check('ein Creator bekommt nur Creator-Vorfälle',
+      gotC.size > 0 && [...gotC].every((k) => creatorIds.has(k)), [...gotC].join(' '));
+    check('decision() findet Musik-Vorlagen', decisions.decision('plagiat')?.title === 'Plagiatsvorwurf');
+  }
+
+  console.log('\n--- Zulassungskriterien ---');
+  {
+    const now = Date.now();
+    const anon = await artist({ persona: 'anon', listeners: 100_000, songs: 5 });
+    const kinds = (U, size, tries = 400) => {
+      const out = new Set();
+      let t = now;
+      for (let i = 0; i < tries; i++) {
+        const rand = rng(i + 3);
+        const ev = decisions.roll(G, U, size, t, hit(rand), 'music');
+        if (ev) { out.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: t }); }
+        t += decisions.MIN_GAP_MS + 1000;
+      }
+      return out;
+    };
+    const a = kinds(anon, 100_000);
+    check('anonym: nie skandal', a.size > 0 && !a.has('skandal'), [...a].join(' '));
+
+    const wenig = await artist({ listeners: 100_000, songs: 2 });
+    const w = kinds(wenig, 100_000);
+    check('unter 3 Songs: nie album_leak', w.size > 0 && !w.has('album_leak'), [...w].join(' '));
+
+    const klein = await artist({ listeners: 6_000, songs: 5 });
+    const k = kinds(klein, 6_000);
+    check('bei 6.000 Hörern: plagiat und stimme, aber kein skandal/album_leak',
+      k.has('plagiat') && k.has('stimme') && !k.has('skandal') && !k.has('album_leak'),
+      [...k].join(' '));
+
+    // Mit Vertrag: label wird möglich. Vertrag direkt in die Tabelle legen.
+    const idol = await artist({ listeners: 150_000, songs: 5, land: 'jp' });
+    const c = db.insertContract({
+      guildId: G, userId: idol, kind: 'idol', agency: 'Test Ent.', country: 'jp',
+      createdAt: now, expiresAt: now + DAY_MS,
+    });
+    db.setContractStatus(G, c.id, 'active', { signedAt: now, endsAt: now + 90 * DAY_MS });
+    check('Vertrag ist aktiv (Voraussetzung)', Boolean(music.contractOf(G, idol)));
+    const l = kinds(idol, 150_000);
+    check('mit Vertrag: label kommt', l.has('label'), [...l].join(' '));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
