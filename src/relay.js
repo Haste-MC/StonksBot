@@ -257,13 +257,21 @@ function body(message) {
  * ein abgelehnter Name würde die ganze Nachricht verschlucken.
  */
 function displayName(message) {
-  const raw = message.member?.displayName
+  return `${sanitizeName(rawNameOf(message))}${NAME_SUFFIX}`.slice(0, 80);
+}
+
+/**
+ * Der rohe Name des Absenders: Servername vor Anzeigename vor Nutzername.
+ * Trägt der Name das Brücken-Suffix schon (die Webhook-Persona eines
+ * Spiegels), wird es einmal abgestreift – sonst stünde es doppelt da.
+ */
+function rawNameOf(message) {
+  const raw = String(message.member?.displayName
     ?? message.author?.displayName
     ?? message.author?.globalName
     ?? message.author?.username
-    ?? 'Jemand';
-
-  return `${sanitizeName(raw)}${NAME_SUFFIX}`.slice(0, 80);
+    ?? 'Jemand');
+  return NAME_SUFFIX && raw.endsWith(NAME_SUFFIX) ? raw.slice(0, -NAME_SUFFIX.length) : raw;
 }
 
 /**
@@ -283,6 +291,8 @@ function sanitizeName(raw) {
 
 /** Höchstlänge der Kopfzeile im Zitat einer Antwort. */
 const QUOTE_LENGTH = 80;
+/** Anfang jeder Zitat-Zeile – daran erkennt die Brücke ihre eigenen Zitate. */
+const QUOTE_MARK = '> ↩️';
 
 /** Die Nachricht, auf die diese antwortet – oder null. */
 function referenceOf(message, platform) {
@@ -298,12 +308,16 @@ function referenceOf(message, platform) {
  * dafür gepingt: Die Zeile zitiert, sie spricht niemanden an.
  */
 function quoteLine(original, targetPlatform) {
-  const first = String(original.content ?? '')
-    .split('\n').map((l) => l.trim()).find(Boolean) ?? '[Anhang]';
+  // `body` statt `content`: Ein Original nur aus Embed hat sonst keine Zeile.
+  const lines = String(body(original) ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+  // Kein Zitat vom Zitat: Die eigene Zitat-Zeile eines Originals überspringen –
+  // sonst schleppt jede Antwort auf eine Antwort den ganzen Faden mit.
+  const first = lines.find((l) => !l.startsWith(QUOTE_MARK)) ?? lines[0] ?? '[Anhang]';
   const head = first.length > QUOTE_LENGTH ? `${first.slice(0, QUOTE_LENGTH)}…` : first;
   const uebersetzt = targetPlatform === 'fluxer'
     ? forFluxerFull(head, original) : forDiscordFull(head, original);
-  return `> ↩️ **${displayName(original)}:** ${uebersetzt.text}`;
+  // Ohne NAME_SUFFIX: Das Zitat nennt den Menschen, nicht die Webhook-Persona.
+  return `${QUOTE_MARK} **${sanitizeName(rawNameOf(original))}:** ${uebersetzt.text}`;
 }
 
 /**
@@ -317,12 +331,22 @@ async function quoteForFluxerReply(message) {
 
   let original = message.referencedMessage ?? null;
   if (!original) {
-    const channel = clients.fluxer?.channels?.get?.(message.channelId) ?? null;
+    // `channels.fetchMessage` ist der dokumentierte Weg des Fluxer-SDK und
+    // braucht keinen gecachten Kanal; der Umweg über `channels.get(...)
+    // .messages.fetch` bleibt als Rückfall. Beides darf nicht werfen –
+    // ein gelöschtes Original ist kein Fehler, nur kein Zitat.
+    const channels = clients.fluxer?.channels;
     try {
-      original = channel?.messages?.fetch ? await channel.messages.fetch(ref) : null;
+      if (typeof channels?.fetchMessage === 'function') {
+        original = await channels.fetchMessage(message.channelId, ref);
+      } else {
+        const channel = channels?.get?.(message.channelId) ?? null;
+        original = channel?.messages?.fetch ? await channel.messages.fetch(ref) : null;
+      }
     } catch {
       original = null;
     }
+    original = original ?? null;
   }
   return original ? quoteLine(original, 'discord') : null;
 }
@@ -573,19 +597,42 @@ async function sendAsPersona(platform, channelId, message, text, sourcePlatform,
   };
   if (replyTo) payload.replyTo = replyTo;
 
+  // Fluxer gibt die erzeugte Nachricht nur mit wait=true zurück.
+  const send = (p) => (platform === 'fluxer' ? hook.send(p, true) : hook.send(p));
+
   try {
-    // Fluxer gibt die erzeugte Nachricht nur mit wait=true zurück.
-    const sent = platform === 'fluxer' ? await hook.send(payload, true) : await hook.send(payload);
+    const sent = await send(payload);
     return { ok: true, id: sent?.id ? String(sent.id) : null };
   } catch (err) {
-    // Webhook weg oder Recht entzogen: vergessen und beim nächsten Mal neu
-    // versuchen; diese Nachricht geht in Textform raus.
-    console.warn(`Brücke: Webhook-Versand in ${platform}/${channelId} fehlgeschlagen ` +
-      `(${err.message}) – spiegele in Textform.`);
-    hooks.delete(hookKey(platform, channelId));
-    db.deleteRelayWebhook(platform, channelId);
-    return { ok: false, id: null };
+    // Eine abgelehnte Referenz (Original inzwischen gelöscht) ist kein toter
+    // Webhook: Einmal ohne Bezug nachsetzen, sonst würde ein gelöschtes
+    // Original die Persona in Textform zurückwerfen und den Webhook kosten.
+    if (replyTo) {
+      console.warn(`Brücke: Antwort-Bezug in ${platform}/${channelId} abgelehnt ` +
+        `(${err.message}) – sende ohne Bezug.`);
+      const ohneBezug = { ...payload, allowedMentions: pings(users) };
+      delete ohneBezug.replyTo;
+      try {
+        const sent = await send(ohneBezug);
+        return { ok: true, id: sent?.id ? String(sent.id) : null };
+      } catch (err2) {
+        return webhookTot(platform, channelId, err2);
+      }
+    }
+    return webhookTot(platform, channelId, err);
   }
+}
+
+/**
+ * Webhook weg oder Recht entzogen: vergessen und beim nächsten Mal neu
+ * versuchen; diese Nachricht geht in Textform raus.
+ */
+function webhookTot(platform, channelId, err) {
+  console.warn(`Brücke: Webhook-Versand in ${platform}/${channelId} fehlgeschlagen ` +
+    `(${err.message}) – spiegele in Textform.`);
+  hooks.delete(hookKey(platform, channelId));
+  db.deleteRelayWebhook(platform, channelId);
+  return { ok: false, id: null };
 }
 
 /**
@@ -611,8 +658,8 @@ async function sendPlainFluxer(channelId, content, allowedMentions, replyTo = nu
 /** Merkt sich das Paar aus Quelle und Spiegel – wenn beide eine ID haben. */
 function remember(sourcePlatform, sourceId, sentId) {
   if (!sourceId || !sentId) return;
-  if (sourcePlatform === 'discord') db.setRelayPair(String(sourceId), String(sentId));
-  else db.setRelayPair(String(sentId), String(sourceId));
+  if (sourcePlatform === 'discord') db.setRelayPair(sourceId, sentId);
+  else db.setRelayPair(sentId, sourceId);
 }
 
 // ------------------------------------------------------------ Weiterleiten
@@ -927,8 +974,8 @@ module.exports = {
   register, ready, announce, discordClient, fluxerClient, format, flattenEmbed, shouldRelay,
   fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
-  body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
-  QUOTE_LENGTH, referenceOf, quoteLine, replyContextDiscord, quoteForFluxerReply,
+  body, displayName, rawNameOf, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
+  QUOTE_LENGTH, QUOTE_MARK, referenceOf, quoteLine, replyContextDiscord, quoteForFluxerReply,
   forFluxer, forDiscord, forFluxerFull, forDiscordFull, pings,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, sendPlainFluxer, remember, ownWebhookIds, hooks,

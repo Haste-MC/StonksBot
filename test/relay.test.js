@@ -349,6 +349,7 @@ const msg = (over = {}) => ({
  */
 async function replyTests() {
   const db = require('../src/db');
+  const envVorher = process.env.RELAY_WEBHOOKS;
 
   console.log('--- Paare gespiegelter Nachrichten ---');
   db.clearRelayPairs();
@@ -403,6 +404,9 @@ async function replyTests() {
     async createWebhook() { return makeHook('FXHOOK'); },
     messages: { async fetch(id) { if (!originals.has(id)) throw new Error('Unknown Message'); return originals.get(id); } },
   };
+  // `channels.fetchMessage` ist der dokumentierte Weg des SDK – die Brücke
+  // soll ihn dem Umweg über den Kanal-Cache vorziehen.
+  let fetchMessageCalls = 0;
   bridge.register('discord', {
     user: { id: 'DISCORDBOT' },
     channels: {
@@ -415,6 +419,11 @@ async function replyTests() {
     channels: {
       values: () => [fxChannel].values(),
       get: (id) => (id === 'FX_KANAL' ? fxChannel : null),
+      async fetchMessage(channelId, id) {
+        fetchMessageCalls++;
+        if (channelId !== 'FX_KANAL' || !originals.has(id)) throw new Error('Unknown Message');
+        return originals.get(id);
+      },
       async send(id, p) { const sentId = nextId(); plainFluxer.push({ id, ...p, sentId }); return { id: sentId }; },
     },
   });
@@ -486,15 +495,72 @@ async function replyTests() {
   check('Zitat-Zeile mit Name und gekürzter erster Zeile',
     a3?.content.startsWith(`> ↩️ **Max:** ${'x'.repeat(80)}…\n`), a3?.content.slice(0, 100));
   check('eigentlicher Text darunter', a3?.content.endsWith('\nDazu kann ich was sagen'));
-  check('Zitat pingt niemanden', a3?.allowedMentions?.repliedUser === undefined && (a3?.allowedMentions?.users ?? []).length === 0);
+  check('Zitat ohne Antwort-Ping', a3?.allowedMentions?.repliedUser === undefined);
+
+  // Zwei verknüpfte Konten, damit Erwähnungen drüben auflösbar sind: Anna
+  // wird im ZITAT erwähnt (darf nicht pingen), Bernd in der ANTWORT (muss).
+  const DC_ANNA = '111000111000111001', FX_ANNA = '211000111000111001';
+  const DC_BERND = '111000111000111002', FX_BERND = '211000111000111002';
+  db.setLink('fluxer', FX_ANNA, DC_ANNA);
+  db.setLink('fluxer', FX_BERND, DC_BERND);
+  const mitPing = dcMsg({
+    content: `<@${DC_BERND}> sehe ich auch so`,
+    mentions: { users: new Map([[DC_BERND, { id: DC_BERND, username: 'Bernd' }]]) },
+    reference: { messageId: 'DC_UNBEKANNT2' },
+    async fetchReference() {
+      return {
+        author: { displayName: 'Max' }, content: `<@${DC_ANNA}> was meinst du?`, embeds: [], attachments: [],
+        mentions: { users: new Map([[DC_ANNA, { id: DC_ANNA, username: 'Anna' }]]) },
+      };
+    },
+  });
+  check('Antwort mit Erwähnung wird gespiegelt', (await bridge.fromDiscord(mitPing)) === true);
+  const a3b = hookSends[hookSends.length - 1];
+  check('die Erwähnung in der Antwort pingt (und nur sie)',
+    JSON.stringify(a3b?.allowedMentions?.users) === JSON.stringify([FX_BERND]), JSON.stringify(a3b?.allowedMentions));
+  check('die Erwähnung im Zitat steht lesbar im Text, pingt aber nicht',
+    a3b?.content.startsWith(`> ↩️ **Max:** <@${FX_ANNA}> was meinst du?\n`)
+    && !(a3b?.allowedMentions?.users ?? []).includes(FX_ANNA), a3b?.content);
+  check('kein Antwort-Ping beim Zitat', a3b?.allowedMentions?.repliedUser === undefined);
+  db.deleteLink('fluxer', FX_ANNA);
+  db.deleteLink('fluxer', FX_BERND);
 
   const nurAnhang = dcMsg({
     reference: { messageId: 'DC_BILD' },
     async fetchReference() { return { author: { displayName: 'Max' }, content: '', embeds: [], attachments: [{ url: 'https://cdn/x.png' }] }; },
   });
   await bridge.fromDiscord(nurAnhang);
-  check('Original ohne Text -> [Anhang]',
+  check('Original nur mit Anhang -> dessen Adresse (wie im Spiegel)',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** https://cdn/x.png\n'), hookSends[hookSends.length - 1]?.content);
+
+  const nurEmbed = dcMsg({
+    reference: { messageId: 'DC_EMBED' },
+    async fetchReference() { return { author: { displayName: 'Max' }, content: '', embeds: [{ title: 'Nur Embed' }], attachments: [] }; },
+  });
+  await bridge.fromDiscord(nurEmbed);
+  check('Original nur aus Embed -> erste Zeile des Embeds',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** **Nur Embed**\n'), hookSends[hookSends.length - 1]?.content);
+
+  const garNichts = dcMsg({
+    reference: { messageId: 'DC_LEER' },
+    async fetchReference() { return { author: { displayName: 'Max' }, content: '', embeds: [], attachments: [] }; },
+  });
+  await bridge.fromDiscord(garNichts);
+  check('Original ganz ohne Inhalt -> [Anhang]',
     hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** [Anhang]\n'), hookSends[hookSends.length - 1]?.content);
+
+  console.log('--- Zitat-Zeile: kein Zitat vom Zitat, kein doppeltes Suffix ---');
+  check('die eigene Zitat-Zeile des Originals wird übersprungen',
+    bridge.quoteLine({ author: { username: 'Max' }, content: '> ↩️ **Simon:** alt\nneuer Text', embeds: [], attachments: [] }, 'fluxer')
+      === '> ↩️ **Max:** neuer Text');
+  check('besteht das Original nur aus Zitat, bleibt dessen erste Zeile',
+    bridge.quoteLine({ author: { username: 'Max' }, content: '> ↩️ **Simon:** alt', embeds: [], attachments: [] }, 'fluxer')
+      === '> ↩️ **Max:** > ↩️ **Simon:** alt');
+  check('NAME_SUFFIX steht im Zitat genau einmal (hier: gar nicht)',
+    typeof bridge.NAME_SUFFIX === 'string'
+    && bridge.quoteLine({ author: { username: `Kevin${bridge.NAME_SUFFIX}` }, content: 'x' }, 'fluxer') === '> ↩️ **Kevin:** x');
+  check('rawNameOf streift ein vorhandenes Suffix ab',
+    bridge.rawNameOf({ author: { username: `Kevin${bridge.NAME_SUFFIX}` } }) === 'Kevin');
 
   console.log('--- Original gelöscht: spiegeln wie ohne Bezug ---');
   const weg = dcMsg({
@@ -505,6 +571,29 @@ async function replyTests() {
   check('wird trotzdem gespiegelt', (await bridge.fromDiscord(weg)) === true);
   const a4 = hookSends[hookSends.length - 1];
   check('ohne Zitat, ohne replyTo', a4?.content === 'Egal' && a4?.replyTo === undefined, a4?.content);
+
+  console.log('--- Abgelehnter Bezug kostet den Webhook nicht ---');
+  // Fluxer lehnt die Referenz ab (Original gelöscht): zweiter Versuch ohne
+  // Bezug, weiter über den Webhook – nicht in Textform, Webhook bleibt.
+  const fxHook = await bridge.webhookFor('fluxer', 'FX_KANAL');
+  check('Webhook vorhanden', fxHook?.id === 'FXHOOK' && Boolean(db.getRelayWebhook('fluxer', 'FX_KANAL')));
+  const echtesHookSend = fxHook.send;
+  fxHook.send = async (payload, wait) => {
+    if (payload.replyTo) throw new Error('Unknown Message');
+    return echtesHookSend.call(fxHook, payload, wait);
+  };
+  const vorher = { hooks: hookSends.length, plain: plainFluxer.length };
+  const abgelehnt = dcMsg({ content: 'Bezug weg', reference: { messageId: 'DC_ORIG' } });
+  check('kommt an', (await bridge.fromDiscord(abgelehnt)) === true);
+  const r1 = hookSends[hookSends.length - 1];
+  check('zweiter Versuch über den Webhook, ohne replyTo',
+    hookSends.length === vorher.hooks + 1 && r1?.replyTo === undefined && r1?.content === 'Bezug weg', JSON.stringify(r1));
+  check('… ohne repliedUser', r1?.allowedMentions?.repliedUser === undefined, JSON.stringify(r1?.allowedMentions));
+  check('nicht in Textform', plainFluxer.length === vorher.plain);
+  check('Webhook bleibt gemerkt',
+    Boolean(db.getRelayWebhook('fluxer', 'FX_KANAL')) && (await bridge.webhookFor('fluxer', 'FX_KANAL')) === fxHook);
+  check('Paar gespeichert', db.relayPairFor('discord', abgelehnt.id)?.fluxer_id === r1?.sentId);
+  fxHook.send = echtesHookSend;
 
   console.log('--- Textform-Rückfall antwortet auch ---');
   // Webhook kaputt -> Textform. Fluxer kann auch dort antworten.
@@ -551,14 +640,48 @@ async function replyTests() {
   check('Zitat-Zeile mit Name und lesbarer Erwähnung',
     z1?.content.startsWith('> ↩️ **Diabilon:** @Simon kommst du?\n'), z1?.content);
   check('Text darunter', z1?.content.endsWith('\nJa, gleich!'));
-  check('die Erwähnung im Zitat pingt niemanden',
-    (z1?.allowedMentions?.users ?? []).length === 0 && z1?.replyTo === undefined, JSON.stringify(z1?.allowedMentions));
+  check('kein replyTo an Discord-Webhooks', z1?.replyTo === undefined);
+
+  // Auflösbare Erwähnungen: Anna im Zitat (darf nicht pingen), Bernd in der Antwort (muss).
+  db.setLink('fluxer', FX_ANNA, DC_ANNA);
+  db.setLink('fluxer', FX_BERND, DC_BERND);
+  const mitPingFx = fxMsg({
+    content: `<@${FX_BERND}> ja, gleich!`,
+    mentions: [{ id: FX_BERND, username: 'Bernd' }],
+    messageReference: { message_id: 'FX_Q2', channel_id: 'FX_KANAL' },
+    referencedMessage: {
+      author: { globalName: 'Diabilon' },
+      content: `<@${FX_ANNA}> kommst du?`, embeds: [], attachments: [],
+      mentions: [{ id: FX_ANNA, username: 'Anna' }],
+    },
+  });
+  check('Antwort mit Erwähnung wird gespiegelt', (await bridge.fromFluxer(mitPingFx)) === true);
+  const z1b = hookSends[hookSends.length - 1];
+  check('die Erwähnung in der Antwort pingt (und nur sie)',
+    JSON.stringify(z1b?.allowedMentions?.users) === JSON.stringify([DC_BERND]), JSON.stringify(z1b?.allowedMentions));
+  check('die Erwähnung im Zitat steht lesbar im Text, pingt aber nicht',
+    z1b?.content.startsWith(`> ↩️ **Diabilon:** <@${DC_ANNA}> kommst du?\n`)
+    && !(z1b?.allowedMentions?.users ?? []).includes(DC_ANNA), z1b?.content);
+  db.deleteLink('fluxer', FX_ANNA);
+  db.deleteLink('fluxer', FX_BERND);
 
   originals.set('FX_LADEN', { author: { globalName: 'Diabilon' }, content: 'nachgeladen', embeds: [], attachments: [] });
   const nachladen = fxMsg({ content: 'ok', messageReference: { message_id: 'FX_LADEN' } });
+  const fetchVorher = fetchMessageCalls;
   await bridge.fromFluxer(nachladen);
   check('ohne referencedMessage wird das Original nachgeladen',
     hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Diabilon:** nachgeladen\n'), hookSends[hookSends.length - 1]?.content);
+  check('… über channels.fetchMessage (dokumentierter SDK-Weg)', fetchMessageCalls === fetchVorher + 1, String(fetchMessageCalls));
+
+  // Ohne `fetchMessage` (älteres SDK) bleibt der Umweg über den Kanal-Cache.
+  const fluxerChannels = bridge.fluxerClient().channels;
+  const echtesFetchMessage = fluxerChannels.fetchMessage;
+  delete fluxerChannels.fetchMessage;
+  await bridge.fromFluxer(fxMsg({ content: 'ok2', messageReference: { message_id: 'FX_LADEN' } }));
+  check('ohne fetchMessage: Rückfall über channels.get(...).messages.fetch',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Diabilon:** nachgeladen\n') && fetchMessageCalls === fetchVorher + 1,
+    hookSends[hookSends.length - 1]?.content);
+  fluxerChannels.fetchMessage = echtesFetchMessage;
 
   const geloescht = fxMsg({ content: 'hm', messageReference: { message_id: 'FX_WEG' } });
   check('gelöschtes Original: spiegeln ohne Zitat', (await bridge.fromFluxer(geloescht)) === true
@@ -567,6 +690,10 @@ async function replyTests() {
   db.clearRelayPairs();
   db.deleteRelayWebhook('discord', 'DC_KANAL');
   db.deleteRelayWebhook('fluxer', 'FX_KANAL');
+  // Zurückdrehen wie in `fresh`: Umgebung und Modul-Exemplar gehören nicht
+  // dem nächsten Abschnitt.
+  if (envVorher === undefined) delete process.env.RELAY_WEBHOOKS; else process.env.RELAY_WEBHOOKS = envVorher;
+  delete require.cache[require.resolve('../src/relay')];
 }
 
 /**

@@ -518,6 +518,7 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_messages_fluxer ON relay_messages (fluxer_id);
+  CREATE INDEX IF NOT EXISTS idx_relay_messages_created ON relay_messages (created_at);
 `);
 
 // Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
