@@ -312,3 +312,17 @@ täglich, wie ein Menü-Klick.
 4. Andockpunkte in `music.js` + Test 3/11/12.
 5. Ansicht.
 6. Messung (Test 10), Patchnotes, Testkette.
+
+## Nach dem Bau (2026-09-12) – bewusst so gelassen
+
+Die Messung nach der Umsetzung hat drei Punkte gezeigt; der Nutzer hat alle
+drei so belassen:
+
+1. **Ereignisse heben die Kanäle:** gleiche Strategie, Hörer −10 %, Follower
+   +23 %, Geld +6 %/Tag – der Social-Spill rechnet mit dem ereignis-
+   multiplizierten Publikum (`hit ×3`). Gewollt: Musik+Creator ist die Spitze.
+2. **Kalibrierung ohne Sprache:** Das Messskript wählt keine Sprache; mit
+   „deutsch" (Tempo ×1,5) bringt ein Jahr ~830.000 Hörer statt 500–700k.
+   Akzeptiert als echtes Ziel.
+3. **`album_leak` und `label` sind selten:** ≥ 3 unveröffentlichte Titel bzw.
+   Idol-Vertrag – ein Fleißspieler sieht sie kaum. Beobachtung, kein Fehler.
