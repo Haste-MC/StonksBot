@@ -448,6 +448,91 @@ async function replyTests() {
     db.relayPairFor('fluxer', f1.id)?.discord_id === s2.sentId, JSON.stringify(db.relayPairFor('fluxer', f1.id)));
   check('ohne Antwort kein replyTo und kein Zitat',
     s1.replyTo === undefined && !s1.content.includes('↩️') && s2.replyTo === undefined && !s2.content.includes('↩️'));
+
+  console.log('--- Discord antwortet auf Fluxer: echte Antwort ---');
+  db.setRelayPair('DC_ORIG', 'FX_ORIG');
+  const antwort = dcMsg({ content: 'Genau so!', reference: { messageId: 'DC_ORIG' } });
+  check('wird gespiegelt', (await bridge.fromDiscord(antwort)) === true);
+  const a1 = hookSends[hookSends.length - 1];
+  check('replyTo zeigt auf das Fluxer-Gegenstück',
+    a1?.replyTo?.messageId === 'FX_ORIG' && a1?.replyTo?.channelId === 'FX_KANAL', JSON.stringify(a1?.replyTo));
+  check('guildId aus dem Kanal-Cache', a1?.replyTo?.guildId === 'FX_GUILD');
+  check('der Autor des Originals wird gepingt (repliedUser)',
+    a1?.allowedMentions?.repliedUser === true && Array.isArray(a1?.allowedMentions?.parse), JSON.stringify(a1?.allowedMentions));
+  check('kein Zitat im Text', a1?.content === 'Genau so!', a1?.content);
+
+  console.log('--- Antwort auf den Spiegel eines Fluxer-Nutzers ---');
+  // Simons Fluxer-Nachricht wurde nach Discord gespiegelt (Paar aus Task 2);
+  // Kevin antwortet auf Discord auf den SPIEGEL – drüben muss Simons Original getroffen werden.
+  const simon = fxMsg({ content: 'Wer spielt civ?' });
+  await bridge.fromFluxer(simon);
+  const spiegelId = db.relayPairFor('fluxer', simon.id)?.discord_id;
+  check('Spiegel hat eine Discord-ID', Boolean(spiegelId), String(spiegelId));
+  await bridge.fromDiscord(dcMsg({ content: 'ich!', reference: { messageId: spiegelId } }));
+  const a2 = hookSends[hookSends.length - 1];
+  check('Antwort trifft Simons Original', a2?.replyTo?.messageId === simon.id, JSON.stringify(a2?.replyTo));
+
+  console.log('--- Unbekanntes Original: Zitat-Zeile ---');
+  const lang = 'x'.repeat(120);
+  const unbekannt = dcMsg({
+    content: 'Dazu kann ich was sagen',
+    reference: { messageId: 'DC_UNBEKANNT' },
+    async fetchReference() {
+      return { author: { displayName: 'Max' }, content: `${lang}\nzweite Zeile`, embeds: [], attachments: [] };
+    },
+  });
+  check('wird gespiegelt', (await bridge.fromDiscord(unbekannt)) === true);
+  const a3 = hookSends[hookSends.length - 1];
+  check('kein replyTo', a3?.replyTo === undefined);
+  check('Zitat-Zeile mit Name und gekürzter erster Zeile',
+    a3?.content.startsWith(`> ↩️ **Max:** ${'x'.repeat(80)}…\n`), a3?.content.slice(0, 100));
+  check('eigentlicher Text darunter', a3?.content.endsWith('\nDazu kann ich was sagen'));
+  check('Zitat pingt niemanden', a3?.allowedMentions?.repliedUser === undefined && (a3?.allowedMentions?.users ?? []).length === 0);
+
+  const nurAnhang = dcMsg({
+    reference: { messageId: 'DC_BILD' },
+    async fetchReference() { return { author: { displayName: 'Max' }, content: '', embeds: [], attachments: [{ url: 'https://cdn/x.png' }] }; },
+  });
+  await bridge.fromDiscord(nurAnhang);
+  check('Original ohne Text -> [Anhang]',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** [Anhang]\n'), hookSends[hookSends.length - 1]?.content);
+
+  console.log('--- Original gelöscht: spiegeln wie ohne Bezug ---');
+  const weg = dcMsg({
+    content: 'Egal',
+    reference: { messageId: 'DC_WEG' },
+    async fetchReference() { throw new Error('Unknown Message'); },
+  });
+  check('wird trotzdem gespiegelt', (await bridge.fromDiscord(weg)) === true);
+  const a4 = hookSends[hookSends.length - 1];
+  check('ohne Zitat, ohne replyTo', a4?.content === 'Egal' && a4?.replyTo === undefined, a4?.content);
+
+  console.log('--- Textform-Rückfall antwortet auch ---');
+  // Webhook kaputt -> Textform. Fluxer kann auch dort antworten.
+  db.deleteRelayWebhook('fluxer', 'FX_KANAL');
+  bridge.hooks.clear();
+  fxChannel.createWebhook = async () => { throw new Error('Missing Permissions'); };
+  const text1 = dcMsg({ content: 'Textform-Antwort', reference: { messageId: 'DC_ORIG' } });
+  check('kommt an', (await bridge.fromDiscord(text1)) === true);
+  const p1 = plainFluxer[plainFluxer.length - 1];
+  check('channels.send bekommt replyTo und repliedUser',
+    p1?.replyTo?.messageId === 'FX_ORIG' && p1?.allowedMentions?.repliedUser === true, JSON.stringify(p1));
+  check('Paar auch in Textform gespeichert', db.relayPairFor('discord', text1.id)?.fluxer_id === p1?.sentId);
+
+  // Fluxer lehnt die Referenz ab -> zweiter Versuch ohne Bezug.
+  const fluxerClient = bridge.fluxerClient();
+  const echtesSend = fluxerClient.channels.send;
+  fluxerClient.channels.send = async (id, p) => {
+    if (p.replyTo) throw new Error('Unknown Message');
+    return echtesSend(id, p);
+  };
+  check('abgelehnte Referenz: Nachricht kommt trotzdem an',
+    (await bridge.fromDiscord(dcMsg({ content: 'Trotzdem', reference: { messageId: 'DC_ORIG' } }))) === true);
+  const p2 = plainFluxer[plainFluxer.length - 1];
+  check('… ohne replyTo', p2?.replyTo === undefined && /Trotzdem/.test(p2?.content), JSON.stringify(p2));
+  fluxerClient.channels.send = echtesSend;
+  fxChannel.createWebhook = async () => makeHook('FXHOOK');
+  bridge.hooks.clear();
 }
 
 /**

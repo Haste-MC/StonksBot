@@ -279,6 +279,57 @@ function sanitizeName(raw) {
     .trim() || 'Jemand';
 }
 
+// ------------------------------------------------------------ Antworten
+
+/** Höchstlänge der Kopfzeile im Zitat einer Antwort. */
+const QUOTE_LENGTH = 80;
+
+/** Die Nachricht, auf die diese antwortet – oder null. */
+function referenceOf(message, platform) {
+  if (platform === 'discord') return message.reference?.messageId ?? null;
+  const ref = message.messageReference;
+  return ref?.message_id ?? ref?.messageId ?? null;
+}
+
+/**
+ * Die Zitat-Zeile über einer Antwort – wenn drüben keine echte Antwort
+ * möglich ist (Discord-Webhooks) oder das Original der Brücke nicht bekannt
+ * ist. Erwähnungen im Zitat werden lesbar übersetzt, aber niemand wird
+ * dafür gepingt: Die Zeile zitiert, sie spricht niemanden an.
+ */
+function quoteLine(original, targetPlatform) {
+  const first = String(original.content ?? '')
+    .split('\n').map((l) => l.trim()).find(Boolean) ?? '[Anhang]';
+  const head = first.length > QUOTE_LENGTH ? `${first.slice(0, QUOTE_LENGTH)}…` : first;
+  const uebersetzt = targetPlatform === 'fluxer'
+    ? forFluxerFull(head, original) : forDiscordFull(head, original);
+  return `> ↩️ **${displayName(original)}:** ${uebersetzt.text}`;
+}
+
+/**
+ * Was eine Discord-Antwort drüben wird: bekanntes Paar → echte Antwort
+ * (`replyTo`), sonst Zitat des nachgeladenen Originals, sonst nichts.
+ */
+async function replyContextDiscord(message, target) {
+  const ref = referenceOf(message, 'discord');
+  if (!ref) return { replyTo: null, quote: null };
+
+  const pair = db.relayPairFor('discord', ref);
+  if (pair) {
+    const guildId = clients.fluxer?.channels?.cache?.get?.(target)?.guildId;
+    return {
+      replyTo: { channelId: target, messageId: pair.fluxer_id, ...(guildId ? { guildId } : {}) },
+      quote: null,
+    };
+  }
+
+  let original = null;
+  if (typeof message.fetchReference === 'function') {
+    original = await message.fetchReference().catch(() => null);
+  }
+  return { replyTo: null, quote: original ? quoteLine(original, 'fluxer') : null };
+}
+
 /**
  * Avatarbild des Absenders (oder null – dann nimmt der Webhook sein eigenes).
  *
@@ -795,9 +846,14 @@ async function fromDiscord(message) {
 
   const target = destination(message, 'discord');
   if (!target || !body(message)) return false;
+
+  // Antwort? Bekanntes Gegenstück → echte Antwort drüben, sonst Zitat.
+  const { replyTo, quote } = await replyContextDiscord(message, target);
+  const mitZitat = (text) => (quote ? `${quote}\n${text}` : text);
+
   const uebersetzt = forFluxerFull(body(message) ?? '', message);
   const persona = await sendAsPersona(
-    'fluxer', target, message, uebersetzt.text, 'discord', uebersetzt.users);
+    'fluxer', target, message, mitZitat(uebersetzt.text), 'discord', uebersetzt.users, replyTo);
   if (persona.ok) {
     remember('discord', message.id, persona.id);
     return true;
@@ -806,7 +862,8 @@ async function fromDiscord(message) {
   const text = format(message, { platform: 'discord' });
   if (!text) return false;
   const rueckfall = forFluxerFull(text, message);
-  const sentId = await sendPlainFluxer(target, rueckfall.text, pings(rueckfall.users));
+  const sentId = await sendPlainFluxer(
+    target, mitZitat(rueckfall.text), pings(rueckfall.users), replyTo);
   remember('discord', message.id, sentId);
   return true;
 }
@@ -842,6 +899,7 @@ module.exports = {
   fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
   body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
+  QUOTE_LENGTH, referenceOf, quoteLine, replyContextDiscord,
   forFluxer, forDiscord, forFluxerFull, forDiscordFull, pings,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, sendPlainFluxer, remember, ownWebhookIds, hooks,
