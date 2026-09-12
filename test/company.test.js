@@ -257,6 +257,91 @@ const user = () => `u${++n}`;
     check('… und work sagt arbeitslos', r.ok === false && r.reason === 'unemployed');
   }
 
+  console.log('--- Inhaber-Aktionen ---');
+  {
+    const creator = require('../src/creator');
+    const U = user(); funds(U, 50_000, 500_000);
+    const f = await company.found(G, U, 'cafe', 'Chefsache', t0);
+    const cid = f.company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < 3; i++) company.hireNpc(G, U, t0, seq(0.1 * i));
+
+    // Werbung braucht Deckung.
+    let r = await company.advertise(G, U, t0);
+    check('Werbung ohne Deckung abgelehnt', r.ok === false && r.reason === 'kasse');
+    bookings = [];
+    r = await company.deposit(G, U, 20_000, t0);
+    check('Einzahlen: eine Buchung, Kasse steigt', r.ok && bookings.length === 1 && bookings[0].amount === -20_000
+      && db.getCompany(cid).kasse === 20_000);
+    check('Einzahlen über Guthaben abgelehnt', (await company.deposit(G, U, 10_000_000, t0)).reason === 'funds');
+    const zeitVor = creator.budget(G, U, t0).left;
+    r = await company.advertise(G, U, t0);
+    check('Werbung: Kasse −6.000 (5 % von 120.000), 3 Tage', r.ok && db.getCompany(cid).kasse === 14_000
+      && db.getCompany(cid).werbung_until === t0 + 3 * DAY_MS, JSON.stringify(r));
+    check('Werbung kostet Zeit aus dem Creator-Budget', creator.budget(G, U, t0).left === zeitVor - data.TIME_WERBUNG);
+    check('Werbung läuft schon -> abgelehnt', (await company.advertise(G, U, t0 + 1000)).reason === 'running');
+
+    // Anpacken: Umsatz als Schichtleiter, kein Lohn.
+    const a = db.getCompany(cid).auslastung;
+    r = await company.pitchIn(G, U, t0);
+    check('Anpacken bringt 900 × 1,5 × Auslastung', r.ok && r.umsatz === Math.round(b.umsatz * 1.5 * a)
+      && db.getCompany(cid).kasse === 14_000 + r.umsatz, JSON.stringify(r));
+    check('… und kostet Zeit', creator.budget(G, U, t0).left === zeitVor - data.TIME_WERBUNG - data.TIME_ANPACKEN);
+    for (let i = 0; i < 3; i++) await company.pitchIn(G, U, t0);
+    check('höchstens 4 je Tag (oder Zeit alle)',
+      ['limit', 'no_time'].includes((await company.pitchIn(G, U, t0)).reason));
+
+    // Rang und Prämie.
+    const staff = db.companyStaff(cid);
+    r = company.promote(G, U, staff[0].id, +1);
+    check('befördert auf Fachkraft', r.ok && db.staffById(staff[0].id).rank === 1 && r.rank.name === 'Fachkraft');
+    company.promote(G, U, staff[0].id, +1); r = company.promote(G, U, staff[0].id, +1);
+    check('über Schichtleiter geht nichts', r.ok === false && db.staffById(staff[0].id).rank === 2);
+    r = company.promote(G, U, staff[0].id, -1);
+    check('zurückgestuft', r.ok && db.staffById(staff[0].id).rank === 1);
+    check('Prämie an NPC abgelehnt', (await company.bonus(G, U, staff[0].id, 100, t0)).reason === 'not_player');
+    const P = user(); funds(P, 0);
+    company.join(G, P, cid, t0);
+    const ps = db.staffByUser(cid, P);
+    const kasseVor = db.getCompany(cid).kasse;
+    bookings = [];
+    r = await company.bonus(G, U, ps.id, 500, t0);
+    check('Prämie: eine Buchung an den Spieler, Kasse sinkt', r.ok && bookings.length === 1 && bookings[0].user === P
+      && bookings[0].amount === 500 && db.getCompany(cid).kasse === kasseVor - 500);
+    check('Prämie über Kasse abgelehnt', (await company.bonus(G, U, ps.id, 10_000_000, t0)).reason === 'kasse');
+    r = company.promote(G, U, ps.id, +1);
+    check('Spieler-Beförderung spiegelt sich in employment.rank', r.ok && db.getEmployment(G, P).rank === 1);
+
+    // Entnahme.
+    bookings = [];
+    const k = db.getCompany(cid).kasse;
+    r = await company.withdraw(G, U, k, t0);
+    check('Entnahme: eine Buchung ohne Steuer, Kasse 0', r.ok && bookings.length === 1 && bookings[0].amount === k
+      && bookings[0].opts.tax === false && db.getCompany(cid).kasse === 0, JSON.stringify(bookings));
+    check('Entnahme über Kasse abgelehnt', (await company.withdraw(G, U, 1, t0)).reason === 'kasse');
+    check('Entnahme von 0 abgelehnt', (await company.withdraw(G, U, 0, t0)).reason === 'amount');
+
+    // Einzahlen rettet vor der Insolvenz.
+    db.saveCompany({ ...db.getCompany(cid), kasse: -5_000, negative_since: t0 - 13 * DAY_MS });
+    r = await company.deposit(G, U, 6_000, t0);
+    check('Einzahlung setzt die Minus-Uhr zurück', r.ok && db.getCompany(cid).negative_since === 0);
+
+    // Status.
+    const s = company.status(G, U, t0);
+    check('status: Kasse, Auslastung, Personal, Decke, Tagesprognose',
+      s.company.id === cid && s.staff.length === 4 && s.free === 1 && s.ceiling.net > 0 && typeof s.forecast === 'number'
+      && s.budget.max === 8, JSON.stringify({ free: s.free, forecast: s.forecast }));
+
+    // Schließen: Kasse wird entnommen, Personal weg.
+    db.saveCompany({ ...db.getCompany(cid), kasse: 700 });
+    bookings = [];
+    r = await company.close(G, U, t0);
+    check('Schließen entnimmt die Kasse (eine Buchung) und räumt auf',
+      r.ok && bookings.length === 1 && bookings[0].amount === 700 && company.ownCompany(G, U) === null
+      && db.getEmployment(G, P) === null && db.companyStaff(cid).length === 0);
+    check('ohne Firma: status null', company.status(G, U, t0) === null);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();

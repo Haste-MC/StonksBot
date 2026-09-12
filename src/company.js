@@ -313,10 +313,161 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   return { ok: true, lohn, umsatz, company: c, branch: b, rank: rankOf(s.rank) };
 }
 
+// --------------------------------------------------------- Inhaber-Aktionen
+
+/** Zeit aus dem gemeinsamen Tagesbudget (§15: eine Bremse, nicht zwei). */
+function useTime(guildId, userId, cost, now) {
+  return require('./creator').useTime(guildId, userId, cost, now);
+}
+
+/** Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent geworden). */
+function fresh(guildId, userId, now) {
+  const c = db.getOpenCompany(guildId, userId);
+  if (!c) return null;
+  settle(c.id, now);
+  const after = db.getCompany(c.id);
+  if (!after || after.status !== 'open') return null;
+  return { company: after, branch: branch(after.branch), staff: db.companyStaff(after.id) };
+}
+
+/** Werbung: kostet 5 % des Gründungspreises aus der Kasse und Zeit; 3 Tage +0,25 aufs Ziel. */
+async function advertise(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  if (c.werbung_until > now) return { ok: false, reason: 'running', until: c.werbung_until };
+  const cost = Math.round(b.price * data.WERBUNG_COST_SHARE);
+  if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
+  const time = useTime(guildId, userId, data.TIME_WERBUNG, now);
+  if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_WERBUNG, ...time };
+  const until = now + data.WERBUNG_DAYS * DAY_MS;
+  db.saveCompany({ ...c, kasse: c.kasse - cost, werbung_until: until });
+  return { ok: true, cost, until, time };
+}
+
+/** Selbst anpacken: eine Schicht als Schichtleiter, ohne Lohn, höchstens 4 je Tag. */
+async function pitchIn(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const day = dayKey(now);
+  const done = c.pitch_day === day ? c.pitch_today : 0;
+  if (done >= data.MAX_PITCH_PER_DAY) return { ok: false, reason: 'limit', done, max: data.MAX_PITCH_PER_DAY };
+  const time = useTime(guildId, userId, data.TIME_ANPACKEN, now);
+  if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_ANPACKEN, ...time };
+  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung);
+  db.saveCompany({ ...c, kasse: c.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
+  return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time };
+}
+
+/** Gewinn entnehmen – Umbuchung, keine Steuer, kein Level-Zuschlag. */
+async function withdraw(guildId, userId, amount, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const c = ctx.company;
+  const value = Math.floor(Number(amount) || 0);
+  if (value <= 0) return { ok: false, reason: 'amount' };
+  if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
+  db.saveCompany({ ...c, kasse: c.kasse - value });
+  const balance = await changeCash(guildId, userId, value, `Entnahme: ${c.name}`,
+    { tax: false, kind: 'company' });
+  return { ok: true, amount: value, balance, kasse: c.kasse - value };
+}
+
+/** Kapital einzahlen – von Bargeld (notfalls Bank), setzt die Minus-Uhr zurück. */
+async function deposit(guildId, userId, amount, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const c = ctx.company;
+  const value = Math.floor(Number(amount) || 0);
+  if (value <= 0) return { ok: false, reason: 'amount' };
+  const balance = await getBalance(guildId, userId);
+  if (balance.total < value) return { ok: false, reason: 'funds', have: balance.total };
+  if (balance.cash < value) {
+    await unb.withdrawFromBank(guildId, userId, value - balance.cash, `Einzahlung: ${c.name}`);
+  }
+  const after = await changeCash(guildId, userId, -value, `Einzahlung: ${c.name}`, { kind: 'company' });
+  const current = db.getCompany(c.id);                 // frisch lesen: die Buchung hat gewartet
+  const kasse = current.kasse + value;
+  db.saveCompany({ ...current, kasse, negative_since: kasse < 0 ? current.negative_since : 0 });
+  return { ok: true, amount: value, balance: after, kasse };
+}
+
+/** Rang ±1, geklemmt auf 0…2; bei Spielern auch employment.rank. */
+function promote(guildId, userId, staffId, delta) {
+  const ctx = ownerContext(guildId, userId);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const s = db.staffById(staffId);
+  if (!s || s.company_id !== ctx.company.id) return { ok: false, reason: 'not_found' };
+  const rank = s.rank + Math.sign(delta);
+  if (rank < 0 || rank >= data.RANKS.length) return { ok: false, reason: 'range', rank: rankOf(s.rank) };
+  db.saveStaff({ ...s, rank });
+  if (s.kind === 'player') db.promote(guildId, s.user_id, rank, db.getEmployment(guildId, s.user_id)?.shifts ?? 0);
+  return { ok: true, staff: { ...s, rank }, rank: rankOf(rank) };
+}
+
+/** Prämie aus der Kasse an einen Spieler-Angestellten – eine Buchung. */
+async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const c = ctx.company;
+  const s = db.staffById(staffId);
+  if (!s || s.company_id !== c.id) return { ok: false, reason: 'not_found' };
+  if (s.kind !== 'player') return { ok: false, reason: 'not_player' };
+  const value = Math.floor(Number(amount) || 0);
+  if (value <= 0) return { ok: false, reason: 'amount' };
+  if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
+  db.saveCompany({ ...c, kasse: c.kasse - value });
+  await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'job' });
+  return { ok: true, amount: value, staff: s };
+}
+
+/** Freiwillig schließen: Kasse (wenn positiv) entnehmen, dann aufräumen. */
+async function close(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const c = ctx.company;
+  const payout = Math.max(0, Math.round(c.kasse));
+  const closed = closeCompany(guildId, c.id, now, 'closed');
+  const balance = payout > 0
+    ? await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`, { tax: false, kind: 'company' })
+    : null;
+  return { ok: true, company: closed, payout, balance };
+}
+
+// ------------------------------------------------------------------ Anzeige
+
+/** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
+function status(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return null;
+  const { company: c, branch: b, staff } = ctx;
+  const day = dayKey(now);
+  // Prognose: was die heutige NPC-Besetzung bei heutiger Auslastung am Tag
+  // bringt – Spieler-Schichten (freiwillig, ungewiss) zählen hier nicht mit.
+  const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
+    const f = rankOf(s.rank).factor;
+    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung) - Math.round(b.lohn * f));
+  }, 0);
+  const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
+  return {
+    company: c, branch: b, staff,
+    free: b.slots - staff.length,
+    kasse: c.kasse, auslastung: c.auslastung,
+    werbungMs: Math.max(0, c.werbung_until - now),
+    minusDays, daysLeft: c.negative_since ? Math.max(0, data.INSOLVENCY_DAYS - minusDays) : null,
+    pitchLeft: data.MAX_PITCH_PER_DAY - (c.pitch_day === day ? c.pitch_today : 0),
+    budget: require('./creator').budget(guildId, userId, now),
+    ceiling: ceilingOf(b), forecast,
+    werbungCost: Math.round(b.price * data.WERBUNG_COST_SHARE),
+  };
+}
+
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, settle,
   asJob, openings, join, leave, workShift,
+  advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
 };
