@@ -532,6 +532,41 @@ async function replyTests() {
   fluxerClient.channels.send = echtesSend;
   fxChannel.createWebhook = async () => makeHook('FXHOOK');
   bridge.hooks.clear();
+
+  console.log('--- Fluxer antwortet: Zitat-Zeile auf Discord ---');
+  // Discord-Webhooks können nicht antworten – also Zitat. Das Original
+  // hängt an der Fluxer-Nachricht (referencedMessage) oder wird nachgeladen.
+  const mitOriginal = fxMsg({
+    content: 'Ja, gleich!',
+    messageReference: { message_id: 'FX_Q', channel_id: 'FX_KANAL' },
+    referencedMessage: {
+      author: { globalName: 'Diabilon' },
+      content: '<@FXUSER2> kommst du?', embeds: [], attachments: [],
+      mentions: [{ id: 'FXUSER2', username: 'Simon' }],
+    },
+  });
+  check('wird gespiegelt', (await bridge.fromFluxer(mitOriginal)) === true);
+  const z1 = hookSends[hookSends.length - 1];
+  check('über den Discord-Webhook', z1?.hook === 'DCHOOK', z1?.hook);
+  check('Zitat-Zeile mit Name und lesbarer Erwähnung',
+    z1?.content.startsWith('> ↩️ **Diabilon:** @Simon kommst du?\n'), z1?.content);
+  check('Text darunter', z1?.content.endsWith('\nJa, gleich!'));
+  check('die Erwähnung im Zitat pingt niemanden',
+    (z1?.allowedMentions?.users ?? []).length === 0 && z1?.replyTo === undefined, JSON.stringify(z1?.allowedMentions));
+
+  originals.set('FX_LADEN', { author: { globalName: 'Diabilon' }, content: 'nachgeladen', embeds: [], attachments: [] });
+  const nachladen = fxMsg({ content: 'ok', messageReference: { message_id: 'FX_LADEN' } });
+  await bridge.fromFluxer(nachladen);
+  check('ohne referencedMessage wird das Original nachgeladen',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Diabilon:** nachgeladen\n'), hookSends[hookSends.length - 1]?.content);
+
+  const geloescht = fxMsg({ content: 'hm', messageReference: { message_id: 'FX_WEG' } });
+  check('gelöschtes Original: spiegeln ohne Zitat', (await bridge.fromFluxer(geloescht)) === true
+    && hookSends[hookSends.length - 1]?.content === 'hm', hookSends[hookSends.length - 1]?.content);
+
+  db.clearRelayPairs();
+  db.deleteRelayWebhook('discord', 'DC_KANAL');
+  db.deleteRelayWebhook('fluxer', 'FX_KANAL');
 }
 
 /**

@@ -307,6 +307,27 @@ function quoteLine(original, targetPlatform) {
 }
 
 /**
+ * Das Zitat für eine Fluxer-Antwort. Discord-Webhooks können nicht
+ * antworten, deshalb immer Zitat – das Original hängt meist schon an der
+ * Nachricht, sonst wird es aus dem Kanal nachgeladen.
+ */
+async function quoteForFluxerReply(message) {
+  const ref = referenceOf(message, 'fluxer');
+  if (!ref) return null;
+
+  let original = message.referencedMessage ?? null;
+  if (!original) {
+    const channel = clients.fluxer?.channels?.get?.(message.channelId) ?? null;
+    try {
+      original = channel?.messages?.fetch ? await channel.messages.fetch(ref) : null;
+    } catch {
+      original = null;
+    }
+  }
+  return original ? quoteLine(original, 'discord') : null;
+}
+
+/**
  * Was eine Discord-Antwort drüben wird: bekanntes Paar → echte Antwort
  * (`replyTo`), sonst Zitat des nachgeladenen Originals, sonst nichts.
  */
@@ -877,9 +898,13 @@ async function fromFluxer(message) {
 
   const target = destination(message, 'fluxer');
   if (!target || !body(message)) return false;
+
+  const quote = await quoteForFluxerReply(message);
+  const mitZitat = (text) => (quote ? `${quote}\n${text}` : text);
+
   const uebersetzt = forDiscordFull(body(message) ?? '', message);
   const persona = await sendAsPersona(
-    'discord', target, message, uebersetzt.text, 'fluxer', uebersetzt.users);
+    'discord', target, message, mitZitat(uebersetzt.text), 'fluxer', uebersetzt.users);
   if (persona.ok) {
     remember('fluxer', message.id, persona.id);
     return true;
@@ -889,7 +914,9 @@ async function fromFluxer(message) {
   if (!text) return false;
   const channel = await clients.discord.channels.fetch(target);
   const rueckfall = forDiscordFull(text, message);
-  const sent = await channel.send({ content: rueckfall.text, allowedMentions: pings(rueckfall.users) });
+  const sent = await channel.send({
+    content: mitZitat(rueckfall.text), allowedMentions: pings(rueckfall.users),
+  });
   remember('fluxer', message.id, sent?.id ? String(sent.id) : null);
   return true;
 }
@@ -901,7 +928,7 @@ module.exports = {
   fromDiscord, fromFluxer,
   normalize, counterpart, destination, textChannels,
   body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
-  QUOTE_LENGTH, referenceOf, quoteLine, replyContextDiscord,
+  QUOTE_LENGTH, referenceOf, quoteLine, replyContextDiscord, quoteForFluxerReply,
   forFluxer, forDiscord, forFluxerFull, forDiscordFull, pings,
   nameKey, accountByName, learnFace,
   webhookFor, sendAsPersona, sendPlainFluxer, remember, ownWebhookIds, hooks,
