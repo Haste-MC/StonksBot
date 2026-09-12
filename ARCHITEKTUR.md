@@ -442,7 +442,7 @@ Eine Antwort wird damit zuordenbar, aber die Plattformen können nicht dasselbe:
 
 | Richtung | Darstellung | Warum |
 |---|---|---|
-| Discord → Fluxer | echte Antwort (`replyTo`), Persona bleibt, Autor wird gepingt | Fluxers Webhook-Endpunkt nimmt `message_reference` an (geprüft 2026-09-12) |
+| Discord → Fluxer | echte Antwort (`replyTo`), Persona bleibt; der Ping an den Autor wird mitgeschickt (`replied_user`), ob Fluxer ihn bei Webhook-Antworten zustellt, ist nicht geprüft | Fluxers Webhook-Endpunkt nimmt `message_reference` an (geprüft 2026-09-12) |
 | Fluxer → Discord | Zitat-Zeile `> ↩️ **Name:** Kopfzeile…` (80 Zeichen) | Discord-Webhooks dürfen nicht antworten |
 
 Ist das Original der Brücke unbekannt (älter als 14 Tage, nie gespiegelt),

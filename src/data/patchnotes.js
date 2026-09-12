@@ -22,7 +22,7 @@ module.exports = [
     date: '2026-09-12',
     title: '↩️ Antworten über die Brücke',
     lines: [
-      '↩️ **Antworten kommen jetzt als Antworten an.** Wer auf Discord auf eine Fluxer-Nachricht antwortet, erzeugt auf Fluxer eine echte Antwort – mit Antwort-Linie, Name und Avatar wie gewohnt. Der Angesprochene bekommt seine Benachrichtigung.',
+      '↩️ **Antworten kommen jetzt als Antworten an.** Wer auf Discord auf eine Fluxer-Nachricht antwortet, erzeugt auf Fluxer eine echte Antwort – mit Antwort-Linie, Name und Avatar wie gewohnt.',
       '💬 **In die andere Richtung ein Zitat.** Discord erlaubt Webhooks keine Antworten, deshalb steht eine Fluxer-Antwort auf Discord mit einer Zitat-Zeile über dem Text: „↩️ **Name:** erste Zeile der Originalnachricht…“.',
       '🗓️ **Zwei Wochen Gedächtnis.** Die Brücke merkt sich gespiegelte Nachrichten 14 Tage; auf Älteres kommt statt der echten Antwort ebenfalls das Zitat.',
     ],
