@@ -308,8 +308,10 @@ function referenceOf(message, platform) {
  * dafür gepingt: Die Zeile zitiert, sie spricht niemanden an.
  */
 function quoteLine(original, targetPlatform) {
-  // `body` statt `content`: Ein Original nur aus Embed hat sonst keine Zeile.
-  const lines = String(body(original) ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
+  // Text und Embeds, aber keine Anhänge: Eine Bild-Adresse in der Kopfzeile
+  // hilft niemandem – da steht lieber [Anhang].
+  const lines = String(body({ ...original, attachments: [] }) ?? '')
+    .split('\n').map((l) => l.trim()).filter(Boolean);
   // Kein Zitat vom Zitat: Die eigene Zitat-Zeile eines Originals überspringen –
   // sonst schleppt jede Antwort auf eine Antwort den ganzen Faden mit.
   const first = lines.find((l) => !l.startsWith(QUOTE_MARK)) ?? lines[0] ?? '[Anhang]';

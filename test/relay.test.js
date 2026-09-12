@@ -530,8 +530,8 @@ async function replyTests() {
     async fetchReference() { return { author: { displayName: 'Max' }, content: '', embeds: [], attachments: [{ url: 'https://cdn/x.png' }] }; },
   });
   await bridge.fromDiscord(nurAnhang);
-  check('Original nur mit Anhang -> dessen Adresse (wie im Spiegel)',
-    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** https://cdn/x.png\n'), hookSends[hookSends.length - 1]?.content);
+  check('Original nur mit Anhang -> [Anhang], keine Bild-Adresse in der Kopfzeile',
+    hookSends[hookSends.length - 1]?.content.startsWith('> ↩️ **Max:** [Anhang]\n'), hookSends[hookSends.length - 1]?.content);
 
   const nurEmbed = dcMsg({
     reference: { messageId: 'DC_EMBED' },
