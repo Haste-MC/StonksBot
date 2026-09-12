@@ -336,8 +336,8 @@ const msg = (over = {}) => ({
     dbx.setAccountName(DOPPEL, 'niemand-sonst');   // aufräumen
   }
 
-  await replyTests();
   await personaTests();
+  await replyTests();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
