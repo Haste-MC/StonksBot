@@ -1929,7 +1929,6 @@ Object.assign(buttons, {
     const userId = uid(interaction);
     const company = require('./company');
     const symbol = await getSymbol(guildId);
-    const fmt = require('./income').formatRemaining;
 
     if (aktion === 'gruenden') {
       const b = company.branch(arg);
@@ -1984,8 +1983,11 @@ Object.assign(buttons, {
         });
       }
       const r = await company.close(guildId, userId);
-      note = r.ok ? `🔒 **${r.company.name}** ist geschlossen. ${r.payout > 0 ? `Ausgezahlt: ${money(symbol, r.payout)}.` : ''}`
-        : '🏢 Du hast keine Firma.';
+      note = !r.ok ? '🏢 Du hast keine Firma.'
+        : r.payout > 0 && r.paid === false
+          ? `🔒 **${r.company.name}** ist geschlossen, aber die Auszahlung von ${money(symbol, r.payout)} ist `
+            + 'fehlgeschlagen – ein Admin muss sie von Hand nachbuchen.'
+          : `🔒 **${r.company.name}** ist geschlossen. ${r.payout > 0 ? `Ausgezahlt: ${money(symbol, r.payout)}.` : ''}`;
     }
     await interaction.editReply(await buildFirmaView({ guildId, userId }));
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -1996,7 +1998,6 @@ Object.assign(buttons, {
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const company = require('./company');
-    const symbol = await getSymbol(guildId);
 
     if (aktion === 'bonus') {
       const modal = new ModalBuilder().setCustomId(`fpraemie|${staffId}|${userId}`).setTitle('Prämie zahlen');
@@ -2014,7 +2015,12 @@ Object.assign(buttons, {
         : r.reason === 'range' ? 'ℹ️ Weiter geht es nicht.' : '❌ Nicht gefunden.';
     } else if (aktion === 'fire') {
       const r = company.fire(guildId, userId, Number(staffId));
-      note = r.ok ? `❌ ${r.staff.kind === 'npc' ? r.staff.name : 'Der Angestellte'} ist entlassen.` : '❌ Nicht gefunden.';
+      if (r.ok) {
+        const who = r.staff.kind === 'npc' ? r.staff.name : require('./identity').display(r.staff.user_id);
+        note = `❌ ${who} ist entlassen.`;
+      } else {
+        note = '❌ Nicht gefunden.';
+      }
     }
     await interaction.editReply(await buildFirmaStaffView({ guildId, userId }));
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -2582,7 +2588,10 @@ const modals = {
       ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen. Kasse: ${money(symbol, r.kasse)}.`
         : `🏦 **${money(symbol, r.amount)}** eingezahlt. Kasse: ${money(symbol, r.kasse)}.`)
       : { amount: '❌ Bitte einen Betrag über 0.', kasse: '💸 So viel ist nicht in der Kasse.',
-        funds: '💸 So viel hast du nicht.', no_company: '🏢 Du hast keine Firma.' }[r.reason] ?? '❌ Das ging nicht.';
+        funds: '💸 So viel hast du nicht.', no_company: '🏢 Du hast keine Firma.',
+        payment: '❌ Die Buchung ist fehlgeschlagen – die Kasse ist unverändert.',
+        closed: '❌ Die Firma existiert nicht mehr – das Geld ist zurück auf deinem Konto.' }[r.reason]
+        ?? '❌ Das ging nicht.';
     await interaction.editReply(await buildFirmaView({ guildId, userId }));
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },

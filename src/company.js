@@ -166,10 +166,21 @@ function dailyTarget(b, staffCount, werbungActive) {
 function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   const c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return null;
-  db.saveCompany({ ...c, status: 'closed', closed_at: now });
+  db.saveCompany({ ...c, status: 'closed', closed_at: now, closed_why: why });
   db.deleteStaffOfCompany(c.id);
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
-  return { ...c, status: 'closed', closed_at: now, why };
+  return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
+}
+
+/**
+ * Die zuletzt geschlossene Firma eines Spielers – aber nur, solange die
+ * Schließung höchstens 30 Tage her ist (der Insolvenz-Hinweis in der
+ * Gründungsansicht soll nicht ewig kleben bleiben).
+ */
+function lastClosed(guildId, userId, now = Date.now()) {
+  const c = db.lastClosedCompany(guildId, userId);
+  if (!c || now - c.closed_at > 30 * DAY_MS) return null;
+  return c;
 }
 
 /**
@@ -497,7 +508,7 @@ module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, cleanName, found, hireNpc, fire,
-  dailyTarget, closeCompany, settle,
+  dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
 };

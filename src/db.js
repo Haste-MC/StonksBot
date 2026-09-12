@@ -540,11 +540,19 @@ db.exec(`
     pitch_day      TEXT    NOT NULL DEFAULT '',
     pitch_today    INTEGER NOT NULL DEFAULT 0,
     status         TEXT    NOT NULL DEFAULT 'open',
-    closed_at      INTEGER NOT NULL DEFAULT 0
+    closed_at      INTEGER NOT NULL DEFAULT 0,
+    closed_why     TEXT    NOT NULL DEFAULT ''
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
     ON companies (guild_id, owner_id) WHERE status = 'open';
-
+`);
+// `companies` ist auf diesem Branch schon vorher live gelaufen – lokale
+// Datenbanken haben die Tabelle also unter Umständen noch ohne `closed_why`.
+// Wie überall sonst hier: Spalte nachrüsten statt eine Migration zu bauen.
+if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'closed_why')) {
+  db.exec("ALTER TABLE companies ADD COLUMN closed_why TEXT NOT NULL DEFAULT ''");
+}
+db.exec(`
   CREATE TABLE IF NOT EXISTS company_staff (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     company_id  INTEGER NOT NULL,
@@ -1730,8 +1738,13 @@ const stmt = {
   saveCompany: db.prepare(
     `UPDATE companies SET name = ?, kasse = ?, auslastung = ?, paid_through = ?,
        negative_since = ?, werbung_until = ?, pitch_day = ?, pitch_today = ?,
-       status = ?, closed_at = ?
+       status = ?, closed_at = ?, closed_why = ?
      WHERE id = ?`),
+  // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
+  // in der Gründungsansicht (buildFirmaFoundView).
+  lastClosedCompany: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'closed'
+     ORDER BY closed_at DESC LIMIT 1`),
   deleteCompany: db.prepare('DELETE FROM companies WHERE id = ?'),
   clearCompanies: db.prepare('DELETE FROM companies WHERE guild_id = ?'),
   insertStaff: db.prepare(
@@ -3762,7 +3775,11 @@ function saveCompany(c) {
   stmt.saveCompany.run(
     c.name, Math.round(c.kasse), c.auslastung, c.paid_through, c.negative_since ?? 0,
     c.werbung_until ?? 0, c.pitch_day ?? '', c.pitch_today ?? 0, c.status ?? 'open',
-    c.closed_at ?? 0, Number(c.id));
+    c.closed_at ?? 0, c.closed_why ?? '', Number(c.id));
+}
+/** Die zuletzt geschlossene Firma eines Spielers, oder null. */
+function lastClosedCompany(guildId, ownerId) {
+  return stmt.lastClosedCompany.get(guildId, String(ownerId)) ?? null;
 }
 function deleteCompany(id) { stmt.deleteCompany.run(Number(id)); }
 function clearCompanies(guildId) {
@@ -3916,9 +3933,9 @@ module.exports = {
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
-  insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, deleteCompany,
-  clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff, deleteStaff,
-  deleteStaffOfCompany, clearEmploymentByJob,
+  insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
+  deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
+  deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,

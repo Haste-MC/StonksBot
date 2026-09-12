@@ -977,6 +977,16 @@ async function buildFirmaFoundView({ guildId, userId }) {
       + 'NPCs kosten jeden Tag Lohn, ob Kundschaft da ist oder nicht – Spieler nur für '
       + 'gearbeitete Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
       + '_Werbung und Anpacken kosten Zeit aus demselben Tagesbudget wie Streams und Studio._');
+  // Insolvenz war bisher stumm – wer neu gründet, soll erst sehen, was mit
+  // der letzten Firma passiert ist. Freiwillige Schließungen zeigt niemand an.
+  const last = company.lastClosed(guildId, userId);
+  if (last && last.closed_why === 'insolvent') {
+    embed.addFields({
+      name: `⚠️ ${last.name} ist insolvent`,
+      value: `Die Kasse war 14 Tage im Minus. Personal und Gründung sind weg – du kannst neu `
+        + `gründen. _(${new Date(last.closed_at).toLocaleDateString('de-DE')})_`,
+    });
+  }
   for (const b of company.BRANCHES) {
     const c = company.ceilingOf(b);
     embed.addFields({
@@ -1087,7 +1097,16 @@ async function buildFirmaStaffView({ guildId, userId }) {
       + company.RANKS.map((r) => `${r.emoji} ${r.name} ${money(symbol, Math.round(s.branch.lohn * r.factor))}`).join(' · ')
       + '\n_NPCs arbeiten 3 Schichten am Tag, Spieler bis zu 4 – und bringen 30 % mehr Umsatz._');
 
-  const rows = [];
+  // Fluxer bildet Buttons nach Zeilen-Reihenfolge auf Ziffern-Reaktionen ab
+  // (MAX_REACTIONS in fluxer/render.js) – die Navigation muss deshalb zuerst
+  // stehen, sonst fallen „NPC einstellen“/„Firma“ bei voller Belegschaft raus.
+  // Discord ist die Zeilenreihenfolge egal.
+  const rows = [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`firma|npc|0|${userId}`).setLabel('NPC einstellen')
+      .setEmoji('🤖').setStyle(ButtonStyle.Primary).setDisabled(s.free <= 0),
+    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+      .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+    homeButton(userId))];
   for (const st of s.staff.slice(0, 4)) {
     const r = company.rankOf(st.rank);
     const who = st.kind === 'npc' ? st.name : (identity.nameOf(st.user_id) ?? 'Spieler');
@@ -1096,7 +1115,7 @@ async function buildFirmaStaffView({ guildId, userId }) {
       value: `${st.shifts} Schichten` + (st.unpaid_days ? ` · ⚠️ ${st.unpaid_days} Tage unbezahlt` : ''),
     });
     rows.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`fstaff|up|${st.id}|${userId}`).setLabel(who.slice(0, 20))
+      new ButtonBuilder().setCustomId(`fstaff|up|${st.id}|${userId}`).setLabel('Befördern')
         .setEmoji('⬆️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank >= company.RANKS.length - 1),
       new ButtonBuilder().setCustomId(`fstaff|down|${st.id}|${userId}`).setLabel('Zurückstufen')
         .setEmoji('⬇️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank <= 0),
@@ -1108,12 +1127,6 @@ async function buildFirmaStaffView({ guildId, userId }) {
   if (s.staff.length > 4) {
     embed.setFooter({ text: `Nur die ersten 4 von ${s.staff.length} lassen sich hier bearbeiten.` });
   }
-  rows.push(new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`firma|npc|0|${userId}`).setLabel('NPC einstellen')
-      .setEmoji('🤖').setStyle(ButtonStyle.Primary).setDisabled(s.free <= 0),
-    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
-      .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
-    homeButton(userId)));
   return { embeds: [embed], components: rows };
 }
 

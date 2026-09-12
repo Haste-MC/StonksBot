@@ -182,6 +182,8 @@ const user = () => `u${++n}`;
     check('Tag 15: insolvent', r.insolvent === true && c.status === 'closed' && c.closed_at > 0);
     check('ownCompany ist danach null', company.ownCompany(G, U) === null);
     check('settle auf geschlossen tut nichts', company.settle(c.id, t0 + 20 * DAY_MS) === null);
+    check('lastClosed nennt die insolvente Firma',
+      company.lastClosed(G, U, t0 + 15 * DAY_MS)?.closed_why === 'insolvent');
   }
 
   console.log('--- Arbeitsamt: bewerben, arbeiten, kündigen ---');
