@@ -5,6 +5,11 @@ const { changeCash } = require('./unb');
 
 const byId = new Map(JOBS.map((j) => [j.id, j]));
 
+/** Katalog-Job oder virtueller Firmenjob (`firma:<id>`, siehe company.js). */
+function resolveJob(jobId) {
+  return byId.get(jobId) ?? require('./company').asJob(jobId);
+}
+
 /** Wie viele Jobs pro Tag angeboten werden. */
 const OFFERS_PER_DAY = 5;
 
@@ -151,6 +156,15 @@ function requirementLabels(job) {
  * angeboten wird und alle Voraussetzungen erfüllt sind.
  */
 function apply(guildId, userId, jobId, date = new Date()) {
+  // Firmenstelle: Plätze und Inhaber prüft die Firma selbst.
+  const company = require('./company');
+  if (company.companyIdOfJob(jobId) !== null) {
+    const current = db.getEmployment(guildId, userId);
+    const res = company.join(guildId, userId, company.companyIdOfJob(jobId), date.getTime());
+    if (!res.ok) return { ok: false, reason: res.reason, job: company.asJob(jobId) };
+    return { ok: true, job: res.job, previous: current ? resolveJob(current.job_id) : null };
+  }
+
   const job = byId.get(jobId);
   if (!job) return { ok: false, reason: 'unknown_job' };
 
@@ -163,8 +177,9 @@ function apply(guildId, userId, jobId, date = new Date()) {
   const check = checkRequirements(guildId, userId, job);
   if (!check.ok) return { ok: false, reason: 'requirements', job, missing: check.missing };
 
+  company.leave(guildId, userId);                // Firmenstelle räumen, falls vorhanden
   db.setEmployment(guildId, userId, jobId);
-  return { ok: true, job, previous: current ? byId.get(current.job_id) ?? null : null };
+  return { ok: true, job, previous: current ? resolveJob(current.job_id) : null };
 }
 
 // -------------------------------------------------------------------- Arbeiten
@@ -173,11 +188,11 @@ function apply(guildId, userId, jobId, date = new Date()) {
  * Eine Schicht arbeiten. Zahlt den Verdienst über die UnbelievaBoat-API aus.
  * Der Verdienst schwankt um ±15 %, damit es sich nicht wie ein Automat anfühlt.
  */
-async function work(guildId, userId, now = new Date()) {
+async function work(guildId, userId, now = new Date(), random = Math.random) {
   const employment = db.getEmployment(guildId, userId);
   if (!employment) return { ok: false, reason: 'unemployed' };
 
-  const job = byId.get(employment.job_id);
+  const job = resolveJob(employment.job_id);
   if (!job) {
     // Job wurde aus dem Katalog entfernt – Anstellung aufräumen.
     db.clearEmployment(guildId, userId);
@@ -197,6 +212,29 @@ async function work(guildId, userId, now = new Date()) {
   const cooldownMs = job.cooldown * 60 * 1000;
   if (waited < cooldownMs) {
     return { ok: false, reason: 'cooldown', job, remainingMs: cooldownMs - waited };
+  }
+
+  // Firmenstelle: Zustand macht die Firma, gebucht wird hier – einmal (§9).
+  const company = require('./company');
+  const cid = company.companyIdOfJob(employment.job_id);
+  if (cid !== null) {
+    const shift = company.workShift(guildId, userId, cid, now.getTime(), random);
+    if (!shift.ok) {
+      if (shift.reason === 'closed') { db.clearEmployment(guildId, userId); return { ok: false, reason: 'unemployed' }; }
+      return { ok: false, reason: shift.reason, job, lohn: shift.lohn, kasse: shift.kasse };
+    }
+    const perk = require('./perks').perksOf(guildId, userId);
+    const amount = require('./perks').payout(guildId, userId, shift.lohn);
+    const balance = await changeCash(
+      guildId, userId, amount, `Schicht: ${shift.company.name}`, { kind: 'job' });
+    db.recordShift(guildId, userId, amount, day, now.getTime()); // Abklingzeit ab der Schichtzeit
+    const updated = db.getEmployment(guildId, userId);
+    return {
+      ok: true, job, amount, base: shift.lohn, levelBonus: amount - shift.lohn, level: perk.level,
+      rank: null, promotion: null, nextChance: 0, balance, broken: [],
+      employment: updated, shiftsToday: updated.shifts_today, maxShifts: MAX_SHIFTS_PER_DAY,
+      company: shift.company, umsatz: shift.umsatz, companyRank: shift.rank,
+    };
   }
 
   // Voraussetzungen können nachträglich wegfallen (Auto verkauft, Werkzeug kaputt).
@@ -280,20 +318,22 @@ function shiftBudget(guildId, userId, now = new Date()) {
 function quit(guildId, userId) {
   const employment = db.getEmployment(guildId, userId);
   if (!employment) return { ok: false, reason: 'unemployed' };
+  const job = resolveJob(employment.job_id);
+  require('./company').leave(guildId, userId);
   db.clearEmployment(guildId, userId);
-  return { ok: true, job: byId.get(employment.job_id) ?? null, employment };
+  return { ok: true, job: job ?? null, employment };
 }
 
 /** Aktuelle Anstellung inklusive Job-Definition. */
 function currentJob(guildId, userId) {
   const employment = db.getEmployment(guildId, userId);
   if (!employment) return null;
-  const job = byId.get(employment.job_id);
+  const job = resolveJob(employment.job_id);
   return job ? { job, employment } : null;
 }
 
 module.exports = {
-  JOBS, byId, dailyOffers, msUntilRefresh, checkRequirements, requirementLabels,
+  JOBS, byId, resolveJob, dailyOffers, msUntilRefresh, checkRequirements, requirementLabels,
   apply, work, quit, currentJob, today, applyWear, shiftBudget,
   OFFERS_PER_DAY, TIER_WEIGHT, TIER_LABEL, TIER_COLOR,
   HOURS_PER_SHIFT, MAX_SHIFTS_PER_DAY,

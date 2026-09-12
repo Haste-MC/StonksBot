@@ -2490,8 +2490,8 @@ function clearEmployment(guildId, userId) {
 }
 
 /** @param {string} day Tagesstempel, z.B. "2026-07-20" – setzt den Tageszähler zurück. */
-function recordShift(guildId, userId, amount, day) {
-  stmt.recordShift.run(Date.now(), amount, day, day, guildId, userId);
+function recordShift(guildId, userId, amount, day, at = Date.now()) {
+  stmt.recordShift.run(at, amount, day, day, guildId, userId);
 }
 
 /** Wie viele Schichten heute schon gearbeitet wurden. */

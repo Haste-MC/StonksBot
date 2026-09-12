@@ -238,9 +238,85 @@ function settle(companyId, now = Date.now()) {
   return out;
 }
 
+// ------------------------------------------------------ Spieler im Betrieb
+
+/** Der virtuelle Job einer Firma – damit das Jobsystem sie kennt. */
+function asJob(jobId) {
+  const id = companyIdOfJob(jobId);
+  if (id === null) return null;
+  const c = db.getCompany(id);
+  if (!c || c.status !== 'open') return null;
+  const b = branch(c.branch);
+  return {
+    id: jobId, title: c.name, emoji: b.emoji, pay: b.lohn,
+    cooldown: data.SHIFT_COOLDOWN_MIN, tier: 'firma', requires: [],
+    company: c, branch: b,
+  };
+}
+
+/** Alle offenen Firmen des Servers mit freiem Platz. */
+function openings(guildId) {
+  return db.openCompanies(guildId).map((c) => {
+    const b = branch(c.branch);
+    const free = b.slots - db.companyStaff(c.id).length;
+    return { company: c, branch: b, free, lohn: b.lohn, jobId: companyJobId(c.id) };
+  }).filter((o) => o.free > 0);
+}
+
+/**
+ * Bei einer Firma anfangen. Ersetzt den bisherigen Job (auch eine andere
+ * Firma). Zeile in company_staff UND employment.
+ */
+function join(guildId, userId, companyId, now = Date.now()) {
+  const c = db.getCompany(companyId);
+  if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
+  if (c.owner_id === String(userId)) return { ok: false, reason: 'owner' };
+  if (db.staffByUser(c.id, userId)) return { ok: false, reason: 'already_hired' };
+  const b = branch(c.branch);
+  if (db.companyStaff(c.id).length >= b.slots) return { ok: false, reason: 'full' };
+
+  leave(guildId, userId);                        // alte Firmenstelle räumen
+  db.insertStaff({ companyId: c.id, kind: 'player', userId, now });
+  db.setEmployment(guildId, userId, companyJobId(c.id));
+  return { ok: true, job: asJob(companyJobId(c.id)) };
+}
+
+/** Firmenstelle eines Spielers räumen (Kündigung, Wechsel). Ohne employment zu löschen. */
+function leave(guildId, userId) {
+  const e = db.getEmployment(guildId, userId);
+  const id = companyIdOfJob(e?.job_id);
+  if (id === null) return false;
+  const s = db.staffByUser(id, userId);
+  if (s) db.deleteStaff(s.id);
+  return true;
+}
+
+/**
+ * Eine Spieler-Schicht: Zustand (Kasse, Schichtzähler) hier, die Buchung an
+ * den Spieler macht jobs.work – mit dessen Level-Zuschlag, der die Kasse nicht
+ * belastet. Nur bei gedecktem Lohn.
+ */
+function workShift(guildId, userId, companyId, now = Date.now(), random = Math.random) {
+  settle(companyId, now);
+  const c = db.getCompany(companyId);
+  if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
+  const s = db.staffByUser(c.id, userId);
+  if (!s) return { ok: false, reason: 'not_staff' };
+  const b = branch(c.branch);
+  const f = rankOf(s.rank).factor;
+  const lohn = Math.max(1, Math.round(b.lohn * f * (0.85 + random() * 0.3)));
+  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS);
+  if (c.kasse < lohn) return { ok: false, reason: 'kasse', lohn, kasse: c.kasse };
+
+  db.saveCompany({ ...c, kasse: c.kasse - lohn + umsatz });
+  db.saveStaff({ ...s, shifts: s.shifts + 1 });
+  return { ok: true, lohn, umsatz, company: c, branch: b, rank: rankOf(s.rank) };
+}
+
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, settle,
+  asJob, openings, join, leave, workShift,
 };

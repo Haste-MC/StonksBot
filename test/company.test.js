@@ -184,6 +184,79 @@ const user = () => `u${++n}`;
     check('settle auf geschlossen tut nichts', company.settle(c.id, t0 + 20 * DAY_MS) === null);
   }
 
+  console.log('--- Arbeitsamt: bewerben, arbeiten, kündigen ---');
+  {
+    const jobs = require('../src/jobs');
+    const chef = user(); funds(chef, 0, 500_000);
+    const f = await company.found(G, chef, 'cafe', 'Bohne', t0);
+    const cid = f.company.id;
+    const jobId = company.companyJobId(cid);
+    check('openings listet die Firma mit 5 freien Plätzen',
+      company.openings(G).some((o) => o.company.id === cid && o.free === 5 && o.jobId === jobId));
+    check('Inhaber kann sich nicht selbst bewerben', jobs.apply(G, chef, jobId).reason === 'owner');
+
+    const A = user(); funds(A, 0);
+    let r = jobs.apply(G, A, jobId);
+    check('Spieler bewirbt sich über jobs.apply', r.ok === true && r.job.title === 'Bohne' && r.job.tier === 'firma', r.reason);
+    check('employment zeigt auf die Firma', db.getEmployment(G, A)?.job_id === jobId);
+    check('company_staff hat ihn', db.staffByUser(cid, A)?.kind === 'player');
+    check('currentJob findet den Firmenjob', jobs.currentJob(G, A)?.job.company?.id === cid);
+    check('openings zeigt 4 freie Plätze', company.openings(G).find((o) => o.company.id === cid).free === 4);
+
+    // Schicht: Kasse leer -> abgelehnt, keine Buchung.
+    bookings = [];
+    r = await jobs.work(G, A, new Date(t0 + 1000));
+    check('Kasse deckt den Lohn nicht -> keine Schicht', r.ok === false && r.reason === 'kasse' && bookings.length === 0, r.reason);
+    // Inhaber zahlt ein (Task 4 hat deposit noch nicht) -> Kasse direkt setzen.
+    db.saveCompany({ ...db.getCompany(cid), kasse: 10_000 });
+    r = await jobs.work(G, A, new Date(t0 + 2000), seq(0.5));
+    const b = company.branch('cafe');
+    check('Schicht gearbeitet', r.ok === true, r.reason);
+    // Handrechnung: Lohn 180 × 1 × (0,85 + 0,5 × 0,3) = 180; Umsatz 900 × 1 × 0,3 × 1,3 = 351.
+    check('Lohn = Handrechnung (180)', r.base === 180, String(r.base));
+    check('genau eine Buchung an den Spieler, kind job', bookings.length === 1 && bookings[0].user === A
+      && bookings[0].amount === r.amount && bookings[0].opts.kind === 'job', JSON.stringify(bookings));
+    check('Kasse: +Umsatz −Lohn (351 − 180)', db.getCompany(cid).kasse === 10_000 + 351 - 180, de(db.getCompany(cid).kasse));
+    check('Level-Zuschlag belastet die Kasse nicht', r.amount >= r.base && db.getCompany(cid).kasse === 10_000 + 171);
+    check('Schicht gezählt', db.staffByUser(cid, A).shifts === 1 && db.getEmployment(G, A).shifts === 1);
+    check('Ergebnis nennt Firma und Umsatz', r.company?.id === cid && r.umsatz === 351 && r.promotion === null);
+    r = await jobs.work(G, A, new Date(t0 + 3000));
+    check('Abklingzeit 60 min gilt', r.ok === false && r.reason === 'cooldown');
+
+    // Beförderter Spieler: Faktor 1,25 auf Lohn und Umsatz.
+    const s = db.staffByUser(cid, A); db.saveStaff({ ...s, rank: 1 });
+    r = await jobs.work(G, A, new Date(t0 + 2 * 3600e3), seq(0.5));
+    check('Fachkraft: Lohn 225', r.ok && r.base === 225, String(r.base));
+
+    // Wechsel zu einem Arbeitsamt-Job löst die Firmenstelle.
+    const offer = jobs.dailyOffers(G, A, new Date(t0)).find((j) => jobs.checkRequirements(G, A, j).ok);
+    if (offer) {
+      r = jobs.apply(G, A, offer.id, new Date(t0));
+      check('Wechsel ins Arbeitsamt räumt die Firmenstelle', r.ok && db.staffByUser(cid, A) === null);
+    } else {
+      check('(kein freies Angebot heute – Wechsel nicht prüfbar)', true);
+      jobs.quit(G, A);
+    }
+    check('Kündigen räumt company_staff', db.staffByUser(cid, A) === null);
+    jobs.apply(G, A, jobId);
+    check('wieder eingestellt', db.staffByUser(cid, A) !== null);
+    r = jobs.quit(G, A);
+    check('quit liefert den Firmenjob', r.ok && r.job?.title === 'Bohne' && db.staffByUser(cid, A) === null);
+
+    // Firma voll: 5 Plätze.
+    for (let i = 0; i < 5; i++) company.hireNpc(G, chef, t0, seq(0.1 * i));
+    check('voll -> Bewerbung abgelehnt', jobs.apply(G, user(), jobId).reason === 'full');
+
+    // Firma geschlossen -> Spieler fliegt raus.
+    const B = user();
+    company.fire(G, chef, db.companyStaff(cid)[0].id);
+    jobs.apply(G, B, jobId);
+    company.closeCompany(G, cid, t0 + 5000);
+    check('Schließen löst die Anstellung', db.getEmployment(G, B) === null);
+    r = await jobs.work(G, B, new Date(t0 + 6000));
+    check('… und work sagt arbeitslos', r.ok === false && r.reason === 'unemployed');
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
