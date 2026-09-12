@@ -385,7 +385,7 @@ async function replyTests() {
     id, name: bridge.WEBHOOK_NAME, token: `tok-${id}`,
     async send(payload, wait) {
       const sent = { id: nextId(), wait: Boolean(wait) };
-      hookSends.push({ hook: id, ...payload, sentId: sent.id });
+      hookSends.push({ hook: id, ...payload, sentId: sent.id, wait: sent.wait });
       return sent;
     },
   });
@@ -436,7 +436,8 @@ async function replyTests() {
   const d1 = dcMsg();
   check('Discord-Nachricht wird gespiegelt', (await bridge.fromDiscord(d1)) === true);
   const s1 = hookSends[hookSends.length - 1];
-  check('Fluxer-Webhook wurde mit wait=true gerufen (liefert die Nachricht)', s1?.hook === 'FXHOOK' && s1?.sentId?.startsWith('MSG_'));
+  check('Fluxer-Webhook wurde mit wait=true gerufen (liefert die Nachricht)',
+    s1?.hook === 'FXHOOK' && s1?.wait === true && s1?.sentId?.startsWith('MSG_'), JSON.stringify({ wait: s1?.wait }));
   check('Paar Discord -> Fluxer gespeichert',
     db.relayPairFor('discord', d1.id)?.fluxer_id === s1.sentId, JSON.stringify(db.relayPairFor('discord', d1.id)));
 
