@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.31.0',
+    date: '2026-09-12',
+    title: '🏢 Eigene Firmen',
+    lines: [
+      '🏢 **Gründe deine Firma.** Kiosk, Café oder Spedition – zu realistischen Preisen (25.000 / 120.000 / 1,2 Mio). Neuer Menüpunkt unter *Arbeit*.',
+      '👥 **Personal.** NPCs kosten jeden Tag Lohn und arbeiten verlässlich; Spieler bewerben sich im Arbeitsamt unter „Firmen auf diesem Server", kosten nur gearbeitete Schichten und bringen 30 % mehr Umsatz. Du beförderst selbst, zahlst Prämien, entlässt.',
+      '💰 **Die Kasse ist deine.** Umsatz rein, Löhne raus, Gewinn entnehmen. Löhne sind Verbindlichkeiten: Läuft die Kasse 14 Tage im Minus, ist die Firma insolvent. Einzahlen rettet.',
+      '📣 **Werbung und Anpacken** heben die Auslastung – aus demselben Tagesbudget wie Streams und Studio.',
+      '📏 **Noch kein Endgame.** Ohne Ausbau bleibt die Decke einer Firma unter Musik+Creator. Der Ausbau (Filialen, Flotte) kommt als Nächstes.',
+    ],
+  },
+  {
     version: '1.30.0',
     date: '2026-09-12',
     title: '↩️ Antworten über die Brücke',

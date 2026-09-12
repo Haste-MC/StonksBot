@@ -61,10 +61,10 @@ const user = () => `u${++n}`;
     check('… und bei der Decke',
       company.ceilingOf(k).net < company.ceilingOf(c).net && company.ceilingOf(c).net < company.ceilingOf(s).net,
       data.BRANCHES.map((b) => `${b.id}=${de(company.ceilingOf(b).net)}`).join(' '));
-    // Handrechnung Spedition: 10 × 3 × 2.600 × 1,5 = 117.000 + 4 × 3.900 = 132.600 brutto,
-    // Löhne 10 × 3 × 630 = 18.900 → 113.700 netto.
-    check('Decke der Spedition ist die Handrechnung (113.700)',
-      company.ceilingOf(s).net === 113_700, de(company.ceilingOf(s).net));
+    // Handrechnung Spedition: 10 × 3 × 1.900 × 1,5 = 85.500 + 4 × 2.850 = 96.900 brutto,
+    // Löhne 10 × 3 × 630 = 18.900 → 78.000 netto.
+    check('Decke der Spedition ist die Handrechnung (78.000)',
+      company.ceilingOf(s).net === 78_000, de(company.ceilingOf(s).net));
     check('drei Ränge mit Faktoren 1 / 1,25 / 1,5',
       data.RANKS.map((r) => r.factor).join() === '1,1.25,1.5');
     check('genug NPC-Namen', data.NPC_NAMES.length >= 30);
@@ -362,6 +362,33 @@ const user = () => `u${++n}`;
       r.ok && bookings.length === 1 && bookings[0].amount === 700 && company.ownCompany(G, U) === null
       && db.getEmployment(G, P) === null && db.companyStaff(cid).length === 0);
     check('ohne Firma: status null', company.status(G, U, t0) === null);
+  }
+
+  console.log('--- §3: kein Tag über der Decke ---');
+  {
+    for (const b of data.BRANCHES) {
+      const U = user(); funds(U, 0, 50_000_000);
+      const f = await company.found(G, U, b.id, `Voll-${b.id}`, t0);
+      for (let i = 0; i < b.slots; i++) company.hireNpc(G, U, t0, seq(0.02 * i));
+      for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
+      const decke = company.ceilingOf(b).net;
+      let best = -Infinity, gewinn = [];
+      let now = t0;
+      for (let d = 0; d < 365; d++) {
+        const vor = db.getCompany(f.company.id).kasse;
+        await company.advertise(G, U, now);
+        for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
+        company.settle(f.company.id, now + DAY_MS);
+        const tag = db.getCompany(f.company.id).kasse - vor;
+        best = Math.max(best, tag); gewinn.push(tag);
+        now += DAY_MS;
+      }
+      const sorted = [...gewinn].sort((a, c) => a - c);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      console.log(`    ${b.emoji} ${b.name}: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
+      check(`${b.name}: kein Tag über der Decke`, best <= decke, `${de(best)} > ${de(decke)}`);
+      check(`${b.name}: die Firma verdient (keine stille Null)`, median > 0, de(median));
+    }
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

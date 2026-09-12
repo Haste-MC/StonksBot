@@ -398,6 +398,18 @@ Die Rangfolge ist gewollt: Musik+Creator ist die beste Quelle, weil sie zwei
 Systeme und ein gemeinsames Zeitbudget verlangt. „Nur Creator" bleibt eine
 tragfähige Spielweise. Heists sind ein Ereignis, kein Job.
 
+**Firmen (seit 1.31.0, Stück 1 ohne Ausbau):** Die Decke ist je Branche eine
+vorgerechnete Zahl (`company.ceilingOf`), geprüft in `test/company.test.js` –
+Spedition 78.000/Tag, Café 21.600, Kiosk 2.850 bei voller Besetzung mit
+Schichtleitern, Werbung und täglichem Anpacken. Gemessen im Vollbetrieb (365
+Tage, Median, `firmenlauf` im Messskript): Kiosk 2.584/Tag, Café 19.651/Tag,
+Spedition 70.380/Tag; Amortisation des Gründungspreises nach 21 / 14 / 40
+Tagen. Alle unter Musik+Creator (100.916/Tag im selben Lauf über ein Jahr);
+das Endgame kommt mit dem Ausbau (Stück 2). Die Spedition stand mit
+`umsatz` 2.600 bei 103.280/Tag und damit über Musik+Creator – deshalb 1.900.
+NPC-Löhne sind eine echte Senke, die Kasse darf ins Minus (Insolvenz nach 14
+Tagen).
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,

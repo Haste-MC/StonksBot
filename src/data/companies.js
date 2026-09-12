@@ -13,9 +13,11 @@
  *   umsatz  Umsatz je Schicht bei Auslastung 1,0 und Rang Aushilfe
  *   lohn    Lohn je Schicht, Rang Aushilfe
  *
- * Alle Zahlen sind STARTWERTE für die Messung (scripts/messung-geldquellen.js),
+ * Alle Zahlen sind gegen die Messung gezogen (scripts/messung-geldquellen.js),
  * keine Behauptung. Zielmarken im Vollbetrieb: Kiosk ~2.500/Tag, Café ~20.000,
- * Spedition ~70.000 – alle unter Musik+Creator.
+ * Spedition ~70.000 – alle unter Musik+Creator. Gemessen (365 Tage, Median):
+ * Kiosk 2.584, Café 19.651, Spedition 70.380 – die Spedition stand mit
+ * umsatz 2.600 bei 103.280 und damit ÜBER Musik+Creator (100.916), deshalb 1.900.
  */
 
 const BRANCHES = [
@@ -23,7 +25,7 @@ const BRANCHES = [
     blurb: 'Zeitungen, Zigaretten, kalte Getränke. Läuft fast allein – aber eben nur fast.' },
   { id: 'cafe', name: 'Café', emoji: '☕', price: 120_000, slots: 5, umsatz: 900, lohn: 180,
     blurb: 'Braucht Leute hinter der Theke und jemanden, der sich kümmert. Dann läuft es.' },
-  { id: 'spedition', name: 'Spedition', emoji: '🚚', price: 1_200_000, slots: 10, umsatz: 2_600, lohn: 420,
+  { id: 'spedition', name: 'Spedition', emoji: '🚚', price: 1_200_000, slots: 10, umsatz: 1_900, lohn: 420,
     blurb: 'Lkw, Fahrer, Disposition. Hohe Löhne, hohe Marge – rentabel nur mit voller Mannschaft.' },
 ];
 
