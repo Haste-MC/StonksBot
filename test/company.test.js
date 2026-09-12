@@ -321,6 +321,26 @@ const user = () => `u${++n}`;
     check('Entnahme über Kasse abgelehnt', (await company.withdraw(G, U, 1, t0)).reason === 'kasse');
     check('Entnahme von 0 abgelehnt', (await company.withdraw(G, U, 0, t0)).reason === 'amount');
 
+    // Fehlgeschlagene Auszahlungen: Kasse geht zurück statt verloren zu gehen.
+    db.saveCompany({ ...db.getCompany(cid), kasse: 3_000 });
+    const echtChangeCash = unb.changeCash;
+    unb.changeCash = async () => { throw new Error('API down'); };
+    let kasseVorFehler = db.getCompany(cid).kasse;
+    r = await company.withdraw(G, U, 1_000, t0);
+    check('Entnahme mit fehlgeschlagener Buchung -> payment, Kasse unverändert',
+      r.ok === false && r.reason === 'payment' && db.getCompany(cid).kasse === kasseVorFehler, JSON.stringify(r));
+
+    kasseVorFehler = db.getCompany(cid).kasse;
+    r = await company.bonus(G, U, ps.id, 500, t0);
+    check('Prämie mit fehlgeschlagener Buchung -> payment, Kasse unverändert',
+      r.ok === false && r.reason === 'payment' && db.getCompany(cid).kasse === kasseVorFehler, JSON.stringify(r));
+    unb.changeCash = echtChangeCash;
+
+    const rangVorFehler = db.staffById(ps.id).rank;
+    r = company.promote(G, U, ps.id, NaN);
+    check('Beförderung mit NaN -> delta, Rang unverändert',
+      r.ok === false && r.reason === 'delta' && db.staffById(ps.id).rank === rangVorFehler, JSON.stringify(r));
+
     // Einzahlen rettet vor der Insolvenz.
     db.saveCompany({ ...db.getCompany(cid), kasse: -5_000, negative_since: t0 - 13 * DAY_MS });
     r = await company.deposit(G, U, 6_000, t0);

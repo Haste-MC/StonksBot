@@ -369,9 +369,16 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
   if (value <= 0) return { ok: false, reason: 'amount' };
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
   db.saveCompany({ ...c, kasse: c.kasse - value });
-  const balance = await changeCash(guildId, userId, value, `Entnahme: ${c.name}`,
-    { tax: false, kind: 'company' });
-  return { ok: true, amount: value, balance, kasse: c.kasse - value };
+  try {
+    const balance = await changeCash(guildId, userId, value, `Entnahme: ${c.name}`,
+      { tax: false, kind: 'company' });
+    return { ok: true, amount: value, balance, kasse: c.kasse - value };
+  } catch (err) {
+    // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
+    const current = db.getCompany(c.id);
+    db.saveCompany({ ...current, kasse: current.kasse + value });
+    return { ok: false, reason: 'payment', error: err.message };
+  }
 }
 
 /** Kapital einzahlen – von Bargeld (notfalls Bank), setzt die Minus-Uhr zurück. */
@@ -388,18 +395,26 @@ async function deposit(guildId, userId, amount, now = Date.now()) {
   }
   const after = await changeCash(guildId, userId, -value, `Einzahlung: ${c.name}`, { kind: 'company' });
   const current = db.getCompany(c.id);                 // frisch lesen: die Buchung hat gewartet
+  if (!current || current.status !== 'open') {
+    // Firma wurde während der Buchung geschlossen/insolvent -> Geld zurück. Das ist die
+    // zweite Buchung dieser abgebrochenen Aktion, aber sie kehrt die erste exakt um.
+    await changeCash(guildId, userId, value, `Rückzahlung: ${c.name}`, { tax: false, kind: 'company' });
+    return { ok: false, reason: 'closed' };
+  }
   const kasse = current.kasse + value;
   db.saveCompany({ ...current, kasse, negative_since: kasse < 0 ? current.negative_since : 0 });
   return { ok: true, amount: value, balance: after, kasse };
 }
 
 /** Rang ±1, geklemmt auf 0…2; bei Spielern auch employment.rank. */
-function promote(guildId, userId, staffId, delta) {
-  const ctx = ownerContext(guildId, userId);
+function promote(guildId, userId, staffId, delta, now = Date.now()) {
+  const step = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+  if (!step) return { ok: false, reason: 'delta' };
+  const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const s = db.staffById(staffId);
   if (!s || s.company_id !== ctx.company.id) return { ok: false, reason: 'not_found' };
-  const rank = s.rank + Math.sign(delta);
+  const rank = s.rank + step;
   if (rank < 0 || rank >= data.RANKS.length) return { ok: false, reason: 'range', rank: rankOf(s.rank) };
   db.saveStaff({ ...s, rank });
   if (s.kind === 'player') db.promote(guildId, s.user_id, rank, db.getEmployment(guildId, s.user_id)?.shifts ?? 0);
@@ -418,21 +433,36 @@ async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
   if (value <= 0) return { ok: false, reason: 'amount' };
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
   db.saveCompany({ ...c, kasse: c.kasse - value });
-  await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'job' });
-  return { ok: true, amount: value, staff: s };
+  try {
+    await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'job' });
+    return { ok: true, amount: value, staff: s };
+  } catch (err) {
+    // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
+    const current = db.getCompany(c.id);
+    db.saveCompany({ ...current, kasse: current.kasse + value });
+    return { ok: false, reason: 'payment', error: err.message };
+  }
 }
 
-/** Freiwillig schließen: Kasse (wenn positiv) entnehmen, dann aufräumen. */
+/**
+ * Freiwillig schließen: Kasse (wenn positiv) entnehmen, dann aufräumen. Die Zeile geht
+ * zuerst (§7) – schlägt die Auszahlung danach fehl, gibt es niemanden mehr, dem man das
+ * Geld zurückbuchen könnte, also bleibt die Firma zu und ein Admin muss von Hand nachbuchen.
+ */
 async function close(guildId, userId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
   const payout = Math.max(0, Math.round(c.kasse));
   const closed = closeCompany(guildId, c.id, now, 'closed');
-  const balance = payout > 0
-    ? await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`, { tax: false, kind: 'company' })
-    : null;
-  return { ok: true, company: closed, payout, balance };
+  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
+  try {
+    const balance = await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`, { tax: false, kind: 'company' });
+    return { ok: true, company: closed, payout, paid: true, balance };
+  } catch (err) {
+    console.warn(`Firma ${c.id}: Auszahlung von ${payout} bei Auflösung fehlgeschlagen – ${err.message}`);
+    return { ok: true, company: closed, payout, paid: false, error: err.message };
+  }
 }
 
 // ------------------------------------------------------------------ Anzeige
