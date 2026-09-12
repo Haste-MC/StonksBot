@@ -507,6 +507,19 @@ db.exec(`
   );
 `);
 
+// Paare gespiegelter Nachrichten: Wer auf Discord auf eine Nachricht
+// antwortet, meint drüben deren Gegenstück. Ohne dieses Gedächtnis kann die
+// Brücke keine Antwort zuordnen. Zwei Wochen reichen – länger antwortet
+// niemand; aufgeräumt wird beim Einfügen (§4, kein Scheduler).
+db.exec(`
+  CREATE TABLE IF NOT EXISTS relay_messages (
+    discord_id TEXT PRIMARY KEY,       -- Nachricht auf Discord (Original oder Spiegel)
+    fluxer_id  TEXT NOT NULL,          -- ihr Gegenstück auf Fluxer
+    created_at INTEGER NOT NULL
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_relay_messages_fluxer ON relay_messages (fluxer_id);
+`);
+
 // Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
 // denselben Fortschritt haben. Dafür wird jede Plattform-Identität auf EIN
 // kanonisches Konto abgebildet – siehe src/identity.js.
@@ -1657,6 +1670,14 @@ const stmt = {
   deleteRelayWebhook: db.prepare(
     'DELETE FROM relay_webhooks WHERE platform = ? AND channel_id = ?'),
   allRelayWebhooks: db.prepare('SELECT * FROM relay_webhooks'),
+
+  // --- Paare gespiegelter Nachrichten ---
+  setRelayPair: db.prepare(
+    `INSERT OR REPLACE INTO relay_messages (discord_id, fluxer_id, created_at) VALUES (?, ?, ?)`),
+  pruneRelayPairs: db.prepare('DELETE FROM relay_messages WHERE created_at < ?'),
+  relayPairByDiscord: db.prepare('SELECT * FROM relay_messages WHERE discord_id = ?'),
+  relayPairByFluxer: db.prepare('SELECT * FROM relay_messages WHERE fluxer_id = ?'),
+  clearRelayPairs: db.prepare('DELETE FROM relay_messages'),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -3637,6 +3658,27 @@ function allRelayWebhooks() {
   return stmt.allRelayWebhooks.all();
 }
 
+// ------------------------------------------ Paare gespiegelter Nachrichten
+
+/** So lange kann man auf eine gespiegelte Nachricht antworten. */
+const RELAY_PAIR_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+
+/** Merkt sich ein Paar und räumt dabei alles auf, was älter als die Frist ist. */
+function setRelayPair(discordId, fluxerId, now = Date.now()) {
+  stmt.pruneRelayPairs.run(now - RELAY_PAIR_TTL_MS);
+  stmt.setRelayPair.run(String(discordId), String(fluxerId), now);
+}
+
+/** Das Gegenstück einer Nachricht – `platform` sagt, welche Seite bekannt ist. */
+function relayPairFor(platform, messageId) {
+  const s = platform === 'discord' ? stmt.relayPairByDiscord : stmt.relayPairByFluxer;
+  return s.get(String(messageId)) ?? null;
+}
+
+function clearRelayPairs() {
+  stmt.clearRelayPairs.run();
+}
+
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
 }
@@ -3767,6 +3809,7 @@ module.exports = {
   getHolding, holdingsOf, holdersOf, setHolding,
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
+  RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,

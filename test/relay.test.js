@@ -336,11 +336,37 @@ const msg = (over = {}) => ({
     dbx.setAccountName(DOPPEL, 'niemand-sonst');   // aufräumen
   }
 
+  await replyTests();
   await personaTests();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
+
+/**
+ * Antworten über die Brücke: Paare gespiegelter Nachrichten, echte Antwort
+ * nach Fluxer, Zitat-Zeile nach Discord.
+ */
+async function replyTests() {
+  const db = require('../src/db');
+
+  console.log('--- Paare gespiegelter Nachrichten ---');
+  db.clearRelayPairs();
+  db.setRelayPair('D1', 'F1');
+  check('Paar über die Discord-ID gefunden', db.relayPairFor('discord', 'D1')?.fluxer_id === 'F1');
+  check('Paar über die Fluxer-ID gefunden', db.relayPairFor('fluxer', 'F1')?.discord_id === 'D1');
+  check('unbekannte ID -> null', db.relayPairFor('discord', 'NIX') === null && db.relayPairFor('fluxer', 'NIX') === null);
+
+  const TAG = 24 * 60 * 60 * 1000;
+  const jetzt = Date.now();
+  db.setRelayPair('ALT', 'F_ALT', jetzt - 15 * TAG);
+  db.setRelayPair('FRISCH', 'F_FRISCH', jetzt - 13 * TAG);
+  db.setRelayPair('NEU', 'F_NEU', jetzt);          // räumt beim Einfügen auf
+  check('15 Tage altes Paar ist weg', db.relayPairFor('discord', 'ALT') === null);
+  check('13 Tage altes Paar bleibt', db.relayPairFor('discord', 'FRISCH')?.fluxer_id === 'F_FRISCH');
+  check('TTL ist 14 Tage', db.RELAY_PAIR_TTL_MS === 14 * TAG);
+  db.clearRelayPairs();
+}
 
 /**
  * Spiegeln als Persona (Webhooks): Name und Avatar des Absenders drüben.
