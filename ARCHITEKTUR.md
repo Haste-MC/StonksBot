@@ -430,3 +430,23 @@ Welten gewachsen, und weil SQLite jeden Schreibvorgang auf die Platte zwang,
 lief ein Messlauf elf Minuten für dreißig Sekunden Rechenzeit. `synchronous`
 steht im Betrieb auf `NORMAL` (mit WAL der übliche Kompromiss), für
 Wegwerf-Datenbanken auf `OFF`.
+
+## 16. Die Brücke antwortet
+
+Die Kanal-Brücke (`src/relay.js`) spiegelt Nachrichten zwischen Discord und
+Fluxer als Persona des Absenders (Webhooks). Seit 1.30.0 merkt sie sich dabei
+in `relay_messages`, welche Nachricht welche gespiegelt hat – ein Paar
+`discord_id ↔ fluxer_id`, **14 Tage** lang, aufgeräumt beim Einfügen (§4).
+
+Eine Antwort wird damit zuordenbar, aber die Plattformen können nicht dasselbe:
+
+| Richtung | Darstellung | Warum |
+|---|---|---|
+| Discord → Fluxer | echte Antwort (`replyTo`), Persona bleibt; der Ping an den Autor wird mitgeschickt (`replied_user`), ob Fluxer ihn bei Webhook-Antworten zustellt, ist nicht geprüft | Fluxers Webhook-Endpunkt nimmt `message_reference` an (geprüft 2026-09-12) |
+| Fluxer → Discord | Zitat-Zeile `> ↩️ **Name:** Kopfzeile…` (80 Zeichen) | Discord-Webhooks dürfen nicht antworten |
+
+Ist das Original der Brücke unbekannt (älter als 14 Tage, nie gespiegelt),
+kommt auch nach Fluxer das Zitat; lässt es sich nicht mehr laden, wird ohne
+Hinweis gespiegelt. Erwähnungen im Zitat werden lesbar übersetzt, pingen aber
+niemanden – gepingt wird nur, wen die Antwort selbst erwähnt, plus der Autor
+des Originals bei einer echten Antwort.
