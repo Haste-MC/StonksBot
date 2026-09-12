@@ -150,8 +150,97 @@ function fire(guildId, userId, staffId) {
   return { ok: true, staff: s };
 }
 
+// --------------------------------------------------------------- Abrechnung
+
+/** Auslastungsziel: ohne Personal 0,3, volle Besetzung 0,8, mit Werbung 1,0. */
+function dailyTarget(b, staffCount, werbungActive) {
+  const ziel = data.AUSLASTUNG_MIN + data.AUSLASTUNG_STAFF * Math.min(1, staffCount / b.slots)
+    + (werbungActive ? data.WERBUNG_BOOST : 0);
+  return Math.min(1, ziel);
+}
+
+/**
+ * Schließt eine Firma – freiwillig oder insolvent. Personal weg, Anstellungen
+ * der Spieler gelöst. Die Kasse wird hier NICHT gebucht (das macht `close`).
+ */
+function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
+  const c = db.getCompany(companyId);
+  if (!c || c.status !== 'open') return null;
+  db.saveCompany({ ...c, status: 'closed', closed_at: now });
+  db.deleteStaffOfCompany(c.id);
+  db.clearEmploymentByJob(guildId, companyJobId(c.id));
+  return { ...c, status: 'closed', closed_at: now, why };
+}
+
+/**
+ * Faule Abrechnung (§4): rechnet volle Tage seit `paid_through` nach.
+ * Je Tag: Auslastung bewegt sich aufs Ziel zu, NPCs arbeiten ihre Schichten
+ * (Umsatz − Lohn in die Kasse, Löhne immer – Verbindlichkeiten), unbezahlte
+ * NPCs kündigen nach NPC_QUIT_AFTER_UNPAID Tagen, und 14 Tage Minus sind die
+ * Insolvenz. Synchron, ohne Buchung – nur Zustand.
+ */
+function settle(companyId, now = Date.now()) {
+  const c = db.getCompany(companyId);
+  if (!c || c.status !== 'open') return null;
+  const b = branch(c.branch);
+  const guildId = c.guild_id;
+
+  const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
+    auslastung: c.auslastung, kasse: c.kasse };
+  const total = Math.floor((now - c.paid_through) / DAY_MS);
+  if (total <= 0) return out;
+  const days = Math.min(total, data.MAX_SETTLE_DAYS);
+  const skipped = total - days;               // ältere Tage verfallen (wie bei Musik)
+  out.days = days;
+
+  let staff = db.companyStaff(c.id);
+  let { kasse, auslastung, negative_since } = c;
+  let tag = c.paid_through + skipped * DAY_MS;
+
+  for (let d = 0; d < days; d++) {
+    tag += DAY_MS;
+
+    // 1. Auslastung bewegt sich aufs Ziel zu.
+    const ziel = dailyTarget(b, staff.length, c.werbung_until > tag);
+    auslastung += (ziel - auslastung) * data.AUSLASTUNG_STEP;
+
+    // 2. NPC-Schichten – Löhne sind Verbindlichkeiten, die Kasse darf ins Minus.
+    for (const s of staff) {
+      if (s.kind !== 'npc') continue;
+      const f = rankOf(s.rank).factor;
+      const lohn = Math.round(b.lohn * f);
+      const umsatz = Math.round(b.umsatz * f * auslastung);
+      kasse += data.NPC_SHIFTS * (umsatz - lohn);
+      out.umsatz += data.NPC_SHIFTS * umsatz;
+      out.loehne += data.NPC_SHIFTS * lohn;
+      s.shifts += data.NPC_SHIFTS;
+    }
+    // Unbezahlt heißt: Am Tagesende ist die Kasse im Minus – für alle gleich.
+    for (const s of staff) if (s.kind === 'npc') s.unpaid_days = kasse < 0 ? s.unpaid_days + 1 : 0;
+    const quitting = staff.filter((s) => s.kind === 'npc' && s.unpaid_days >= data.NPC_QUIT_AFTER_UNPAID);
+    for (const s of quitting) { db.deleteStaff(s.id); out.quit.push(s.name); }
+    staff = staff.filter((s) => !quitting.includes(s));
+
+    // 3. Die Minus-Uhr.
+    if (kasse < 0 && !negative_since) negative_since = tag;
+    if (kasse >= 0) negative_since = 0;
+    if (negative_since && tag - negative_since >= data.INSOLVENCY_DAYS * DAY_MS) {
+      db.saveCompany({ ...c, kasse, auslastung, negative_since, paid_through: tag });
+      closeCompany(guildId, c.id, tag, 'insolvent');
+      out.insolvent = true; out.auslastung = auslastung; out.kasse = kasse;
+      return out;
+    }
+  }
+
+  for (const s of staff) db.saveStaff(s);
+  db.saveCompany({ ...c, kasse, auslastung, negative_since, paid_through: tag });
+  out.auslastung = auslastung; out.kasse = kasse;
+  return out;
+}
+
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, cleanName, found, hireNpc, fire,
+  dailyTarget, closeCompany, settle,
 };

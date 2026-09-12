@@ -122,6 +122,68 @@ const user = () => `u${++n}`;
     check('ohne Firma kein Einstellen', company.hireNpc(G, user(), t0).reason === 'no_company');
   }
 
+  console.log('--- Abrechnung: Auslastung und NPC-Schichten ---');
+  {
+    const U = user(); funds(U, 0, 100_000);
+    const f = await company.found(G, U, 'kiosk', 'Rechenkiosk', t0);
+    company.hireNpc(G, U, t0, seq(0)); company.hireNpc(G, U, t0, seq(0.5));
+    const b = company.branch('kiosk');
+    // Handrechnung, 5 Tage, 2 Aushilfen (Faktor 1), Kiosk umsatz 250 / lohn 100:
+    // Ziel = 0,3 + 0,5 × 2/2 = 0,8. Tag d: a += (0,8 − a) × 0,2, beginnend bei 0,3.
+    let a = data.AUSLASTUNG_MIN, kasse = 0;
+    for (let d = 0; d < 5; d++) {
+      a += (0.8 - a) * data.AUSLASTUNG_STEP;
+      const umsatz = Math.round(b.umsatz * a);
+      kasse += 2 * data.NPC_SHIFTS * (umsatz - b.lohn);
+    }
+    const r = company.settle(f.company.id, t0 + 5 * DAY_MS);
+    const c = db.getCompany(f.company.id);
+    check('5 Tage abgerechnet', r.days === 5);
+    check('Kasse = Handrechnung', c.kasse === kasse, `${de(c.kasse)} vs ${de(kasse)}`);
+    check('Auslastung = Handrechnung', Math.abs(c.auslastung - a) < 1e-9, `${c.auslastung} vs ${a}`);
+    check('paid_through ist vorgerückt', c.paid_through === t0 + 5 * DAY_MS);
+    check('NPC-Schichten gezählt', db.companyStaff(c.id).every((s) => s.shifts === 15));
+    check('nochmal abrechnen tut nichts', company.settle(c.id, t0 + 5 * DAY_MS).days === 0);
+    check('kein Personal -> Ziel 0,3', Math.abs(company.dailyTarget(b, 0, false) - 0.3) < 1e-9);
+    check('voll -> 0,8, mit Werbung -> 1,0',
+      Math.abs(company.dailyTarget(b, 2, false) - 0.8) < 1e-9 && company.dailyTarget(b, 2, true) === 1);
+    // Über 20 Tage nähert sich die Auslastung dem Ziel.
+    company.settle(c.id, t0 + 25 * DAY_MS);
+    check('nach 25 Tagen über 0,79', db.getCompany(c.id).auslastung > 0.79, String(db.getCompany(c.id).auslastung));
+    check('älter als 30 Tage verfällt', company.settle(c.id, t0 + 100 * DAY_MS).days === data.MAX_SETTLE_DAYS);
+  }
+
+  console.log('--- Löhne sind Verbindlichkeiten: Minus, Kündigung, Insolvenz ---');
+  {
+    // Kiosk mit EINEM Schichtleiter (Ziel 0,3 + 0,5 × 1/2 = 0,55). Handrechnung:
+    // Tag 1: a = 0,35, Umsatz round(250 × 1,5 × 0,35) = 131 < Lohn 150 → 3 × −19 = −57.
+    // Tag 2: a = 0,39 → 146 → −12 (Kasse −69). Tag 3: a = 0,422 → 158 → +24 (Kasse −45),
+    // immer noch im Minus → dritter unbezahlter Tag → Kündigung.
+    const U = user(); funds(U, 0, 100_000);
+    const f = await company.found(G, U, 'kiosk', 'Minuskiosk', t0);
+    company.hireNpc(G, U, t0, seq(0));
+    for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
+    let r = company.settle(f.company.id, t0 + 1 * DAY_MS);
+    let c = db.getCompany(f.company.id);
+    check('Tag 1: Kasse −57 (Handrechnung)', c.kasse === -57, de(c.kasse));
+    check('Minus-Uhr läuft', c.negative_since === t0 + 1 * DAY_MS);
+    check('NPC gilt als unbezahlt', db.companyStaff(c.id).every((s) => s.unpaid_days === 1));
+    r = company.settle(c.id, t0 + 3 * DAY_MS);
+    check('nach 3 unbezahlten Tagen kündigt er', r.quit.length === 1 && db.companyStaff(c.id).length === 0,
+      JSON.stringify(r.quit));
+    check('Kasse −45 (Handrechnung)', db.getCompany(c.id).kasse === -45, de(db.getCompany(c.id).kasse));
+    const minus = db.getCompany(c.id).kasse;
+    r = company.settle(c.id, t0 + 13 * DAY_MS);
+    c = db.getCompany(c.id);
+    check('ohne Personal keine weiteren Löhne', c.kasse === minus, `${de(c.kasse)} vs ${de(minus)}`);
+    check('Tag 13: noch offen', c.status === 'open' && r.insolvent === false);
+    r = company.settle(c.id, t0 + 15 * DAY_MS);
+    c = db.getCompany(c.id);
+    check('Tag 15: insolvent', r.insolvent === true && c.status === 'closed' && c.closed_at > 0);
+    check('ownCompany ist danach null', company.ownCompany(G, U) === null);
+    check('settle auf geschlossen tut nichts', company.settle(c.id, t0 + 20 * DAY_MS) === null);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
