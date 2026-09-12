@@ -366,6 +366,87 @@ async function replyTests() {
   check('13 Tage altes Paar bleibt', db.relayPairFor('discord', 'FRISCH')?.fluxer_id === 'F_FRISCH');
   check('TTL ist 14 Tage', db.RELAY_PAIR_TTL_MS === 14 * TAG);
   db.clearRelayPairs();
+
+  console.log('--- Spiegeln legt Paare an ---');
+  // Eigenes Modul-Exemplar mit Webhooks, wie in personaTests – aber die
+  // Fälschungen liefern jetzt IDs, wie die echten Clients.
+  db.deleteRelayWebhook('discord', 'DC_KANAL');
+  db.deleteRelayWebhook('fluxer', 'FX_KANAL');
+  delete require.cache[require.resolve('../src/relay')];
+  process.env.RELAY_WEBHOOKS = 'true';
+  const bridge = require('../src/relay');
+
+  let n = 0;
+  const nextId = () => `MSG_${++n}`;
+  const hookSends = [];
+  const plainFluxer = [];
+  const plainDiscord = [];
+  const makeHook = (id) => ({
+    id, name: bridge.WEBHOOK_NAME, token: `tok-${id}`,
+    async send(payload, wait) {
+      const sent = { id: nextId(), wait: Boolean(wait) };
+      hookSends.push({ hook: id, ...payload, sentId: sent.id });
+      return sent;
+    },
+  });
+  // Originale, die sich nachladen lassen (Discord fetchReference, Fluxer messages.fetch).
+  const originals = new Map();
+  const dcChannel = {
+    id: 'DC_KANAL',
+    async fetchWebhooks() { return new Map(); },
+    async createWebhook() { return makeHook('DCHOOK'); },
+    async send(p) { const id = nextId(); plainDiscord.push({ ...p, sentId: id }); return { id }; },
+  };
+  const fxChannel = {
+    id: 'FX_KANAL', name: 'economy', guildId: 'FX_GUILD',
+    async fetchWebhooks() { return []; },
+    async createWebhook() { return makeHook('FXHOOK'); },
+    messages: { async fetch(id) { if (!originals.has(id)) throw new Error('Unknown Message'); return originals.get(id); } },
+  };
+  bridge.register('discord', {
+    user: { id: 'DISCORDBOT' },
+    channels: {
+      cache: new Map([['DC_KANAL', dcChannel]]),
+      async fetch(id) { return id === 'DC_KANAL' ? dcChannel : { id, async send() {} }; },
+    },
+  });
+  bridge.register('fluxer', {
+    user: { id: 'FLUXERBOT' },
+    channels: {
+      values: () => [fxChannel].values(),
+      get: (id) => (id === 'FX_KANAL' ? fxChannel : null),
+      cache: new Map([['FX_KANAL', fxChannel]]),
+      async send(id, p) { const sentId = nextId(); plainFluxer.push({ id, ...p, sentId }); return { id: sentId }; },
+    },
+  });
+
+  const dcMsg = (over = {}) => ({
+    id: `DC_${++n}`,
+    author: { id: 'USER1', displayName: 'Kevin', displayAvatarURL: () => 'https://cdn.discord/kevin.png' },
+    content: 'Hallo von Discord', channelId: 'DC_KANAL', embeds: [], attachments: [],
+    ...over,
+  });
+  const fxMsg = (over = {}) => ({
+    id: `FX_${++n}`,
+    author: { id: 'FXUSER', globalName: 'Simon', displayAvatarURL: () => 'https://cdn.fluxer/simon.png' },
+    content: 'Hallo von Fluxer', channelId: 'FX_KANAL', embeds: [], attachments: [],
+    ...over,
+  });
+
+  const d1 = dcMsg();
+  check('Discord-Nachricht wird gespiegelt', (await bridge.fromDiscord(d1)) === true);
+  const s1 = hookSends[hookSends.length - 1];
+  check('Fluxer-Webhook wurde mit wait=true gerufen (liefert die Nachricht)', s1?.hook === 'FXHOOK' && s1?.sentId?.startsWith('MSG_'));
+  check('Paar Discord -> Fluxer gespeichert',
+    db.relayPairFor('discord', d1.id)?.fluxer_id === s1.sentId, JSON.stringify(db.relayPairFor('discord', d1.id)));
+
+  const f1 = fxMsg();
+  check('Fluxer-Nachricht wird gespiegelt', (await bridge.fromFluxer(f1)) === true);
+  const s2 = hookSends[hookSends.length - 1];
+  check('Paar Fluxer -> Discord gespeichert',
+    db.relayPairFor('fluxer', f1.id)?.discord_id === s2.sentId, JSON.stringify(db.relayPairFor('fluxer', f1.id)));
+  check('ohne Antwort kein replyTo und kein Zitat',
+    s1.replyTo === undefined && !s1.content.includes('↩️') && s2.replyTo === undefined && !s2.content.includes('↩️'));
 }
 
 /**

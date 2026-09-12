@@ -470,13 +470,21 @@ function announce() {
 }
 
 /**
- * Spiegelt als Persona. `false` heißt "hat nicht geklappt" – dann übernimmt
- * der Aufrufer mit der Textform.
+ * Sendet als Persona des Absenders. Rückgabe `{ ok, id }`: `ok` sagt, ob
+ * die Nachricht raus ist (sonst fällt der Aufrufer auf Textform zurück),
+ * `id` ist die erzeugte Nachricht – oder null, wenn die Plattform keine
+ * liefert. Beides getrennt, damit ein Erfolg ohne ID nie doppelt sendet.
+ *
+ * `replyTo` macht daraus eine echte Antwort (nur Fluxer nimmt das über
+ * Webhooks an – Discord ignoriert es nicht, sondern lehnt ab, deshalb wird
+ * es dort nie gesetzt). Bei einer Antwort wird der Autor des Originals
+ * gepingt, wie bei jeder echten Antwort.
  */
-async function sendAsPersona(platform, channelId, message, text, sourcePlatform, users = []) {
-  if (!WEBHOOKS) return false;
+async function sendAsPersona(platform, channelId, message, text, sourcePlatform, users = [],
+  replyTo = null) {
+  if (!WEBHOOKS) return { ok: false, id: null };
   const hook = await webhookFor(platform, channelId);
-  if (!hook) return false;
+  if (!hook) return { ok: false, id: null };
 
   const source = sourcePlatform ?? (platform === 'discord' ? 'fluxer' : 'discord');
   const face = await personaOf(message, source);
@@ -487,12 +495,14 @@ async function sendAsPersona(platform, channelId, message, text, sourcePlatform,
     // Die Plattformen schreiben das Feld unterschiedlich – beide mitgeben.
     avatarURL: face.avatarURL ?? undefined,
     avatarUrl: face.avatarURL ?? undefined,
-    allowedMentions: pings(users),
+    allowedMentions: replyTo ? { ...pings(users), repliedUser: true } : pings(users),
   };
+  if (replyTo) payload.replyTo = replyTo;
 
   try {
-    await hook.send(payload);
-    return true;
+    // Fluxer gibt die erzeugte Nachricht nur mit wait=true zurück.
+    const sent = platform === 'fluxer' ? await hook.send(payload, true) : await hook.send(payload);
+    return { ok: true, id: sent?.id ? String(sent.id) : null };
   } catch (err) {
     // Webhook weg oder Recht entzogen: vergessen und beim nächsten Mal neu
     // versuchen; diese Nachricht geht in Textform raus.
@@ -500,8 +510,35 @@ async function sendAsPersona(platform, channelId, message, text, sourcePlatform,
       `(${err.message}) – spiegele in Textform.`);
     hooks.delete(hookKey(platform, channelId));
     db.deleteRelayWebhook(platform, channelId);
-    return false;
+    return { ok: false, id: null };
   }
+}
+
+/**
+ * Textform nach Fluxer. Mit `replyTo` als echte Antwort; lehnt Fluxer die
+ * Referenz ab (Original inzwischen gelöscht), ein zweiter Versuch ohne –
+ * die Nachricht kommt an, der Bezug fehlt. Kein dritter Versuch.
+ */
+async function sendPlainFluxer(channelId, content, allowedMentions, replyTo = null) {
+  if (replyTo) {
+    try {
+      const sent = await clients.fluxer.channels.send(channelId, {
+        content, allowedMentions: { ...allowedMentions, repliedUser: true }, replyTo,
+      });
+      return sent?.id ? String(sent.id) : null;
+    } catch (err) {
+      console.warn(`Brücke: Antwort in fluxer/${channelId} abgelehnt (${err.message}) – sende ohne Bezug.`);
+    }
+  }
+  const sent = await clients.fluxer.channels.send(channelId, { content, allowedMentions });
+  return sent?.id ? String(sent.id) : null;
+}
+
+/** Merkt sich das Paar aus Quelle und Spiegel – wenn beide eine ID haben. */
+function remember(sourcePlatform, sourceId, sentId) {
+  if (!sourceId || !sentId) return;
+  if (sourcePlatform === 'discord') db.setRelayPair(String(sourceId), String(sentId));
+  else db.setRelayPair(String(sentId), String(sourceId));
 }
 
 // ------------------------------------------------------------ Weiterleiten
@@ -759,17 +796,18 @@ async function fromDiscord(message) {
   const target = destination(message, 'discord');
   if (!target || !body(message)) return false;
   const uebersetzt = forFluxerFull(body(message) ?? '', message);
-  const asPersona = await sendAsPersona(
+  const persona = await sendAsPersona(
     'fluxer', target, message, uebersetzt.text, 'discord', uebersetzt.users);
-  if (asPersona) return true;
+  if (persona.ok) {
+    remember('discord', message.id, persona.id);
+    return true;
+  }
 
   const text = format(message, { platform: 'discord' });
   if (!text) return false;
   const rueckfall = forFluxerFull(text, message);
-  await clients.fluxer.channels.send(target, {
-    content: rueckfall.text,
-    allowedMentions: pings(rueckfall.users),
-  });
+  const sentId = await sendPlainFluxer(target, rueckfall.text, pings(rueckfall.users));
+  remember('discord', message.id, sentId);
   return true;
 }
 
@@ -781,15 +819,19 @@ async function fromFluxer(message) {
   const target = destination(message, 'fluxer');
   if (!target || !body(message)) return false;
   const uebersetzt = forDiscordFull(body(message) ?? '', message);
-  const asPersona = await sendAsPersona(
+  const persona = await sendAsPersona(
     'discord', target, message, uebersetzt.text, 'fluxer', uebersetzt.users);
-  if (asPersona) return true;
+  if (persona.ok) {
+    remember('fluxer', message.id, persona.id);
+    return true;
+  }
 
   const text = format(message, { platform: 'fluxer' });
   if (!text) return false;
   const channel = await clients.discord.channels.fetch(target);
   const rueckfall = forDiscordFull(text, message);
-  await channel.send({ content: rueckfall.text, allowedMentions: pings(rueckfall.users) });
+  const sent = await channel.send({ content: rueckfall.text, allowedMentions: pings(rueckfall.users) });
+  remember('fluxer', message.id, sent?.id ? String(sent.id) : null);
   return true;
 }
 
@@ -802,6 +844,6 @@ module.exports = {
   body, displayName, sanitizeName, avatarOf, ignored, personaOf, discordFace, faces,
   forFluxer, forDiscord, forFluxerFull, forDiscordFull, pings,
   nameKey, accountByName, learnFace,
-  webhookFor, sendAsPersona, ownWebhookIds, hooks,
+  webhookFor, sendAsPersona, sendPlainFluxer, remember, ownWebhookIds, hooks,
   broadcast, announcesTo, announceOverview, LANES, ANNOUNCE_DISCORD, ANNOUNCE_FLUXER,
 };
