@@ -316,7 +316,9 @@ async function replyContextDiscord(message, target) {
 
   const pair = db.relayPairFor('discord', ref);
   if (pair) {
-    const guildId = clients.fluxer?.channels?.cache?.get?.(target)?.guildId;
+    // `channels.get` ist die dokumentierte Form des Fluxer-SDK (`.cache` ist nur
+    // ein undokumentierter Alias zur Discord-Kompatibilität).
+    const guildId = clients.fluxer?.channels?.get?.(target)?.guildId;
     return {
       replyTo: { channelId: target, messageId: pair.fluxer_id, ...(guildId ? { guildId } : {}) },
       quote: null,

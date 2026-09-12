@@ -415,7 +415,6 @@ async function replyTests() {
     channels: {
       values: () => [fxChannel].values(),
       get: (id) => (id === 'FX_KANAL' ? fxChannel : null),
-      cache: new Map([['FX_KANAL', fxChannel]]),
       async send(id, p) { const sentId = nextId(); plainFluxer.push({ id, ...p, sentId }); return { id: sentId }; },
     },
   });
