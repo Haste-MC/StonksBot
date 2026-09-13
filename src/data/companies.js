@@ -31,6 +31,7 @@
  * eines +2 Plätze (klein +1); minStufe 3 auf dem dritten Umsatz-Extra, 2 auf dem
  * Platz-Extra. Löhne skalieren NICHT mit – die Marge wächst mit der Größe.
  * Spedition voll: 22 Plätze, Faktor 2,65 → 487.095/Tag (company.fullCeilingOf).
+ * Ausnahme Baufirma: eigene Faktoren 1,3…2,5 (siehe dort), voll 558.345/Tag.
  */
 const MAX_STUFE = 5;
 const CONFIRM_ABOVE = 5_000_000;          // ab hier fragt der Ausbau-Knopf nach
@@ -43,11 +44,14 @@ const slug = (s) => s.toLowerCase()
   .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
   .replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '');
 
-/** Die fünf Stufen einer Branche aus Preis, Namen und Platzliste. */
-function leiter(price, names, slots) {
+/**
+ * Die fünf Stufen einer Branche aus Preis, Namen und Platzliste. `faktoren`
+ * nur, wenn die Messung es verlangt (bisher: Baufirma) – die Kernwerte bleiben.
+ */
+function leiter(price, names, slots, faktoren = STUFE_FAKTOREN) {
   return names.map((name, i) => ({
     id: i + 1, name, price: Math.round(price * STUFE_PREISFAKTOREN[i]),
-    slots: slots[i], umsatz: STUFE_FAKTOREN[i],
+    slots: slots[i], umsatz: faktoren[i],
   }));
 }
 
@@ -99,7 +103,10 @@ const BRANCHES = [
     extras: extrasFor('spedition', 1_200_000, [E('Telematik', '📡'), E('Tankkarten-Vertrag', '⛽'), E('Gefahrgut-Lizenz', '☣️'), E('Nachtschicht', '🌙')], 2) },
   { id: 'baufirma', klasse: 'gross', name: 'Baufirma', emoji: '🏗️', price: 1_800_000, slots: 12, umsatz: 1_700, lohn: 500,
     blurb: 'Kolonnen, Kran, Bauhof. Die höchsten Löhne im Spiel – und nur mit voller Mannschaft ein Geschäft.',
-    stufen: leiter(1_800_000, ['Zweite Kolonne', 'Kran', 'Bauhof', 'Dritte Kolonne', 'Fertigteilwerk'], [14, 17, 19, 22, 24]),
+    // Eigene Faktoren (Schritt 0,3 statt 0,25): Mit den Standardfaktoren amortisierte sich
+    // der Ausbau (74,7 Mio, der teuerste im Spiel) erst nach 178 Tagen statt 60–120 – die
+    // hohen Löhne fressen die Marge. Gemessen mit 2,5: siehe ARCHITEKTUR.md §15.
+    stufen: leiter(1_800_000, ['Zweite Kolonne', 'Kran', 'Bauhof', 'Dritte Kolonne', 'Fertigteilwerk'], [14, 17, 19, 22, 24], [1.3, 1.6, 1.9, 2.2, 2.5]),
     extras: extrasFor('baufirma', 1_800_000, [E('Eigener Bagger', '🚜'), E('Gerüstbau', '🪜'), E('Sanierungslizenz', '📜'), E('Zweite Schicht', '🌙')], 2) },
   { id: 'club', klasse: 'gross', name: 'Club', emoji: '🍸', price: 1_000_000, slots: 6, umsatz: 2_400, lohn: 380,
     blurb: 'Wenige Plätze, teurer Ausbau, und der Name muss in der Stadt sein. Werbung ist hier alles.',

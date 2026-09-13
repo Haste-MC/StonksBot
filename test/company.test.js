@@ -414,7 +414,11 @@ const user = () => `u${++n}`;
       check(`${b.id}: Stufenpreise = Gründung × 1,5/3/6/9/14`,
         b.stufen.map((st) => st.price).join() === data.STUFE_PREISFAKTOREN.map((f) => Math.round(b.price * f)).join(),
         b.stufen.map((st) => st.price).join());
-      check(`${b.id}: Umsatzfaktoren 1,2…2,2`, b.stufen.map((st) => st.umsatz).join() === '1.2,1.45,1.7,1.95,2.2');
+      // Baufirma hat eigene Faktoren (Schritt 0,3): Standard amortisierte sich in 178 Tagen statt 60–120.
+      const [faktoren, label] = b.id === 'baufirma'
+        ? ['1.3,1.6,1.9,2.2,2.5', '1,3…2,5 (eigene)'] : ['1.2,1.45,1.7,1.95,2.2', '1,2…2,2'];
+      check(`${b.id}: Umsatzfaktoren ${label}`, b.stufen.map((st) => st.umsatz).join() === faktoren,
+        b.stufen.map((st) => st.umsatz).join());
       check(`${b.id}: Plätze steigen monoton bis zum Doppelten`,
         b.stufen.every((st, i) => st.slots >= (i ? b.stufen[i - 1].slots : b.slots))
         && b.stufen[4].slots === b.slots * 2, b.stufen.map((st) => st.slots).join());
@@ -651,6 +655,51 @@ const user = () => `u${++n}`;
       s.ceilingNow.net < s.ceilingMax.net && s.ceiling.net === s.ceilingNow.net
       && s.ceilingMax.net === company.fullCeilingOf(b).net);
     check('status: free zählt die neuen Plätze', s.free === 9 - s.staff.length);
+  }
+
+  console.log('--- §3: Vollausbau – kein Tag über der vollen Decke ---');
+  {
+    for (const b of data.BRANCHES) {
+      const U = user(); funds(U, 0, 200_000_000);
+      const f = await company.found(G, U, b.id, `Voll-${b.id}`, t0);
+      for (let i = 0; i < data.MAX_STUFE; i++) {
+        const r = await company.upgrade(G, U, t0);
+        if (!r.ok) throw new Error(`${b.id} Stufe ${i + 1}: ${r.reason}`);
+      }
+      for (const e of b.extras) {
+        const r = await company.buyExtra(G, U, e.id, t0);
+        if (!r.ok) throw new Error(`${b.id} Extra ${e.id}: ${r.reason}`);
+      }
+      const eff = company.effectiveOf(company.ownCompany(G, U), b);
+      for (let i = 0; i < eff.slots; i++) {
+        const r = company.hireNpc(G, U, t0, seq(0.02 * i));
+        if (!r.ok) throw new Error(`${b.id} NPC ${i + 1}: ${r.reason}`);
+      }
+      const cid = f.company.id;
+      for (const s of db.companyStaff(cid)) db.saveStaff({ ...s, rank: 2 });
+      const decke = company.fullCeilingOf(b).net;
+      let best = -Infinity, gewinn = [], werbungLief = false;
+      let now = t0;
+      for (let d = 0; d < 365; d++) {
+        const vor = db.getCompany(cid).kasse;
+        const w = await company.advertise(G, U, now);
+        if (w.ok) werbungLief = true;
+        if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) throw new Error(`${b.id} Werbung Tag ${d + 1}: ${w.reason}`);
+        for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) { const p = await company.pitchIn(G, U, now + i * 60e3); if (!p.ok) break; }
+        company.settle(cid, now + DAY_MS);
+        const tag = db.getCompany(cid).kasse - vor;
+        best = Math.max(best, tag); gewinn.push(tag);
+        now += DAY_MS;
+      }
+      const sorted = [...gewinn].sort((a, c) => a - c);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      console.log(`    ${b.emoji} ${b.name} voll: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
+      // Die Decke rechnet ungerundet, die Abrechnung rundet je Schicht (höchstens +0,5).
+      // Beim Kiosk sind das 19 × 0,25 = 4,75 über der Decke – genau die Rundung, nichts sonst.
+      const rundung = 0.5 * (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY);
+      check(`${b.name} voll: kein Tag über der Decke (bis auf Rundung je Schicht)`, best <= decke + rundung, `${de(best)} > ${de(decke)}`);
+      check(`${b.name} voll: verdient (keine stille Null)`, median > company.ceilingOf(b).net, `${de(median)} vs Kern ${de(company.ceilingOf(b).net)}`);
+    }
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

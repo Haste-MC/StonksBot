@@ -7,7 +7,8 @@
  *
  *     Was verdient ein reiner Creator, was ein Spieler, der Musik UND Creator
  *     betreibt – bei gleichem Zeiteinsatz? Und was ein Heist-Spieler?
- *     Und was wirft eine Firma im Vollbetrieb ab (seit 1.31.0)?
+ *     Und was wirft eine Firma im Vollbetrieb ab (seit 1.31.0) – im Kern,
+ *     voll ausgebaut, und aus eigener Kraft ausgebaut (seit 1.32.0)?
  *
  * ==================== WARUM DAS SO GEBAUT IST ====================
  * Zwei Fehler haben eine frühere Messung wertlos gemacht; beide sind hier
@@ -447,77 +448,160 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
 // ------------------------------------------------------------ Firmen
 
 /**
- * Eine Firma im Vollbetrieb, ohne Ausbau – derselbe Tagesablauf wie der
- * Decke-Test in test/company.test.js:
+ * Eine Firma im Vollbetrieb – derselbe Tagesablauf wie der Decke-Test in
+ * test/company.test.js:
  *
- *   Tag 1 Gründung und volle NPC-Besetzung (Aushilfen), nach 30 Tagen alle
- *   auf Schichtleiter befördert, täglich Werbung und Anpacken, bis das
+ *   Tag 1 Gründung und volle NPC-Besetzung (Aushilfen), ab Tag 30 wird jeder
+ *   unter Schichtleiter befördert, täglich Werbung und Anpacken, bis das
  *   Zeitbudget alle ist (Werbung 2 + 4 × Anpacken 2 = 10 > 8, also an
  *   Werbetagen nur drei), abends Abrechnung und Entnahme des Gewinns.
+ *
+ * Drei Spielweisen (`ausbau`, seit 1.32.0):
+ *
+ *   'keiner'      Kern, Stufe 0, keine Extras – die Messung aus 1.31.0.
+ *   'kapitalist'  Am Tag 1 alle fünf Stufen und vier Extras vom Konto (500 Mio
+ *                 für alle); gezählt werden nur die Entnahmen. `amortTage` ist
+ *                 der erste Tag, an dem sie Gründung UND Gesamtausbau übersteigen.
+ *   'aufsteiger'  Eigene Guthabenlogik: `getBalance` liefert für diesen Nutzer
+ *                 nur `konto[U]` (Entnahmen minus Ausbaukäufe), nicht 500 Mio.
+ *                 Die Gründung bezahlt er nicht – Startpunkt ist die gegründete
+ *                 Firma mit Kern-Besetzung, die Frage ist der Weg AB dort.
+ *                 Täglich nach der Entnahme: nächste Stufe, wenn bezahlbar;
+ *                 sonst das billigste freigeschaltete Extra; danach NPCs
+ *                 nachstellen. `stufe5Tag`/`vollTag`: erster Tag mit Stufe 5
+ *                 bzw. Stufe 5 + 4 Extras; `endeProTag`: Median der letzten 30 Tage.
  *
  * Die Entnahme lässt die Werbekosten in der Kasse: Wer abends alles
  * herausnimmt, kann morgens keine Werbung bezahlen – dann misst man einen
  * Spieler, der sich selbst im Weg steht, nicht die Firma. Ohne Zufall: Die
  * Firma würfelt nicht (nur NPC-Namen), der Lauf ist deterministisch.
  *
- * @returns {{median:number, decke:number, amortTage:number|null, entnommen:number}}
+ * @returns {{median:number, decke:number, amortTage:number|null, entnommen:number,
+ *   stufe5Tag:number|null, vollTag:number|null, endeProTag:number}}
  *   `median` Tagesgewinn (Kassenstand nach Abrechnung minus Tagesbeginn),
- *   `amortTage` erster Tag, an dem die Summe der Entnahmen den Gründungspreis
- *   übersteigt – null, wenn nie.
+ *   `decke` die Kern-Decke bzw. beim Ausbau die volle (`fullCeilingOf`).
  */
-async function firmenlauf(branchId, tage) {
+async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
+  if (!['keiner', 'kapitalist', 'aufsteiger'].includes(ausbau)) throw new Error(`ausbau: ${ausbau}`);
   const b = company.branch(branchId);
-  const G = welt(`firma_${branchId}`);
-  const U = `fx:firma_${branchId}`;
+  const G = welt(`firma_${branchId}_${ausbau}`);
+  const U = `fx:firma_${branchId}_${ausbau}`;
   const rand = rng(4242);
-  const decke = company.ceilingOf(b).net;
+  const decke = (ausbau === 'keiner' ? company.ceilingOf(b) : company.fullCeilingOf(b)).net;
   const reserve = Math.round(b.price * companyData.WERBUNG_COST_SHARE);
+  const gesamtAusbau = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
+  const investition = b.price + (ausbau === 'kapitalist' ? gesamtAusbau : 0);
+  const top = companyData.RANKS.length - 1;
 
   // Ab heute vorwärts, wie `karriere` (die Module schreiben echte Zeitstempel).
   let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
   const f = await company.found(G, U, b.id, `Mess-${b.name}`, now);
   if (!f.ok) throw new Error(`Gründung ${b.id} gescheitert: ${f.reason}`);
   const cid = f.company.id;
-  for (let i = 0; i < b.slots; i++) {
-    const r = company.hireNpc(G, U, now, rand);
-    if (!r.ok) throw new Error(`Einstellen ${b.id} gescheitert: ${r.reason}`);
+
+  /** NPCs nachstellen, bis alle Plätze der aktuellen Stufe besetzt sind. */
+  const besetzen = (t) => {
+    const soll = company.effectiveOf(db.getCompany(cid), b).slots;
+    while (db.companyStaff(cid).length < soll) {
+      const r = company.hireNpc(G, U, t, rand);
+      if (!r.ok) throw new Error(`Einstellen ${b.id} gescheitert: ${r.reason}`);
+    }
+  };
+
+  if (ausbau === 'kapitalist') {
+    for (let i = 0; i < companyData.MAX_STUFE; i++) {
+      const r = await company.upgrade(G, U, now);
+      if (!r.ok) throw new Error(`Ausbau ${b.id} Stufe ${i + 1} gescheitert: ${r.reason}`);
+    }
+    for (const e of b.extras) {
+      const r = await company.buyExtra(G, U, e.id, now);
+      if (!r.ok) throw new Error(`Ausbau ${b.id} Extra ${e.id} gescheitert: ${r.reason}`);
+    }
+  }
+  besetzen(now);
+
+  /*
+   * Aufsteiger: Die Gründung ist bezahlt (aus dem 500-Mio-Fake), ab jetzt
+   * zählt nur noch, was die Firma abwirft. `konto[U]` beginnt bei null, und
+   * `getBalance` sieht für U NUR dieses Konto – jeder Kauf muss aus Entnahmen
+   * bezahlt sein. Der Fake für alle anderen bleibt, wie er ist.
+   */
+  const altGetBalance = unb.getBalance;
+  if (ausbau === 'aufsteiger') {
+    konto[U] = 0;
+    unb.getBalance = async (g, u) => (u === U
+      ? { cash: konto[u] ?? 0, bank: 0, total: konto[u] ?? 0 }
+      : altGetBalance(g, u));
   }
 
   const gewinn = [];
   let entnommen = 0;
   let amortTage = null;
+  let stufe5Tag = null;
+  let vollTag = null;
   let werbungLief = false;
-  for (let d = 0; d < tage; d++) {
-    if (d === 30) {
-      for (const s of db.companyStaff(cid)) {
-        for (let k = s.rank; k < companyData.RANKS.length - 1; k++) company.promote(G, U, s.id, +1, now);
+  try {
+    for (let d = 0; d < tage; d++) {
+      // Ab Tag 30 wird jeder unter Schichtleiter befördert – auch später eingestellte.
+      if (d >= 30) {
+        for (const s of db.companyStaff(cid)) {
+          for (let k = s.rank; k < top; k++) company.promote(G, U, s.id, +1, now);
+        }
       }
-    }
-    const vor = db.getCompany(cid).kasse;
-    const w = await company.advertise(G, U, now);
-    // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
-    // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
-    if (w.ok) werbungLief = true;
-    if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
-      throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${w.reason}`);
-    }
-    for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
-      const r = await company.pitchIn(G, U, now + i * 60_000);
-      if (!r.ok) break;                 // Zeit alle oder Tageslimit
-    }
-    company.settle(cid, now + DAY);
-    const c = db.getCompany(cid);
-    if (!c || c.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${c?.closed_why})`);
-    gewinn.push(c.kasse - vor);
+      const vor = db.getCompany(cid).kasse;
+      const w = await company.advertise(G, U, now);
+      // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
+      // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
+      if (w.ok) werbungLief = true;
+      if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
+        throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${w.reason}`);
+      }
+      for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
+        const r = await company.pitchIn(G, U, now + i * 60_000);
+        if (!r.ok) break;                 // Zeit alle oder Tageslimit
+      }
+      company.settle(cid, now + DAY);
+      const c = db.getCompany(cid);
+      if (!c || c.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${c?.closed_why})`);
+      gewinn.push(c.kasse - vor);
 
-    const frei = Math.floor(c.kasse - reserve);
-    if (frei > 0) {
-      const w = await company.withdraw(G, U, frei, now + DAY);
-      if (!w.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${w.reason}`);
-      entnommen += frei;
-      if (amortTage === null && entnommen > b.price) amortTage = d + 1;
+      const frei = Math.floor(c.kasse - reserve);
+      if (frei > 0) {
+        const w = await company.withdraw(G, U, frei, now + DAY);
+        if (!w.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${w.reason}`);
+        entnommen += frei;
+        if (amortTage === null && entnommen > investition) amortTage = d + 1;
+      }
+
+      if (ausbau === 'aufsteiger') {
+        // Erst die Leiter, dann die Extras – so lange, wie das Konto reicht.
+        for (;;) {
+          const cur = db.getCompany(cid);
+          const guthaben = konto[U] ?? 0;
+          const st = company.nextStufe(cur, b);
+          if (st && st.price <= guthaben) {
+            const r = await company.upgrade(G, U, now + DAY);
+            if (!r.ok) throw new Error(`Aufsteiger ${b.id} Stufe ${st.id} an Tag ${d + 1}: ${r.reason}`);
+            continue;
+          }
+          const gekauft = db.companyExtras(cid);
+          const offen = b.extras
+            .filter((e) => !gekauft.includes(e.id) && cur.stufe >= e.minStufe && e.price <= guthaben)
+            .sort((x, y) => x.price - y.price);
+          if (!offen.length) break;
+          const r = await company.buyExtra(G, U, offen[0].id, now + DAY);
+          if (!r.ok) throw new Error(`Aufsteiger ${b.id} Extra ${offen[0].id} an Tag ${d + 1}: ${r.reason}`);
+        }
+        besetzen(now + DAY);
+        const cur = db.getCompany(cid);
+        if (stufe5Tag === null && cur.stufe >= companyData.MAX_STUFE) stufe5Tag = d + 1;
+        if (vollTag === null && cur.stufe >= companyData.MAX_STUFE
+          && db.companyExtras(cid).length === b.extras.length) vollTag = d + 1;
+      }
+      now += DAY;
     }
-    now += DAY;
+  } finally {
+    unb.getBalance = altGetBalance;
   }
 
   // Stille Null abfangen: Entnahmen müssen im Konto unter „Entnahme" auftauchen.
@@ -525,7 +609,20 @@ async function firmenlauf(branchId, tage) {
   if (Math.round(gezaehlt) !== Math.round(entnommen)) {
     throw new Error(`Firma ${b.id}: ${de(entnommen)} entnommen, aber ${de(gezaehlt)} im Konto gezählt`);
   }
-  return { median: median(gewinn), decke, amortTage, entnommen };
+  if (ausbau === 'aufsteiger') {
+    // Zweite stille Null: Was der Aufsteiger gekauft hat, muss im Konto als „Ausbau" stehen.
+    const ausgegeben = -(quellen[U]?.Ausbau ?? 0);
+    const c = db.getCompany(cid);
+    const soll = b.stufen.slice(0, c.stufe).reduce((s, st) => s + st.price, 0)
+      + db.companyExtras(cid).reduce((s, id) => s + companyData.extraById(id).price, 0);
+    if (Math.round(ausgegeben) !== Math.round(soll)) {
+      throw new Error(`Aufsteiger ${b.id}: Ausbau ${de(soll)} gekauft, aber ${de(ausgegeben)} im Konto gezählt`);
+    }
+  }
+  return {
+    median: median(gewinn), decke, amortTage, entnommen, stufe5Tag, vollTag,
+    endeProTag: median(gewinn.slice(-30)),
+  };
 }
 
 // ------------------------------------------------------------ Heists
@@ -590,6 +687,10 @@ async function verlauf(laeufe, tage) {
   console.log();
 }
 
+/** Für Prüfläufe importierbar (test/…): nur als Hauptprogramm messen. */
+module.exports = { firmenlauf };
+if (require.main !== module) return;
+
 (async () => {
   if (process.argv[2] === 'verlauf') {
     await verlauf(Number(process.argv[3] || 3), Number(process.argv[4] || 1500));
@@ -627,6 +728,19 @@ async function verlauf(laeufe, tage) {
     const r = await firmenlauf(br.id, TAGE);
     console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}${de(r.median).padStart(9)}/Tag   ` +
       `Decke ${de(r.decke)}   Amortisation ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`);
+  }
+
+  console.log('\n--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---\n');
+  for (const br of companyData.BRANCHES) {
+    const r = await firmenlauf(br.id, TAGE, { ausbau: 'kapitalist' });
+    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}${de(r.median).padStart(9)}/Tag   ` +
+      `Decke ${de(r.decke)}   Amortisation des Ausbaus ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`);
+  }
+  console.log('\n--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---\n');
+  for (const br of companyData.BRANCHES) {
+    const r = await firmenlauf(br.id, TAGE, { ausbau: 'aufsteiger' });
+    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}Stufe 5 an Tag ${r.stufe5Tag ?? '–'} · voll an Tag ${r.vollTag ?? '–'} · ` +
+      `Ertrag am Ende ${de(r.endeProTag)}/Tag`);
   }
 
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);

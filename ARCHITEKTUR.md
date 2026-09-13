@@ -411,6 +411,31 @@ Gründungspreises nach 20 / 14 / 37 Tagen. Alle unter Musik+Creator
 über Musik+Creator – deshalb 1.900. NPC-Löhne sind eine echte Senke, die
 Kasse darf ins Minus (Insolvenz nach 14 Tagen).
 
+**Ausbau (seit 1.32.0, Stück 2a):** Fünf Stufen und vier Extras je Branche
+heben Plätze und Umsatz je Schicht; Löhne skalieren nicht, die Marge wächst
+mit der Größe. Volle Decke (`company.fullCeilingOf`): Spedition 487.095/Tag,
+Café 133.380, Kiosk 16.631. Gemessen voll ausgebaut (365 Tage, Median, Stand
+2026-09-13): Kiosk 16.636/Tag, Imbiss 21.015, Autowäsche 17.827, Café 133.360,
+Fitnessstudio 87.838, Werkstatt 134.248, Spedition 487.060, Baufirma 558.304,
+Club 414.900 – jede Branche etwa ×6 ihres Kernwerts (5,6 bis 7,4), der Median
+liegt auf der Decke (an zwei von drei Tagen läuft keine Werbekampagne an und
+alle vier Anpacken passen ins Zeitbudget). Gründung plus Gesamtausbau
+amortisieren sich in 51 (Café) bis 123 (Spedition) Tagen; Ausnahme Baufirma
+mit 159 Tagen (siehe unten). Aus eigener Kraft (nur Gewinn reinvestiert,
+Stufe vor Extra) ist die Spedition nach 262 Tagen voll, das Café nach 95, der
+Club nach 257; die Baufirma erreicht Stufe 5 im ersten Jahr nicht. Damit ist
+die Firma nach zwei Jahren gleichauf mit Musik+Creator – die Königsdisziplin
+*mit* Firma, aber erkauft: ~50 Mio Ausbau. Investitionen buchen ohne XP
+(Umbuchung, keine Ausgabe).
+
+Die **Baufirma** hat eigene Stufenfaktoren (1,3 · 1,6 · 1,9 · 2,2 · 2,5 statt
+1,2…2,2): Mit den Standardfaktoren stand sie bei 495.574/Tag und 178 Tagen
+Amortisation – ihr Ausbau ist mit 74,7 Mio der teuerste, ihre Kern-Decke
+(75.000) liegt aber unter der Spedition (78.000), weil die Löhne (500) die
+Marge fressen. Die Faktoren sind der einzige Hebel, der den Kern (Stück 1)
+nicht verschiebt; weiter hinauf ginge nur über das ×6-Ziel hinaus (bei 2,5
+schon ×7,4). Die 159 Tage sind also ein Kompromiss, kein Treffer.
+
 Die Decke oben gilt für NPC-Personal. Mit **Spieler-Angestellten** liegt sie
 höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am Tag –
 zehn Spieler-Schichtleiter in einer Spedition brächten dem Inhaber ~134.000/Tag,
