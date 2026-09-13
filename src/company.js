@@ -578,8 +578,8 @@ async function pay(guildId, userId, price, reason) {
   let moved = 0;
   try {
     if (balance.cash < price) {
-      moved = price - balance.cash;
-      await unb.withdrawFromBank(guildId, userId, moved, reason);
+      await unb.withdrawFromBank(guildId, userId, price - balance.cash, reason);
+      moved = price - balance.cash;             // erst nach Erfolg merken: ein Bankfehler darf nichts umkehren
     }
     const after = await changeCash(guildId, userId, -price, reason, { xp: false, kind: 'company' });
     return { ok: true, balance: after };
@@ -591,27 +591,45 @@ async function pay(guildId, userId, price, reason) {
   }
 }
 
+/**
+ * Firmen, für die gerade ein Kauf läuft (§7). Die Sperre wird synchron vor dem
+ * ersten `await` gesetzt: Ein zweiter Klick, der während `getBalance` eintrifft,
+ * darf nicht die schon erhöhte Stufe lesen und die übernächste kaufen – das
+ * wäre ein Kauf ohne Guthabenprüfung, und die bedingte Rücknahme des ersten
+ * Kaufs würde bei einem Buchungsfehler ins Leere laufen. Die bedingte
+ * Schreibung bleibt als zweite Verteidigungslinie.
+ */
+const inFlight = new Set();
+
 /** Die nächste Stufe der Leiter kaufen. Stufe zuerst (§7), dann buchen; bei Fehler zurück. */
 async function upgrade(guildId, userId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
-  const st = nextStufe(c, b);
-  if (!st) return { ok: false, reason: 'max' };
-  const balance = await getBalance(guildId, userId);
-  if (balance.total < st.price) return { ok: false, reason: 'funds', needed: st.price, have: balance.total, stufe: st };
+  if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
+  inFlight.add(c.id);
+  try {
+    const st = nextStufe(c, b);
+    if (!st) return { ok: false, reason: 'max' };
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < st.price) return { ok: false, reason: 'funds', needed: st.price, have: balance.total, stufe: st };
 
-  // Bedingt schreiben: nur wenn die Stufe noch beim gelesenen Stand ist – sonst
-  // hat ein gleichzeitiger zweiter Klick den Kauf schon abgeschlossen (§9).
-  if (!db.setCompanyStufe(c.id, st.id, c.stufe)) return { ok: false, reason: 'busy' };
-  const paid = await pay(guildId, userId, st.price, `Ausbau: ${c.name} – ${st.name}`);
-  if (!paid.ok) {
-    db.setCompanyStufe(c.id, c.stufe, st.id);
-    return {
-      ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, stufe: st,
-    };
+    // Bedingt schreiben: nur wenn die Stufe noch beim gelesenen Stand ist – sonst
+    // hat ein gleichzeitiger zweiter Klick den Kauf schon abgeschlossen (§9).
+    if (!db.setCompanyStufe(c.id, st.id, c.stufe)) return { ok: false, reason: 'busy' };
+    const paid = await pay(guildId, userId, st.price, `Ausbau: ${c.name} – ${st.name}`);
+    if (!paid.ok) {
+      if (!db.setCompanyStufe(c.id, c.stufe, st.id)) {
+        console.warn(`Firma ${c.id}: Stufe ${st.id} nach fehlgeschlagener Buchung nicht zurückgenommen – Stand hat sich inzwischen geändert.`);
+      }
+      return {
+        ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, stufe: st,
+      };
+    }
+    return { ok: true, stufe: st, price: st.price, balance: paid.balance };
+  } finally {
+    inFlight.delete(c.id);
   }
-  return { ok: true, stufe: st, price: st.price, balance: paid.balance };
 }
 
 /** Ein Extra kaufen – jedes genau einmal, manche erst ab einer Stufe. */
@@ -619,28 +637,34 @@ async function buyExtra(guildId, userId, extraId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
-  const e = b.extras.find((x) => x.id === String(extraId));
-  if (!e) return { ok: false, reason: 'unknown' };
-  if (db.companyExtras(c.id).includes(e.id)) return { ok: false, reason: 'owned', extra: e };
-  if (c.stufe < e.minStufe) return { ok: false, reason: 'stufe', extra: e, minStufe: e.minStufe };
-  const balance = await getBalance(guildId, userId);
-  if (balance.total < e.price) return { ok: false, reason: 'funds', needed: e.price, have: balance.total, extra: e };
-
+  if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
+  inFlight.add(c.id);
   try {
-    db.addCompanyExtra(c.id, e.id, now);
-  } catch {
-    // PRIMARY KEY (company_id, extra_id) schlägt fehl, wenn ein gleichzeitiger
-    // zweiter Klick das Extra schon eingetragen hat (Muster wie bei `found`).
-    return { ok: false, reason: 'owned', extra: e };
+    const e = b.extras.find((x) => x.id === String(extraId));
+    if (!e) return { ok: false, reason: 'unknown' };
+    if (db.companyExtras(c.id).includes(e.id)) return { ok: false, reason: 'owned', extra: e };
+    if (c.stufe < e.minStufe) return { ok: false, reason: 'stufe', extra: e, minStufe: e.minStufe };
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < e.price) return { ok: false, reason: 'funds', needed: e.price, have: balance.total, extra: e };
+
+    try {
+      db.addCompanyExtra(c.id, e.id, now);
+    } catch {
+      // PRIMARY KEY (company_id, extra_id) schlägt fehl, wenn ein gleichzeitiger
+      // zweiter Klick das Extra schon eingetragen hat (Muster wie bei `found`).
+      return { ok: false, reason: 'owned', extra: e };
+    }
+    const paid = await pay(guildId, userId, e.price, `Ausbau: ${c.name} – ${e.name}`);
+    if (!paid.ok) {
+      db.deleteCompanyExtra(c.id, e.id);
+      return {
+        ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, extra: e,
+      };
+    }
+    return { ok: true, extra: e, price: e.price, balance: paid.balance };
+  } finally {
+    inFlight.delete(c.id);
   }
-  const paid = await pay(guildId, userId, e.price, `Ausbau: ${c.name} – ${e.name}`);
-  if (!paid.ok) {
-    db.deleteCompanyExtra(c.id, e.id);
-    return {
-      ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, extra: e,
-    };
-  }
-  return { ok: true, extra: e, price: e.price, balance: paid.balance };
 }
 
 module.exports = {

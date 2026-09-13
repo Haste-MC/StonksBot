@@ -2016,7 +2016,8 @@ Object.assign(buttons, {
         : { no_company: '🏢 Du hast keine Firma.', unknown: '❌ Dieses Extra gibt es hier nicht.',
           owned: 'ℹ️ Hast du schon.', stufe: `🔒 Erst ab Stufe ${r.minStufe}.`,
           funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
-          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.' }[r.reason] ?? '❌ Das ging nicht.';
+          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.',
+          busy: 'ℹ️ Da läuft gerade schon ein Kauf – schau auf den Stand.' }[r.reason] ?? '❌ Das ging nicht.';
       await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;

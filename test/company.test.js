@@ -554,7 +554,8 @@ const user = () => `u${++n}`;
     check('Doppelklick bei upgrade: Stufe 1 (nicht doppelt gestiegen)',
       company.ownCompany(G, U2).stufe === 1);
 
-    // Dasselbe für Extras: die PRIMARY KEY (company_id, extra_id) übernimmt den Schutz.
+    // Dasselbe für Extras: die In-flight-Sperre weist den zweiten Klick ab (busy);
+    // die PRIMARY KEY (company_id, extra_id) bleibt als zweite Verteidigungslinie.
     const dx = sp.extras[0];
     bookings = [];
     const [de1, de2] = await Promise.all([
@@ -562,10 +563,44 @@ const user = () => `u${++n}`;
     ]);
     const extraOks = [de1, de2].filter((x) => x.ok);
     const extraOwned = [de1, de2].filter((x) => !x.ok);
-    check('Doppelklick bei buyExtra: genau ein Erfolg, der andere owned',
-      extraOks.length === 1 && extraOwned.length === 1 && extraOwned[0].reason === 'owned',
+    check('Doppelklick bei buyExtra: genau ein Erfolg, der andere busy',
+      extraOks.length === 1 && extraOwned.length === 1 && extraOwned[0].reason === 'busy',
       JSON.stringify([de1, de2]));
     check('Doppelklick bei buyExtra: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+
+    // Verkettetes Rennen (§7): Trifft der zweite Klick ein, nachdem der erste
+    // seine Stufe geschrieben hat, aber während er noch auf die Bank wartet,
+    // läse er Stufe 1 und kaufte Stufe 2 – ohne dass die erste Abbuchung schon
+    // vom Konto ist (Überziehung). Die In-flight-Sperre weist ihn vor dem ersten
+    // `await` ab. Nachgestellt mit einer Bank, deren zweite Antwort (die
+    // Guthabenprüfung in `pay`) erst auf Kommando kommt.
+    const U4 = user(); funds(U4, 100_000_000, 100_000_000);
+    await company.found(G, U4, 'spedition', 'Rennen-Sped', t0);
+    const echtBalance = unb.getBalance;
+    let freigeben; const tor = new Promise((resolve) => { freigeben = resolve; });
+    let anfragen = 0;
+    unb.getBalance = async (...a) => {
+      anfragen++;
+      if (anfragen === 2) await tor;                       // der erste Kauf hängt in `pay`
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return echtBalance(...a);
+    };
+    bookings = [];
+    const p1 = company.upgrade(G, U4, t0);
+    await new Promise((resolve) => setTimeout(resolve, 40)); // erster Kauf: Stufe geschrieben, wartet in `pay`
+    const p2 = company.upgrade(G, U4, t0);                    // zweiter Klick trifft jetzt ein
+    const r2 = await p2;
+    freigeben();
+    const r1 = await p1;
+    unb.getBalance = echtBalance;
+    check('Rennen mit langsamer Bank: erster Kauf ok, zweiter busy',
+      r1.ok && r1.stufe.id === 1 && r2.ok === false && r2.reason === 'busy', JSON.stringify([r1, r2]));
+    check('Rennen mit langsamer Bank: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+    check('Rennen mit langsamer Bank: Stufe 1, nicht 2', company.ownCompany(G, U4).stufe === 1,
+      String(company.ownCompany(G, U4).stufe));
+    // Danach geht es normal weiter (die Sperre ist wieder frei).
+    r = await company.upgrade(G, U4, t0);
+    check('nach dem Rennen: Sperre wieder frei', r.ok && r.stufe.id === 2, JSON.stringify(r));
 
     // Bricht die Bank beim Anzapfen ab, darf weder eine Buchung noch eine
     // Stufenänderung übrig bleiben (die bedingte Rücknahme darf niemanden clobbern).
