@@ -159,11 +159,12 @@ function ownerContext(guildId, userId) {
 function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
-  if (ctx.staff.length >= ctx.branch.slots) return { ok: false, reason: 'full' };
+  const eff = effectiveOf(ctx.company, ctx.branch);
+  if (ctx.staff.length >= eff.slots) return { ok: false, reason: 'full' };
   const name = data.NPC_NAMES[Math.min(data.NPC_NAMES.length - 1,
     Math.floor(random() * data.NPC_NAMES.length))];
   const staff = db.insertStaff({ companyId: ctx.company.id, kind: 'npc', name, now });
-  return { ok: true, staff, free: ctx.branch.slots - ctx.staff.length - 1 };
+  return { ok: true, staff, free: eff.slots - ctx.staff.length - 1 };
 }
 
 /** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. Rechnet vorher ab. */
@@ -183,8 +184,8 @@ function fire(guildId, userId, staffId, now = Date.now()) {
 // --------------------------------------------------------------- Abrechnung
 
 /** Auslastungsziel: ohne Personal 0,3, volle Besetzung 0,8, mit Werbung 1,0. */
-function dailyTarget(b, staffCount, werbungActive) {
-  const ziel = data.AUSLASTUNG_MIN + data.AUSLASTUNG_STAFF * Math.min(1, staffCount / b.slots)
+function dailyTarget(b, staffCount, werbungActive, slots = b.slots) {
+  const ziel = data.AUSLASTUNG_MIN + data.AUSLASTUNG_STAFF * Math.min(1, staffCount / slots)
     + (werbungActive ? data.WERBUNG_BOOST : 0);
   return Math.min(1, ziel);
 }
@@ -225,6 +226,7 @@ function settle(companyId, now = Date.now()) {
   const c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return null;
   const b = branch(c.branch);
+  const eff = effectiveOf(c, b);
   const guildId = c.guild_id;
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
@@ -245,7 +247,7 @@ function settle(companyId, now = Date.now()) {
     // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
     //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
     //    genau zum Tick gekauft wurde.
-    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag);
+    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag, eff.slots);
     auslastung += (ziel - auslastung) * data.AUSLASTUNG_STEP;
 
     // 2. NPC-Schichten – Löhne sind Verbindlichkeiten, die Kasse darf ins Minus.
@@ -253,7 +255,7 @@ function settle(companyId, now = Date.now()) {
       if (s.kind !== 'npc') continue;
       const f = rankOf(s.rank).factor;
       const lohn = Math.round(b.lohn * f);
-      const umsatz = Math.round(b.umsatz * f * auslastung);
+      const umsatz = Math.round(b.umsatz * f * auslastung * eff.umsatzFactor);
       kasse += data.NPC_SHIFTS * (umsatz - lohn);
       out.umsatz += data.NPC_SHIFTS * umsatz;
       out.loehne += data.NPC_SHIFTS * lohn;
@@ -302,8 +304,9 @@ function asJob(jobId) {
 function openings(guildId) {
   return db.openCompanies(guildId).map((c) => {
     const b = branch(c.branch);
-    const free = b.slots - db.companyStaff(c.id).length;
-    return { company: c, branch: b, free, lohn: b.lohn, jobId: companyJobId(c.id) };
+    const eff = effectiveOf(c, b);
+    const free = eff.slots - db.companyStaff(c.id).length;
+    return { company: c, branch: b, free, lohn: b.lohn, jobId: companyJobId(c.id), stufe: c.stufe };
   }).filter((o) => o.free > 0);
 }
 
@@ -317,7 +320,7 @@ function join(guildId, userId, companyId, now = Date.now()) {
   if (c.owner_id === String(userId)) return { ok: false, reason: 'owner' };
   if (db.staffByUser(c.id, userId)) return { ok: false, reason: 'already_hired' };
   const b = branch(c.branch);
-  if (db.companyStaff(c.id).length >= b.slots) return { ok: false, reason: 'full' };
+  if (db.companyStaff(c.id).length >= effectiveOf(c, b).slots) return { ok: false, reason: 'full' };
 
   leave(guildId, userId);                        // alte Firmenstelle räumen
   db.insertStaff({ companyId: c.id, kind: 'player', userId, now });
@@ -347,9 +350,10 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const s = db.staffByUser(c.id, userId);
   if (!s) return { ok: false, reason: 'not_staff' };
   const b = branch(c.branch);
+  const eff = effectiveOf(c, b);
   const f = rankOf(s.rank).factor;
   const lohn = Math.max(1, Math.round(b.lohn * f * (0.85 + random() * 0.3)));
-  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS);
+  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS * eff.umsatzFactor);
   if (c.kasse < lohn) return { ok: false, reason: 'kasse', lohn, kasse: c.kasse };
 
   db.saveCompany({ ...c, kasse: c.kasse - lohn + umsatz });
@@ -399,7 +403,8 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   if (done >= data.MAX_PITCH_PER_DAY) return { ok: false, reason: 'limit', done, max: data.MAX_PITCH_PER_DAY };
   const time = useTime(guildId, userId, data.TIME_ANPACKEN, now);
   if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_ANPACKEN, ...time };
-  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung);
+  const eff = effectiveOf(c, b);
+  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung * eff.umsatzFactor);
   db.saveCompany({ ...c, kasse: c.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
   return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time };
 }
@@ -533,22 +538,28 @@ function status(guildId, userId, now = Date.now()) {
   if (!ctx) return null;
   const { company: c, branch: b, staff } = ctx;
   const day = dayKey(now);
+  const extraIds = db.companyExtras(c.id);
+  const eff = effectiveOf(c, b, extraIds);
+  const ceilingNow = ceilingOf(b, c.stufe, extraIds);
   // Prognose: was die heutige NPC-Besetzung bei heutiger Auslastung am Tag
   // bringt – Spieler-Schichten (freiwillig, ungewiss) zählen hier nicht mit.
   const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
     const f = rankOf(s.rank).factor;
-    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung) - Math.round(b.lohn * f));
+    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor) - Math.round(b.lohn * f));
   }, 0);
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
   return {
     company: c, branch: b, staff,
-    free: b.slots - staff.length,
+    free: eff.slots - staff.length,
     kasse: c.kasse, auslastung: c.auslastung,
     werbungMs: Math.max(0, c.werbung_until - now),
     minusDays, daysLeft: c.negative_since ? Math.max(0, data.INSOLVENCY_DAYS - minusDays) : null,
     pitchLeft: data.MAX_PITCH_PER_DAY - (c.pitch_day === day ? c.pitch_today : 0),
     budget: require('./creator').budget(guildId, userId, now),
-    ceiling: ceilingOf(b), forecast,
+    ceiling: ceilingNow, ceilingNow, ceilingMax: fullCeilingOf(b), forecast,
+    effective: eff, stufe: c.stufe, nextStufe: nextStufe(c, b),
+    stufen: b.stufen.map((st) => ({ ...st, owned: st.id <= c.stufe })),
+    extras: b.extras.map((e) => ({ ...e, owned: extraIds.includes(e.id), locked: c.stufe < e.minStufe })),
     werbungCost: Math.round(b.price * data.WERBUNG_COST_SHARE),
   };
 }

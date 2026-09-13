@@ -604,6 +604,55 @@ const user = () => `u${++n}`;
       typeof db.getCompany(f.company.id).stufe === 'number' && db.getCompany(f.company.id).stufe === 0);
   }
 
+  console.log('--- Ausbau wirkt im Betrieb ---');
+  {
+    const U = user(); funds(U, 0, 5_000_000);
+    const f = await company.found(G, U, 'cafe', 'Wachsendes Café', t0);
+    const cid = f.company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < 5; i++) company.hireNpc(G, U, t0, seq(0.1 * i));
+    check('Kern: 5 Plätze voll', company.hireNpc(G, U, t0).reason === 'full');
+    await company.upgrade(G, U, t0);                     // Terrasse: 6 Plätze, ×1,2
+    check('Stufe 1: ein Platz mehr', company.hireNpc(G, U, t0, seq(0.7)).ok === true
+      && company.hireNpc(G, U, t0).reason === 'full');
+    check('openings zeigt keinen Platz mehr', !company.openings(G).some((o) => o.company.id === cid));
+
+    // Ein Tag Abrechnung, Handrechnung mit Faktor 1,2 und 6 Aushilfen:
+    // Ziel = 0,3 + 0,5 × 6/6 = 0,8 → a = 0,3 + 0,5 × 0,2 = 0,4;
+    // Umsatz je Schicht = round(900 × 1 × 0,4 × 1,2) = 432; Lohn 180 → 6 × 3 × 252 = 4.536.
+    const r = company.settle(cid, t0 + DAY_MS);
+    check('settle rechnet mit dem Umsatzfaktor (Kasse 4.536)', db.getCompany(cid).kasse === 4_536, de(db.getCompany(cid).kasse));
+    check('Auslastungsziel nutzt die neuen Plätze', Math.abs(company.dailyTarget(b, 6, false, 6) - 0.8) < 1e-9
+      && Math.abs(company.dailyTarget(b, 5, false, 6) - (0.3 + 0.5 * 5 / 6)) < 1e-9);
+
+    // Anpacken: round(900 × 1,5 × a × 1,2) mit a = 0,4 → 648.
+    const p = await company.pitchIn(G, U, t0 + DAY_MS);
+    check('Anpacken nutzt den Faktor (648)', p.ok && p.umsatz === 648, String(p.umsatz));
+
+    // Spieler-Schicht: Umsatz round(900 × 1 × 0,4 × 1,3 × 1,2) = 562.
+    const P = user(); funds(P, 0);
+    company.fire(G, U, db.companyStaff(cid)[0].id, t0 + DAY_MS);
+    company.join(G, P, cid, t0 + DAY_MS);
+    const jobs = require('../src/jobs');
+    const w = await jobs.work(G, P, new Date(t0 + DAY_MS + 1000), seq(0.5));
+    check('Spieler-Schicht nutzt den Faktor (562)', w.ok && w.umsatz === 562, String(w.umsatz));
+
+    // Extra mit Plätzen: +2 ab Stufe 2.
+    await company.upgrade(G, U, t0 + DAY_MS);
+    await company.buyExtra(G, U, b.extras[3].id, t0 + DAY_MS);
+    const s = company.status(G, U, t0 + DAY_MS);
+    check('status: Stufe 2, 7 + 2 = 9 Plätze, Faktor 1,45', s.stufe === 2 && s.effective.slots === 9
+      && Math.abs(s.effective.umsatzFactor - 1.45) < 1e-9, JSON.stringify(s.effective));
+    check('status: Extras mit owned/locked', s.extras.length === 4 && s.extras[3].owned === true
+      && s.extras[2].locked === true && s.extras[0].locked === false);
+    check('status: Stufenliste mit owned', s.stufen.length === 5 && s.stufen[1].owned && !s.stufen[2].owned);
+    check('status: nextStufe = Frühstückskarte', s.nextStufe?.name === 'Frühstückskarte');
+    check('status: ceilingNow < ceilingMax, ceiling = ceilingNow',
+      s.ceilingNow.net < s.ceilingMax.net && s.ceiling.net === s.ceilingNow.net
+      && s.ceilingMax.net === company.fullCeilingOf(b).net);
+    check('status: free zählt die neuen Plätze', s.free === 9 - s.staff.length);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
