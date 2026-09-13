@@ -552,6 +552,18 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'closed_why')) {
   db.exec("ALTER TABLE companies ADD COLUMN closed_why TEXT NOT NULL DEFAULT ''");
 }
+// Ausbau (Stück 2a): die Stufe hängt an der Firma, die Extras in eigener Tabelle.
+if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'stufe')) {
+  db.exec('ALTER TABLE companies ADD COLUMN stufe INTEGER NOT NULL DEFAULT 0');
+}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_extras (
+    company_id INTEGER NOT NULL,
+    extra_id   TEXT    NOT NULL,
+    bought_at  INTEGER NOT NULL,
+    PRIMARY KEY (company_id, extra_id)
+  );
+`);
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_staff (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1759,6 +1771,11 @@ const stmt = {
   deleteStaff: db.prepare('DELETE FROM company_staff WHERE id = ?'),
   deleteStaffOfCompany: db.prepare('DELETE FROM company_staff WHERE company_id = ?'),
   clearEmploymentByJob: db.prepare('DELETE FROM employment WHERE guild_id = ? AND job_id = ?'),
+  setCompanyStufe: db.prepare('UPDATE companies SET stufe = ? WHERE id = ?'),
+  companyExtras: db.prepare('SELECT extra_id FROM company_extras WHERE company_id = ? ORDER BY bought_at, extra_id'),
+  addCompanyExtra: db.prepare('INSERT INTO company_extras (company_id, extra_id, bought_at) VALUES (?, ?, ?)'),
+  deleteCompanyExtra: db.prepare('DELETE FROM company_extras WHERE company_id = ? AND extra_id = ?'),
+  deleteExtrasOfCompany: db.prepare('DELETE FROM company_extras WHERE company_id = ?'),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -3783,7 +3800,10 @@ function lastClosedCompany(guildId, ownerId) {
 }
 function deleteCompany(id) { stmt.deleteCompany.run(Number(id)); }
 function clearCompanies(guildId) {
-  for (const c of stmt.openCompanies.all(guildId)) stmt.deleteStaffOfCompany.run(c.id);
+  for (const c of stmt.openCompanies.all(guildId)) {
+    stmt.deleteStaffOfCompany.run(c.id);
+    stmt.deleteExtrasOfCompany.run(c.id);
+  }
   stmt.clearCompanies.run(guildId);
 }
 function insertStaff({ companyId, kind, userId = '', name = '', now = Date.now() }) {
@@ -3801,6 +3821,14 @@ function deleteStaff(id) { stmt.deleteStaff.run(Number(id)); }
 function deleteStaffOfCompany(companyId) { stmt.deleteStaffOfCompany.run(Number(companyId)); }
 /** Alle Anstellungen bei einem Job lösen (Firma geschlossen). */
 function clearEmploymentByJob(guildId, jobId) { stmt.clearEmploymentByJob.run(guildId, jobId); }
+
+function setCompanyStufe(id, stufe) { stmt.setCompanyStufe.run(Math.round(stufe), Number(id)); }
+function companyExtras(companyId) { return stmt.companyExtras.all(Number(companyId)).map((r) => r.extra_id); }
+function addCompanyExtra(companyId, extraId, now = Date.now()) {
+  stmt.addCompanyExtra.run(Number(companyId), String(extraId), now);
+}
+function deleteCompanyExtra(companyId, extraId) { stmt.deleteCompanyExtra.run(Number(companyId), String(extraId)); }
+function deleteExtrasOfCompany(companyId) { stmt.deleteExtrasOfCompany.run(Number(companyId)); }
 
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
@@ -3936,6 +3964,7 @@ module.exports = {
   insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
   deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
+  setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,

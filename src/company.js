@@ -198,6 +198,7 @@ function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   if (!c || c.status !== 'open') return null;
   db.saveCompany({ ...c, status: 'closed', closed_at: now, closed_why: why });
   db.deleteStaffOfCompany(c.id);
+  db.deleteExtrasOfCompany(c.id);
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
   return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
 }
@@ -552,6 +553,66 @@ function status(guildId, userId, now = Date.now()) {
   };
 }
 
+// ------------------------------------------------------------------ Ausbau
+
+/**
+ * Bezahlt eine Investition vom Konto des Inhabers (Bargeld, notfalls Bank) –
+ * eine Buchung, ohne XP: Investition ist keine Ausgabe fürs Level, sonst
+ * wäre Kaufen die nächste XP-Schleife (siehe deposit/withdraw).
+ * Gibt `{ ok, balance }` oder `{ ok: false, reason: 'funds'|'payment', … }`.
+ */
+async function pay(guildId, userId, price, reason) {
+  const balance = await getBalance(guildId, userId);
+  if (balance.total < price) return { ok: false, reason: 'funds', needed: price, have: balance.total };
+  try {
+    if (balance.cash < price) await unb.withdrawFromBank(guildId, userId, price - balance.cash, reason);
+    const after = await changeCash(guildId, userId, -price, reason, { xp: false, kind: 'company' });
+    return { ok: true, balance: after };
+  } catch (err) {
+    return { ok: false, reason: 'payment', error: err.message };
+  }
+}
+
+/** Die nächste Stufe der Leiter kaufen. Stufe zuerst (§7), dann buchen; bei Fehler zurück. */
+async function upgrade(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const st = nextStufe(c, b);
+  if (!st) return { ok: false, reason: 'max' };
+  const balance = await getBalance(guildId, userId);
+  if (balance.total < st.price) return { ok: false, reason: 'funds', needed: st.price, have: balance.total, stufe: st };
+
+  db.setCompanyStufe(c.id, st.id);
+  const paid = await pay(guildId, userId, st.price, `Ausbau: ${c.name} – ${st.name}`);
+  if (!paid.ok) {
+    db.setCompanyStufe(c.id, c.stufe);
+    return { ok: false, reason: paid.reason, error: paid.error, stufe: st };
+  }
+  return { ok: true, stufe: st, price: st.price, balance: paid.balance };
+}
+
+/** Ein Extra kaufen – jedes genau einmal, manche erst ab einer Stufe. */
+async function buyExtra(guildId, userId, extraId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const e = b.extras.find((x) => x.id === String(extraId));
+  if (!e) return { ok: false, reason: 'unknown' };
+  if (db.companyExtras(c.id).includes(e.id)) return { ok: false, reason: 'owned', extra: e };
+  if (c.stufe < e.minStufe) return { ok: false, reason: 'stufe', extra: e, minStufe: e.minStufe };
+  const balance = await getBalance(guildId, userId);
+  if (balance.total < e.price) return { ok: false, reason: 'funds', needed: e.price, have: balance.total, extra: e };
+
+  db.addCompanyExtra(c.id, e.id, now);
+  const paid = await pay(guildId, userId, e.price, `Ausbau: ${c.name} – ${e.name}`);
+  if (!paid.ok) {
+    db.deleteCompanyExtra(c.id, e.id);
+    return { ok: false, reason: paid.reason, error: paid.error, extra: e };
+  }
+  return { ok: true, extra: e, price: e.price, balance: paid.balance };
+}
+
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
@@ -560,4 +621,5 @@ module.exports = {
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
+  upgrade, buyExtra,
 };

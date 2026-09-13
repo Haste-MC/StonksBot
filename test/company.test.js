@@ -469,6 +469,100 @@ const user = () => `u${++n}`;
       company.nextStufe({ stufe: 0 }, sp)?.id === 1 && company.nextStufe({ stufe: 5 }, sp) === null);
   }
 
+  console.log('--- Ausbau kaufen: Leiter und Extras ---');
+  {
+    const U = user(); funds(U, 100_000, 60_000_000);
+    const f = await company.found(G, U, 'spedition', 'Ausbau-Sped', t0);
+    const cid = f.company.id;
+    const sp = company.branch('spedition');
+    check('frisch gegründet: Stufe 0, keine Extras', db.getCompany(cid).stufe === 0 && db.companyExtras(cid).length === 0);
+
+    bookings = [];
+    let r = await company.upgrade(G, U, t0);
+    check('Stufe 1 gekauft: 1,8 Mio, eine Buchung ohne XP', r.ok && r.stufe.id === 1 && bookings.length === 1
+      && bookings[0].amount === -1_800_000 && bookings[0].opts.xp === false && bookings[0].opts.kind === 'company',
+      JSON.stringify(bookings));
+    check('Stufe steht in der DB', db.getCompany(cid).stufe === 1);
+    check('Bank angezapft (Bargeld reichte nicht)', konten.get(U).cash === 0 && konten.get(U).bank === 60_000_000 - 1_200_000 + 100_000 - 1_800_000);
+    for (let i = 2; i <= 5; i++) r = await company.upgrade(G, U, t0);
+    check('bis Stufe 5 gekauft', db.getCompany(cid).stufe === 5);
+    r = await company.upgrade(G, U, t0);
+    check('Stufe 6 gibt es nicht', r.ok === false && r.reason === 'max');
+    const ausgegeben = -bookings.reduce((s, b) => s + b.amount, 0);
+    check('Leiter kostet 40,2 Mio', ausgegeben === 40_200_000, de(ausgegeben));
+
+    // Extras
+    const [u1, , u3, sx] = sp.extras;
+    bookings = [];
+    r = await company.buyExtra(G, U, u1.id, t0);
+    check('Extra gekauft: 2,4 Mio, eine Buchung ohne XP', r.ok && r.extra.id === u1.id && bookings.length === 1
+      && bookings[0].amount === -2_400_000 && bookings[0].opts.xp === false);
+    check('Extra steht in der DB', db.companyExtras(cid).includes(u1.id));
+    r = await company.buyExtra(G, U, u1.id, t0);
+    check('zweimal kaufen geht nicht', r.ok === false && r.reason === 'owned');
+    r = await company.buyExtra(G, U, 'kiosk-zeitungsregal', t0);
+    check('Extra einer anderen Branche', r.reason === 'unknown');
+    r = await company.buyExtra(G, U, 'gibtsnicht', t0);
+    check('unbekanntes Extra', r.reason === 'unknown');
+    for (const e of [u3, sx]) await company.buyExtra(G, U, e.id, t0);
+    check('Extras mit minStufe bei Stufe 5 kaufbar', db.companyExtras(cid).length === 3);
+
+    // minStufe greift bei einer frischen Firma.
+    const V = user(); funds(V, 0, 10_000_000);
+    const g = await company.found(G, V, 'cafe', 'Klein-Café', t0);
+    const cafe = company.branch('cafe');
+    r = await company.buyExtra(G, V, cafe.extras[3].id, t0);
+    check('Platz-Extra vor Stufe 2 gesperrt', r.ok === false && r.reason === 'stufe' && r.minStufe === 2);
+    r = await company.buyExtra(G, V, cafe.extras[2].id, t0);
+    check('drittes Umsatz-Extra vor Stufe 3 gesperrt', r.reason === 'stufe' && r.minStufe === 3);
+    r = await company.buyExtra(G, V, cafe.extras[0].id, t0);
+    check('Extra ohne minStufe sofort kaufbar', r.ok === true);
+
+    // Guthaben und Rollback.
+    const W = user(); funds(W, 0, 30_000);
+    await company.found(G, W, 'kiosk', 'Armer Kiosk', t0);
+    r = await company.upgrade(G, W, t0);
+    check('zu wenig Geld: funds mit needed/have', r.reason === 'funds' && r.needed === 37_500 && r.have === 5_000);
+    funds(W, 0, 100_000);
+    const echt = unb.changeCash;
+    unb.changeCash = async () => { throw new Error('API down'); };
+    r = await company.upgrade(G, W, t0);
+    check('Buchung schlägt fehl: Stufe zurück', r.reason === 'payment' && company.ownCompany(G, W).stufe === 0);
+    const kx = company.branch('kiosk').extras[0];
+    r = await company.buyExtra(G, W, kx.id, t0);
+    check('Buchung schlägt fehl: Extra zurück', r.reason === 'payment' && db.companyExtras(company.ownCompany(G, W).id).length === 0);
+    unb.changeCash = echt;
+
+    // Schließen räumt die Extras weg.
+    const before = db.companyExtras(cid).length;
+    await company.close(G, U, t0);
+    check('Schließen löscht die Extras', before === 3 && db.companyExtras(cid).length === 0);
+
+    // Insolvenz ebenso – Muster „Minuskiosk": ein Schichtleiter-NPC, Kasse läuft ins
+    // Minus. Das Extra ist das Platz-Extra (kein Umsatzzuschlag), damit die
+    // Verlust-Rechnung aus dem Kern-Block hält, auch wenn settle ab Task 3 den
+    // Faktor kennt: 1 NPC auf 3 Plätzen → Ziel 0,467, Umsatz 125/135/143 < Lohn 150.
+    const Y = user(); funds(Y, 0, 100_000);
+    const g2 = await company.found(G, Y, 'kiosk', 'Pleitekiosk', t0);
+    company.hireNpc(G, Y, t0, seq(0));
+    for (const st of db.companyStaff(g2.company.id)) db.saveStaff({ ...st, rank: 2 });
+    db.addCompanyExtra(g2.company.id, 'kiosk-verlaengerte_oeffnung', t0);
+    company.settle(g2.company.id, t0 + 15 * DAY_MS);
+    check('Insolvenz löscht die Extras',
+      db.getCompany(g2.company.id).status === 'closed' && db.companyExtras(g2.company.id).length === 0,
+      JSON.stringify({ status: db.getCompany(g2.company.id).status, extras: db.companyExtras(g2.company.id) }));
+  }
+
+  console.log('--- Migration: stufe nachgerüstet ---');
+  {
+    // Das Modul legt die Spalte beim Laden per PRAGMA-Prüfung an (Muster closed_why);
+    // hier wird nur geprüft, dass jede Firma sie hat und sie bei 0 startet.
+    const U = user(); funds(U, 0, 100_000);
+    const f = await company.found(G, U, 'kiosk', 'Migrationskiosk', t0);
+    check('stufe ist 0 und eine Zahl',
+      typeof db.getCompany(f.company.id).stufe === 'number' && db.getCompany(f.company.id).stufe === 0);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail ? 1 : 0);
 })();
