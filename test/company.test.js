@@ -275,6 +275,8 @@ const user = () => `u${++n}`;
     r = await company.deposit(G, U, 20_000, t0);
     check('Einzahlen: eine Buchung, Kasse steigt', r.ok && bookings.length === 1 && bookings[0].amount === -20_000
       && db.getCompany(cid).kasse === 20_000);
+    check('Einzahlen ist eine Umbuchung: keine XP (sonst XP-Schleife Einzahlen → Entnehmen)',
+      bookings[0].opts.xp === false && bookings[0].opts.kind === 'company', JSON.stringify(bookings[0].opts));
     check('Einzahlen über Guthaben abgelehnt', (await company.deposit(G, U, 10_000_000, t0)).reason === 'funds');
     const zeitVor = creator.budget(G, U, t0).left;
     r = await company.advertise(G, U, t0);
@@ -310,6 +312,8 @@ const user = () => `u${++n}`;
     r = await company.bonus(G, U, ps.id, 500, t0);
     check('Prämie: eine Buchung an den Spieler, Kasse sinkt', r.ok && bookings.length === 1 && bookings[0].user === P
       && bookings[0].amount === 500 && db.getCompany(cid).kasse === kasseVor - 500);
+    check('Prämie ist keine Schicht (kind company, nicht job)', bookings[0].opts.kind === 'company',
+      JSON.stringify(bookings[0].opts));
     check('Prämie über Kasse abgelehnt', (await company.bonus(G, U, ps.id, 10_000_000, t0)).reason === 'kasse');
     r = company.promote(G, U, ps.id, +1);
     check('Spieler-Beförderung spiegelt sich in employment.rank', r.ok && db.getEmployment(G, P).rank === 1);
@@ -320,6 +324,7 @@ const user = () => `u${++n}`;
     r = await company.withdraw(G, U, k, t0);
     check('Entnahme: eine Buchung ohne Steuer, Kasse 0', r.ok && bookings.length === 1 && bookings[0].amount === k
       && bookings[0].opts.tax === false && db.getCompany(cid).kasse === 0, JSON.stringify(bookings));
+    check('Entnahme ist eine Umbuchung: keine XP', bookings[0].opts.xp === false, JSON.stringify(bookings[0].opts));
     check('Entnahme über Kasse abgelehnt', (await company.withdraw(G, U, 1, t0)).reason === 'kasse');
     check('Entnahme von 0 abgelehnt', (await company.withdraw(G, U, 0, t0)).reason === 'amount');
 
@@ -361,6 +366,7 @@ const user = () => `u${++n}`;
     check('Schließen entnimmt die Kasse (eine Buchung) und räumt auf',
       r.ok && bookings.length === 1 && bookings[0].amount === 700 && company.ownCompany(G, U) === null
       && db.getEmployment(G, P) === null && db.companyStaff(cid).length === 0);
+    check('Auszahlung bei Auflösung: keine XP, keine Steuer', bookings[0].opts.xp === false && bookings[0].opts.tax === false);
     check('ohne Firma: status null', company.status(G, U, t0) === null);
   }
 
@@ -373,10 +379,16 @@ const user = () => `u${++n}`;
       for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
       const decke = company.ceilingOf(b).net;
       let best = -Infinity, gewinn = [];
-      let now = t0;
+      let now = t0, werbungLief = false;
       for (let d = 0; d < 365; d++) {
         const vor = db.getCompany(f.company.id).kasse;
-        await company.advertise(G, U, now);
+        const w = await company.advertise(G, U, now);
+        // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
+        // Tag 0–2 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
+        if (w.ok) werbungLief = true;
+        if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
+          throw new Error(`${b.id}: Werbung an Tag ${d} abgelehnt: ${w.reason}`);
+        }
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
         company.settle(f.company.id, now + DAY_MS);
         const tag = db.getCompany(f.company.id).kasse - vor;

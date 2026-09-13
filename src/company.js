@@ -125,9 +125,9 @@ function ownerContext(guildId, userId) {
   return { company: c, branch: branch(c.branch), staff: db.companyStaff(c.id) };
 }
 
-/** Einen NPC einstellen, solange ein Platz frei ist. */
+/** Einen NPC einstellen, solange ein Platz frei ist – nach Abrechnung (Kündigungen zuerst). */
 function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
-  const ctx = ownerContext(guildId, userId);
+  const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   if (ctx.staff.length >= ctx.branch.slots) return { ok: false, reason: 'full' };
   const name = data.NPC_NAMES[Math.min(data.NPC_NAMES.length - 1,
@@ -136,9 +136,9 @@ function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
   return { ok: true, staff, free: ctx.branch.slots - ctx.staff.length - 1 };
 }
 
-/** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. */
-function fire(guildId, userId, staffId) {
-  const ctx = ownerContext(guildId, userId);
+/** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. Rechnet vorher ab. */
+function fire(guildId, userId, staffId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const s = db.staffById(staffId);
   if (!s || s.company_id !== ctx.company.id) return { ok: false, reason: 'not_found' };
@@ -211,8 +211,10 @@ function settle(companyId, now = Date.now()) {
   for (let d = 0; d < days; d++) {
     tag += DAY_MS;
 
-    // 1. Auslastung bewegt sich aufs Ziel zu.
-    const ziel = dailyTarget(b, staff.length, c.werbung_until > tag);
+    // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
+    //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
+    //    genau zum Tick gekauft wurde.
+    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag);
     auslastung += (ziel - auslastung) * data.AUSLASTUNG_STEP;
 
     // 2. NPC-Schichten – Löhne sind Verbindlichkeiten, die Kasse darf ins Minus.
@@ -371,7 +373,14 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time };
 }
 
-/** Gewinn entnehmen – Umbuchung, keine Steuer, kein Level-Zuschlag. */
+/**
+ * Gewinn entnehmen – Umbuchung, keine Steuer, kein Level-Zuschlag.
+ *
+ * Entnahme ist eine Umbuchung, keine Einnahme: Ohne `xp: false` würde
+ * Einzahlen + Entnehmen desselben Betrags Erfahrung aus dem Nichts erzeugen
+ * (unb.changeCash vergibt sie je Buchung). XP für Firmengewinn gibt es erst,
+ * wenn Stück 2 Kapital und Gewinn trennt.
+ */
 async function withdraw(guildId, userId, amount, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
@@ -382,7 +391,7 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
   db.saveCompany({ ...c, kasse: c.kasse - value });
   try {
     const balance = await changeCash(guildId, userId, value, `Entnahme: ${c.name}`,
-      { tax: false, kind: 'company' });
+      { xp: false, tax: false, kind: 'company' });
     return { ok: true, amount: value, balance, kasse: c.kasse - value };
   } catch (err) {
     // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
@@ -392,7 +401,10 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
   }
 }
 
-/** Kapital einzahlen – von Bargeld (notfalls Bank), setzt die Minus-Uhr zurück. */
+/**
+ * Kapital einzahlen – von Bargeld (notfalls Bank), setzt die Minus-Uhr zurück.
+ * Umbuchung wie die Entnahme: keine Erfahrung (sonst XP-Schleife über die Kasse).
+ */
 async function deposit(guildId, userId, amount, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
@@ -404,7 +416,8 @@ async function deposit(guildId, userId, amount, now = Date.now()) {
   if (balance.cash < value) {
     await unb.withdrawFromBank(guildId, userId, value - balance.cash, `Einzahlung: ${c.name}`);
   }
-  const after = await changeCash(guildId, userId, -value, `Einzahlung: ${c.name}`, { kind: 'company' });
+  const after = await changeCash(guildId, userId, -value, `Einzahlung: ${c.name}`,
+    { xp: false, kind: 'company' });
   const current = db.getCompany(c.id);                 // frisch lesen: die Buchung hat gewartet
   if (!current || current.status !== 'open') {
     // Firma wurde während der Buchung geschlossen/insolvent -> Geld zurück. Das ist die
@@ -432,7 +445,11 @@ function promote(guildId, userId, staffId, delta, now = Date.now()) {
   return { ok: true, staff: { ...s, rank }, rank: rankOf(rank) };
 }
 
-/** Prämie aus der Kasse an einen Spieler-Angestellten – eine Buchung. */
+/**
+ * Prämie aus der Kasse an einen Spieler-Angestellten – eine Buchung. `kind:
+ * 'company'`, nicht 'job': Eine Prämie ist keine Schicht und darf keinen
+ * Schicht-Erfolg auslösen (activity.js ignoriert unbekannte Kennungen).
+ */
 async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
@@ -445,7 +462,7 @@ async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
   db.saveCompany({ ...c, kasse: c.kasse - value });
   try {
-    await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'job' });
+    await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'company' });
     return { ok: true, amount: value, staff: s };
   } catch (err) {
     // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
@@ -468,7 +485,8 @@ async function close(guildId, userId, now = Date.now()) {
   const closed = closeCompany(guildId, c.id, now, 'closed');
   if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
   try {
-    const balance = await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`, { tax: false, kind: 'company' });
+    const balance = await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`,
+      { xp: false, tax: false, kind: 'company' });
     return { ok: true, company: closed, payout, paid: true, balance };
   } catch (err) {
     console.warn(`Firma ${c.id}: Auszahlung von ${payout} bei Auflösung fehlgeschlagen – ${err.message}`);

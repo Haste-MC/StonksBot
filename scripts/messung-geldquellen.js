@@ -486,6 +486,7 @@ async function firmenlauf(branchId, tage) {
   const gewinn = [];
   let entnommen = 0;
   let amortTage = null;
+  let werbungLief = false;
   for (let d = 0; d < tage; d++) {
     if (d === 30) {
       for (const s of db.companyStaff(cid)) {
@@ -493,7 +494,13 @@ async function firmenlauf(branchId, tage) {
       }
     }
     const vor = db.getCompany(cid).kasse;
-    await company.advertise(G, U, now);
+    const w = await company.advertise(G, U, now);
+    // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
+    // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
+    if (w.ok) werbungLief = true;
+    if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
+      throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${w.reason}`);
+    }
     for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
       const r = await company.pitchIn(G, U, now + i * 60_000);
       if (!r.ok) break;                 // Zeit alle oder Tageslimit
