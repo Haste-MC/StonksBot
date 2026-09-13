@@ -85,7 +85,9 @@ const COMMANDS = [
           (res.levelBonus > 0 ? ` _(inkl. ${money(symbol, res.levelBonus)} Level-Zuschlag)_` : '') +
           ` · Kontostand: ${money(symbol, res.balance.total)}\n` +
           `🏆 Level ${l.level}` +
-          (res.broken ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.name}**` : ''),
+          (res.broken?.length
+            ? `\n🔧 Dabei ist kaputtgegangen: **${res.broken.map((b) => b.name).join(', ')}**`
+            : ''),
       };
     },
   },
@@ -475,6 +477,8 @@ function workProblem(res, prefix, symbol) {
         `Weiter geht's in **${income.formatRemaining(res.resetMs)}**.`;
     case 'requirements':
       return `🧰 Dir fehlt: **${res.missing.join(', ')}**`;
+    case 'kasse':
+      return '💸 Die Kasse deckt deinen Lohn nicht – sprich mit dem Inhaber.';
     default:
       return '❌ Das hat nicht geklappt.';
   }

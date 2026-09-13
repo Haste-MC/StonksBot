@@ -521,6 +521,52 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_relay_messages_created ON relay_messages (created_at);
 `);
 
+// Firmen (Stück 1): Die Kasse ist LOKALER Zustand – Umsatz rein, Löhne raus,
+// der Inhaber entnimmt per Buchung. Sie darf ins Minus laufen (Löhne sind
+// Verbindlichkeiten); 14 Tage Minus sind die Insolvenz. Siehe company.js.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS companies (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id       TEXT    NOT NULL,
+    owner_id       TEXT    NOT NULL,
+    branch         TEXT    NOT NULL,
+    name           TEXT    NOT NULL,
+    kasse          INTEGER NOT NULL DEFAULT 0,
+    auslastung     REAL    NOT NULL DEFAULT 0.3,
+    founded_at     INTEGER NOT NULL,
+    paid_through   INTEGER NOT NULL,
+    negative_since INTEGER NOT NULL DEFAULT 0,
+    werbung_until  INTEGER NOT NULL DEFAULT 0,
+    pitch_day      TEXT    NOT NULL DEFAULT '',
+    pitch_today    INTEGER NOT NULL DEFAULT 0,
+    status         TEXT    NOT NULL DEFAULT 'open',
+    closed_at      INTEGER NOT NULL DEFAULT 0,
+    closed_why     TEXT    NOT NULL DEFAULT ''
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
+    ON companies (guild_id, owner_id) WHERE status = 'open';
+`);
+// `companies` ist auf diesem Branch schon vorher live gelaufen – lokale
+// Datenbanken haben die Tabelle also unter Umständen noch ohne `closed_why`.
+// Wie überall sonst hier: Spalte nachrüsten statt eine Migration zu bauen.
+if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'closed_why')) {
+  db.exec("ALTER TABLE companies ADD COLUMN closed_why TEXT NOT NULL DEFAULT ''");
+}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_staff (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_id  INTEGER NOT NULL,
+    kind        TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL DEFAULT '',
+    name        TEXT    NOT NULL,
+    rank        INTEGER NOT NULL DEFAULT 0,
+    hired_at    INTEGER NOT NULL,
+    shifts      INTEGER NOT NULL DEFAULT 0,
+    unpaid_days INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_company_staff_company ON company_staff (company_id);
+`);
+
 // Kontoverknüpfung (duo-Branch): Ein Spieler soll auf Discord UND Fluxer
 // denselben Fortschritt haben. Dafür wird jede Plattform-Identität auf EIN
 // kanonisches Konto abgebildet – siehe src/identity.js.
@@ -1680,6 +1726,40 @@ const stmt = {
   relayPairByFluxer: db.prepare('SELECT * FROM relay_messages WHERE fluxer_id = ?'),
   clearRelayPairs: db.prepare('DELETE FROM relay_messages'),
 
+  // --- Firmen ---
+  insertCompany: db.prepare(
+    `INSERT INTO companies (guild_id, owner_id, branch, name, founded_at, paid_through)
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING *`),
+  getCompany: db.prepare('SELECT * FROM companies WHERE id = ?'),
+  getOpenCompany: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'`),
+  openCompanies: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND status = 'open' ORDER BY founded_at`),
+  saveCompany: db.prepare(
+    `UPDATE companies SET name = ?, kasse = ?, auslastung = ?, paid_through = ?,
+       negative_since = ?, werbung_until = ?, pitch_day = ?, pitch_today = ?,
+       status = ?, closed_at = ?, closed_why = ?
+     WHERE id = ?`),
+  // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
+  // in der Gründungsansicht (buildFirmaFoundView).
+  lastClosedCompany: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'closed'
+     ORDER BY closed_at DESC LIMIT 1`),
+  deleteCompany: db.prepare('DELETE FROM companies WHERE id = ?'),
+  clearCompanies: db.prepare('DELETE FROM companies WHERE guild_id = ?'),
+  insertStaff: db.prepare(
+    `INSERT INTO company_staff (company_id, kind, user_id, name, hired_at)
+     VALUES (?, ?, ?, ?, ?) RETURNING *`),
+  companyStaff: db.prepare('SELECT * FROM company_staff WHERE company_id = ? ORDER BY id'),
+  staffById: db.prepare('SELECT * FROM company_staff WHERE id = ?'),
+  staffByUser: db.prepare(
+    `SELECT * FROM company_staff WHERE company_id = ? AND kind = 'player' AND user_id = ?`),
+  saveStaff: db.prepare(
+    'UPDATE company_staff SET rank = ?, shifts = ?, unpaid_days = ? WHERE id = ?'),
+  deleteStaff: db.prepare('DELETE FROM company_staff WHERE id = ?'),
+  deleteStaffOfCompany: db.prepare('DELETE FROM company_staff WHERE company_id = ?'),
+  clearEmploymentByJob: db.prepare('DELETE FROM employment WHERE guild_id = ? AND job_id = ?'),
+
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
   setLink: db.prepare(
@@ -2423,8 +2503,8 @@ function clearEmployment(guildId, userId) {
 }
 
 /** @param {string} day Tagesstempel, z.B. "2026-07-20" – setzt den Tageszähler zurück. */
-function recordShift(guildId, userId, amount, day) {
-  stmt.recordShift.run(Date.now(), amount, day, day, guildId, userId);
+function recordShift(guildId, userId, amount, day, at = Date.now()) {
+  stmt.recordShift.run(at, amount, day, day, guildId, userId);
 }
 
 /** Wie viele Schichten heute schon gearbeitet wurden. */
@@ -3680,6 +3760,48 @@ function clearRelayPairs() {
   stmt.clearRelayPairs.run();
 }
 
+// ------------------------------------------------------------------ Firmen
+
+function insertCompany({ guildId, ownerId, branch, name, now = Date.now() }) {
+  return stmt.insertCompany.get(guildId, String(ownerId), branch, name, now, now);
+}
+function getCompany(id) { return stmt.getCompany.get(Number(id)) ?? null; }
+function getOpenCompany(guildId, ownerId) {
+  return stmt.getOpenCompany.get(guildId, String(ownerId)) ?? null;
+}
+function openCompanies(guildId) { return stmt.openCompanies.all(guildId); }
+/** Schreibt die Firma in EINER Anweisung fort. */
+function saveCompany(c) {
+  stmt.saveCompany.run(
+    c.name, Math.round(c.kasse), c.auslastung, c.paid_through, c.negative_since ?? 0,
+    c.werbung_until ?? 0, c.pitch_day ?? '', c.pitch_today ?? 0, c.status ?? 'open',
+    c.closed_at ?? 0, c.closed_why ?? '', Number(c.id));
+}
+/** Die zuletzt geschlossene Firma eines Spielers, oder null. */
+function lastClosedCompany(guildId, ownerId) {
+  return stmt.lastClosedCompany.get(guildId, String(ownerId)) ?? null;
+}
+function deleteCompany(id) { stmt.deleteCompany.run(Number(id)); }
+function clearCompanies(guildId) {
+  for (const c of stmt.openCompanies.all(guildId)) stmt.deleteStaffOfCompany.run(c.id);
+  stmt.clearCompanies.run(guildId);
+}
+function insertStaff({ companyId, kind, userId = '', name = '', now = Date.now() }) {
+  return stmt.insertStaff.get(Number(companyId), kind, String(userId), name, now);
+}
+function companyStaff(companyId) { return stmt.companyStaff.all(Number(companyId)); }
+function staffById(id) { return stmt.staffById.get(Number(id)) ?? null; }
+function staffByUser(companyId, userId) {
+  return stmt.staffByUser.get(Number(companyId), String(userId)) ?? null;
+}
+function saveStaff(s) {
+  stmt.saveStaff.run(Math.round(s.rank), Math.round(s.shifts), Math.round(s.unpaid_days), Number(s.id));
+}
+function deleteStaff(id) { stmt.deleteStaff.run(Number(id)); }
+function deleteStaffOfCompany(companyId) { stmt.deleteStaffOfCompany.run(Number(companyId)); }
+/** Alle Anstellungen bei einem Job lösen (Firma geschlossen). */
+function clearEmploymentByJob(guildId, jobId) { stmt.clearEmploymentByJob.run(guildId, jobId); }
+
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
 }
@@ -3811,6 +3933,9 @@ module.exports = {
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
+  insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
+  deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
+  deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,

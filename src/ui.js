@@ -863,8 +863,16 @@ async function buildJobCenterView({ guildId, userId }) {
     embed.addFields({
       name: 'Deine Anstellung',
       value: (() => {
-        const ranks = require('./ranks');
         const emp = current.employment;
+        if (current.job.company) {
+          const st = require('./db').staffByUser(current.job.company.id, userId);
+          const r = require('./company').rankOf(st?.rank ?? 0);
+          return `${current.job.emoji} **${current.job.title}** (Firma) · `
+            + `${money(symbol, Math.round(current.job.pay * r.factor))} pro Schicht\n`
+            + `${r.emoji} **${r.name}** – befördert wird vom Inhaber\n`
+            + `${emp.shifts} Schichten insgesamt · ${money(symbol, emp.earned)} verdient`;
+        }
+        const ranks = require('./ranks');
         const r = ranks.rank(emp.rank ?? 0);
         const since = emp.shifts - (emp.rank_at ?? 0);
         const p = ranks.chance(r.rank, since);
@@ -897,6 +905,19 @@ async function buildJobCenterView({ guildId, userId }) {
         (check.missing.length ? `\n> ❌ Dir fehlt: ${check.missing.join(', ')}` : '');
     }).join('\n\n'));
 
+  // Firmen auf diesem Server – Stellen bei anderen Spielern.
+  const company = require('./company');
+  const firmen = company.openings(guildId).filter((o) => o.company.owner_id !== String(userId)).slice(0, 5);
+  if (firmen.length) {
+    const identity = require('./identity');
+    embed.addFields({
+      name: '🏢 Firmen auf diesem Server',
+      value: firmen.map((o) =>
+        `${o.branch.emoji} **${o.company.name}** (${identity.nameOf(o.company.owner_id) ?? 'Spieler'}) — `
+        + `${money(symbol, o.lohn)} / Schicht · ${o.free} frei`).join('\n'),
+    });
+  }
+
   // Bewerbungs-Buttons: gesperrt, wenn Voraussetzungen fehlen.
   const applyRow = new ActionRowBuilder().addComponents(
     ...offers.map((job) => {
@@ -908,6 +929,10 @@ async function buildJobCenterView({ guildId, userId }) {
         .setStyle(check.ok ? ButtonStyle.Success : ButtonStyle.Secondary)
         .setDisabled(!check.ok || current?.job.id === job.id);
     }));
+  const firmaRow = firmen.length ? new ActionRowBuilder().addComponents(...firmen.map((o) =>
+    new ButtonBuilder().setCustomId(`apply|${o.jobId}|${userId}`)
+      .setLabel(o.company.name.slice(0, 40)).setEmoji(o.branch.emoji)
+      .setStyle(ButtonStyle.Success).setDisabled(current?.job.id === o.jobId))) : null;
 
   const actions = actionsRow(
     new ButtonBuilder()
@@ -929,7 +954,203 @@ async function buildJobCenterView({ guildId, userId }) {
     homeButton(userId),
   );
 
-  return { embeds: [embed], components: [applyRow, actions] };
+  return { embeds: [embed], components: [applyRow, firmaRow, actions].filter(Boolean) };
+}
+
+// ------------------------------------------------------------------- Firma
+
+/** Balken für die Auslastung (10 Felder). */
+function auslastungBar(a) {
+  const n = Math.round(Math.max(0, Math.min(1, a)) * 10);
+  return `${'▰'.repeat(n)}${'▱'.repeat(10 - n)} ${Math.round(a * 100)} %`;
+}
+
+/** Ohne Firma: die drei Branchen zur Wahl. */
+async function buildFirmaFoundView({ guildId, userId }) {
+  const company = require('./company');
+  const symbol = await getSymbol(guildId);
+  const embed = new EmbedBuilder()
+    .setTitle('🏢 Eine Firma gründen')
+    .setColor(0x34495e)
+    .setDescription(
+      'Deine eigene Firma: Personal einstellen, Kasse im Plus halten, Gewinn entnehmen. '
+      + 'NPCs kosten jeden Tag Lohn, ob Kundschaft da ist oder nicht – Spieler nur für '
+      + 'gearbeitete Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
+      + '_Werbung und Anpacken kosten Zeit aus demselben Tagesbudget wie Streams und Studio._');
+  // Insolvenz war bisher stumm – wer neu gründet, soll erst sehen, was mit
+  // der letzten Firma passiert ist. Freiwillige Schließungen zeigt niemand an.
+  const last = company.lastClosed(guildId, userId);
+  if (last && last.closed_why === 'insolvent') {
+    embed.addFields({
+      name: `⚠️ ${last.name} ist insolvent`,
+      value: `Die Kasse war 14 Tage im Minus. Personal und Gründung sind weg – du kannst neu `
+        + `gründen. _(${new Date(last.closed_at).toLocaleDateString('de-DE')})_`,
+    });
+  }
+  for (const b of company.BRANCHES) {
+    const c = company.ceilingOf(b);
+    embed.addFields({
+      name: `${b.emoji} ${b.name} – ${money(symbol, b.price)}`,
+      value: `_${b.blurb}_\n**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
+        + `**${money(symbol, b.lohn)}** je Schicht · Decke ~**${money(symbol, c.net)}** am Tag`,
+    });
+  }
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(...company.BRANCHES.map((b) =>
+        new ButtonBuilder().setCustomId(`firma|gruenden|${b.id}|${userId}`)
+          .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success))),
+      new ActionRowBuilder().addComponents(homeButton(userId)),
+    ],
+  };
+}
+
+/** Mit Firma: die Betriebsansicht. */
+async function buildFirmaView({ guildId, userId }) {
+  const company = require('./company');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const fmt = require('./income').formatRemaining;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${s.branch.emoji} ${s.company.name}`)
+    .setColor(s.kasse < 0 ? 0xe74c3c : 0x2ecc71)
+    .setDescription(`${s.branch.name} · seit ${new Date(s.company.founded_at).toLocaleDateString('de-DE')}`)
+    .addFields(
+      { name: '💰 Kasse', value: `**${money(symbol, s.kasse)}**`, inline: true },
+      { name: '📈 Auslastung', value: auslastungBar(s.auslastung), inline: true },
+      {
+        name: '👥 Personal',
+        value: `${s.staff.length}/${s.branch.slots} Plätze\n_Prognose heute: ${s.forecast >= 0 ? '+' : ''}${money(symbol, s.forecast)}_`,
+        inline: true,
+      },
+    );
+
+  // Die Minus-Uhr läuft, bis eine Abrechnung mit positiver Kasse sie stoppt – auch
+  // wenn die Kasse tagsüber (Anpacken, Spieler-Schicht) schon wieder über 0 steht.
+  if (s.kasse < 0) {
+    embed.addFields({
+      name: '⚠️ Kasse im Minus',
+      value: `Noch **${s.daysLeft} Tage** bis zur Insolvenz. Unbezahlte Angestellte kündigen nach `
+        + `${require('./data/companies').NPC_QUIT_AFTER_UNPAID} Tagen. Zahl Kapital ein oder entlasse Leute.`,
+    });
+  } else if (s.company.negative_since) {
+    embed.addFields({
+      name: '⚠️ Minus-Uhr läuft',
+      value: 'Die Kasse war im Minus – erst die nächste Abrechnung mit positiver Kasse stoppt die Uhr. '
+        + `Noch **${s.daysLeft} Tage**.`,
+    });
+  }
+  if (s.werbungMs > 0) {
+    embed.addFields({ name: '📣 Werbung läuft', value: `noch ${fmt(s.werbungMs)}` });
+  }
+  if (s.staff.length) {
+    const identity = require('./identity');
+    embed.addFields({
+      name: 'Belegschaft',
+      value: s.staff.slice(0, 10).map((st) => {
+        const r = company.rankOf(st.rank);
+        const who = st.kind === 'npc' ? st.name : `👤 ${identity.nameOf(st.user_id) ?? 'Spieler'}`;
+        return `${r.emoji} ${who} – ${r.name} · ${st.shifts} Schichten`
+          + (st.unpaid_days ? ` · ⚠️ ${st.unpaid_days} Tage unbezahlt` : '');
+      }).join('\n'),
+    });
+  }
+  embed.addFields({
+    name: '⏳ Heute',
+    value: `Zeit: **${s.budget.left}** von ${s.budget.max} · Anpacken noch **${s.pitchLeft}×** · `
+      + `Werbung kostet ${money(symbol, s.werbungCost)}`,
+  });
+  embed.setFooter({ text: `Decke ohne Ausbau: ~${money(symbol, s.ceiling.net)} am Tag` });
+
+  const ready = (cost) => s.budget.left >= cost;
+  const data = require('./data/companies');
+  const rows = [
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`firma|werbung|0|${userId}`)
+        .setLabel(`Werbung (${data.TIME_WERBUNG})`).setEmoji('📣').setStyle(ButtonStyle.Primary)
+        .setDisabled(s.werbungMs > 0 || s.kasse < s.werbungCost || !ready(data.TIME_WERBUNG)),
+      new ButtonBuilder().setCustomId(`firma|anpacken|0|${userId}`)
+        .setLabel(`Anpacken (${data.TIME_ANPACKEN})`).setEmoji('🧑‍🔧').setStyle(ButtonStyle.Primary)
+        .setDisabled(s.pitchLeft <= 0 || !ready(data.TIME_ANPACKEN)),
+      new ButtonBuilder().setCustomId(`firma|entnehmen|0|${userId}`)
+        .setLabel('Entnehmen').setEmoji('💸').setStyle(ButtonStyle.Success)
+        .setDisabled(s.kasse <= 0),
+      new ButtonBuilder().setCustomId(`firma|einzahlen|0|${userId}`)
+        .setLabel('Einzahlen').setEmoji('🏦').setStyle(ButtonStyle.Secondary)),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`firma|personal|0|${userId}`)
+        .setLabel('Personal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
+        .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+      homeButton(userId)),
+  ];
+  return { embeds: [embed], components: rows };
+}
+
+/** Angestellte je Personalseite: eine Button-Zeile je Person, plus die Navigation = 5 Zeilen. */
+const STAFF_PER_PAGE = 4;
+
+/**
+ * Personal führen: je Angestellter befördern, zurückstufen, entlassen, Prämie.
+ * Seitenweise zu je 4 (Discord erlaubt 5 Zeilen, eine ist die Navigation), damit
+ * auch das Personal einer Spedition (10 Plätze) bearbeitbar bleibt.
+ */
+async function buildFirmaStaffView({ guildId, userId, page = 1 }) {
+  const company = require('./company');
+  const identity = require('./identity');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const totalPages = Math.max(1, Math.ceil(s.staff.length / STAFF_PER_PAGE));
+  // Geklemmt: Nach einer Entlassung kann die letzte Seite leer geworden sein.
+  const p = Math.min(totalPages, Math.max(1, Number(page) || 1));
+  const shown = s.staff.slice((p - 1) * STAFF_PER_PAGE, p * STAFF_PER_PAGE);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`👥 Personal – ${s.company.name}`)
+    .setColor(0x34495e)
+    .setDescription(`${s.staff.length}/${s.branch.slots} Plätze belegt · Lohn je Schicht: `
+      + company.RANKS.map((r) => `${r.emoji} ${r.name} ${money(symbol, Math.round(s.branch.lohn * r.factor))}`).join(' · ')
+      + '\n_NPCs arbeiten 3 Schichten am Tag, Spieler bis zu 4 – und bringen 30 % mehr Umsatz._');
+
+  // Fluxer bildet Buttons nach Zeilen-Reihenfolge auf Ziffern-Reaktionen ab
+  // (MAX_REACTIONS in fluxer/render.js) – die Navigation muss deshalb zuerst
+  // stehen, sonst fallen „NPC einstellen“/„Firma“ bei voller Belegschaft raus.
+  // Discord ist die Zeilenreihenfolge egal.
+  const rows = [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`firma|npc|${p}|${userId}`).setLabel('NPC einstellen')
+      .setEmoji('🤖').setStyle(ButtonStyle.Primary).setDisabled(s.free <= 0),
+    new ButtonBuilder().setCustomId(`firma|personal|${p - 1}|${userId}`).setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`firma|personal|${p + 1}|${userId}`).setLabel('Weiter').setEmoji('▶️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages),
+    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+      .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+    homeButton(userId))];
+  for (const st of shown) {
+    const r = company.rankOf(st.rank);
+    const who = st.kind === 'npc' ? st.name : (identity.nameOf(st.user_id) ?? 'Spieler');
+    embed.addFields({
+      name: `${st.kind === 'npc' ? '🤖' : '👤'} ${who} · ${r.emoji} ${r.name}`,
+      value: `${st.shifts} Schichten` + (st.unpaid_days ? ` · ⚠️ ${st.unpaid_days} Tage unbezahlt` : ''),
+    });
+    // Die Seite steht mit in der ID, damit die Aktion auf derselben Seite landet.
+    const id = (aktion) => `fstaff|${aktion}|${st.id}|${p}|${userId}`;
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(id('up')).setLabel('Befördern')
+        .setEmoji('⬆️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank >= company.RANKS.length - 1),
+      new ButtonBuilder().setCustomId(id('down')).setLabel('Zurückstufen')
+        .setEmoji('⬇️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank <= 0),
+      new ButtonBuilder().setCustomId(id('bonus')).setLabel('Prämie')
+        .setEmoji('💶').setStyle(ButtonStyle.Success).setDisabled(st.kind !== 'player' || s.kasse <= 0),
+      new ButtonBuilder().setCustomId(id('fire')).setLabel('Entlassen')
+        .setEmoji('❌').setStyle(ButtonStyle.Danger)));
+  }
+  if (totalPages > 1) embed.setFooter({ text: `Seite ${p}/${totalPages}` });
+  return { embeds: [embed], components: rows };
 }
 
 // ------------------------------------------------------------------- Garage
@@ -3085,8 +3306,6 @@ async function buildBalanceView({ guildId, userId, targetId = null }) {
 
 // -------------------------------------------------------------------- Profil
 
-const JOBS_BY_ID = new Map(require('./data/jobs').map((j) => [j.id, j]));
-
 /** Ein einfacher Fortschrittsbalken aus Block-Zeichen. */
 function progressBar(ratio, width = 12) {
   const filled = Math.max(0, Math.min(width, Math.round((ratio || 0) * width)));
@@ -3143,7 +3362,7 @@ async function buildProfileView({ guildId, userId, targetId = null }) {
   const car = db.getMostValuable(guildId, owner);
   const topProp = db.listOwnedProperties(guildId, owner)[0] ?? null;
   const emp = db.getEmployment(guildId, owner);
-  const job = emp ? JOBS_BY_ID.get(emp.job_id) : null;
+  const job = emp ? require('./jobs').resolveJob(emp.job_id) : null;
 
   // Bekanntheit: vor allem Reichweite, dazu das Level – so hat auch jemand
   // ohne Kanal einen Titel.
@@ -4189,7 +4408,8 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildGarageView, buildWorkshopView, buildRepairView,
+  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView,
+  buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
   buildCrimeView, buildTargetsView, buildPlanView, buildRunView, buildOpenHeistsView,

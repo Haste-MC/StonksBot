@@ -1,6 +1,7 @@
 const {
   EmbedBuilder, MessageFlags, PermissionFlagsBits,
   ModalBuilder, TextInputBuilder, TextInputStyle, ActionRowBuilder,
+  ButtonBuilder, ButtonStyle,
 } = require('discord.js');
 const casino = require('./casino');
 const casinoPlay = require('./casinoPlay');
@@ -19,6 +20,7 @@ const {
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money,
+  buildFirmaView, buildFirmaStaffView, ID,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -304,12 +306,15 @@ async function shiftResult(interaction, result) {
     const texts = {
       unemployed: '❌ Du hast keine Anstellung. Schau ins Arbeitsamt.',
       requirements: `🔒 Du erfüllst die Voraussetzungen nicht mehr: ${result.missing?.join(', ')}`,
+      kasse: '💸 Die Kasse deckt deinen Lohn nicht – sprich mit dem Inhaber.',
     };
     return { content: texts[result.reason] ?? '❌ Das hat nicht geklappt.' };
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(`${result.job.emoji} Schicht beendet`)
+    .setTitle(result.company
+      ? `${result.job.emoji} Schicht bei ${result.company.name}`
+      : `${result.job.emoji} Schicht beendet`)
     .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.` +
       (result.levelBonus > 0
         ? `\n🏆 Darin stecken **${money(symbol, result.levelBonus)}** Level-Zuschlag (Level ${result.level}).`
@@ -325,6 +330,10 @@ async function shiftResult(interaction, result) {
       { name: 'Insgesamt verdient', value: money(symbol, result.employment.earned), inline: true },
     )
     .setColor(jobs.TIER_COLOR[result.job.tier] ?? 0x2ecc71);
+
+  if (result.company) {
+    embed.addFields({ name: 'Umsatz für die Firma', value: money(symbol, result.umsatz), inline: true });
+  }
 
   if (result.broken?.length) {
     embed.addFields({
@@ -348,6 +357,10 @@ async function shiftResult(interaction, result) {
     embed.setFooter({
       text: `${result.rank.emoji} ${result.rank.title} · ` +
         `Beförderungschance nächste Schicht: ${Math.round((result.nextChance ?? 0) * 100)} %`,
+    });
+  } else if (result.companyRank) {
+    embed.setFooter({
+      text: `${result.companyRank.emoji} ${result.companyRank.name} – befördert wird vom Inhaber`,
     });
   }
 
@@ -738,6 +751,9 @@ const buttons = {
         not_offered: '❌ Dieser Job wird heute nicht mehr angeboten.',
         already_hired: 'ℹ️ Da arbeitest du bereits.',
         requirements: `🔒 Dir fehlt noch: ${result.missing?.join(', ')}`,
+        owner: '❌ In deiner eigenen Firma bist du der Chef, nicht der Angestellte.',
+        full: '❌ Dort ist gerade kein Platz frei.',
+        closed: '❌ Diese Firma gibt es nicht mehr.',
       };
       return interaction.reply({
         content: texts[result.reason] ?? '❌ Bewerbung fehlgeschlagen.',
@@ -1907,6 +1923,111 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
+  /** Firma: Aktionen des Inhabers. */
+  async firma(interaction, [aktion, arg]) {
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+
+    if (aktion === 'gruenden') {
+      const b = company.branch(arg);
+      if (!b) return interaction.reply({ content: '❌ Diese Branche gibt es nicht.', flags: MessageFlags.Ephemeral });
+      const modal = new ModalBuilder().setCustomId(`fname|${b.id}|${userId}`).setTitle(`${b.name} gründen`);
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('name').setLabel('Name der Firma (2–32 Zeichen)')
+          .setStyle(TextInputStyle.Short).setMinLength(2).setMaxLength(32).setRequired(true)));
+      return interaction.showModal(modal);
+    }
+    if (aktion === 'entnehmen' || aktion === 'einzahlen') {
+      const modal = new ModalBuilder().setCustomId(`fbetrag|${aktion}|${userId}`)
+        .setTitle(aktion === 'entnehmen' ? 'Gewinn entnehmen' : 'Kapital einzahlen');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('amount').setLabel('Betrag (oder „alles")')
+          .setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
+
+    await interaction.deferUpdate();
+    let note = null;
+    if (aktion === 'werbung') {
+      const r = await company.advertise(guildId, userId);
+      note = r.ok ? `📣 Werbung geschaltet für ${money(symbol, r.cost)} – drei Tage mehr Kundschaft.`
+        : { no_company: '🏢 Du hast keine Firma.', running: '📣 Die Kampagne läuft noch.',
+          kasse: `💸 Dafür fehlen ${money(symbol, r.cost ?? 0)} in der Kasse.`,
+          no_time: `😴 Werbung kostet **${r.need}** Zeit, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
+    } else if (aktion === 'anpacken') {
+      const r = await company.pitchIn(guildId, userId);
+      note = r.ok ? `🧑‍🔧 Selbst angepackt: **${money(symbol, r.umsatz)}** Umsatz für die Firma (${r.done}/${r.max} heute).`
+        : { no_company: '🏢 Du hast keine Firma.', limit: '🛌 Für heute reicht es – vier Schichten sind das Maximum.',
+          no_time: `😴 Anpacken kostet **${r.need}** Zeit, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
+    } else if (aktion === 'npc') {
+      const r = company.hireNpc(guildId, userId);
+      note = r.ok ? `🤖 **${r.staff.name}** fängt morgen an (noch ${r.free} Plätze frei).`
+        : r.reason === 'full' ? '❌ Kein Platz mehr – entlasse zuerst jemanden.' : '🏢 Du hast keine Firma.';
+      await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    } else if (aktion === 'personal') {
+      // `arg` ist die Seite (Personal zu je 4).
+      return interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
+    } else if (aktion === 'schliessen') {
+      if (arg !== 'ja') {
+        return interaction.editReply({
+          embeds: [new EmbedBuilder().setTitle('🔒 Firma schließen?').setColor(0xe74c3c)
+            .setDescription('Die Kasse wird ausgezahlt, das Personal geht, die Gründung ist weg. Sicher?')],
+          components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`firma|schliessen|ja|${userId}`).setLabel('Ja, schließen')
+              .setEmoji('🔒').setStyle(ButtonStyle.Danger),
+            new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Abbrechen')
+              .setStyle(ButtonStyle.Secondary))],
+        });
+      }
+      const r = await company.close(guildId, userId);
+      note = !r.ok ? '🏢 Du hast keine Firma.'
+        : r.payout > 0 && r.paid === false
+          ? `🔒 **${r.company.name}** ist geschlossen, aber die Auszahlung von ${money(symbol, r.payout)} ist `
+            + 'fehlgeschlagen – ein Admin muss sie von Hand nachbuchen.'
+          : `🔒 **${r.company.name}** ist geschlossen. ${r.payout > 0 ? `Ausgezahlt: ${money(symbol, r.payout)}.` : ''}`;
+    }
+    await interaction.editReply(await buildFirmaView({ guildId, userId }));
+    if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Firma: Personal führen. `page` ist die Personalseite, auf die es danach zurückgeht. */
+  async fstaff(interaction, [aktion, staffId, page]) {
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+
+    if (aktion === 'bonus') {
+      // Das Modal kehrt auf Seite 1 zurück – die Seite hier durchzureichen lohnt nicht.
+      const modal = new ModalBuilder().setCustomId(`fpraemie|${staffId}|${userId}`).setTitle('Prämie zahlen');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('amount').setLabel('Betrag aus der Kasse')
+          .setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
+
+    await interaction.deferUpdate();
+    let note = null;
+    if (aktion === 'up' || aktion === 'down') {
+      const r = company.promote(guildId, userId, Number(staffId), aktion === 'up' ? 1 : -1);
+      note = r.ok ? `${r.rank.emoji} Jetzt **${r.rank.name}** – Umsatz und Lohn ×${r.rank.factor}.`
+        : r.reason === 'range' ? 'ℹ️ Weiter geht es nicht.' : '❌ Nicht gefunden.';
+    } else if (aktion === 'fire') {
+      const r = company.fire(guildId, userId, Number(staffId));
+      if (r.ok) {
+        const who = r.staff.kind === 'npc' ? r.staff.name : require('./identity').display(r.staff.user_id);
+        note = `❌ ${who} ist entlassen.`;
+      } else {
+        note = '❌ Nicht gefunden.';
+      }
+    }
+    await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(page) || 1 }));
+    if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
   /** Vertrag ansehen. */
   async mdeal(interaction) {
     await interaction.deferUpdate();
@@ -2430,6 +2551,68 @@ const modals = {
     const raw = interaction.fields.getTextInputValue('amount') || '';
     const value = Math.round(Number(raw.replace(/[^\d]/g, '')));
     await submitBid(interaction, lotId, value);
+  },
+
+  /** Firmenname eingegeben – gründen. */
+  async fname(interaction, [branchId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+    const r = await company.found(guildId, userId, branchId, interaction.fields.getTextInputValue('name'));
+    const note = r.ok
+      ? `🏢 **${r.company.name}** ist gegründet (${money(symbol, r.branch.price)}). Stell Personal ein – ohne Leute läuft nur der Notbetrieb.`
+      : { name: '❌ Der Name muss 2–32 Zeichen haben, ohne @.', already: 'ℹ️ Du hast schon eine Firma.',
+        funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+        unknown_branch: '❌ Diese Branche gibt es nicht.', payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.' }[r.reason]
+        ?? '❌ Das ging nicht.';
+    await interaction.editReply(await buildFirmaView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Betrag für Entnahme/Einzahlung eingegeben. */
+  async fbetrag(interaction, [modus]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+    const raw = String(interaction.fields.getTextInputValue('amount') ?? '').trim().toLowerCase();
+    let amount = Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
+    if (raw === 'alles') {
+      const s = company.status(guildId, userId);
+      amount = modus === 'entnehmen' ? (s?.kasse ?? 0) : (await require('./unb').getBalance(guildId, userId)).total;
+    }
+    const r = modus === 'entnehmen'
+      ? await company.withdraw(guildId, userId, amount) : await company.deposit(guildId, userId, amount);
+    const note = r.ok
+      ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen. Kasse: ${money(symbol, r.kasse)}.`
+        : `🏦 **${money(symbol, r.amount)}** eingezahlt. Kasse: ${money(symbol, r.kasse)}.`)
+      : { amount: '❌ Bitte einen Betrag über 0.', kasse: '💸 So viel ist nicht in der Kasse.',
+        funds: '💸 So viel hast du nicht.', no_company: '🏢 Du hast keine Firma.',
+        payment: '❌ Die Buchung ist fehlgeschlagen – die Kasse ist unverändert.',
+        closed: '❌ Die Firma existiert nicht mehr – das Geld ist zurück auf deinem Konto.' }[r.reason]
+        ?? '❌ Das ging nicht.';
+    await interaction.editReply(await buildFirmaView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Prämie eingegeben. */
+  async fpraemie(interaction, [staffId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+    const amount = Number(String(interaction.fields.getTextInputValue('amount') ?? '').replace(/[.\s]/g, '').replace(',', '.'));
+    const r = await company.bonus(guildId, userId, Number(staffId), amount);
+    const note = r.ok ? `💶 Prämie von **${money(symbol, r.amount)}** gezahlt.`
+      : { amount: '❌ Bitte einen Betrag über 0.', kasse: '💸 So viel ist nicht in der Kasse.',
+        not_player: 'ℹ️ Prämien gibt es nur für Spieler – NPCs sind mit dem Lohn zufrieden.',
+        not_found: '❌ Nicht gefunden.' }[r.reason] ?? '❌ Das ging nicht.';
+    await interaction.editReply(await buildFirmaStaffView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 };
 

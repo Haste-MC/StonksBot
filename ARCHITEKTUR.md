@@ -398,6 +398,26 @@ Die Rangfolge ist gewollt: Musik+Creator ist die beste Quelle, weil sie zwei
 Systeme und ein gemeinsames Zeitbudget verlangt. „Nur Creator" bleibt eine
 tragfähige Spielweise. Heists sind ein Ereignis, kein Job.
 
+**Firmen (seit 1.31.0, Stück 1 ohne Ausbau):** Die Decke ist je Branche eine
+vorgerechnete Zahl (`company.ceilingOf`), geprüft in `test/company.test.js` –
+Spedition 78.000/Tag, Café 21.600, Kiosk 2.850 bei voller Besetzung mit
+Schichtleitern, Werbung und täglichem Anpacken. Gemessen im Vollbetrieb (365
+Tage, Median, `firmenlauf` im Messskript, Stand 2026-09-13): Kiosk 2.850/Tag,
+Café 21.600/Tag, Spedition 78.000/Tag – mit durchgehender Werbung erreicht die
+Auslastung 1,0, der Median liegt auf der Decke; Amortisation des
+Gründungspreises nach 20 / 14 / 37 Tagen. Alle unter Musik+Creator
+(100.916/Tag im selben Lauf über ein Jahr); das Endgame kommt mit dem Ausbau
+(Stück 2). Die Spedition stand mit `umsatz` 2.600 bei 103.280/Tag und damit
+über Musik+Creator – deshalb 1.900. NPC-Löhne sind eine echte Senke, die
+Kasse darf ins Minus (Insolvenz nach 14 Tagen).
+
+Die Decke oben gilt für NPC-Personal. Mit **Spieler-Angestellten** liegt sie
+höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am Tag –
+zehn Spieler-Schichtleiter in einer Spedition brächten dem Inhaber ~134.000/Tag,
+über Musik+Creator. Das ist eine bewusste Entscheidung (2026-09-13): Wer zehn
+echte Mitspieler für 630 je Schicht organisiert, hat es verdient. Zweitkonten
+sind ein Moderationsthema, kein Balance-Thema.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,

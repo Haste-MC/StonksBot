@@ -123,8 +123,13 @@ function validate(name, view) {
   check(`Admin-Menüpunkte werden gefiltert (aktuell ${adminOnly})`,
     inGroups(true) - inGroups(false) === adminOnly);
 
-  console.log('--- Das Hauptmenü passt noch in Discords Grenze ---');
-  check('höchstens 25 Menüpunkte', ENTRIES.length <= 25, String(ENTRIES.length));
+  console.log('--- Jede Kategorie passt noch in Discords Grenze ---');
+  // Seit der Kategorien-Aufteilung gilt das 25-Buttons-Limit (5 Zeilen à 5)
+  // je Kategorie, nicht mehr für ENTRIES insgesamt (siehe menu.js).
+  for (const group of GROUPS) {
+    const n = entriesOfGroup(group.id, true).length;
+    check(`${group.label}: höchstens 25 Menüpunkte`, n <= 25, String(n));
+  }
   check('der Erfolgs-Eintrag ist dabei', ENTRIES.some((e) => e.id === 'erfolge'));
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

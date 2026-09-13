@@ -7,6 +7,7 @@
  *
  *     Was verdient ein reiner Creator, was ein Spieler, der Musik UND Creator
  *     betreibt – bei gleichem Zeiteinsatz? Und was ein Heist-Spieler?
+ *     Und was wirft eine Firma im Vollbetrieb ab (seit 1.31.0)?
  *
  * ==================== WARUM DAS SO GEBAUT IST ====================
  * Zwei Fehler haben eine frühere Messung wertlos gemacht; beide sind hier
@@ -51,6 +52,8 @@ const gearData = require('../src/data/gear');
 const heistData = require('../src/data/heists');
 const heist = require('../src/heist');
 const decisions = require('../src/decisions');
+const company = require('../src/company');
+const companyData = require('../src/data/companies');
 
 const DAY = 24 * 60 * 60 * 1000;
 /** `--ohne-ereignisse`: Musik ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
@@ -104,6 +107,8 @@ unb.changeCash = async (g, u, betrag, grund) => {
   (quellen[u] ??= {})[k] = (quellen[u][k] ?? 0) + betrag;
   return { cash: 0, bank: 0, total: 0 };
 };
+// Gründung und Einzahlung ziehen notfalls von der Bank – hier reicht das Bargeld immer.
+unb.withdrawFromBank = async () => ({ cash: 0, bank: 0, total: 0 });
 
 /** Eine Welt je Lauf, damit sich Läufe nicht gegenseitig sehen. */
 function welt(n) {
@@ -439,6 +444,90 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
   return beste;
 }
 
+// ------------------------------------------------------------ Firmen
+
+/**
+ * Eine Firma im Vollbetrieb, ohne Ausbau – derselbe Tagesablauf wie der
+ * Decke-Test in test/company.test.js:
+ *
+ *   Tag 1 Gründung und volle NPC-Besetzung (Aushilfen), nach 30 Tagen alle
+ *   auf Schichtleiter befördert, täglich Werbung und Anpacken, bis das
+ *   Zeitbudget alle ist (Werbung 2 + 4 × Anpacken 2 = 10 > 8, also an
+ *   Werbetagen nur drei), abends Abrechnung und Entnahme des Gewinns.
+ *
+ * Die Entnahme lässt die Werbekosten in der Kasse: Wer abends alles
+ * herausnimmt, kann morgens keine Werbung bezahlen – dann misst man einen
+ * Spieler, der sich selbst im Weg steht, nicht die Firma. Ohne Zufall: Die
+ * Firma würfelt nicht (nur NPC-Namen), der Lauf ist deterministisch.
+ *
+ * @returns {{median:number, decke:number, amortTage:number|null, entnommen:number}}
+ *   `median` Tagesgewinn (Kassenstand nach Abrechnung minus Tagesbeginn),
+ *   `amortTage` erster Tag, an dem die Summe der Entnahmen den Gründungspreis
+ *   übersteigt – null, wenn nie.
+ */
+async function firmenlauf(branchId, tage) {
+  const b = company.branch(branchId);
+  const G = welt(`firma_${branchId}`);
+  const U = `fx:firma_${branchId}`;
+  const rand = rng(4242);
+  const decke = company.ceilingOf(b).net;
+  const reserve = Math.round(b.price * companyData.WERBUNG_COST_SHARE);
+
+  // Ab heute vorwärts, wie `karriere` (die Module schreiben echte Zeitstempel).
+  let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+  const f = await company.found(G, U, b.id, `Mess-${b.name}`, now);
+  if (!f.ok) throw new Error(`Gründung ${b.id} gescheitert: ${f.reason}`);
+  const cid = f.company.id;
+  for (let i = 0; i < b.slots; i++) {
+    const r = company.hireNpc(G, U, now, rand);
+    if (!r.ok) throw new Error(`Einstellen ${b.id} gescheitert: ${r.reason}`);
+  }
+
+  const gewinn = [];
+  let entnommen = 0;
+  let amortTage = null;
+  let werbungLief = false;
+  for (let d = 0; d < tage; d++) {
+    if (d === 30) {
+      for (const s of db.companyStaff(cid)) {
+        for (let k = s.rank; k < companyData.RANKS.length - 1; k++) company.promote(G, U, s.id, +1, now);
+      }
+    }
+    const vor = db.getCompany(cid).kasse;
+    const w = await company.advertise(G, U, now);
+    // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
+    // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
+    if (w.ok) werbungLief = true;
+    if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
+      throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${w.reason}`);
+    }
+    for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
+      const r = await company.pitchIn(G, U, now + i * 60_000);
+      if (!r.ok) break;                 // Zeit alle oder Tageslimit
+    }
+    company.settle(cid, now + DAY);
+    const c = db.getCompany(cid);
+    if (!c || c.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${c?.closed_why})`);
+    gewinn.push(c.kasse - vor);
+
+    const frei = Math.floor(c.kasse - reserve);
+    if (frei > 0) {
+      const w = await company.withdraw(G, U, frei, now + DAY);
+      if (!w.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${w.reason}`);
+      entnommen += frei;
+      if (amortTage === null && entnommen > b.price) amortTage = d + 1;
+    }
+    now += DAY;
+  }
+
+  // Stille Null abfangen: Entnahmen müssen im Konto unter „Entnahme" auftauchen.
+  const gezaehlt = quellen[U]?.Entnahme ?? 0;
+  if (Math.round(gezaehlt) !== Math.round(entnommen)) {
+    throw new Error(`Firma ${b.id}: ${de(entnommen)} entnommen, aber ${de(gezaehlt)} im Konto gezählt`);
+  }
+  return { median: median(gewinn), decke, amortTage, entnommen };
+}
+
 // ------------------------------------------------------------ Heists
 
 /**
@@ -532,6 +621,13 @@ async function verlauf(laeufe, tage) {
   console.log(`\n--- Woher das Geld kommt (Mittel je Lauf) ---\n`);
   console.log(`  nur Creator     ${anteile(a)}`);
   console.log(`  Musik+Creator   ${anteile(b)}`);
+
+  console.log('\n--- Firmen (nicht ausgebaut, Vollbetrieb) ---\n');
+  for (const br of companyData.BRANCHES) {
+    const r = await firmenlauf(br.id, TAGE);
+    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}${de(r.median).padStart(9)}/Tag   ` +
+      `Decke ${de(r.decke)}   Amortisation ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`);
+  }
 
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);
   for (const h of heists()) {

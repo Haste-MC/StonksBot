@@ -7,8 +7,9 @@ const casinoUi = require('./casinoUi');
  *  MENÜ-REGISTRY
  * ===========================================================================
  *
- * Jeder Eintrag hier erscheint automatisch als Button im Hauptmenü (`/menu`).
- * Ein neues Menü hinzuzufügen heißt: einen Eintrag ergänzen – sonst nichts.
+ * Jeder Eintrag hier erscheint automatisch als Button in seiner Kategorie
+ * (siehe KATEGORIEN weiter unten). Ein neues Menü hinzuzufügen heißt: einen
+ * Eintrag ergänzen – sonst nichts.
  *
  *   id          eindeutiger Schlüssel, taucht in den Button-IDs auf
  *   label       Beschriftung des Buttons (kurz halten)
@@ -20,9 +21,9 @@ const casinoUi = require('./casinoUi');
  *   build(ctx)  baut die Ansicht; bekommt { guildId, userId, page }
  *               und gibt { embeds, components } zurück
  *
- * Discord erlaubt 25 Buttons (5 Zeilen à 5) – so viele Menüpunkte passen.
- * Mit "Erfolge" sind es jetzt genau 25. Wer einen weiteren Punkt will, muss
- * vorher einen anderen entfernen oder zusammenlegen.
+ * Discord erlaubt 25 Buttons (5 Zeilen à 5) – das gilt seit der Kategorien-
+ * Aufteilung (siehe unten) je Kategorie, nicht mehr für ENTRIES insgesamt.
+ * test/menu.test.js prüft das je Kategorie.
  */
 const ENTRIES = [
   {
@@ -78,6 +79,15 @@ const ENTRIES = [
     description: 'Täglich wechselnde Stellenangebote',
     style: 'primary',
     build: (ctx) => ui.buildJobCenterView(ctx),
+  },
+  {
+    id: 'firma',
+    group: 'work',
+    label: 'Firma',
+    emoji: '🏢',
+    description: 'Gründen, Personal führen, Gewinn entnehmen',
+    style: 'primary',
+    build: (ctx) => ui.buildFirmaView(ctx),
   },
   {
     id: 'angeln',
