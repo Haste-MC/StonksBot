@@ -106,6 +106,7 @@ const BRANCHES = [
     // Eigene Faktoren (Schritt 0,3 statt 0,25): Mit den Standardfaktoren amortisierte sich
     // der Ausbau (74,7 Mio, der teuerste im Spiel) erst nach 178 Tagen statt 60–120 – die
     // hohen Löhne fressen die Marge. Gemessen mit 2,5: siehe ARCHITEKTUR.md §15.
+    // Beschluss 2026-09-13: eigene Faktoren – die Baufirma ist die Spitze (siehe ARCHITEKTUR §15).
     stufen: leiter(1_800_000, ['Zweite Kolonne', 'Kran', 'Bauhof', 'Dritte Kolonne', 'Fertigteilwerk'], [14, 17, 19, 22, 24], [1.3, 1.6, 1.9, 2.2, 2.5]),
     extras: extrasFor('baufirma', 1_800_000, [E('Eigener Bagger', '🚜'), E('Gerüstbau', '🪜'), E('Sanierungslizenz', '📜'), E('Zweite Schicht', '🌙')], 2) },
   { id: 'club', klasse: 'gross', name: 'Club', emoji: '🍸', price: 1_000_000, slots: 6, umsatz: 2_400, lohn: 380,

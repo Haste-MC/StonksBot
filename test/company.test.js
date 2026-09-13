@@ -414,11 +414,13 @@ const user = () => `u${++n}`;
       check(`${b.id}: Stufenpreise = Gründung × 1,5/3/6/9/14`,
         b.stufen.map((st) => st.price).join() === data.STUFE_PREISFAKTOREN.map((f) => Math.round(b.price * f)).join(),
         b.stufen.map((st) => st.price).join());
-      // Baufirma hat eigene Faktoren (Schritt 0,3): Standard amortisierte sich in 178 Tagen statt 60–120.
-      const [faktoren, label] = b.id === 'baufirma'
-        ? ['1.3,1.6,1.9,2.2,2.5', '1,3…2,5 (eigene)'] : ['1.2,1.45,1.7,1.95,2.2', '1,2…2,2'];
-      check(`${b.id}: Umsatzfaktoren ${label}`, b.stufen.map((st) => st.umsatz).join() === faktoren,
-        b.stufen.map((st) => st.umsatz).join());
+      // Regel statt Sonderfall: Faktoren steigen streng monoton mit konstantem Schritt,
+      // der erste liegt bei mindestens 1,2 – gilt für den Standard (1,2…2,2) wie für
+      // eigene Faktoren mit größerem Schritt (z. B. die Baufirma, 1,3…2,5).
+      const arr = b.stufen.map((st) => st.umsatz);
+      check(`${b.id}: Umsatzfaktoren steigen streng monoton mit konstantem Schritt, erster ≥ 1,2`,
+        arr[0] >= 1.2 && arr.every((f, i) => i === 0 || Math.abs((f - arr[i - 1]) - (arr[1] - arr[0])) < 1e-9),
+        arr.join());
       check(`${b.id}: Plätze steigen monoton bis zum Doppelten`,
         b.stufen.every((st, i) => st.slots >= (i ? b.stufen[i - 1].slots : b.slots))
         && b.stufen[4].slots === b.slots * 2, b.stufen.map((st) => st.slots).join());

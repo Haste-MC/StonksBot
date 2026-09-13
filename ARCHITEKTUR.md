@@ -423,18 +423,23 @@ alle vier Anpacken passen ins Zeitbudget). Gründung plus Gesamtausbau
 amortisieren sich in 51 (Café) bis 123 (Spedition) Tagen; Ausnahme Baufirma
 mit 159 Tagen (siehe unten). Aus eigener Kraft (nur Gewinn reinvestiert,
 Stufe vor Extra) ist die Spedition nach 262 Tagen voll, das Café nach 95, der
-Club nach 257; die Baufirma erreicht Stufe 5 im ersten Jahr nicht. Damit ist
-die Firma nach zwei Jahren gleichauf mit Musik+Creator – die Königsdisziplin
-*mit* Firma, aber erkauft: ~50 Mio Ausbau. Investitionen buchen ohne XP
-(Umbuchung, keine Ausgabe).
+Club nach 257; die Baufirma erreicht Stufe 5 im ersten Jahr nicht. Investitionen
+buchen ohne XP (Umbuchung, keine Ausgabe).
+
+**Die Rangfolge voll ausgebaut:** Die Baufirma ist mit 558.304/Tag die Spitze,
+noch vor der Spedition (487.060) – Beschluss des Nutzers 2026-09-13: „die
+Baufirma kann die Spitze sein". Die Spedition liegt damit gleichauf mit
+Musik+Creator nach zwei Jahren (490.099) – die Königsdisziplin *mit* Firma,
+aber erkauft: ~50 Mio Ausbau. Alle anderen Branchen (Kiosk, Imbiss,
+Autowäsche, Café, Fitnessstudio, Werkstatt, Club) liegen darunter.
 
 Die **Baufirma** hat eigene Stufenfaktoren (1,3 · 1,6 · 1,9 · 2,2 · 2,5 statt
-1,2…2,2): Mit den Standardfaktoren stand sie bei 495.574/Tag und 178 Tagen
-Amortisation – ihr Ausbau ist mit 74,7 Mio der teuerste, ihre Kern-Decke
-(75.000) liegt aber unter der Spedition (78.000), weil die Löhne (500) die
-Marge fressen. Die Faktoren sind der einzige Hebel, der den Kern (Stück 1)
-nicht verschiebt; weiter hinauf ginge nur über das ×6-Ziel hinaus (bei 2,5
-schon ×7,4). Die 159 Tage sind also ein Kompromiss, kein Treffer.
+1,2…2,2), und das ist gewollt, kein Kompromiss: Mit den Standardfaktoren stand
+sie bei 495.574/Tag und 178 Tagen Amortisation, weil ihr Ausbau mit 74,7 Mio
+(bei Kern-Decke 75.000) der teuerste im Spiel ist – die Löhne (500) fressen
+dort die Marge stärker als anderswo. Die eigenen Faktoren heben sie über die
+Spedition und drücken die Amortisation auf 159 Tage; die Faktoren sind der
+einzige Hebel, der den Kern (Stück 1) nicht verschiebt.
 
 Die Decke oben gilt für NPC-Personal. Mit **Spieler-Angestellten** liegt sie
 höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am Tag –

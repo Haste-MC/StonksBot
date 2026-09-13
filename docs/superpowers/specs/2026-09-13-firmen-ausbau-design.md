@@ -300,3 +300,27 @@ lesbar („was habe ich investiert, was hat die Firma verdient").
 3. Ausbau im Betrieb (alle `b.slots`/`b.umsatz`-Stellen, `status`) + Tests 6, 8.
 4. Ansichten und Handler.
 5. Messung (Test 9, Archetypen), Werte ziehen, Patchnotes, §15.
+
+## Nach der Messung (2026-09-13)
+
+Gemessen voll ausgebaut (365 Tage, Median): Kiosk 16.636/Tag, Imbiss 21.015,
+Autowäsche 17.827, Café 133.360, Fitnessstudio 87.838, Werkstatt 134.248,
+Spedition 487.060, Baufirma 558.304, Club 414.900.
+
+Die Baufirma stand mit den Standardfaktoren (1,2…2,2) bei 495.574/Tag und 178
+Tagen Amortisation – über der in Beschluss 3 genannten Toleranz, weil ihr
+Ausbau mit 74,7 Mio (bei Kern-Decke 75.000) der teuerste im Katalog ist.
+**Entscheidung des Nutzers (2026-09-13, Option B):** Die Baufirma behält ihre
+eigenen Stufenfaktoren (1,3 · 1,6 · 1,9 · 2,2 · 2,5) und wird damit zur neuen
+Spitze – 558.304/Tag, noch vor der Spedition (487.060). Grund: „die Baufirma
+kann die Spitze sein"; die Faktoren sind der einzige Hebel, der den Kern
+(Stück 1) nicht verschiebt. Die Spedition bleibt gleichauf mit Musik+Creator
+nach zwei Jahren (490.099), alle übrigen Branchen liegen darunter. Der Code
+bleibt unverändert, nur die Dokumentation (Patchnotes, §15) benennt jetzt
+ehrlich, dass die Baufirma und nicht die Spedition die Spitze ist.
+
+Randnotiz aus dem §3-Test: Die volle Decke rechnet ungerundet, die Abrechnung
+rundet je Schicht auf 0,25 (höchstens +0,5 je Schicht). Die Prüfgrenze im Test
+ist deshalb `decke + 0,5 × (Plätze × NPC_SHIFTS + MAX_PITCH_PER_DAY)` statt
+eines pauschalen `decke + 1` – beim Kiosk (19 Schichten voll ausgebaut) sind
+das 4,75 über der Decke, exakt die Rundung und nichts sonst.

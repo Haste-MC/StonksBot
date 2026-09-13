@@ -549,12 +549,12 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
         }
       }
       const vor = db.getCompany(cid).kasse;
-      const w = await company.advertise(G, U, now);
+      const wb = await company.advertise(G, U, now);
       // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
       // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
-      if (w.ok) werbungLief = true;
-      if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
-        throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${w.reason}`);
+      if (wb.ok) werbungLief = true;
+      if (!(wb.ok || wb.reason === 'running' || (wb.reason === 'kasse' && !werbungLief))) {
+        throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${wb.reason}`);
       }
       for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
         const r = await company.pitchIn(G, U, now + i * 60_000);
@@ -567,8 +567,8 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
 
       const frei = Math.floor(c.kasse - reserve);
       if (frei > 0) {
-        const w = await company.withdraw(G, U, frei, now + DAY);
-        if (!w.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${w.reason}`);
+        const en = await company.withdraw(G, U, frei, now + DAY);
+        if (!en.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${en.reason}`);
         entnommen += frei;
         if (amortTage === null && entnommen > investition) amortTage = d + 1;
       }
@@ -689,9 +689,8 @@ async function verlauf(laeufe, tage) {
 
 /** Für Prüfläufe importierbar (test/…): nur als Hauptprogramm messen. */
 module.exports = { firmenlauf };
-if (require.main !== module) return;
 
-(async () => {
+async function main() {
   if (process.argv[2] === 'verlauf') {
     await verlauf(Number(process.argv[3] || 3), Number(process.argv[4] || 1500));
     return;
@@ -751,4 +750,6 @@ if (require.main !== module) return;
       `EV/Tag ${de(h.proTag).padStart(9)}`);
   }
   console.log();
-})();
+}
+
+if (require.main === module) main();
