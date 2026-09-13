@@ -20,7 +20,7 @@ const {
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money,
-  buildFirmaView, buildFirmaStaffView, ID,
+  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, ID, homeButton,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1966,6 +1966,44 @@ Object.assign(buttons, {
       note = r.ok ? `🤖 **${r.staff.name}** fängt morgen an (noch ${r.free} Plätze frei).`
         : r.reason === 'full' ? '❌ Kein Platz mehr – entlasse zuerst jemanden.' : '🏢 Du hast keine Firma.';
       await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    } else if (aktion === 'gruendung') {
+      return interaction.editReply(await buildFirmaFoundView({ guildId, userId, klasse: arg }));
+    } else if (aktion === 'ausbau') {
+      return interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+    } else if (aktion === 'ausbauen') {
+      const s = company.status(guildId, userId);
+      const n = s?.nextStufe;
+      if (n && n.price >= company.CONFIRM_ABOVE && arg !== 'ja') {
+        return interaction.editReply({
+          embeds: [new EmbedBuilder().setTitle(`⬆️ ${n.name} für ${money(symbol, n.price)}?`).setColor(0xf39c12)
+            .setDescription(`→ ${n.slots} Plätze, Umsatz ×${n.umsatz}. Vom Konto, nicht umkehrbar.`)],
+          components: [new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId(`firma|ausbauen|ja|${userId}`).setLabel('Ja, ausbauen')
+              .setEmoji('⬆️').setStyle(ButtonStyle.Success),
+            new ButtonBuilder().setCustomId(`firma|ausbau|0|${userId}`).setLabel('Abbrechen')
+              .setStyle(ButtonStyle.Secondary),
+            homeButton(userId))],
+        });
+      }
+      const r = await company.upgrade(guildId, userId);
+      note = r.ok ? `⬆️ **${r.stufe.name}** gebaut (${money(symbol, r.price)}) – ${r.stufe.slots} Plätze, Umsatz ×${r.stufe.umsatz}.`
+        : { no_company: '🏢 Du hast keine Firma.', max: 'ℹ️ Voll ausgebaut.',
+          funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.',
+          busy: 'ℹ️ Da war ein zweiter Klick schneller – schau auf den Stand.' }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    } else if (aktion === 'extra') {
+      const r = await company.buyExtra(guildId, userId, arg);
+      note = r.ok ? `${r.extra.emoji} **${r.extra.name}** gekauft (${money(symbol, r.price)}).`
+        : { no_company: '🏢 Du hast keine Firma.', unknown: '❌ Dieses Extra gibt es hier nicht.',
+          owned: 'ℹ️ Hast du schon.', stufe: `🔒 Erst ab Stufe ${r.minStufe}.`,
+          funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.' }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     } else if (aktion === 'personal') {
