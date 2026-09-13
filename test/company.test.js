@@ -53,10 +53,14 @@ const user = () => `u${++n}`;
 (async () => {
   console.log('--- Der Katalog ---');
   {
-    check('drei Branchen', data.BRANCHES.length === 3);
+    check('neun Branchen', data.BRANCHES.length === 9, String(data.BRANCHES.length));
+    check('IDs eindeutig', new Set(data.BRANCHES.map((b) => b.id)).size === 9);
+    check('drei je Klasse', ['klein', 'mittel', 'gross'].every((k) =>
+      data.BRANCHES.filter((b) => b.klasse === k).length === 3));
     check('jede Branche vollständig', data.BRANCHES.every((b) =>
       b.id && b.name && b.emoji && b.price > 0 && b.slots > 0 && b.umsatz > b.lohn && b.blurb));
-    const [k, c, s] = data.BRANCHES;
+    const byId = Object.fromEntries(data.BRANCHES.map((b) => [b.id, b]));
+    const [k, c, s] = [byId.kiosk, byId.cafe, byId.spedition];
     check('Kiosk < Café < Spedition beim Preis', k.price < c.price && c.price < s.price);
     check('… und bei der Decke',
       company.ceilingOf(k).net < company.ceilingOf(c).net && company.ceilingOf(c).net < company.ceilingOf(s).net,
@@ -401,6 +405,68 @@ const user = () => `u${++n}`;
       check(`${b.name}: kein Tag über der Decke`, best <= decke, `${de(best)} > ${de(decke)}`);
       check(`${b.name}: die Firma verdient (keine stille Null)`, median > 0, de(median));
     }
+  }
+
+  console.log('--- Ausbau: Daten und Decke ---');
+  {
+    for (const b of data.BRANCHES) {
+      check(`${b.id}: fünf Stufen`, b.stufen.length === data.MAX_STUFE);
+      check(`${b.id}: Stufenpreise = Gründung × 1,5/3/6/9/14`,
+        b.stufen.map((st) => st.price).join() === data.STUFE_PREISFAKTOREN.map((f) => Math.round(b.price * f)).join(),
+        b.stufen.map((st) => st.price).join());
+      check(`${b.id}: Umsatzfaktoren 1,2…2,2`, b.stufen.map((st) => st.umsatz).join() === '1.2,1.45,1.7,1.95,2.2');
+      check(`${b.id}: Plätze steigen monoton bis zum Doppelten`,
+        b.stufen.every((st, i) => st.slots >= (i ? b.stufen[i - 1].slots : b.slots))
+        && b.stufen[4].slots === b.slots * 2, b.stufen.map((st) => st.slots).join());
+      check(`${b.id}: vier Extras, drei Umsatz, eines Plätze`,
+        b.extras.length === 4 && b.extras.filter((e) => e.umsatz).length === 3
+        && b.extras.filter((e) => e.slots).length === 1);
+      check(`${b.id}: Extras kosten je 2× Gründung`, b.extras.every((e) => e.price === b.price * 2));
+      check(`${b.id}: minStufe 3 und 2 gesetzt`,
+        b.extras.some((e) => e.umsatz && e.minStufe === 3) && b.extras.some((e) => e.slots && e.minStufe === 2)
+        && b.extras.filter((e) => !e.minStufe).length === 2);
+      check(`${b.id}: Extra-IDs eindeutig und auffindbar`,
+        new Set(b.extras.map((e) => e.id)).size === 4 && b.extras.every((e) => data.extraById(e.id) === e));
+      const gesamt = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
+      check(`${b.id}: Gesamtausbau ≈ 41,5× Gründung`, Math.abs(gesamt / b.price - 41.5) < 0.05, (gesamt / b.price).toFixed(2));
+      check(`${b.id}: Kern-Decke unter Musik+Creator (100.916)`, company.ceilingOf(b).net < 100_916, de(company.ceilingOf(b).net));
+    }
+    check('Extra-IDs global eindeutig',
+      new Set(data.BRANCHES.flatMap((b) => b.extras.map((e) => e.id))).size === 36);
+
+    // effectiveOf: Stufe 0 = Kern, voll = Handrechnung.
+    const sp = data.BRANCHES.find((b) => b.id === 'spedition');
+    const kern = company.effectiveOf({ stufe: 0 }, sp, []);
+    check('Stufe 0 ohne Extras = Kernwerte', kern.slots === 10 && kern.umsatzFactor === 1);
+    const alle = sp.extras.map((e) => e.id);
+    const voll = company.effectiveOf({ stufe: 5 }, sp, alle);
+    check('Stufe 5 + alle Extras: 22 Plätze, Faktor 2,65', voll.slots === 22 && Math.abs(voll.umsatzFactor - 2.65) < 1e-9,
+      JSON.stringify(voll));
+    // Handrechnung Spedition voll: 22 × 3 × 1.900 × 1,5 × 2,65 = 498.465 + 4 × 1.900 × 1,5 × 2,65 = 30.210
+    // → 528.675 brutto − Löhne 22 × 3 × 630 = 41.580 → 487.095.
+    check('volle Decke der Spedition = 487.095 (Handrechnung)',
+      Math.round(company.fullCeilingOf(sp).net) === 487_095, de(company.fullCeilingOf(sp).net));
+    const ki = data.BRANCHES.find((b) => b.id === 'kiosk');
+    // Kiosk voll: 5 × 3 × 250 × 1,5 × 2,65 = 14.906,25 + 3.975 − 2.250 = 16.631,25.
+    check('volle Decke des Kiosks = 16.631 (Handrechnung)',
+      Math.round(company.fullCeilingOf(ki).net) === 16_631, de(company.fullCeilingOf(ki).net));
+
+    // Monotonie: jede Stufe und jedes Extra hebt die Decke echt.
+    let ok = true;
+    for (const b of data.BRANCHES) {
+      let prev = company.ceilingOf(b, 0, []).net;
+      for (let st = 1; st <= data.MAX_STUFE; st++) {
+        const n = company.ceilingOf(b, st, []).net;
+        if (!(n > prev)) ok = false;
+        prev = n;
+      }
+      for (const e of b.extras) {
+        if (!(company.ceilingOf(b, 5, [e.id]).net > company.ceilingOf(b, 5, []).net)) ok = false;
+      }
+    }
+    check('jede Stufe und jedes Extra hebt die Decke', ok);
+    check('nextStufe: bei Stufe 0 die erste, bei 5 null',
+      company.nextStufe({ stufe: 0 }, sp)?.id === 1 && company.nextStufe({ stufe: 5 }, sp) === null);
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

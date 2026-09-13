@@ -58,16 +58,46 @@ function dayKey(now) {
 function ownCompany(guildId, userId) { return db.getOpenCompany(guildId, userId); }
 
 /**
- * Die Decke einer Branche je Tag – vorgerechnet, damit §3 eine Zahl hat.
- * Volle NPC-Besetzung mit Schichtleitern, Auslastung 1,0 (mit Werbung),
- * tägliches Anpacken. `gross` Umsatz, `wages` Löhne, `net` die Differenz.
+ * Was Stufe und Extras aus einer Branche machen: Plätze und Umsatzfaktor.
+ * Stufe 0 ohne Extras = Kernwerte – bestehende Firmen rechnen wie bisher.
+ * `extraIds` übergibt der Aufrufer, wenn er sie schon hat; sonst aus der DB.
  */
-function ceilingOf(b) {
+function effectiveOf(company, b, extraIds = null) {
+  const ids = extraIds ?? db.companyExtras(company.id);
+  const st = company.stufe > 0 ? b.stufen[Math.min(company.stufe, data.MAX_STUFE) - 1] : null;
+  let slots = st ? st.slots : b.slots;
+  let umsatzFactor = st ? st.umsatz : 1;
+  for (const id of ids) {
+    const e = data.extraById(id);
+    if (!e) continue;
+    if (e.slots) slots += e.slots;
+    if (e.umsatz) umsatzFactor += e.umsatz;
+  }
+  return { slots, umsatzFactor: Math.round(umsatzFactor * 1000) / 1000 };
+}
+
+/** Die nächste Stufe der Leiter, oder null bei Vollausbau. */
+function nextStufe(company, b) {
+  return company.stufe >= data.MAX_STUFE ? null : b.stufen[company.stufe];
+}
+
+/**
+ * Die Decke je Tag – vorgerechnet, damit §3 eine Zahl hat. Standard ist der
+ * Kern (Stufe 0, keine Extras); mit Stufe und Extras die Decke der aktuellen
+ * Firma, `fullCeilingOf` die des Vollausbaus. Volle NPC-Besetzung mit
+ * Schichtleitern, Auslastung 1,0, tägliches Anpacken.
+ */
+function ceilingOf(b, stufe = 0, extraIds = []) {
   const top = rankOf(data.RANKS.length - 1).factor;
-  const gross = b.slots * data.NPC_SHIFTS * b.umsatz * top
-    + data.MAX_PITCH_PER_DAY * b.umsatz * top;
-  const wages = b.slots * data.NPC_SHIFTS * b.lohn * top;
-  return { gross, wages, net: gross - wages };
+  const { slots, umsatzFactor } = effectiveOf({ id: 0, stufe }, b, extraIds);
+  const gross = slots * data.NPC_SHIFTS * b.umsatz * top * umsatzFactor
+    + data.MAX_PITCH_PER_DAY * b.umsatz * top * umsatzFactor;
+  const wages = slots * data.NPC_SHIFTS * b.lohn * top;
+  return { gross, wages, net: gross - wages, slots, factor: umsatzFactor };
+}
+
+function fullCeilingOf(b) {
+  return ceilingOf(b, data.MAX_STUFE, b.extras.map((e) => e.id));
 }
 
 /** Name-Regeln: 2–32 Zeichen, keine Erwähnungen. */
@@ -524,8 +554,9 @@ function status(guildId, userId, now = Date.now()) {
 
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
+  MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
-  ceilingOf, cleanName, found, hireNpc, fire,
+  ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,

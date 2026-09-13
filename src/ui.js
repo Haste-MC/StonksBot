@@ -998,9 +998,10 @@ async function buildFirmaFoundView({ guildId, userId }) {
   return {
     embeds: [embed],
     components: [
-      new ActionRowBuilder().addComponents(...company.BRANCHES.map((b) =>
-        new ButtonBuilder().setCustomId(`firma|gruenden|${b.id}|${userId}`)
-          .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success))),
+      ...['klein', 'mittel', 'gross'].map((k) => new ActionRowBuilder().addComponents(
+        ...company.BRANCHES.filter((b) => b.klasse === k).map((b) =>
+          new ButtonBuilder().setCustomId(`firma|gruenden|${b.id}|${userId}`)
+            .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success)))),
       new ActionRowBuilder().addComponents(homeButton(userId)),
     ],
   };
