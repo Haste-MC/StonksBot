@@ -19,8 +19,8 @@ const {
   buildCountryTreasuryView, buildCrimeView, buildTargetsView, buildPlanView,
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
-  buildLanguageView, buildLanguageConfirm, money,
-  buildFirmaView, buildFirmaStaffView, ID,
+  buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
+  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, ID, homeButton,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1968,20 +1968,92 @@ Object.assign(buttons, {
       await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
+    } else if (aktion === 'gruendung') {
+      return interaction.editReply(await buildFirmaFoundView({ guildId, userId, klasse: arg }));
+    } else if (aktion === 'ausbau') {
+      await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+      if (!company.status(guildId, userId)) {
+        await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      }
+      return;
+    } else if (aktion === 'ausbauen') {
+      // `arg` ist die Stufe, die der Knopf gezeigt hat (`<id>`), oder die
+      // bestätigte (`ja-<id>`). Ist sie nicht mehr die nächste, war ein anderer
+      // Klick schneller – dann nur den Stand zeigen, nichts kaufen.
+      const s = company.status(guildId, userId);
+      if (!s) {
+        await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+        await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      const n = s.nextStufe;
+      const BUSY_NOTE = 'ℹ️ Da war ein zweiter Klick schneller – schau auf den Stand.';
+      const bestaetigt = String(arg ?? '').startsWith('ja-');
+      const gezeigt = bestaetigt ? String(arg).slice(3) : String(arg ?? '');
+      if (!n || String(n.id) !== gezeigt) {
+        await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+        await interaction.followUp({ content: BUSY_NOTE, flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      if (!bestaetigt && n.price >= company.CONFIRM_ABOVE) {
+        // Nur ab dem Schwellwert nachfragen; „Ja" trägt dieselbe Stufe weiter.
+        return interaction.editReply(buildConfirmView({
+          title: `⬆️ ${n.name} für ${money(symbol, n.price)}?`,
+          text: `→ ${n.slots} Plätze, Umsatz ×${faktor(n.umsatz)}. Vom Konto, nicht umkehrbar.`,
+          color: 0xf39c12,
+          yesId: `firma|ausbauen|ja-${n.id}|${userId}`,
+          yesLabel: 'Ja, ausbauen',
+          yesEmoji: '⬆️',
+          cancelId: `firma|ausbau|0|${userId}`,
+          userId,
+        }));
+      }
+      const r = await company.upgrade(guildId, userId);
+      note = r.ok ? `⬆️ **${r.stufe.name}** gebaut (${money(symbol, r.price)}) – ${r.stufe.slots} Plätze, Umsatz ×${faktor(r.stufe.umsatz)}.`
+        : { no_company: '🏢 Du hast keine Firma.', max: 'ℹ️ Voll ausgebaut.',
+          funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.',
+          busy: BUSY_NOTE }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    } else if (aktion === 'extra') {
+      const r = await company.buyExtra(guildId, userId, arg);
+      note = r.ok ? `${r.extra.emoji} **${r.extra.name}** gekauft (${money(symbol, r.price)}).`
+        : { no_company: '🏢 Du hast keine Firma.', unknown: '❌ Dieses Extra gibt es hier nicht.',
+          owned: 'ℹ️ Hast du schon.', stufe: `🔒 Erst ab Stufe ${r.minStufe}.`,
+          funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+          payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.',
+          busy: 'ℹ️ Da läuft gerade schon ein Kauf – schau auf den Stand.' }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
     } else if (aktion === 'personal') {
       // `arg` ist die Seite (Personal zu je 4).
       return interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
     } else if (aktion === 'schliessen') {
       if (arg !== 'ja') {
-        return interaction.editReply({
-          embeds: [new EmbedBuilder().setTitle('🔒 Firma schließen?').setColor(0xe74c3c)
-            .setDescription('Die Kasse wird ausgezahlt, das Personal geht, die Gründung ist weg. Sicher?')],
-          components: [new ActionRowBuilder().addComponents(
-            new ButtonBuilder().setCustomId(`firma|schliessen|ja|${userId}`).setLabel('Ja, schließen')
-              .setEmoji('🔒').setStyle(ButtonStyle.Danger),
-            new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Abbrechen')
-              .setStyle(ButtonStyle.Secondary))],
-        });
+        // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
+        const s = company.status(guildId, userId);
+        const investiert = s
+          ? s.stufen.filter((st) => st.owned).reduce((sum, st) => sum + st.price, 0)
+            + s.extras.filter((e) => e.owned).reduce((sum, e) => sum + e.price, 0)
+          : 0;
+        const extras = s ? s.extras.filter((e) => e.owned).length : 0;
+        const ausbau = investiert > 0
+          ? ` – bei Stufe ${s.stufe} und ${extras} Extra${extras === 1 ? '' : 's'} sind das ${money(symbol, investiert)} Investition`
+          : '';
+        return interaction.editReply(buildConfirmView({
+          title: '🔒 Firma schließen?',
+          text: `Die Kasse wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}. Sicher?`,
+          color: 0xe74c3c,
+          yesId: `firma|schliessen|ja|${userId}`,
+          yesLabel: 'Ja, schließen',
+          yesEmoji: '🔒',
+          yesStyle: ButtonStyle.Danger,
+          cancelId: ID.menu('firma', 1, userId),
+          userId,
+        }));
       }
       const r = await company.close(guildId, userId);
       note = !r.ok ? '🏢 Du hast keine Firma.'

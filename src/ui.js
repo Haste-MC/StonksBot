@@ -25,11 +25,32 @@ const ID = {
 const money = (symbol, n) =>
   `${symbol} ${Number.isFinite(n) ? n.toLocaleString('de-DE') : '∞'}`;
 
+/** Ein Faktor oder Zuschlag als deutsche Dezimalzahl, z.B. `×1,2`, `+0,15`. */
+const faktor = (n) => Number(n).toLocaleString('de-DE');
+
 const homeButton = (userId) =>
   new ButtonBuilder()
     .setCustomId(ID.home(userId))
     .setLabel('Hauptmenü').setEmoji('🏠')
     .setStyle(ButtonStyle.Primary);
+
+/**
+ * Ja/Abbrechen/Hauptmenü-Dialog für eine gefährliche Aktion. Jede Ansicht
+ * braucht den Hauptmenü-Button – auch der Bestätigungs-Zwischenschritt.
+ */
+function buildConfirmView({
+  title, text, color, yesId, yesLabel, yesEmoji, yesStyle = ButtonStyle.Success, cancelId, userId,
+}) {
+  return {
+    embeds: [new EmbedBuilder().setTitle(title).setColor(color).setDescription(text)],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(yesId).setLabel(yesLabel)
+        .setEmoji(yesEmoji).setStyle(yesStyle),
+      new ButtonBuilder().setCustomId(cancelId).setLabel('Abbrechen')
+        .setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
 
 /**
  * Standard-Kopfzeile: Blättern, optionaler Zusatz-Button, Hauptmenü.
@@ -965,43 +986,60 @@ function auslastungBar(a) {
   return `${'▰'.repeat(n)}${'▱'.repeat(10 - n)} ${Math.round(a * 100)} %`;
 }
 
-/** Ohne Firma: die drei Branchen zur Wahl. */
-async function buildFirmaFoundView({ guildId, userId }) {
+const KLASSEN = [
+  { id: 'klein', label: 'Klein', emoji: '🏪', blurb: 'Einstieg – billig, wenig Plätze, schneller Ertrag' },
+  { id: 'mittel', label: 'Mittel', emoji: '☕', blurb: 'braucht Personal und Pflege' },
+  { id: 'gross', label: 'Groß', emoji: '🚚', blurb: 'nur mit voller Mannschaft rentabel – ausgebaut die Spitze' },
+];
+
+/** Ohne Firma: die neun Branchen zur Wahl, je Klasse eine Seite. */
+async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   const company = require('./company');
   const symbol = await getSymbol(guildId);
+  const k = KLASSEN.find((x) => x.id === klasse) ?? KLASSEN[0];
+  const branches = company.BRANCHES.filter((b) => b.klasse === k.id);
+
   const embed = new EmbedBuilder()
     .setTitle('🏢 Eine Firma gründen')
     .setColor(0x34495e)
     .setDescription(
-      'Deine eigene Firma: Personal einstellen, Kasse im Plus halten, Gewinn entnehmen. '
-      + 'NPCs kosten jeden Tag Lohn, ob Kundschaft da ist oder nicht – Spieler nur für '
-      + 'gearbeitete Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
-      + '_Werbung und Anpacken kosten Zeit aus demselben Tagesbudget wie Streams und Studio._');
-  // Insolvenz war bisher stumm – wer neu gründet, soll erst sehen, was mit
-  // der letzten Firma passiert ist. Freiwillige Schließungen zeigt niemand an.
+      'Deine eigene Firma: Personal einstellen, Kasse im Plus halten, Gewinn entnehmen – und '
+      + 'mit dem Gewinn **ausbauen**. NPCs kosten jeden Tag Lohn, Spieler nur für gearbeitete '
+      + 'Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
+      + `**${k.emoji} ${k.label}** – _${k.blurb}_`);
+
   const last = company.lastClosed(guildId, userId);
   if (last && last.closed_why === 'insolvent') {
     embed.addFields({
       name: `⚠️ ${last.name} ist insolvent`,
-      value: `Die Kasse war 14 Tage im Minus. Personal und Gründung sind weg – du kannst neu `
+      value: `Die Kasse war 14 Tage im Minus. Personal, Ausbau und Gründung sind weg – du kannst neu `
         + `gründen. _(${new Date(last.closed_at).toLocaleDateString('de-DE')})_`,
     });
   }
-  for (const b of company.BRANCHES) {
-    const c = company.ceilingOf(b);
+  for (const b of branches) {
+    const kern = company.ceilingOf(b);
+    const voll = company.fullCeilingOf(b);
     embed.addFields({
       name: `${b.emoji} ${b.name} – ${money(symbol, b.price)}`,
       value: `_${b.blurb}_\n**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
-        + `**${money(symbol, b.lohn)}** je Schicht · Decke ~**${money(symbol, c.net)}** am Tag`,
+        + `**${money(symbol, b.lohn)}** je Schicht\nDecke ~**${money(symbol, kern.net)}** am Tag, `
+        + `ausgebaut bis ~**${money(symbol, voll.net)}** (${voll.slots} Plätze)`,
     });
   }
   return {
     embeds: [embed],
     components: [
-      new ActionRowBuilder().addComponents(...company.BRANCHES.map((b) =>
+      // Fluxer bildet Buttons in Zeilenreihenfolge auf Reaktionen ab – die
+      // Klassenwahl zuerst, damit sie nie hinten runterfällt.
+      new ActionRowBuilder().addComponents(
+        ...KLASSEN.map((x) => new ButtonBuilder().setCustomId(`firma|gruendung|${x.id}|${userId}`)
+          .setLabel(x.label).setEmoji(x.emoji)
+          .setStyle(x.id === k.id ? ButtonStyle.Primary : ButtonStyle.Secondary)
+          .setDisabled(x.id === k.id)),
+        homeButton(userId)),
+      new ActionRowBuilder().addComponents(...branches.map((b) =>
         new ButtonBuilder().setCustomId(`firma|gruenden|${b.id}|${userId}`)
           .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success))),
-      new ActionRowBuilder().addComponents(homeButton(userId)),
     ],
   };
 }
@@ -1063,7 +1101,15 @@ async function buildFirmaView({ guildId, userId }) {
     value: `Zeit: **${s.budget.left}** von ${s.budget.max} · Anpacken noch **${s.pitchLeft}×** · `
       + `Werbung kostet ${money(symbol, s.werbungCost)}`,
   });
-  embed.setFooter({ text: `Decke ohne Ausbau: ~${money(symbol, s.ceiling.net)} am Tag` });
+  embed.addFields({
+    name: '🏗️ Ausbau',
+    value: `Stufe **${s.stufe}/${company.MAX_STUFE}**`
+      + (s.stufe > 0 ? ` _(${s.stufen[s.stufe - 1].name})_` : '')
+      + ` · **${s.extras.filter((e) => e.owned).length}** von ${s.extras.length} Extras · `
+      + `${s.effective.slots} Plätze, Umsatz ×${faktor(s.effective.umsatzFactor)}`
+      + (s.nextStufe ? `\nNächste Stufe: **${s.nextStufe.name}** für ${money(symbol, s.nextStufe.price)}` : '\n_Voll ausgebaut._'),
+  });
+  embed.setFooter({ text: `Decke jetzt ~${money(symbol, s.ceilingNow.net)} am Tag · voll ausgebaut ~${money(symbol, s.ceilingMax.net)}` });
 
   const ready = (cost) => s.budget.left >= cost;
   const data = require('./data/companies');
@@ -1083,6 +1129,8 @@ async function buildFirmaView({ guildId, userId }) {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`firma|personal|0|${userId}`)
         .setLabel('Personal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`firma|ausbau|0|${userId}`)
+        .setLabel('Ausbau').setEmoji('🏗️').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
         .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
       homeButton(userId)),
@@ -1151,6 +1199,57 @@ async function buildFirmaStaffView({ guildId, userId, page = 1 }) {
   }
   if (totalPages > 1) embed.setFooter({ text: `Seite ${p}/${totalPages}` });
   return { embeds: [embed], components: rows };
+}
+
+/** Ausbau: nächste Stufe und die vier Extras. */
+async function buildFirmaAusbauView({ guildId, userId }) {
+  const company = require('./company');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏗️ Ausbau – ${s.company.name}`)
+    .setColor(0x34495e)
+    .setDescription(`Stufe **${s.stufe}/${company.MAX_STUFE}** · ${s.effective.slots} Plätze · Umsatz ×${faktor(s.effective.umsatzFactor)}\n`
+      + `Decke jetzt ~**${money(symbol, s.ceilingNow.net)}** am Tag, voll ausgebaut ~**${money(symbol, s.ceilingMax.net)}**.\n`
+      + '_Investitionen kommen von deinem Konto, nicht aus der Kasse – und sind nicht umkehrbar._');
+
+  if (s.nextStufe) {
+    const n = s.nextStufe;
+    embed.addFields({
+      name: `⬆️ Nächste Stufe: ${n.name} – ${money(symbol, n.price)}`,
+      value: `→ **${n.slots}** Plätze, Umsatz **×${faktor(n.umsatz)}**`
+        + (n.price >= company.CONFIRM_ABOVE ? ' · _fragt vor dem Kauf nach_' : ''),
+    });
+  } else {
+    embed.addFields({ name: '⬆️ Leiter', value: '_Voll ausgebaut – alle fünf Stufen gekauft._' });
+  }
+  for (const e of s.extras) {
+    const wirkung = e.umsatz ? `Umsatz +${faktor(e.umsatz)}` : `+${e.slots} Plätze`;
+    const zustand = e.owned ? '✅ gekauft' : e.locked ? `🔒 ab Stufe ${e.minStufe}` : '🛒 kaufbar';
+    embed.addFields({ name: `${e.emoji} ${e.name} – ${money(symbol, e.price)}`, value: `${wirkung} · ${zustand}`, inline: true });
+  }
+
+  return {
+    embeds: [embed],
+    components: [
+      // Nav zuerst (Fluxer-Reaktionen), dann die Extras.
+      new ActionRowBuilder().addComponents(
+        // Die ID trägt die gezeigte Stufe: ein alter Knopf kauft nicht eine inzwischen andere.
+        new ButtonBuilder().setCustomId(`firma|ausbauen|${s.nextStufe?.id ?? 0}|${userId}`)
+          .setLabel(s.nextStufe ? `Ausbauen: ${s.nextStufe.name}`.slice(0, 40) : 'Voll ausgebaut')
+          .setEmoji('⬆️').setStyle(ButtonStyle.Success).setDisabled(!s.nextStufe),
+        new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+          .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+        homeButton(userId)),
+      new ActionRowBuilder().addComponents(...s.extras.map((e) =>
+        new ButtonBuilder().setCustomId(`firma|extra|${e.id}|${userId}`)
+          .setLabel(e.name.slice(0, 40)).setEmoji(e.emoji)
+          .setStyle(e.owned ? ButtonStyle.Secondary : ButtonStyle.Primary)
+          .setDisabled(e.owned || e.locked))),
+    ],
+  };
 }
 
 // ------------------------------------------------------------------- Garage
@@ -4408,7 +4507,7 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView,
+  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView,
   buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
@@ -4420,5 +4519,5 @@ module.exports = {
   buildInboxView, buildProfileView, buildTitleView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
-  navigationRow, actionsRow, homeButton, garageLabel, ID, money,
+  navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
 };

@@ -85,7 +85,7 @@ const ENTRIES = [
     group: 'work',
     label: 'Firma',
     emoji: '🏢',
-    description: 'Gründen, Personal führen, Gewinn entnehmen',
+    description: 'Gründen, ausbauen, Personal führen, Gewinn entnehmen',
     style: 'primary',
     build: (ctx) => ui.buildFirmaView(ctx),
   },

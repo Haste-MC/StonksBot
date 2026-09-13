@@ -53,10 +53,14 @@ const user = () => `u${++n}`;
 (async () => {
   console.log('--- Der Katalog ---');
   {
-    check('drei Branchen', data.BRANCHES.length === 3);
+    check('neun Branchen', data.BRANCHES.length === 9, String(data.BRANCHES.length));
+    check('IDs eindeutig', new Set(data.BRANCHES.map((b) => b.id)).size === 9);
+    check('drei je Klasse', ['klein', 'mittel', 'gross'].every((k) =>
+      data.BRANCHES.filter((b) => b.klasse === k).length === 3));
     check('jede Branche vollständig', data.BRANCHES.every((b) =>
       b.id && b.name && b.emoji && b.price > 0 && b.slots > 0 && b.umsatz > b.lohn && b.blurb));
-    const [k, c, s] = data.BRANCHES;
+    const byId = Object.fromEntries(data.BRANCHES.map((b) => [b.id, b]));
+    const [k, c, s] = [byId.kiosk, byId.cafe, byId.spedition];
     check('Kiosk < Café < Spedition beim Preis', k.price < c.price && c.price < s.price);
     check('… und bei der Decke',
       company.ceilingOf(k).net < company.ceilingOf(c).net && company.ceilingOf(c).net < company.ceilingOf(s).net,
@@ -400,6 +404,338 @@ const user = () => `u${++n}`;
       console.log(`    ${b.emoji} ${b.name}: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
       check(`${b.name}: kein Tag über der Decke`, best <= decke, `${de(best)} > ${de(decke)}`);
       check(`${b.name}: die Firma verdient (keine stille Null)`, median > 0, de(median));
+    }
+  }
+
+  console.log('--- Ausbau: Daten und Decke ---');
+  {
+    for (const b of data.BRANCHES) {
+      check(`${b.id}: fünf Stufen`, b.stufen.length === data.MAX_STUFE);
+      check(`${b.id}: Stufenpreise = Gründung × 1,5/3/6/9/14`,
+        b.stufen.map((st) => st.price).join() === data.STUFE_PREISFAKTOREN.map((f) => Math.round(b.price * f)).join(),
+        b.stufen.map((st) => st.price).join());
+      // Regel statt Sonderfall: Faktoren steigen streng monoton mit konstantem Schritt,
+      // der erste liegt bei mindestens 1,2 – gilt für den Standard (1,2…2,2) wie für
+      // eigene Faktoren mit größerem Schritt (z. B. die Baufirma, 1,3…2,5).
+      const arr = b.stufen.map((st) => st.umsatz);
+      check(`${b.id}: Umsatzfaktoren steigen streng monoton mit konstantem Schritt, erster ≥ 1,2`,
+        arr[0] >= 1.2 && arr.every((f, i) => i === 0 || Math.abs((f - arr[i - 1]) - (arr[1] - arr[0])) < 1e-9),
+        arr.join());
+      check(`${b.id}: Plätze steigen monoton bis zum Doppelten`,
+        b.stufen.every((st, i) => st.slots >= (i ? b.stufen[i - 1].slots : b.slots))
+        && b.stufen[4].slots === b.slots * 2, b.stufen.map((st) => st.slots).join());
+      check(`${b.id}: vier Extras, drei Umsatz, eines Plätze`,
+        b.extras.length === 4 && b.extras.filter((e) => e.umsatz).length === 3
+        && b.extras.filter((e) => e.slots).length === 1);
+      check(`${b.id}: Extras kosten je 2× Gründung`, b.extras.every((e) => e.price === b.price * 2));
+      check(`${b.id}: minStufe 3 und 2 gesetzt`,
+        b.extras.some((e) => e.umsatz && e.minStufe === 3) && b.extras.some((e) => e.slots && e.minStufe === 2)
+        && b.extras.filter((e) => !e.minStufe).length === 2);
+      check(`${b.id}: Extra-IDs eindeutig und auffindbar`,
+        new Set(b.extras.map((e) => e.id)).size === 4 && b.extras.every((e) => data.extraById(e.id) === e));
+      const gesamt = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
+      check(`${b.id}: Gesamtausbau ≈ 41,5× Gründung`, Math.abs(gesamt / b.price - 41.5) < 0.05, (gesamt / b.price).toFixed(2));
+      check(`${b.id}: Kern-Decke unter Musik+Creator (100.916)`, company.ceilingOf(b).net < 100_916, de(company.ceilingOf(b).net));
+    }
+    check('Extra-IDs global eindeutig',
+      new Set(data.BRANCHES.flatMap((b) => b.extras.map((e) => e.id))).size === 36);
+
+    // effectiveOf: Stufe 0 = Kern, voll = Handrechnung.
+    const sp = data.BRANCHES.find((b) => b.id === 'spedition');
+    const kern = company.effectiveOf({ stufe: 0 }, sp, []);
+    check('Stufe 0 ohne Extras = Kernwerte', kern.slots === 10 && kern.umsatzFactor === 1);
+    const alle = sp.extras.map((e) => e.id);
+    const voll = company.effectiveOf({ stufe: 5 }, sp, alle);
+    check('Stufe 5 + alle Extras: 22 Plätze, Faktor 2,65', voll.slots === 22 && Math.abs(voll.umsatzFactor - 2.65) < 1e-9,
+      JSON.stringify(voll));
+    // Handrechnung Spedition voll: 22 × 3 × 1.900 × 1,5 × 2,65 = 498.465 + 4 × 1.900 × 1,5 × 2,65 = 30.210
+    // → 528.675 brutto − Löhne 22 × 3 × 630 = 41.580 → 487.095.
+    check('volle Decke der Spedition = 487.095 (Handrechnung)',
+      Math.round(company.fullCeilingOf(sp).net) === 487_095, de(company.fullCeilingOf(sp).net));
+    const ki = data.BRANCHES.find((b) => b.id === 'kiosk');
+    // Kiosk voll: 5 × 3 × 250 × 1,5 × 2,65 = 14.906,25 + 3.975 − 2.250 = 16.631,25.
+    check('volle Decke des Kiosks = 16.631 (Handrechnung)',
+      Math.round(company.fullCeilingOf(ki).net) === 16_631, de(company.fullCeilingOf(ki).net));
+
+    // Monotonie: jede Stufe und jedes Extra hebt die Decke echt.
+    let ok = true;
+    for (const b of data.BRANCHES) {
+      let prev = company.ceilingOf(b, 0, []).net;
+      for (let st = 1; st <= data.MAX_STUFE; st++) {
+        const n = company.ceilingOf(b, st, []).net;
+        if (!(n > prev)) ok = false;
+        prev = n;
+      }
+      for (const e of b.extras) {
+        if (!(company.ceilingOf(b, 5, [e.id]).net > company.ceilingOf(b, 5, []).net)) ok = false;
+      }
+    }
+    check('jede Stufe und jedes Extra hebt die Decke', ok);
+    check('nextStufe: bei Stufe 0 die erste, bei 5 null',
+      company.nextStufe({ stufe: 0 }, sp)?.id === 1 && company.nextStufe({ stufe: 5 }, sp) === null);
+  }
+
+  console.log('--- Ausbau kaufen: Leiter und Extras ---');
+  {
+    const U = user(); funds(U, 100_000, 60_000_000);
+    const f = await company.found(G, U, 'spedition', 'Ausbau-Sped', t0);
+    const cid = f.company.id;
+    const sp = company.branch('spedition');
+    check('frisch gegründet: Stufe 0, keine Extras', db.getCompany(cid).stufe === 0 && db.companyExtras(cid).length === 0);
+
+    bookings = [];
+    let r = await company.upgrade(G, U, t0);
+    check('Stufe 1 gekauft: 1,8 Mio, eine Buchung ohne XP', r.ok && r.stufe.id === 1 && bookings.length === 1
+      && bookings[0].amount === -1_800_000 && bookings[0].opts.xp === false && bookings[0].opts.kind === 'company',
+      JSON.stringify(bookings));
+    check('Stufe steht in der DB', db.getCompany(cid).stufe === 1);
+    check('Bank angezapft (Bargeld reichte nicht)', konten.get(U).cash === 0 && konten.get(U).bank === 60_000_000 - 1_200_000 + 100_000 - 1_800_000);
+    for (let i = 2; i <= 5; i++) r = await company.upgrade(G, U, t0);
+    check('bis Stufe 5 gekauft', db.getCompany(cid).stufe === 5);
+    r = await company.upgrade(G, U, t0);
+    check('Stufe 6 gibt es nicht', r.ok === false && r.reason === 'max');
+    const ausgegeben = -bookings.reduce((s, b) => s + b.amount, 0);
+    check('Leiter kostet 40,2 Mio', ausgegeben === 40_200_000, de(ausgegeben));
+
+    // Extras
+    const [u1, , u3, sx] = sp.extras;
+    bookings = [];
+    r = await company.buyExtra(G, U, u1.id, t0);
+    check('Extra gekauft: 2,4 Mio, eine Buchung ohne XP', r.ok && r.extra.id === u1.id && bookings.length === 1
+      && bookings[0].amount === -2_400_000 && bookings[0].opts.xp === false);
+    check('Extra steht in der DB', db.companyExtras(cid).includes(u1.id));
+    r = await company.buyExtra(G, U, u1.id, t0);
+    check('zweimal kaufen geht nicht', r.ok === false && r.reason === 'owned');
+    r = await company.buyExtra(G, U, 'kiosk-zeitungsregal', t0);
+    check('Extra einer anderen Branche', r.reason === 'unknown');
+    r = await company.buyExtra(G, U, 'gibtsnicht', t0);
+    check('unbekanntes Extra', r.reason === 'unknown');
+    for (const e of [u3, sx]) await company.buyExtra(G, U, e.id, t0);
+    check('Extras mit minStufe bei Stufe 5 kaufbar', db.companyExtras(cid).length === 3);
+
+    // minStufe greift bei einer frischen Firma.
+    const V = user(); funds(V, 0, 10_000_000);
+    const g = await company.found(G, V, 'cafe', 'Klein-Café', t0);
+    const cafe = company.branch('cafe');
+    r = await company.buyExtra(G, V, cafe.extras[3].id, t0);
+    check('Platz-Extra vor Stufe 2 gesperrt', r.ok === false && r.reason === 'stufe' && r.minStufe === 2);
+    r = await company.buyExtra(G, V, cafe.extras[2].id, t0);
+    check('drittes Umsatz-Extra vor Stufe 3 gesperrt', r.reason === 'stufe' && r.minStufe === 3);
+    r = await company.buyExtra(G, V, cafe.extras[0].id, t0);
+    check('Extra ohne minStufe sofort kaufbar', r.ok === true);
+
+    // Guthaben und Rollback.
+    const W = user(); funds(W, 0, 30_000);
+    await company.found(G, W, 'kiosk', 'Armer Kiosk', t0);
+    r = await company.upgrade(G, W, t0);
+    check('zu wenig Geld: funds mit needed/have', r.reason === 'funds' && r.needed === 37_500 && r.have === 5_000);
+    funds(W, 0, 100_000);
+    const echt = unb.changeCash;
+    unb.changeCash = async () => { throw new Error('API down'); };
+    r = await company.upgrade(G, W, t0);
+    check('Buchung schlägt fehl: Stufe zurück', r.reason === 'payment' && company.ownCompany(G, W).stufe === 0);
+    const kx = company.branch('kiosk').extras[0];
+    r = await company.buyExtra(G, W, kx.id, t0);
+    check('Buchung schlägt fehl: Extra zurück', r.reason === 'payment' && db.companyExtras(company.ownCompany(G, W).id).length === 0);
+    unb.changeCash = echt;
+
+    // Doppelklick-Schutz: zwei gleichzeitige Käufe derselben Stufe dürfen nicht
+    // beide durchgehen (§9) – die bedingte Schreibung entscheidet, wer gewinnt.
+    const U2 = user(); funds(U2, 100_000_000, 100_000_000);
+    await company.found(G, U2, 'spedition', 'Doppelklick-Sped', t0);
+    bookings = [];
+    const [du1, du2] = await Promise.all([company.upgrade(G, U2, t0), company.upgrade(G, U2, t0)]);
+    const upgradeOks = [du1, du2].filter((x) => x.ok);
+    const upgradeBusy = [du1, du2].filter((x) => !x.ok);
+    check('Doppelklick bei upgrade: genau ein Erfolg, der andere busy',
+      upgradeOks.length === 1 && upgradeBusy.length === 1 && upgradeBusy[0].reason === 'busy',
+      JSON.stringify([du1, du2]));
+    check('Doppelklick bei upgrade: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+    check('Doppelklick bei upgrade: Stufe 1 (nicht doppelt gestiegen)',
+      company.ownCompany(G, U2).stufe === 1);
+
+    // Dasselbe für Extras: die In-flight-Sperre weist den zweiten Klick ab (busy);
+    // die PRIMARY KEY (company_id, extra_id) bleibt als zweite Verteidigungslinie.
+    const dx = sp.extras[0];
+    bookings = [];
+    const [de1, de2] = await Promise.all([
+      company.buyExtra(G, U2, dx.id, t0), company.buyExtra(G, U2, dx.id, t0),
+    ]);
+    const extraOks = [de1, de2].filter((x) => x.ok);
+    const extraOwned = [de1, de2].filter((x) => !x.ok);
+    check('Doppelklick bei buyExtra: genau ein Erfolg, der andere busy',
+      extraOks.length === 1 && extraOwned.length === 1 && extraOwned[0].reason === 'busy',
+      JSON.stringify([de1, de2]));
+    check('Doppelklick bei buyExtra: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+
+    // Verkettetes Rennen (§7): Trifft der zweite Klick ein, nachdem der erste
+    // seine Stufe geschrieben hat, aber während er noch auf die Bank wartet,
+    // läse er Stufe 1 und kaufte Stufe 2 – ohne dass die erste Abbuchung schon
+    // vom Konto ist (Überziehung). Die In-flight-Sperre weist ihn vor dem ersten
+    // `await` ab. Nachgestellt mit einer Bank, deren zweite Antwort (die
+    // Guthabenprüfung in `pay`) erst auf Kommando kommt.
+    const U4 = user(); funds(U4, 100_000_000, 100_000_000);
+    await company.found(G, U4, 'spedition', 'Rennen-Sped', t0);
+    const echtBalance = unb.getBalance;
+    let freigeben; const tor = new Promise((resolve) => { freigeben = resolve; });
+    let anfragen = 0;
+    unb.getBalance = async (...a) => {
+      anfragen++;
+      if (anfragen === 2) await tor;                       // der erste Kauf hängt in `pay`
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      return echtBalance(...a);
+    };
+    bookings = [];
+    const p1 = company.upgrade(G, U4, t0);
+    await new Promise((resolve) => setTimeout(resolve, 40)); // erster Kauf: Stufe geschrieben, wartet in `pay`
+    const p2 = company.upgrade(G, U4, t0);                    // zweiter Klick trifft jetzt ein
+    const r2 = await p2;
+    freigeben();
+    const r1 = await p1;
+    unb.getBalance = echtBalance;
+    check('Rennen mit langsamer Bank: erster Kauf ok, zweiter busy',
+      r1.ok && r1.stufe.id === 1 && r2.ok === false && r2.reason === 'busy', JSON.stringify([r1, r2]));
+    check('Rennen mit langsamer Bank: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+    check('Rennen mit langsamer Bank: Stufe 1, nicht 2', company.ownCompany(G, U4).stufe === 1,
+      String(company.ownCompany(G, U4).stufe));
+    // Danach geht es normal weiter (die Sperre ist wieder frei).
+    r = await company.upgrade(G, U4, t0);
+    check('nach dem Rennen: Sperre wieder frei', r.ok && r.stufe.id === 2, JSON.stringify(r));
+
+    // Bricht die Bank beim Anzapfen ab, darf weder eine Buchung noch eine
+    // Stufenänderung übrig bleiben (die bedingte Rücknahme darf niemanden clobbern).
+    const U3 = user(); funds(U3, 0, 100_000_000);
+    await company.found(G, U3, 'spedition', 'Bankfehler-Sped', t0);
+    const echtWithdraw = unb.withdrawFromBank;
+    unb.withdrawFromBank = async () => { throw new Error('Bank down'); };
+    bookings = [];
+    r = await company.upgrade(G, U3, t0);
+    check('Bank down: payment, Stufe unverändert, keine Buchung',
+      r.reason === 'payment' && company.ownCompany(G, U3).stufe === 0 && bookings.length === 0,
+      JSON.stringify(r));
+    unb.withdrawFromBank = echtWithdraw;
+
+    // Schließen räumt die Extras weg.
+    const before = db.companyExtras(cid).length;
+    await company.close(G, U, t0);
+    check('Schließen löscht die Extras', before === 3 && db.companyExtras(cid).length === 0);
+
+    // Insolvenz ebenso – Muster „Minuskiosk": ein Schichtleiter-NPC, Kasse läuft ins
+    // Minus. Das Extra ist das Platz-Extra (kein Umsatzzuschlag), damit die
+    // Verlust-Rechnung aus dem Kern-Block hält, auch wenn settle ab Task 3 den
+    // Faktor kennt: 1 NPC auf 3 Plätzen → Ziel 0,467, Umsatz 125/135/143 < Lohn 150.
+    const Y = user(); funds(Y, 0, 100_000);
+    const g2 = await company.found(G, Y, 'kiosk', 'Pleitekiosk', t0);
+    company.hireNpc(G, Y, t0, seq(0));
+    for (const st of db.companyStaff(g2.company.id)) db.saveStaff({ ...st, rank: 2 });
+    db.addCompanyExtra(g2.company.id, 'kiosk-verlaengerte_oeffnung', t0);
+    company.settle(g2.company.id, t0 + 15 * DAY_MS);
+    check('Insolvenz löscht die Extras',
+      db.getCompany(g2.company.id).status === 'closed' && db.companyExtras(g2.company.id).length === 0,
+      JSON.stringify({ status: db.getCompany(g2.company.id).status, extras: db.companyExtras(g2.company.id) }));
+  }
+
+  console.log('--- Migration: stufe nachgerüstet ---');
+  {
+    // Das Modul legt die Spalte beim Laden per PRAGMA-Prüfung an (Muster closed_why);
+    // hier wird nur geprüft, dass jede Firma sie hat und sie bei 0 startet.
+    const U = user(); funds(U, 0, 100_000);
+    const f = await company.found(G, U, 'kiosk', 'Migrationskiosk', t0);
+    check('stufe ist 0 und eine Zahl',
+      typeof db.getCompany(f.company.id).stufe === 'number' && db.getCompany(f.company.id).stufe === 0);
+  }
+
+  console.log('--- Ausbau wirkt im Betrieb ---');
+  {
+    const U = user(); funds(U, 0, 5_000_000);
+    const f = await company.found(G, U, 'cafe', 'Wachsendes Café', t0);
+    const cid = f.company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < 5; i++) company.hireNpc(G, U, t0, seq(0.1 * i));
+    check('Kern: 5 Plätze voll', company.hireNpc(G, U, t0).reason === 'full');
+    await company.upgrade(G, U, t0);                     // Terrasse: 6 Plätze, ×1,2
+    check('Stufe 1: ein Platz mehr', company.hireNpc(G, U, t0, seq(0.7)).ok === true
+      && company.hireNpc(G, U, t0).reason === 'full');
+    check('openings zeigt keinen Platz mehr', !company.openings(G).some((o) => o.company.id === cid));
+
+    // Ein Tag Abrechnung, Handrechnung mit Faktor 1,2 und 6 Aushilfen:
+    // Ziel = 0,3 + 0,5 × 6/6 = 0,8 → a = 0,3 + 0,5 × 0,2 = 0,4;
+    // Umsatz je Schicht = round(900 × 1 × 0,4 × 1,2) = 432; Lohn 180 → 6 × 3 × 252 = 4.536.
+    const r = company.settle(cid, t0 + DAY_MS);
+    check('settle rechnet mit dem Umsatzfaktor (Kasse 4.536)', db.getCompany(cid).kasse === 4_536, de(db.getCompany(cid).kasse));
+    check('Auslastungsziel nutzt die neuen Plätze', Math.abs(company.dailyTarget(b, 6, false, 6) - 0.8) < 1e-9
+      && Math.abs(company.dailyTarget(b, 5, false, 6) - (0.3 + 0.5 * 5 / 6)) < 1e-9);
+
+    // Anpacken: round(900 × 1,5 × a × 1,2) mit a = 0,4 → 648.
+    const p = await company.pitchIn(G, U, t0 + DAY_MS);
+    check('Anpacken nutzt den Faktor (648)', p.ok && p.umsatz === 648, String(p.umsatz));
+
+    // Spieler-Schicht: Umsatz round(900 × 1 × 0,4 × 1,3 × 1,2) = 562.
+    const P = user(); funds(P, 0);
+    company.fire(G, U, db.companyStaff(cid)[0].id, t0 + DAY_MS);
+    company.join(G, P, cid, t0 + DAY_MS);
+    const jobs = require('../src/jobs');
+    const w = await jobs.work(G, P, new Date(t0 + DAY_MS + 1000), seq(0.5));
+    check('Spieler-Schicht nutzt den Faktor (562)', w.ok && w.umsatz === 562, String(w.umsatz));
+
+    // Extra mit Plätzen: +2 ab Stufe 2.
+    await company.upgrade(G, U, t0 + DAY_MS);
+    await company.buyExtra(G, U, b.extras[3].id, t0 + DAY_MS);
+    const s = company.status(G, U, t0 + DAY_MS);
+    check('status: Stufe 2, 7 + 2 = 9 Plätze, Faktor 1,45', s.stufe === 2 && s.effective.slots === 9
+      && Math.abs(s.effective.umsatzFactor - 1.45) < 1e-9, JSON.stringify(s.effective));
+    check('status: Extras mit owned/locked', s.extras.length === 4 && s.extras[3].owned === true
+      && s.extras[2].locked === true && s.extras[0].locked === false);
+    check('status: Stufenliste mit owned', s.stufen.length === 5 && s.stufen[1].owned && !s.stufen[2].owned);
+    check('status: nextStufe = Frühstückskarte', s.nextStufe?.name === 'Frühstückskarte');
+    check('status: ceilingNow < ceilingMax, ceiling = ceilingNow',
+      s.ceilingNow.net < s.ceilingMax.net && s.ceiling.net === s.ceilingNow.net
+      && s.ceilingMax.net === company.fullCeilingOf(b).net);
+    check('status: free zählt die neuen Plätze', s.free === 9 - s.staff.length);
+  }
+
+  console.log('--- §3: Vollausbau – kein Tag über der vollen Decke ---');
+  {
+    for (const b of data.BRANCHES) {
+      const U = user(); funds(U, 0, 200_000_000);
+      const f = await company.found(G, U, b.id, `Voll-${b.id}`, t0);
+      for (let i = 0; i < data.MAX_STUFE; i++) {
+        const r = await company.upgrade(G, U, t0);
+        if (!r.ok) throw new Error(`${b.id} Stufe ${i + 1}: ${r.reason}`);
+      }
+      for (const e of b.extras) {
+        const r = await company.buyExtra(G, U, e.id, t0);
+        if (!r.ok) throw new Error(`${b.id} Extra ${e.id}: ${r.reason}`);
+      }
+      const eff = company.effectiveOf(company.ownCompany(G, U), b);
+      for (let i = 0; i < eff.slots; i++) {
+        const r = company.hireNpc(G, U, t0, seq(0.02 * i));
+        if (!r.ok) throw new Error(`${b.id} NPC ${i + 1}: ${r.reason}`);
+      }
+      const cid = f.company.id;
+      for (const s of db.companyStaff(cid)) db.saveStaff({ ...s, rank: 2 });
+      const decke = company.fullCeilingOf(b).net;
+      let best = -Infinity, gewinn = [], werbungLief = false;
+      let now = t0;
+      for (let d = 0; d < 365; d++) {
+        const vor = db.getCompany(cid).kasse;
+        const w = await company.advertise(G, U, now);
+        if (w.ok) werbungLief = true;
+        if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) throw new Error(`${b.id} Werbung Tag ${d + 1}: ${w.reason}`);
+        for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) { const p = await company.pitchIn(G, U, now + i * 60e3); if (!p.ok) break; }
+        company.settle(cid, now + DAY_MS);
+        const tag = db.getCompany(cid).kasse - vor;
+        best = Math.max(best, tag); gewinn.push(tag);
+        now += DAY_MS;
+      }
+      const sorted = [...gewinn].sort((a, c) => a - c);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      console.log(`    ${b.emoji} ${b.name} voll: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
+      // Die Decke rechnet ungerundet, die Abrechnung rundet je Schicht (höchstens +0,5).
+      // Beim Kiosk sind das 19 × 0,25 = 4,75 über der Decke – genau die Rundung, nichts sonst.
+      const rundung = 0.5 * (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY);
+      check(`${b.name} voll: kein Tag über der Decke (bis auf Rundung je Schicht)`, best <= decke + rundung, `${de(best)} > ${de(decke)}`);
+      check(`${b.name} voll: verdient (keine stille Null)`, median > company.ceilingOf(b).net, `${de(median)} vs Kern ${de(company.ceilingOf(b).net)}`);
     }
   }
 

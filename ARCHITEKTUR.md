@@ -411,12 +411,54 @@ Gründungspreises nach 20 / 14 / 37 Tagen. Alle unter Musik+Creator
 über Musik+Creator – deshalb 1.900. NPC-Löhne sind eine echte Senke, die
 Kasse darf ins Minus (Insolvenz nach 14 Tagen).
 
+**Ausbau (seit 1.32.0, Stück 2a):** Fünf Stufen und vier Extras je Branche
+heben Plätze und Umsatz je Schicht; Löhne skalieren nicht, die Marge wächst
+mit der Größe. Volle Decke (`company.fullCeilingOf`): Spedition 487.095/Tag,
+Café 133.380, Kiosk 16.631. Gemessen voll ausgebaut (365 Tage, Median, Stand
+2026-09-13): Kiosk 16.636/Tag, Imbiss 21.015, Autowäsche 17.827, Café 133.360,
+Fitnessstudio 87.838, Werkstatt 134.248, Spedition 487.060, Baufirma 558.304,
+Club 414.900 – jede Branche etwa ×6 ihres Kernwerts (5,6 bis 7,4), der Median
+liegt auf der Decke (an zwei von drei Tagen läuft keine Werbekampagne an und
+alle vier Anpacken passen ins Zeitbudget). Gründung plus Gesamtausbau
+amortisieren sich in 51 (Café) bis 123 (Spedition) Tagen; Ausnahme Baufirma
+mit 159 Tagen (siehe unten). Aus eigener Kraft (nur Gewinn reinvestiert,
+Stufe vor Extra) ist die Spedition nach 262 Tagen voll, das Café nach 95, der
+Club nach 257; die Baufirma erreicht Stufe 5 im ersten Jahr nicht. Investitionen
+buchen ohne XP (Umbuchung, keine Ausgabe).
+
+**Die Rangfolge voll ausgebaut:** Die Baufirma ist mit 558.304/Tag die Spitze,
+noch vor der Spedition (487.060) – Beschluss des Nutzers 2026-09-13: „die
+Baufirma kann die Spitze sein". Die Spedition liegt damit gleichauf mit
+Musik+Creator nach zwei Jahren (490.099) – die Königsdisziplin *mit* Firma,
+aber erkauft: ~50 Mio Ausbau. Alle anderen Branchen (Kiosk, Imbiss,
+Autowäsche, Café, Fitnessstudio, Werkstatt, Club) liegen darunter.
+
+Die **Baufirma** hat eigene Stufenfaktoren (1,3 · 1,6 · 1,9 · 2,2 · 2,5 statt
+1,2…2,2), und das ist gewollt, kein Kompromiss: Mit den Standardfaktoren stand
+sie bei 495.574/Tag und 178 Tagen Amortisation, weil ihr Ausbau mit 74,7 Mio
+(bei Kern-Decke 75.000) der teuerste im Spiel ist – die Löhne (500) fressen
+dort die Marge stärker als anderswo. Die eigenen Faktoren heben sie über die
+Spedition und drücken die Amortisation auf 159 Tage; die Faktoren sind der
+einzige Hebel, der den Kern (Stück 1) nicht verschiebt.
+
 Die Decke oben gilt für NPC-Personal. Mit **Spieler-Angestellten** liegt sie
-höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am Tag –
-zehn Spieler-Schichtleiter in einer Spedition brächten dem Inhaber ~134.000/Tag,
-über Musik+Creator. Das ist eine bewusste Entscheidung (2026-09-13): Wer zehn
-echte Mitspieler für 630 je Schicht organisiert, hat es verdient. Zweitkonten
-sind ein Moderationsthema, kein Balance-Thema.
+deutlich höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am
+Tag statt 3. Voll ausgebaut mit 26 Spieler-Schichtleitern brächte die Baufirma
+26 × 4 × 1.700 × 1,5 × 1,3 × 2,95 = 1.017.042 brutto, minus Löhne 26 × 4 × 750
+= 78.000, plus Anpacken 30.090 → ~969.000/Tag; die Spedition (22 Plätze,
+×2,65) ~839.000/Tag – rund das Doppelte von Musik+Creator. Das ist eine
+bewusste Entscheidung (2026-09-13, Beschluss A): Wer 26 echte Mitspieler für
+750 je Schicht organisiert, hat es verdient. Zweitkonten sind ein
+Moderationsthema, kein Balance-Thema.
+
+Zum **Zeitbudget:** Ein Anpacken kostet 2 der 8 Einheiten und bringt der voll
+ausgebauten Baufirma ~7.500 – also ~3.750 je Zeiteinheit, während eine
+Stream- oder Studio-Sitzung bei Musik+Creator (~490.000/Tag auf 8 Einheiten)
+ein Vielfaches davon wert ist. Das Zeitbudget bremst die Firma also nicht:
+Der Umsatz kommt aus Plätzen und Schichten, nicht aus der Zeit des Inhabers.
+Die Bremse für Firmen ist das Geld (50–75 Mio Ausbau, 51–159 Tage
+Amortisation). Ob Anpacken darum Zeit kosten muss, klärt Stück 2b oder die
+Neubalance des Zeitbudgets.
 
 ### Eine Bremse, nicht zwei
 

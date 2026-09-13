@@ -58,16 +58,47 @@ function dayKey(now) {
 function ownCompany(guildId, userId) { return db.getOpenCompany(guildId, userId); }
 
 /**
- * Die Decke einer Branche je Tag – vorgerechnet, damit §3 eine Zahl hat.
- * Volle NPC-Besetzung mit Schichtleitern, Auslastung 1,0 (mit Werbung),
- * tägliches Anpacken. `gross` Umsatz, `wages` Löhne, `net` die Differenz.
+ * Was Stufe und Extras aus einer Branche machen: Plätze und Umsatzfaktor.
+ * Stufe 0 ohne Extras = Kernwerte – bestehende Firmen rechnen wie bisher.
+ * `extraIds` übergibt der Aufrufer, wenn er sie schon hat; sonst aus der DB.
  */
-function ceilingOf(b) {
+function effectiveOf(company, b, extraIds = null) {
+  const ids = extraIds ?? db.companyExtras(company.id);
+  const st = company.stufe > 0 ? b.stufen[Math.min(company.stufe, data.MAX_STUFE) - 1] : null;
+  let slots = st ? st.slots : b.slots;
+  let umsatzFactor = st ? st.umsatz : 1;
+  for (const id of ids) {
+    const e = data.extraById(id);
+    if (!e) continue;
+    if (e.slots) slots += e.slots;
+    if (e.umsatz) umsatzFactor += e.umsatz;
+  }
+  return { slots, umsatzFactor: Math.round(umsatzFactor * 1000) / 1000 };
+}
+
+/** Die nächste Stufe der Leiter, oder null bei Vollausbau. */
+function nextStufe(company, b) {
+  return company.stufe >= data.MAX_STUFE ? null : b.stufen[company.stufe];
+}
+
+/**
+ * Die Decke je Tag – vorgerechnet, damit §3 eine Zahl hat. Standard ist der
+ * Kern (Stufe 0, keine Extras); mit Stufe und Extras die Decke der aktuellen
+ * Firma, `fullCeilingOf` die des Vollausbaus. Volle NPC-Besetzung mit
+ * Schichtleitern, Auslastung 1,0, tägliches Anpacken.
+ */
+function ceilingOf(b, stufe = 0, extraIds = []) {
   const top = rankOf(data.RANKS.length - 1).factor;
-  const gross = b.slots * data.NPC_SHIFTS * b.umsatz * top
-    + data.MAX_PITCH_PER_DAY * b.umsatz * top;
-  const wages = b.slots * data.NPC_SHIFTS * b.lohn * top;
-  return { gross, wages, net: gross - wages };
+  const { slots, umsatzFactor } = effectiveOf({ id: 0, stufe }, b, extraIds);
+  const gross = Math.round(slots * data.NPC_SHIFTS * b.umsatz * top * umsatzFactor
+    + data.MAX_PITCH_PER_DAY * b.umsatz * top * umsatzFactor);
+  const wages = Math.round(slots * data.NPC_SHIFTS * b.lohn * top);
+  // Ganze Taler: die Anzeige zeigt die Decke, und 16.631,25 sind kein Betrag.
+  return { gross, wages, net: gross - wages, slots, factor: umsatzFactor };
+}
+
+function fullCeilingOf(b) {
+  return ceilingOf(b, data.MAX_STUFE, b.extras.map((e) => e.id));
 }
 
 /** Name-Regeln: 2–32 Zeichen, keine Erwähnungen. */
@@ -129,11 +160,12 @@ function ownerContext(guildId, userId) {
 function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
-  if (ctx.staff.length >= ctx.branch.slots) return { ok: false, reason: 'full' };
+  const eff = effectiveOf(ctx.company, ctx.branch);
+  if (ctx.staff.length >= eff.slots) return { ok: false, reason: 'full' };
   const name = data.NPC_NAMES[Math.min(data.NPC_NAMES.length - 1,
     Math.floor(random() * data.NPC_NAMES.length))];
   const staff = db.insertStaff({ companyId: ctx.company.id, kind: 'npc', name, now });
-  return { ok: true, staff, free: ctx.branch.slots - ctx.staff.length - 1 };
+  return { ok: true, staff, free: eff.slots - ctx.staff.length - 1 };
 }
 
 /** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. Rechnet vorher ab. */
@@ -153,8 +185,8 @@ function fire(guildId, userId, staffId, now = Date.now()) {
 // --------------------------------------------------------------- Abrechnung
 
 /** Auslastungsziel: ohne Personal 0,3, volle Besetzung 0,8, mit Werbung 1,0. */
-function dailyTarget(b, staffCount, werbungActive) {
-  const ziel = data.AUSLASTUNG_MIN + data.AUSLASTUNG_STAFF * Math.min(1, staffCount / b.slots)
+function dailyTarget(b, staffCount, werbungActive, slots = b.slots) {
+  const ziel = data.AUSLASTUNG_MIN + data.AUSLASTUNG_STAFF * Math.min(1, staffCount / slots)
     + (werbungActive ? data.WERBUNG_BOOST : 0);
   return Math.min(1, ziel);
 }
@@ -168,6 +200,7 @@ function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   if (!c || c.status !== 'open') return null;
   db.saveCompany({ ...c, status: 'closed', closed_at: now, closed_why: why });
   db.deleteStaffOfCompany(c.id);
+  db.deleteExtrasOfCompany(c.id);
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
   return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
 }
@@ -194,6 +227,7 @@ function settle(companyId, now = Date.now()) {
   const c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return null;
   const b = branch(c.branch);
+  const eff = effectiveOf(c, b);
   const guildId = c.guild_id;
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
@@ -214,7 +248,7 @@ function settle(companyId, now = Date.now()) {
     // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
     //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
     //    genau zum Tick gekauft wurde.
-    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag);
+    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag, eff.slots);
     auslastung += (ziel - auslastung) * data.AUSLASTUNG_STEP;
 
     // 2. NPC-Schichten – Löhne sind Verbindlichkeiten, die Kasse darf ins Minus.
@@ -222,7 +256,7 @@ function settle(companyId, now = Date.now()) {
       if (s.kind !== 'npc') continue;
       const f = rankOf(s.rank).factor;
       const lohn = Math.round(b.lohn * f);
-      const umsatz = Math.round(b.umsatz * f * auslastung);
+      const umsatz = Math.round(b.umsatz * f * auslastung * eff.umsatzFactor);
       kasse += data.NPC_SHIFTS * (umsatz - lohn);
       out.umsatz += data.NPC_SHIFTS * umsatz;
       out.loehne += data.NPC_SHIFTS * lohn;
@@ -271,8 +305,9 @@ function asJob(jobId) {
 function openings(guildId) {
   return db.openCompanies(guildId).map((c) => {
     const b = branch(c.branch);
-    const free = b.slots - db.companyStaff(c.id).length;
-    return { company: c, branch: b, free, lohn: b.lohn, jobId: companyJobId(c.id) };
+    const eff = effectiveOf(c, b);
+    const free = eff.slots - db.companyStaff(c.id).length;
+    return { company: c, branch: b, free, lohn: b.lohn, jobId: companyJobId(c.id), stufe: c.stufe };
   }).filter((o) => o.free > 0);
 }
 
@@ -286,7 +321,7 @@ function join(guildId, userId, companyId, now = Date.now()) {
   if (c.owner_id === String(userId)) return { ok: false, reason: 'owner' };
   if (db.staffByUser(c.id, userId)) return { ok: false, reason: 'already_hired' };
   const b = branch(c.branch);
-  if (db.companyStaff(c.id).length >= b.slots) return { ok: false, reason: 'full' };
+  if (db.companyStaff(c.id).length >= effectiveOf(c, b).slots) return { ok: false, reason: 'full' };
 
   leave(guildId, userId);                        // alte Firmenstelle räumen
   db.insertStaff({ companyId: c.id, kind: 'player', userId, now });
@@ -316,9 +351,10 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const s = db.staffByUser(c.id, userId);
   if (!s) return { ok: false, reason: 'not_staff' };
   const b = branch(c.branch);
+  const eff = effectiveOf(c, b);
   const f = rankOf(s.rank).factor;
   const lohn = Math.max(1, Math.round(b.lohn * f * (0.85 + random() * 0.3)));
-  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS);
+  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS * eff.umsatzFactor);
   if (c.kasse < lohn) return { ok: false, reason: 'kasse', lohn, kasse: c.kasse };
 
   db.saveCompany({ ...c, kasse: c.kasse - lohn + umsatz });
@@ -368,7 +404,8 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   if (done >= data.MAX_PITCH_PER_DAY) return { ok: false, reason: 'limit', done, max: data.MAX_PITCH_PER_DAY };
   const time = useTime(guildId, userId, data.TIME_ANPACKEN, now);
   if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_ANPACKEN, ...time };
-  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung);
+  const eff = effectiveOf(c, b);
+  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung * eff.umsatzFactor);
   db.saveCompany({ ...c, kasse: c.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
   return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time };
 }
@@ -502,31 +539,142 @@ function status(guildId, userId, now = Date.now()) {
   if (!ctx) return null;
   const { company: c, branch: b, staff } = ctx;
   const day = dayKey(now);
+  const extraIds = db.companyExtras(c.id);
+  const eff = effectiveOf(c, b, extraIds);
+  const ceilingNow = ceilingOf(b, c.stufe, extraIds);
   // Prognose: was die heutige NPC-Besetzung bei heutiger Auslastung am Tag
   // bringt – Spieler-Schichten (freiwillig, ungewiss) zählen hier nicht mit.
   const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
     const f = rankOf(s.rank).factor;
-    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung) - Math.round(b.lohn * f));
+    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor) - Math.round(b.lohn * f));
   }, 0);
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
   return {
     company: c, branch: b, staff,
-    free: b.slots - staff.length,
+    free: eff.slots - staff.length,
     kasse: c.kasse, auslastung: c.auslastung,
     werbungMs: Math.max(0, c.werbung_until - now),
     minusDays, daysLeft: c.negative_since ? Math.max(0, data.INSOLVENCY_DAYS - minusDays) : null,
     pitchLeft: data.MAX_PITCH_PER_DAY - (c.pitch_day === day ? c.pitch_today : 0),
     budget: require('./creator').budget(guildId, userId, now),
-    ceiling: ceilingOf(b), forecast,
+    ceiling: ceilingNow, ceilingNow, ceilingMax: fullCeilingOf(b), forecast,
+    effective: eff, stufe: c.stufe, nextStufe: nextStufe(c, b),
+    stufen: b.stufen.map((st) => ({ ...st, owned: st.id <= c.stufe })),
+    extras: b.extras.map((e) => ({ ...e, owned: extraIds.includes(e.id), locked: c.stufe < e.minStufe })),
     werbungCost: Math.round(b.price * data.WERBUNG_COST_SHARE),
   };
 }
 
+// ------------------------------------------------------------------ Ausbau
+
+/**
+ * Bezahlt eine Investition vom Konto des Inhabers (Bargeld, notfalls Bank) –
+ * eine Buchung, ohne XP: Investition ist keine Ausgabe fürs Level, sonst
+ * wäre Kaufen die nächste XP-Schleife (siehe deposit/withdraw).
+ * Gibt `{ ok, balance }` oder `{ ok: false, reason: 'funds'|'payment', … }`.
+ */
+async function pay(guildId, userId, price, reason) {
+  const balance = await getBalance(guildId, userId);
+  if (balance.total < price) return { ok: false, reason: 'funds', needed: price, have: balance.total };
+  let moved = 0;
+  try {
+    if (balance.cash < price) {
+      await unb.withdrawFromBank(guildId, userId, price - balance.cash, reason);
+      moved = price - balance.cash;             // erst nach Erfolg merken: ein Bankfehler darf nichts umkehren
+    }
+    const after = await changeCash(guildId, userId, -price, reason, { xp: false, kind: 'company' });
+    return { ok: true, balance: after };
+  } catch (err) {
+    // Bank wurde schon angezapft, die Abbuchung vom Konto ist aber gescheitert –
+    // sonst wäre das Geld weg, ohne dass ein Kauf zustande kam (Muster src/npc.js).
+    if (moved) await unb.withdrawFromBank(guildId, userId, -moved, 'Ausbau abgebrochen').catch(() => {});
+    return { ok: false, reason: 'payment', error: err.message };
+  }
+}
+
+/**
+ * Firmen, für die gerade ein Kauf läuft (§7). Die Sperre wird synchron vor dem
+ * ersten `await` gesetzt: Ein zweiter Klick, der während `getBalance` eintrifft,
+ * darf nicht die schon erhöhte Stufe lesen und die übernächste kaufen – das
+ * wäre ein Kauf ohne Guthabenprüfung, und die bedingte Rücknahme des ersten
+ * Kaufs würde bei einem Buchungsfehler ins Leere laufen. Die bedingte
+ * Schreibung bleibt als zweite Verteidigungslinie.
+ */
+const inFlight = new Set();
+
+/** Die nächste Stufe der Leiter kaufen. Stufe zuerst (§7), dann buchen; bei Fehler zurück. */
+async function upgrade(guildId, userId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
+  inFlight.add(c.id);
+  try {
+    const st = nextStufe(c, b);
+    if (!st) return { ok: false, reason: 'max' };
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < st.price) return { ok: false, reason: 'funds', needed: st.price, have: balance.total, stufe: st };
+
+    // Bedingt schreiben: nur wenn die Stufe noch beim gelesenen Stand ist – sonst
+    // hat ein gleichzeitiger zweiter Klick den Kauf schon abgeschlossen (§9).
+    if (!db.setCompanyStufe(c.id, st.id, c.stufe)) return { ok: false, reason: 'busy' };
+    const paid = await pay(guildId, userId, st.price, `Ausbau: ${c.name} – ${st.name}`);
+    if (!paid.ok) {
+      if (!db.setCompanyStufe(c.id, c.stufe, st.id)) {
+        console.warn(`Firma ${c.id}: Stufe ${st.id} nach fehlgeschlagener Buchung nicht zurückgenommen – Stand hat sich inzwischen geändert.`);
+      }
+      return {
+        ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, stufe: st,
+      };
+    }
+    return { ok: true, stufe: st, price: st.price, balance: paid.balance };
+  } finally {
+    inFlight.delete(c.id);
+  }
+}
+
+/** Ein Extra kaufen – jedes genau einmal, manche erst ab einer Stufe. */
+async function buyExtra(guildId, userId, extraId, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
+  inFlight.add(c.id);
+  try {
+    const e = b.extras.find((x) => x.id === String(extraId));
+    if (!e) return { ok: false, reason: 'unknown' };
+    if (db.companyExtras(c.id).includes(e.id)) return { ok: false, reason: 'owned', extra: e };
+    if (c.stufe < e.minStufe) return { ok: false, reason: 'stufe', extra: e, minStufe: e.minStufe };
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < e.price) return { ok: false, reason: 'funds', needed: e.price, have: balance.total, extra: e };
+
+    try {
+      db.addCompanyExtra(c.id, e.id, now);
+    } catch {
+      // PRIMARY KEY (company_id, extra_id) schlägt fehl, wenn ein gleichzeitiger
+      // zweiter Klick das Extra schon eingetragen hat (Muster wie bei `found`).
+      return { ok: false, reason: 'owned', extra: e };
+    }
+    const paid = await pay(guildId, userId, e.price, `Ausbau: ${c.name} – ${e.name}`);
+    if (!paid.ok) {
+      db.deleteCompanyExtra(c.id, e.id);
+      return {
+        ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, extra: e,
+      };
+    }
+    return { ok: true, extra: e, price: e.price, balance: paid.balance };
+  } finally {
+    inFlight.delete(c.id);
+  }
+}
+
 module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
+  MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
-  ceilingOf, cleanName, found, hireNpc, fire,
+  ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
+  upgrade, buyExtra,
 };

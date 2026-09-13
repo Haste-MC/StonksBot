@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.32.0',
+    date: '2026-09-13',
+    title: '🏗️ Firmen: Ausbau und neun Branchen',
+    lines: [
+      '🏢 **Sechs neue Branchen.** Imbiss, Autowäsche, Fitnessstudio, Werkstatt, Baufirma und Club – drei Klassen, drei Preisstufen, je eine Seite in der Gründungsansicht.',
+      '🏗️ **Ausbau.** Jede Firma hat fünf Ausbaustufen (mehr Plätze, mehr Umsatz je Schicht) und vier Extras. Bezahlt wird vom Konto, nicht aus der Kasse – und nichts davon ist umkehrbar. Eine Spedition voll auszubauen kostet rund 50 Mio.',
+      '💰 **Die Spitze.** Voll ausgebaut verdient eine Spedition rund eine halbe Million am Tag – so viel wie Musik+Creator nach zwei Jahren. Die Baufirma liegt mit ~560.000 noch darüber: teuerster Ausbau im Spiel (75 Mio), längster Atem, größter Ertrag.',
+      '📏 Gemessen, nicht geschätzt: Wer nur aus dem Gewinn ausbaut, braucht rund neun Monate (Spedition: 262 Tage).',
+    ],
+  },
+  {
     version: '1.31.0',
     date: '2026-09-12',
     title: '🏢 Eigene Firmen',
