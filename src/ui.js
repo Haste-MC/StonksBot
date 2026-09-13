@@ -1236,7 +1236,8 @@ async function buildFirmaAusbauView({ guildId, userId }) {
     components: [
       // Nav zuerst (Fluxer-Reaktionen), dann die Extras.
       new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`firma|ausbauen|0|${userId}`)
+        // Die ID trägt die gezeigte Stufe: ein alter Knopf kauft nicht eine inzwischen andere.
+        new ButtonBuilder().setCustomId(`firma|ausbauen|${s.nextStufe?.id ?? 0}|${userId}`)
           .setLabel(s.nextStufe ? `Ausbauen: ${s.nextStufe.name}`.slice(0, 40) : 'Voll ausgebaut')
           .setEmoji('⬆️').setStyle(ButtonStyle.Success).setDisabled(!s.nextStufe),
         new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')

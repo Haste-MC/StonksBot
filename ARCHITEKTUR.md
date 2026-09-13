@@ -442,11 +442,23 @@ Spedition und drücken die Amortisation auf 159 Tage; die Faktoren sind der
 einzige Hebel, der den Kern (Stück 1) nicht verschiebt.
 
 Die Decke oben gilt für NPC-Personal. Mit **Spieler-Angestellten** liegt sie
-höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am Tag –
-zehn Spieler-Schichtleiter in einer Spedition brächten dem Inhaber ~134.000/Tag,
-über Musik+Creator. Das ist eine bewusste Entscheidung (2026-09-13): Wer zehn
-echte Mitspieler für 630 je Schicht organisiert, hat es verdient. Zweitkonten
-sind ein Moderationsthema, kein Balance-Thema.
+deutlich höher: Ein Spieler bringt ×1,3 Umsatz und steht bis zu 4 Schichten am
+Tag statt 3. Voll ausgebaut mit 26 Spieler-Schichtleitern brächte die Baufirma
+26 × 4 × 1.700 × 1,5 × 1,3 × 2,95 = 1.017.042 brutto, minus Löhne 26 × 4 × 750
+= 78.000, plus Anpacken 30.090 → ~969.000/Tag; die Spedition (22 Plätze,
+×2,65) ~839.000/Tag – rund das Doppelte von Musik+Creator. Das ist eine
+bewusste Entscheidung (2026-09-13, Beschluss A): Wer 26 echte Mitspieler für
+750 je Schicht organisiert, hat es verdient. Zweitkonten sind ein
+Moderationsthema, kein Balance-Thema.
+
+Zum **Zeitbudget:** Ein Anpacken kostet 2 der 8 Einheiten und bringt der voll
+ausgebauten Baufirma ~7.500 – also ~3.750 je Zeiteinheit, während eine
+Stream- oder Studio-Sitzung bei Musik+Creator (~490.000/Tag auf 8 Einheiten)
+ein Vielfaches davon wert ist. Das Zeitbudget bremst die Firma also nicht:
+Der Umsatz kommt aus Plätzen und Schichten, nicht aus der Zeit des Inhabers.
+Die Bremse für Firmen ist das Geld (50–75 Mio Ausbau, 51–159 Tage
+Amortisation). Ob Anpacken darum Zeit kosten muss, klärt Stück 2b oder die
+Neubalance des Zeitbudgets.
 
 ### Eine Bremse, nicht zwei
 

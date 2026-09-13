@@ -1977,29 +1977,36 @@ Object.assign(buttons, {
       }
       return;
     } else if (aktion === 'ausbauen') {
+      // `arg` ist die Stufe, die der Knopf gezeigt hat (`<id>`), oder die
+      // bestätigte (`ja-<id>`). Ist sie nicht mehr die nächste, war ein anderer
+      // Klick schneller – dann nur den Stand zeigen, nichts kaufen.
       const s = company.status(guildId, userId);
-      const n = s?.nextStufe;
+      if (!s) {
+        await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
+        await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      const n = s.nextStufe;
       const BUSY_NOTE = 'ℹ️ Da war ein zweiter Klick schneller – schau auf den Stand.';
-      if (arg === '0') {
-        // Nur ab dem Schwellwert nachfragen; die ID trägt die gezeigte Stufe,
-        // damit ein zweiter Klick auf "Ja" nicht eine inzwischen andere Stufe kauft.
-        if (n && n.price >= company.CONFIRM_ABOVE) {
-          return interaction.editReply(buildConfirmView({
-            title: `⬆️ ${n.name} für ${money(symbol, n.price)}?`,
-            text: `→ ${n.slots} Plätze, Umsatz ×${faktor(n.umsatz)}. Vom Konto, nicht umkehrbar.`,
-            color: 0xf39c12,
-            yesId: `firma|ausbauen|${n.id}|${userId}`,
-            yesLabel: 'Ja, ausbauen',
-            yesEmoji: '⬆️',
-            cancelId: `firma|ausbau|0|${userId}`,
-            userId,
-          }));
-        }
-      } else if (!n || String(n.id) !== arg) {
-        // Die bestätigte Stufe ist nicht mehr die nächste – ein anderer Klick war schneller.
+      const bestaetigt = String(arg ?? '').startsWith('ja-');
+      const gezeigt = bestaetigt ? String(arg).slice(3) : String(arg ?? '');
+      if (!n || String(n.id) !== gezeigt) {
         await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
         await interaction.followUp({ content: BUSY_NOTE, flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
+      }
+      if (!bestaetigt && n.price >= company.CONFIRM_ABOVE) {
+        // Nur ab dem Schwellwert nachfragen; „Ja" trägt dieselbe Stufe weiter.
+        return interaction.editReply(buildConfirmView({
+          title: `⬆️ ${n.name} für ${money(symbol, n.price)}?`,
+          text: `→ ${n.slots} Plätze, Umsatz ×${faktor(n.umsatz)}. Vom Konto, nicht umkehrbar.`,
+          color: 0xf39c12,
+          yesId: `firma|ausbauen|ja-${n.id}|${userId}`,
+          yesLabel: 'Ja, ausbauen',
+          yesEmoji: '⬆️',
+          cancelId: `firma|ausbau|0|${userId}`,
+          userId,
+        }));
       }
       const r = await company.upgrade(guildId, userId);
       note = r.ok ? `⬆️ **${r.stufe.name}** gebaut (${money(symbol, r.price)}) – ${r.stufe.slots} Plätze, Umsatz ×${faktor(r.stufe.umsatz)}.`
@@ -2026,9 +2033,19 @@ Object.assign(buttons, {
       return interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
     } else if (aktion === 'schliessen') {
       if (arg !== 'ja') {
+        // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
+        const s = company.status(guildId, userId);
+        const investiert = s
+          ? s.stufen.filter((st) => st.owned).reduce((sum, st) => sum + st.price, 0)
+            + s.extras.filter((e) => e.owned).reduce((sum, e) => sum + e.price, 0)
+          : 0;
+        const extras = s ? s.extras.filter((e) => e.owned).length : 0;
+        const ausbau = investiert > 0
+          ? ` – bei Stufe ${s.stufe} und ${extras} Extra${extras === 1 ? '' : 's'} sind das ${money(symbol, investiert)} Investition`
+          : '';
         return interaction.editReply(buildConfirmView({
           title: '🔒 Firma schließen?',
-          text: 'Die Kasse wird ausgezahlt, das Personal geht, die Gründung ist weg. Sicher?',
+          text: `Die Kasse wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}. Sicher?`,
           color: 0xe74c3c,
           yesId: `firma|schliessen|ja|${userId}`,
           yesLabel: 'Ja, schließen',

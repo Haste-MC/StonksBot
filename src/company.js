@@ -90,9 +90,10 @@ function nextStufe(company, b) {
 function ceilingOf(b, stufe = 0, extraIds = []) {
   const top = rankOf(data.RANKS.length - 1).factor;
   const { slots, umsatzFactor } = effectiveOf({ id: 0, stufe }, b, extraIds);
-  const gross = slots * data.NPC_SHIFTS * b.umsatz * top * umsatzFactor
-    + data.MAX_PITCH_PER_DAY * b.umsatz * top * umsatzFactor;
-  const wages = slots * data.NPC_SHIFTS * b.lohn * top;
+  const gross = Math.round(slots * data.NPC_SHIFTS * b.umsatz * top * umsatzFactor
+    + data.MAX_PITCH_PER_DAY * b.umsatz * top * umsatzFactor);
+  const wages = Math.round(slots * data.NPC_SHIFTS * b.lohn * top);
+  // Ganze Taler: die Anzeige zeigt die Decke, und 16.631,25 sind kein Betrag.
   return { gross, wages, net: gross - wages, slots, factor: umsatzFactor };
 }
 
