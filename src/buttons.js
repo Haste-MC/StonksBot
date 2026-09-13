@@ -1965,11 +1965,12 @@ Object.assign(buttons, {
       const r = company.hireNpc(guildId, userId);
       note = r.ok ? `🤖 **${r.staff.name}** fängt morgen an (noch ${r.free} Plätze frei).`
         : r.reason === 'full' ? '❌ Kein Platz mehr – entlasse zuerst jemanden.' : '🏢 Du hast keine Firma.';
-      await interaction.editReply(await buildFirmaStaffView({ guildId, userId }));
+      await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     } else if (aktion === 'personal') {
-      return interaction.editReply(await buildFirmaStaffView({ guildId, userId }));
+      // `arg` ist die Seite (Personal zu je 4).
+      return interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
     } else if (aktion === 'schliessen') {
       if (arg !== 'ja') {
         return interaction.editReply({
@@ -1993,13 +1994,14 @@ Object.assign(buttons, {
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
-  /** Firma: Personal führen. */
-  async fstaff(interaction, [aktion, staffId]) {
+  /** Firma: Personal führen. `page` ist die Personalseite, auf die es danach zurückgeht. */
+  async fstaff(interaction, [aktion, staffId, page]) {
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const company = require('./company');
 
     if (aktion === 'bonus') {
+      // Das Modal kehrt auf Seite 1 zurück – die Seite hier durchzureichen lohnt nicht.
       const modal = new ModalBuilder().setCustomId(`fpraemie|${staffId}|${userId}`).setTitle('Prämie zahlen');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('amount').setLabel('Betrag aus der Kasse')
@@ -2022,7 +2024,7 @@ Object.assign(buttons, {
         note = '❌ Nicht gefunden.';
       }
     }
-    await interaction.editReply(await buildFirmaStaffView({ guildId, userId }));
+    await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(page) || 1 }));
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 

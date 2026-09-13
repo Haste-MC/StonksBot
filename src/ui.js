@@ -1028,11 +1028,19 @@ async function buildFirmaView({ guildId, userId }) {
       },
     );
 
+  // Die Minus-Uhr läuft, bis eine Abrechnung mit positiver Kasse sie stoppt – auch
+  // wenn die Kasse tagsüber (Anpacken, Spieler-Schicht) schon wieder über 0 steht.
   if (s.kasse < 0) {
     embed.addFields({
       name: '⚠️ Kasse im Minus',
       value: `Noch **${s.daysLeft} Tage** bis zur Insolvenz. Unbezahlte Angestellte kündigen nach `
         + `${require('./data/companies').NPC_QUIT_AFTER_UNPAID} Tagen. Zahl Kapital ein oder entlasse Leute.`,
+    });
+  } else if (s.company.negative_since) {
+    embed.addFields({
+      name: '⚠️ Minus-Uhr läuft',
+      value: 'Die Kasse war im Minus – erst die nächste Abrechnung mit positiver Kasse stoppt die Uhr. '
+        + `Noch **${s.daysLeft} Tage**.`,
     });
   }
   if (s.werbungMs > 0) {
@@ -1082,13 +1090,24 @@ async function buildFirmaView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
-/** Personal führen: je Angestellter befördern, zurückstufen, entlassen, Prämie. */
-async function buildFirmaStaffView({ guildId, userId }) {
+/** Angestellte je Personalseite: eine Button-Zeile je Person, plus die Navigation = 5 Zeilen. */
+const STAFF_PER_PAGE = 4;
+
+/**
+ * Personal führen: je Angestellter befördern, zurückstufen, entlassen, Prämie.
+ * Seitenweise zu je 4 (Discord erlaubt 5 Zeilen, eine ist die Navigation), damit
+ * auch das Personal einer Spedition (10 Plätze) bearbeitbar bleibt.
+ */
+async function buildFirmaStaffView({ guildId, userId, page = 1 }) {
   const company = require('./company');
   const identity = require('./identity');
   const s = company.status(guildId, userId);
   if (!s) return buildFirmaFoundView({ guildId, userId });
   const symbol = await getSymbol(guildId);
+  const totalPages = Math.max(1, Math.ceil(s.staff.length / STAFF_PER_PAGE));
+  // Geklemmt: Nach einer Entlassung kann die letzte Seite leer geworden sein.
+  const p = Math.min(totalPages, Math.max(1, Number(page) || 1));
+  const shown = s.staff.slice((p - 1) * STAFF_PER_PAGE, p * STAFF_PER_PAGE);
 
   const embed = new EmbedBuilder()
     .setTitle(`👥 Personal – ${s.company.name}`)
@@ -1102,31 +1121,35 @@ async function buildFirmaStaffView({ guildId, userId }) {
   // stehen, sonst fallen „NPC einstellen“/„Firma“ bei voller Belegschaft raus.
   // Discord ist die Zeilenreihenfolge egal.
   const rows = [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`firma|npc|0|${userId}`).setLabel('NPC einstellen')
+    new ButtonBuilder().setCustomId(`firma|npc|${p}|${userId}`).setLabel('NPC einstellen')
       .setEmoji('🤖').setStyle(ButtonStyle.Primary).setDisabled(s.free <= 0),
+    new ButtonBuilder().setCustomId(`firma|personal|${p - 1}|${userId}`).setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId(`firma|personal|${p + 1}|${userId}`).setLabel('Weiter').setEmoji('▶️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages),
     new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
       .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
     homeButton(userId))];
-  for (const st of s.staff.slice(0, 4)) {
+  for (const st of shown) {
     const r = company.rankOf(st.rank);
     const who = st.kind === 'npc' ? st.name : (identity.nameOf(st.user_id) ?? 'Spieler');
     embed.addFields({
       name: `${st.kind === 'npc' ? '🤖' : '👤'} ${who} · ${r.emoji} ${r.name}`,
       value: `${st.shifts} Schichten` + (st.unpaid_days ? ` · ⚠️ ${st.unpaid_days} Tage unbezahlt` : ''),
     });
+    // Die Seite steht mit in der ID, damit die Aktion auf derselben Seite landet.
+    const id = (aktion) => `fstaff|${aktion}|${st.id}|${p}|${userId}`;
     rows.push(new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`fstaff|up|${st.id}|${userId}`).setLabel('Befördern')
+      new ButtonBuilder().setCustomId(id('up')).setLabel('Befördern')
         .setEmoji('⬆️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank >= company.RANKS.length - 1),
-      new ButtonBuilder().setCustomId(`fstaff|down|${st.id}|${userId}`).setLabel('Zurückstufen')
+      new ButtonBuilder().setCustomId(id('down')).setLabel('Zurückstufen')
         .setEmoji('⬇️').setStyle(ButtonStyle.Secondary).setDisabled(st.rank <= 0),
-      new ButtonBuilder().setCustomId(`fstaff|bonus|${st.id}|${userId}`).setLabel('Prämie')
+      new ButtonBuilder().setCustomId(id('bonus')).setLabel('Prämie')
         .setEmoji('💶').setStyle(ButtonStyle.Success).setDisabled(st.kind !== 'player' || s.kasse <= 0),
-      new ButtonBuilder().setCustomId(`fstaff|fire|${st.id}|${userId}`).setLabel('Entlassen')
+      new ButtonBuilder().setCustomId(id('fire')).setLabel('Entlassen')
         .setEmoji('❌').setStyle(ButtonStyle.Danger)));
   }
-  if (s.staff.length > 4) {
-    embed.setFooter({ text: `Nur die ersten 4 von ${s.staff.length} lassen sich hier bearbeiten.` });
-  }
+  if (totalPages > 1) embed.setFooter({ text: `Seite ${p}/${totalPages}` });
   return { embeds: [embed], components: rows };
 }
 

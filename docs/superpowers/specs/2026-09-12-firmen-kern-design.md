@@ -296,3 +296,34 @@ heutiger Auslastung – damit der Inhaber sieht, ob sich ein NPC lohnt).
 4. Inhaber-Aktionen (Werbung, Anpacken, Entnahme, Einzahlung, Rang, Prämie, Schließen) + Tests 7, 8, 12.
 5. Ansichten und Handler (Discord + Fluxer über dieselben Handler).
 6. Decke-Test 11, Messskript-Archetyp, Werte ziehen, Patchnotes, ARCHITEKTUR.
+
+## Nach der Messung (2026-09-13)
+
+Was sich beim Umsetzen gegen die Zahlen oben verschoben hat – die Abschnitte davor
+bleiben als Entwurf stehen, hier gilt der Stand im Code:
+
+- **Spedition `umsatz` 2.600 → 1.900.** Mit 2.600 lag der gemessene Median bei
+  103.280/Tag und damit über Musik+Creator (100.916). Die Decke der Spedition
+  ist damit 10 × 3 × 1.900 × 1,5 + 4 × 2.850 = 96.900 brutto − 18.900 Löhne =
+  **78.000/Tag** (vorher 113.700).
+- **Gemessene Mediane** (`scripts/messung-geldquellen.js`, 365 Tage, Vollbetrieb
+  mit Werbung und täglichem Anpacken): Kiosk **2.584**, Café **19.651**,
+  Spedition **70.380** – alle unter Musik+Creator (**100.916**).
+- **Signatur:** `settle(companyId, now)` – ohne `guildId`; die Firma kennt ihren
+  Server selbst (`guild_id`). `fresh(guildId, userId, now)` rechnet ab und liefert
+  Firma, Branche und Personal; alle Inhaber-Aktionen und auch `hireNpc`/`fire`
+  gehen darüber.
+- **Umbuchungen ohne Erfahrung:** Einzahlen, Entnehmen und die Auszahlung beim
+  Schließen buchen `{ xp: false }` – sonst wäre Einzahlen + Entnehmen desselben
+  Betrags eine XP-Schleife ohne Kosten. Die Prämie bucht `kind: 'company'`
+  (keine Schicht, kein Schicht-Erfolg).
+
+### Offene Designfrage: die Decke mit Spieler-Personal
+
+Die Decke oben rechnet mit NPCs (3 Schichten, ×1,0). Zehn Spieler-Schichtleiter
+auf denselben Plätzen stehen je 4 Schichten mit ×1,3: 10 × 4 × 1.900 × 1,5 × 1,3 =
+148.200 brutto − 10 × 4 × 630 = 25.200 Löhne + 4 × 2.850 Anpacken →
+**~134.400/Tag für den Inhaber**, über Musik+Creator. Das setzt zehn Spieler
+voraus, die alle täglich vier Schichten für eine fremde Firma stehen – in der
+Praxis eher Theorie, aber §3 kennt kein „in der Praxis". Entscheidung steht aus
+(mit dem Nutzer); bis dahin bleibt jede Konstante, wie sie ist.
