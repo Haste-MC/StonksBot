@@ -541,6 +541,7 @@ db.exec(`
     pitch_today    INTEGER NOT NULL DEFAULT 0,
     status         TEXT    NOT NULL DEFAULT 'open',
     closed_at      INTEGER NOT NULL DEFAULT 0,
+    stufe          INTEGER NOT NULL DEFAULT 0,
     closed_why     TEXT    NOT NULL DEFAULT ''
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
@@ -1772,6 +1773,9 @@ const stmt = {
   deleteStaffOfCompany: db.prepare('DELETE FROM company_staff WHERE company_id = ?'),
   clearEmploymentByJob: db.prepare('DELETE FROM employment WHERE guild_id = ? AND job_id = ?'),
   setCompanyStufe: db.prepare('UPDATE companies SET stufe = ? WHERE id = ?'),
+  // Doppelklick-Schutz: schreibt nur, wenn die Stufe noch dem erwarteten Wert
+  // entspricht – sonst hat ein gleichzeitiger zweiter Kauf schon gewonnen.
+  setCompanyStufeIf: db.prepare('UPDATE companies SET stufe = ? WHERE id = ? AND stufe = ?'),
   companyExtras: db.prepare('SELECT extra_id FROM company_extras WHERE company_id = ? ORDER BY bought_at, extra_id'),
   addCompanyExtra: db.prepare('INSERT INTO company_extras (company_id, extra_id, bought_at) VALUES (?, ?, ?)'),
   deleteCompanyExtra: db.prepare('DELETE FROM company_extras WHERE company_id = ? AND extra_id = ?'),
@@ -3822,7 +3826,20 @@ function deleteStaffOfCompany(companyId) { stmt.deleteStaffOfCompany.run(Number(
 /** Alle Anstellungen bei einem Job lösen (Firma geschlossen). */
 function clearEmploymentByJob(guildId, jobId) { stmt.clearEmploymentByJob.run(guildId, jobId); }
 
-function setCompanyStufe(id, stufe) { stmt.setCompanyStufe.run(Math.round(stufe), Number(id)); }
+/**
+ * Setzt die Ausbaustufe. Mit `expected` bedingt (nur wenn die Stufe in der DB
+ * noch dem erwarteten Wert entspricht) – so gewinnt bei zwei gleichzeitigen
+ * Käufen nur einer, statt dass beide unbedingt schreiben und beide zahlen.
+ * Ohne `expected` bleibt es die alte, unbedingte Schreibweise (z.B. Rollback
+ * eines Neustarts, Migration).
+ */
+function setCompanyStufe(id, stufe, expected) {
+  if (expected === undefined) {
+    stmt.setCompanyStufe.run(Math.round(stufe), Number(id));
+    return true;
+  }
+  return stmt.setCompanyStufeIf.run(Math.round(stufe), Number(id), Math.round(expected)).changes > 0;
+}
 function companyExtras(companyId) { return stmt.companyExtras.all(Number(companyId)).map((r) => r.extra_id); }
 function addCompanyExtra(companyId, extraId, now = Date.now()) {
   stmt.addCompanyExtra.run(Number(companyId), String(extraId), now);

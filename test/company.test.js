@@ -533,6 +533,47 @@ const user = () => `u${++n}`;
     check('Buchung schlägt fehl: Extra zurück', r.reason === 'payment' && db.companyExtras(company.ownCompany(G, W).id).length === 0);
     unb.changeCash = echt;
 
+    // Doppelklick-Schutz: zwei gleichzeitige Käufe derselben Stufe dürfen nicht
+    // beide durchgehen (§9) – die bedingte Schreibung entscheidet, wer gewinnt.
+    const U2 = user(); funds(U2, 100_000_000, 100_000_000);
+    await company.found(G, U2, 'spedition', 'Doppelklick-Sped', t0);
+    bookings = [];
+    const [du1, du2] = await Promise.all([company.upgrade(G, U2, t0), company.upgrade(G, U2, t0)]);
+    const upgradeOks = [du1, du2].filter((x) => x.ok);
+    const upgradeBusy = [du1, du2].filter((x) => !x.ok);
+    check('Doppelklick bei upgrade: genau ein Erfolg, der andere busy',
+      upgradeOks.length === 1 && upgradeBusy.length === 1 && upgradeBusy[0].reason === 'busy',
+      JSON.stringify([du1, du2]));
+    check('Doppelklick bei upgrade: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+    check('Doppelklick bei upgrade: Stufe 1 (nicht doppelt gestiegen)',
+      company.ownCompany(G, U2).stufe === 1);
+
+    // Dasselbe für Extras: die PRIMARY KEY (company_id, extra_id) übernimmt den Schutz.
+    const dx = sp.extras[0];
+    bookings = [];
+    const [de1, de2] = await Promise.all([
+      company.buyExtra(G, U2, dx.id, t0), company.buyExtra(G, U2, dx.id, t0),
+    ]);
+    const extraOks = [de1, de2].filter((x) => x.ok);
+    const extraOwned = [de1, de2].filter((x) => !x.ok);
+    check('Doppelklick bei buyExtra: genau ein Erfolg, der andere owned',
+      extraOks.length === 1 && extraOwned.length === 1 && extraOwned[0].reason === 'owned',
+      JSON.stringify([de1, de2]));
+    check('Doppelklick bei buyExtra: genau eine Buchung', bookings.length === 1, JSON.stringify(bookings));
+
+    // Bricht die Bank beim Anzapfen ab, darf weder eine Buchung noch eine
+    // Stufenänderung übrig bleiben (die bedingte Rücknahme darf niemanden clobbern).
+    const U3 = user(); funds(U3, 0, 100_000_000);
+    await company.found(G, U3, 'spedition', 'Bankfehler-Sped', t0);
+    const echtWithdraw = unb.withdrawFromBank;
+    unb.withdrawFromBank = async () => { throw new Error('Bank down'); };
+    bookings = [];
+    r = await company.upgrade(G, U3, t0);
+    check('Bank down: payment, Stufe unverändert, keine Buchung',
+      r.reason === 'payment' && company.ownCompany(G, U3).stufe === 0 && bookings.length === 0,
+      JSON.stringify(r));
+    unb.withdrawFromBank = echtWithdraw;
+
     // Schließen räumt die Extras weg.
     const before = db.companyExtras(cid).length;
     await company.close(G, U, t0);

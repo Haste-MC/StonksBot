@@ -564,11 +564,18 @@ function status(guildId, userId, now = Date.now()) {
 async function pay(guildId, userId, price, reason) {
   const balance = await getBalance(guildId, userId);
   if (balance.total < price) return { ok: false, reason: 'funds', needed: price, have: balance.total };
+  let moved = 0;
   try {
-    if (balance.cash < price) await unb.withdrawFromBank(guildId, userId, price - balance.cash, reason);
+    if (balance.cash < price) {
+      moved = price - balance.cash;
+      await unb.withdrawFromBank(guildId, userId, moved, reason);
+    }
     const after = await changeCash(guildId, userId, -price, reason, { xp: false, kind: 'company' });
     return { ok: true, balance: after };
   } catch (err) {
+    // Bank wurde schon angezapft, die Abbuchung vom Konto ist aber gescheitert –
+    // sonst wäre das Geld weg, ohne dass ein Kauf zustande kam (Muster src/npc.js).
+    if (moved) await unb.withdrawFromBank(guildId, userId, -moved, 'Ausbau abgebrochen').catch(() => {});
     return { ok: false, reason: 'payment', error: err.message };
   }
 }
@@ -583,11 +590,15 @@ async function upgrade(guildId, userId, now = Date.now()) {
   const balance = await getBalance(guildId, userId);
   if (balance.total < st.price) return { ok: false, reason: 'funds', needed: st.price, have: balance.total, stufe: st };
 
-  db.setCompanyStufe(c.id, st.id);
+  // Bedingt schreiben: nur wenn die Stufe noch beim gelesenen Stand ist – sonst
+  // hat ein gleichzeitiger zweiter Klick den Kauf schon abgeschlossen (§9).
+  if (!db.setCompanyStufe(c.id, st.id, c.stufe)) return { ok: false, reason: 'busy' };
   const paid = await pay(guildId, userId, st.price, `Ausbau: ${c.name} – ${st.name}`);
   if (!paid.ok) {
-    db.setCompanyStufe(c.id, c.stufe);
-    return { ok: false, reason: paid.reason, error: paid.error, stufe: st };
+    db.setCompanyStufe(c.id, c.stufe, st.id);
+    return {
+      ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, stufe: st,
+    };
   }
   return { ok: true, stufe: st, price: st.price, balance: paid.balance };
 }
@@ -604,11 +615,19 @@ async function buyExtra(guildId, userId, extraId, now = Date.now()) {
   const balance = await getBalance(guildId, userId);
   if (balance.total < e.price) return { ok: false, reason: 'funds', needed: e.price, have: balance.total, extra: e };
 
-  db.addCompanyExtra(c.id, e.id, now);
+  try {
+    db.addCompanyExtra(c.id, e.id, now);
+  } catch {
+    // PRIMARY KEY (company_id, extra_id) schlägt fehl, wenn ein gleichzeitiger
+    // zweiter Klick das Extra schon eingetragen hat (Muster wie bei `found`).
+    return { ok: false, reason: 'owned', extra: e };
+  }
   const paid = await pay(guildId, userId, e.price, `Ausbau: ${c.name} – ${e.name}`);
   if (!paid.ok) {
     db.deleteCompanyExtra(c.id, e.id);
-    return { ok: false, reason: paid.reason, error: paid.error, extra: e };
+    return {
+      ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error, extra: e,
+    };
   }
   return { ok: true, extra: e, price: e.price, balance: paid.balance };
 }
