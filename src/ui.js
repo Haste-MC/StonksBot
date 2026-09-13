@@ -25,11 +25,32 @@ const ID = {
 const money = (symbol, n) =>
   `${symbol} ${Number.isFinite(n) ? n.toLocaleString('de-DE') : '∞'}`;
 
+/** Ein Faktor oder Zuschlag als deutsche Dezimalzahl, z.B. `×1,2`, `+0,15`. */
+const faktor = (n) => Number(n).toLocaleString('de-DE');
+
 const homeButton = (userId) =>
   new ButtonBuilder()
     .setCustomId(ID.home(userId))
     .setLabel('Hauptmenü').setEmoji('🏠')
     .setStyle(ButtonStyle.Primary);
+
+/**
+ * Ja/Abbrechen/Hauptmenü-Dialog für eine gefährliche Aktion. Jede Ansicht
+ * braucht den Hauptmenü-Button – auch der Bestätigungs-Zwischenschritt.
+ */
+function buildConfirmView({
+  title, text, color, yesId, yesLabel, yesEmoji, yesStyle = ButtonStyle.Success, cancelId, userId,
+}) {
+  return {
+    embeds: [new EmbedBuilder().setTitle(title).setColor(color).setDescription(text)],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(yesId).setLabel(yesLabel)
+        .setEmoji(yesEmoji).setStyle(yesStyle),
+      new ButtonBuilder().setCustomId(cancelId).setLabel('Abbrechen')
+        .setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
 
 /**
  * Standard-Kopfzeile: Blättern, optionaler Zusatz-Button, Hauptmenü.
@@ -1085,7 +1106,7 @@ async function buildFirmaView({ guildId, userId }) {
     value: `Stufe **${s.stufe}/${company.MAX_STUFE}**`
       + (s.stufe > 0 ? ` _(${s.stufen[s.stufe - 1].name})_` : '')
       + ` · **${s.extras.filter((e) => e.owned).length}** von ${s.extras.length} Extras · `
-      + `${s.effective.slots} Plätze, Umsatz ×${s.effective.umsatzFactor}`
+      + `${s.effective.slots} Plätze, Umsatz ×${faktor(s.effective.umsatzFactor)}`
       + (s.nextStufe ? `\nNächste Stufe: **${s.nextStufe.name}** für ${money(symbol, s.nextStufe.price)}` : '\n_Voll ausgebaut._'),
   });
   embed.setFooter({ text: `Decke jetzt ~${money(symbol, s.ceilingNow.net)} am Tag · voll ausgebaut ~${money(symbol, s.ceilingMax.net)}` });
@@ -1190,7 +1211,7 @@ async function buildFirmaAusbauView({ guildId, userId }) {
   const embed = new EmbedBuilder()
     .setTitle(`🏗️ Ausbau – ${s.company.name}`)
     .setColor(0x34495e)
-    .setDescription(`Stufe **${s.stufe}/${company.MAX_STUFE}** · ${s.effective.slots} Plätze · Umsatz ×${s.effective.umsatzFactor}\n`
+    .setDescription(`Stufe **${s.stufe}/${company.MAX_STUFE}** · ${s.effective.slots} Plätze · Umsatz ×${faktor(s.effective.umsatzFactor)}\n`
       + `Decke jetzt ~**${money(symbol, s.ceilingNow.net)}** am Tag, voll ausgebaut ~**${money(symbol, s.ceilingMax.net)}**.\n`
       + '_Investitionen kommen von deinem Konto, nicht aus der Kasse – und sind nicht umkehrbar._');
 
@@ -1198,14 +1219,14 @@ async function buildFirmaAusbauView({ guildId, userId }) {
     const n = s.nextStufe;
     embed.addFields({
       name: `⬆️ Nächste Stufe: ${n.name} – ${money(symbol, n.price)}`,
-      value: `→ **${n.slots}** Plätze, Umsatz **×${n.umsatz}**`
+      value: `→ **${n.slots}** Plätze, Umsatz **×${faktor(n.umsatz)}**`
         + (n.price >= company.CONFIRM_ABOVE ? ' · _fragt vor dem Kauf nach_' : ''),
     });
   } else {
     embed.addFields({ name: '⬆️ Leiter', value: '_Voll ausgebaut – alle fünf Stufen gekauft._' });
   }
   for (const e of s.extras) {
-    const wirkung = e.umsatz ? `Umsatz +${e.umsatz}` : `+${e.slots} Plätze`;
+    const wirkung = e.umsatz ? `Umsatz +${faktor(e.umsatz)}` : `+${e.slots} Plätze`;
     const zustand = e.owned ? '✅ gekauft' : e.locked ? `🔒 ab Stufe ${e.minStufe}` : '🛒 kaufbar';
     embed.addFields({ name: `${e.emoji} ${e.name} – ${money(symbol, e.price)}`, value: `${wirkung} · ${zustand}`, inline: true });
   }
@@ -4497,5 +4518,5 @@ module.exports = {
   buildInboxView, buildProfileView, buildTitleView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
-  navigationRow, actionsRow, homeButton, garageLabel, ID, money,
+  navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
 };
