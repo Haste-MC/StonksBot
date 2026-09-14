@@ -374,6 +374,46 @@ const user = () => `u${++n}`;
     check('ohne Firma: status null', company.status(G, U, t0) === null);
   }
 
+  console.log('--- Ansicht: Ziel, morgen, nächste Abrechnung ---');
+  {
+    // Handrechnung Kiosk (Stufe 1, 2 Plätze): 2 NPCs + Werbung -> Ziel 0,3 + 0,5 + 0,25,
+    // gedeckelt auf 1,0; morgen 0,3 + (1,0 − 0,3) × 0,2 = 0,44; eine Stunde nach
+    // der Gründung sind es noch 23 h bis zur ersten Abrechnung.
+    const U = user(); funds(U, 1_000_000);
+    const H = 60 * 60 * 1000;
+    let r = await company.found(G, U, 'kiosk', 'Eckladen', t0);
+    check('Kiosk gegründet', r.ok, JSON.stringify(r));
+    for (let i = 0; i < 2; i++) check('NPC eingestellt', company.hireNpc(G, U, t0, seq(0.1)).ok);
+    check('dritter NPC: voll', company.hireNpc(G, U, t0, seq(0.1)).reason === 'full');
+    await company.deposit(G, U, 50_000, t0);
+    r = await company.advertise(G, U, t0);
+    check('Werbung gebucht', r.ok, JSON.stringify(r));
+
+    let s = company.status(G, U, t0 + H);
+    check('frisch: Auslastung 30 %, Ziel 100 %, morgen 44 %, Abrechnung in 23 h',
+      Math.abs(s.auslastung - 0.3) < 1e-9 && s.target === 1 && Math.abs(s.auslastungTomorrow - 0.44) < 1e-9
+      && s.nextSettleMs === 23 * H,
+      JSON.stringify({ a: s.auslastung, target: s.target, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
+
+    // Nach dem ersten Tick steht die Auslastung genau auf dem angekündigten Wert.
+    s = company.status(G, U, t0 + DAY_MS + H);
+    check('Tag 1: Auslastung 44 % wie angekündigt, morgen ~55 %',
+      Math.abs(s.auslastung - 0.44) < 1e-9 && Math.abs(s.auslastungTomorrow - 0.552) < 1e-9 && s.nextSettleMs === 23 * H,
+      JSON.stringify({ a: s.auslastung, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
+
+    // Werbung läuft 3 Tage: Tag 3 zählt sie noch (>=), Tag 4 nicht mehr -> Ziel 0,8.
+    s = company.status(G, U, t0 + 3 * DAY_MS + H);
+    check('Tag 3: Werbung abgelaufen, nächstes Ziel 80 %', s.target === 0.8 && s.werbungMs === 0,
+      JSON.stringify({ target: s.target, werbungMs: s.werbungMs }));
+
+    // Ein Angestellter weniger -> Ziel 0,3 + 0,5 × 1/2 = 0,55.
+    const npc = db.companyStaff(s.company.id)[0];
+    company.fire(G, U, npc.id, t0 + 3 * DAY_MS + H);
+    s = company.status(G, U, t0 + 3 * DAY_MS + H);
+    check('mit 1 von 2 Plätzen: Ziel 55 %', Math.abs(s.target - 0.55) < 1e-9, String(s.target));
+    await company.close(G, U, t0 + 3 * DAY_MS + H);
+  }
+
   console.log('--- §3: kein Tag über der Decke ---');
   {
     for (const b of data.BRANCHES) {

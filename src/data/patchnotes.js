@@ -18,6 +18,15 @@
  */
 module.exports = [
   {
+    version: '1.32.1',
+    date: '2026-09-14',
+    title: '📈 Firmen: Auslastung erklärt sich',
+    lines: [
+      '📈 **Ziel und Prognose.** Die Betriebsansicht zeigt unter der Auslastung, wohin sie will („Ziel 100 %"), was der nächste Tag bringt („morgen ~44 %") und wann die nächste Abrechnung kommt. Die Auslastung selbst bewegt sich wie bisher nur einmal am Tag – ein Fünftel der Lücke zum Ziel.',
+      '👥 Das Personal-Feld zählt jetzt die ausgebauten Plätze (vorher standen bei einem Kiosk mit Kühlregal „3/2 Plätze").',
+    ],
+  },
+  {
     version: '1.32.0',
     date: '2026-09-13',
     title: '🏗️ Firmen: Ausbau und neun Branchen',

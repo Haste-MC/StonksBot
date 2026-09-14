@@ -980,10 +980,12 @@ async function buildJobCenterView({ guildId, userId }) {
 
 // ------------------------------------------------------------------- Firma
 
+const pct = (a) => `${Math.round(a * 100)} %`;
+
 /** Balken für die Auslastung (10 Felder). */
 function auslastungBar(a) {
   const n = Math.round(Math.max(0, Math.min(1, a)) * 10);
-  return `${'▰'.repeat(n)}${'▱'.repeat(10 - n)} ${Math.round(a * 100)} %`;
+  return `${'▰'.repeat(n)}${'▱'.repeat(10 - n)} ${pct(a)}`;
 }
 
 const KLASSEN = [
@@ -1058,10 +1060,15 @@ async function buildFirmaView({ guildId, userId }) {
     .setDescription(`${s.branch.name} · seit ${new Date(s.company.founded_at).toLocaleDateString('de-DE')}`)
     .addFields(
       { name: '💰 Kasse', value: `**${money(symbol, s.kasse)}**`, inline: true },
-      { name: '📈 Auslastung', value: auslastungBar(s.auslastung), inline: true },
+      {
+        name: '📈 Auslastung',
+        value: `${auslastungBar(s.auslastung)}\n_Ziel ${pct(s.target)}, morgen ~${pct(s.auslastungTomorrow)}_\n`
+          + `_Abrechnung in ${fmt(s.nextSettleMs)}_`,
+        inline: true,
+      },
       {
         name: '👥 Personal',
-        value: `${s.staff.length}/${s.branch.slots} Plätze\n_Prognose heute: ${s.forecast >= 0 ? '+' : ''}${money(symbol, s.forecast)}_`,
+        value: `${s.staff.length}/${s.effective.slots} Plätze\n_Prognose heute: ${s.forecast >= 0 ? '+' : ''}${money(symbol, s.forecast)}_`,
         inline: true,
       },
     );

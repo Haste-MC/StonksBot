@@ -549,10 +549,17 @@ function status(guildId, userId, now = Date.now()) {
     return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor) - Math.round(b.lohn * f));
   }, 0);
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
+  // Die Auslastung bewegt sich nur bei der Abrechnung (§4) – die Ansicht zeigt
+  // deshalb, wohin sie will, was der nächste Tick bringt und wann er kommt.
+  // Der nächste Tag rechnet mit `paid_through + DAY_MS`, genau wie `settle`.
+  const nextTag = c.paid_through + DAY_MS;
+  const target = dailyTarget(b, staff.length, c.werbung_until >= nextTag, eff.slots);
+  const auslastungTomorrow = c.auslastung + (target - c.auslastung) * data.AUSLASTUNG_STEP;
   return {
     company: c, branch: b, staff,
     free: eff.slots - staff.length,
     kasse: c.kasse, auslastung: c.auslastung,
+    target, auslastungTomorrow, nextSettleMs: Math.max(0, nextTag - now),
     werbungMs: Math.max(0, c.werbung_until - now),
     minusDays, daysLeft: c.negative_since ? Math.max(0, data.INSOLVENCY_DAYS - minusDays) : null,
     pitchLeft: data.MAX_PITCH_PER_DAY - (c.pitch_day === day ? c.pitch_today : 0),
