@@ -355,8 +355,11 @@ function energyOf(guildId, userId, now = Date.now()) {
   const state = db.getCreatorState(guildId, userId, now);
   const fatigue = fatigueNow(state, now);
   const energy = energyModel.energyOf(fatigue);
+  // `fatigue` ist bereits bis `now` erholt – readyAt braucht `now` als Bezug,
+  // nicht `fatigue_at` (sonst zieht man die vergangene Zeit doppelt ab und
+  // readyAt wandert in die Vergangenheit, während man noch erschöpft ist).
   return { fatigue, energy, factor: energyModel.factorOf(energy),
-    readyAt: energyModel.readyAt(fatigue, state.fatigue_at || now) };
+    readyAt: energyModel.readyAt(fatigue, now) };
 }
 
 /** Zeitbudget des Tages samt Energie. */
@@ -385,7 +388,7 @@ function previewTime(guildId, userId, cost, now = Date.now(), { fatigueFactor = 
   if (energyModel.exhausted(before)) {
     return { ok: false, reason: 'exhausted', ...base,
       energy: energyModel.energyOf(before),
-      readyAt: energyModel.readyAt(before, state.fatigue_at || now) };
+      readyAt: energyModel.readyAt(before, now) };
   }
   if (used + cost > TIME_PER_DAY) {
     return { ok: false, reason: 'no_time', ...base, energy: energyModel.energyOf(before) };
@@ -1058,7 +1061,7 @@ function status(guildId, userId, now = Date.now()) {
     fatigue,
     energy: energyModel.energyOf(fatigue),
     factor: energyFactor(fatigue),
-    readyAt: energyModel.readyAt(fatigue, state.fatigue_at || now),
+    readyAt: energyModel.readyAt(fatigue, now),
     merch: {
       unlocked: merchUnlocked(total),
       minReach: MERCH_MIN_REACH,

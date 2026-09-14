@@ -120,6 +120,12 @@ const H = 60 * 60 * 1000;
     check('22 h gebucht, jetzt unter der Wand', r.ok && r.used === 22 && r.energy < 0.1, JSON.stringify(r));
     r = creator.useTime(G, U, 1, t0);
     check('nächste Aktion: exhausted mit readyAt', r.ok === false && r.reason === 'exhausted' && r.readyAt > t0, JSON.stringify(r));
+    // readyAt ist ein fester Wanduhr-Zeitpunkt, kein Countdown: 30 Minuten
+    // später (noch erschöpft) muss derselbe Zeitpunkt herauskommen wie eben.
+    const spaeter = creator.useTime(G, U, 1, t0 + 30 * 60 * 1000);
+    check('readyAt wandert nicht mit der Uhr (30 min später derselbe Zeitpunkt)',
+      spaeter.ok === false && spaeter.reason === 'exhausted' && Math.abs(spaeter.readyAt - r.readyAt) < 1000,
+      `${spaeter.readyAt} vs ${r.readyAt}`);
     check('… und die Stunden bleiben bei 22', creator.budget(G, U, t0).used === 22);
     const ready = creator.energyOf(G, U, t0).readyAt;
     r = creator.useTime(G, U, 1, ready + 1);
