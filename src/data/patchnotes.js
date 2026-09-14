@@ -18,6 +18,17 @@
  */
 module.exports = [
   {
+    version: '1.33.0',
+    date: '2026-09-14',
+    title: '⏳ Ein Tag, eine Energie',
+    lines: [
+      '⏳ **24 Stunden für alles.** Kanäle, Musik, Firma und Jobs buchen aus einem gemeinsamen Tag (vorher 8 Einheiten nur für Kanäle und Musik). Reset um Mitternacht, die Stundenzeile steht überall dabei.',
+      '🔋 **Eine Energie für alle.** Jede Stunde Arbeit macht müde, die späten Stunden mehr als die frühen: nach 8 Stunden bleiben ~80 %, nach 16 ~44 %. Müde gearbeitet heißt weniger Wirkung – Publikum, Lohn, Umsatz, Qualität und Reichweite skalieren mit der Energie (75 % → ×0,95, 50 % → ×0,80). Unter 10 % geht nichts mehr, was Zeit kostet; Erholung 4 Punkte je Stunde Pause.',
+      '⏰ **Überstunde.** Nach vier Schichten geht eine fünfte: Lohn ×1,25, dafür doppelt müde. Eine sechste gibt es nicht.',
+      '📏 Gemessen, nicht geschätzt: Musik+Creator mit 8 h am Tag verdient im ersten Jahr rund 149.000/Tag (vorher gemessen 100.916 – das alte Messskript ließ Stunden liegen, und die alte Erschöpfung drückte einen normalen Tag dauerhaft). 16 h bringen ~330.000, bis zur Wand ~370.000; wer jeden zweiten Tag marathont, landet bei ~134.000 – weniger als 12 ruhige Stunden (~235.000).',
+    ],
+  },
+  {
     version: '1.32.1',
     date: '2026-09-14',
     title: '📈 Firmen: Auslastung erklärt sich',

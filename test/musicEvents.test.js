@@ -469,7 +469,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     // Studio
     {
       const U = await artist({ listeners: 50_000 });
-      // Ein Studio-Tag kostet 3 von 8 Zeiteinheiten, das Budget gilt je
+      // Ein Studio-Tag kostet 3 von 24 Stunden, das Budget gilt je
       // Kalendertag – deshalb ein Tag Abstand zwischen den Sessions.
       const tag = (k) => t0 + k * DAY_MS;
       let r = music.record(G, U, tag(0), seq(forceValue('record', pop, 'flow')));

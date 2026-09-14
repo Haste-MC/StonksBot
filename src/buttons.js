@@ -328,7 +328,7 @@ async function shiftResult(interaction, result) {
         ? `\n⏰ Überstunde: **${money(symbol, result.overtimeBonus)}** Zuschlag – du bist ziemlich platt.`
         : '') +
       (result.factor < 0.95
-        ? `\n🔋 Müde gearbeitet: Wirkung ×${result.factor.toFixed(2)} (${Math.round(result.energy * 100)} % Energie).`
+        ? `\n🔋 Müde gearbeitet: Wirkung ×${result.factor.toFixed(2).replace('.', ',')} (${Math.round(result.energy * 100)} % Energie).`
         : ''))
     .addFields(
       { name: 'Bargeld', value: money(symbol, result.balance.cash), inline: true },

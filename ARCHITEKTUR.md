@@ -451,14 +451,30 @@ bewusste Entscheidung (2026-09-13, Beschluss A): Wer 26 echte Mitspieler für
 750 je Schicht organisiert, hat es verdient. Zweitkonten sind ein
 Moderationsthema, kein Balance-Thema.
 
-Zum **Zeitbudget:** Ein Anpacken kostet 2 der 8 Einheiten und bringt der voll
-ausgebauten Baufirma ~7.500 – also ~3.750 je Zeiteinheit, während eine
-Stream- oder Studio-Sitzung bei Musik+Creator (~490.000/Tag auf 8 Einheiten)
-ein Vielfaches davon wert ist. Das Zeitbudget bremst die Firma also nicht:
-Der Umsatz kommt aus Plätzen und Schichten, nicht aus der Zeit des Inhabers.
-Die Bremse für Firmen ist das Geld (50–75 Mio Ausbau, 51–159 Tage
-Amortisation). Ob Anpacken darum Zeit kosten muss, klärt Stück 2b oder die
-Neubalance des Zeitbudgets.
+**Seit 1.33.0 (24-h-Tag, eine Energie, §17):** gemessen 365 Tage, 10 Läufe,
+Median je Tag, Musik+Creator mit Stundendeckel (`--stunden=N`) – 8 h/Tag
+149.415 (Ø Energie am Tagesende 98 %), 12 h 234.731 (83 %), 16 h 329.875
+(63 %), bis zur Wand 369.752 (11 %), Marathon im Wechsel mit Ruhetag
+(`--marathon`) 133.796 (49 %). Die Energie ist die Bremse für lange Tage:
+ohne Malus (Kontrolllauf, Faktor ≡ 1, Wand bleibt) lägen 16 h bei 390.345 und
+die Wand bei 570.473 – der Faktor nimmt dem 16-h-Tag 15 %, dem Marathon 35 %.
+Die 8-h-Zahl vor 1.33.0 war 100.916/Tag (reproduziert, gleicher Würfel); der
+Sprung auf 149.415 hat zwei gemessene Gründe, keiner davon ist die Kurve:
+Das alte Messskript rückte die Uhr nicht vor und ließ Stunden liegen, sobald
+alle Plattformen gesperrt waren (dasselbe neue Skript auf dem alten Spiel:
+134.870), und die alte Creator-Erschöpfung (linear −35 %, nur 55 % Erholung
+je Tag) drückte einen normalen Tag dauerhaft auf ~0,85 – die neue Kurve lässt
+ihn bei Faktor ≈ 1 (Ø 98 % Energie). Die Quartile der 10 Läufe liegen ±10 %
+um den Median, die Wahl der Strategie in der Suchphase streut ähnlich.
+
+Firmen im Vollbetrieb neu (365 Tage, Median): Kiosk 2.831/Tag, Café 21.529,
+Spedition 77.849; voll ausgebaut Baufirma 557.910, Spedition 486.664, Café
+133.173 – Anpacken passt jetzt viermal auch an Werbetagen (2 + 4 × 2 = 10 von
+24 Stunden), der Faktor drückt das dritte und vierte leicht (Kiosk von Hand:
+375 × (0,999 + 0,995 + 0,985 + 0,967) = 1.480 statt 1.500, also 2.830 ≈
+2.831). Das Zeitbudget bremst die Firma weiterhin nicht – der Umsatz kommt
+aus Plätzen und Schichten, nicht aus der Zeit des Inhabers; die Bremse für
+Firmen ist das Geld (50–75 Mio Ausbau, 51–158 Tage Amortisation).
 
 ### Eine Bremse, nicht zwei
 
@@ -512,3 +528,26 @@ kommt auch nach Fluxer das Zitat; lässt es sich nicht mehr laden, wird ohne
 Hinweis gespiegelt. Erwähnungen im Zitat werden lesbar übersetzt, pingen aber
 niemanden – gepingt wird nur, wen die Antwort selbst erwähnt, plus der Autor
 des Originals bei einer echten Antwort.
+
+## 17. Ein Tag, eine Energie
+
+Alle Arbeit – Kanäle, Musik, Firma, Jobs – bucht aus **einem** 24-Stunden-Tag
+(`creator.useTime`, Reset Mitternacht) und macht **eine** Energie müde
+(`creator_state.fatigue`, Modell in `src/energy.js`). Jobs: 4 Schichten à 2 h
+plus eine Überstunde (×1,25 Lohn, doppelt müde). Selbstständige haben keinen
+Deckel außer der Energie.
+
+- **Verbrauch konvex:** Stunde n kostet 1,4 + 0,25 × n Punkte. 8 h → 79,8 %,
+  10 h mit Überstunde → 64,7 %, 16 h → 43,6 %, Wand nach Stunde 21.
+- **Erholung linear:** 4 Punkte je Echtzeit-Stunde ohne Aktion. Marathon bis
+  Mitternacht → 8 Uhr ~38 %, abends voll (Beschluss: ein harter Tag danach).
+- **Faktor** `1 − 0,8 × (1 − Energie)²` auf die *Wirkung* jeder Aktion (Publikum,
+  Lohn, Umsatz, Qualität, Release-Reichweite) – nach der Buchung, die letzte
+  Stunde ist die müdeste. 75 % → 0,95, 50 % → 0,80, 10 % → 0,35.
+- **Wand:** unter 10 % Energie wird jede Aktion mit Zeitkosten abgelehnt
+  (`reason: 'exhausted'`, `readyAt`); Aktionen ohne Zeitkosten gehen immer.
+- Faktor ≤ 1: keine Decke aus §3/§15 kann überschritten werden.
+
+Warum konvex: „8 h ≥ 75 %" und „Wand bei ~20 h" gehen linear nicht zusammen.
+Warum kein Schlaf-Knopf, keine Energie-Items: das wäre ein Kaufweg an der
+einzigen Bremse vorbei.

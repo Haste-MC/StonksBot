@@ -27,8 +27,9 @@
  *     Ausreißer jeden Mittelwert beliebig weit.
  * ================================================================
  *
- * Aufruf:  node scripts/messung-geldquellen.js [läufe] [tage]
+ * Aufruf:  node scripts/messung-geldquellen.js [läufe] [tage] [--stunden=N] [--marathon]
  *          node scripts/messung-geldquellen.js 30 730
+ *          node scripts/messung-geldquellen.js 10 365 --stunden=8
  *
  * Kein Netz: die Geldschnittstelle wird ersetzt und mitgeschrieben.
  */
@@ -67,6 +68,10 @@ const musikOpts = { events: !OHNE_EREIGNISSE };
  * Lauf ohne Ereignisse – dann misst man die Wahl, nicht die Ereignisse.
  */
 const STRATEGIE = (process.argv.find((a) => a.startsWith('--strategie=')) ?? '').slice('--strategie='.length) || null;
+/** `--stunden=<N>`: höchstens N Stunden am Tag (Musik + Kanäle zusammen; Standard 24 = bis Zeit oder Wand). */
+const STUNDEN = Number((process.argv.find((a) => a.startsWith('--stunden=')) ?? '').slice('--stunden='.length)) || 24;
+/** `--marathon`: gerade Tage bis zur Wand, ungerade Tage Pause – misst „Marathon + Ruhetag im Wechsel". */
+const MARATHON = process.argv.includes('--marathon');
 const de = (n) => Math.round(n).toLocaleString('de-DE');
 
 // ------------------------------------------------------------------ Würfel
@@ -221,44 +226,71 @@ function strategien(musik = false) {
 }
 
 /**
- * Ein Kanaltag: so lange Aktionen fahren, bis die Zeit alle ist.
+ * Ein Kanaltag: so lange Aktionen fahren, bis die Zeit alle ist – oder die
+ * Energie an der Wand steht, oder der Deckel `stunden` (`--stunden=N`) voll ist.
  *
  * `community: true` setzt zuerst einen Tweet – Twitter verdient nichts, hält
  * aber die Community, an der Merch hängt. Genau diese Abwägung war in der
  * ersten Messung nie getroffen worden.
+ *
+ * Die Uhr rückt im Tag vor: Jede Plattform hat eine eigene Sperre (YouTube
+ * 180 Minuten). Wer nur eine Minute je Aktion weiterzählt, kommt an einem
+ * 24-h-Tag nie über eine Aktion je Plattform hinaus – dann misst man die
+ * Sperren, nicht den Tag. Ist nichts frei, springt die Uhr zur nächsten
+ * freien Plattform; spätestens ~22:40 ist Schluss.
  */
-async function kanaltag(G, U, strat, now, rand) {
-  let t = 0;
+async function kanaltag(G, U, strat, now, rand, stunden = STUNDEN) {
+  let t = 0;                                   // Minuten seit `now` – wird zurückgegeben
+  const ENDE = 15 * 60;                        // spätestens ~22:40 ist Schluss
+  /** Was heute noch geht: Zeit, Deckel und Wand – null, wenn Schluss ist. */
+  const frei = () => {
+    const b = creator.budget(G, U, now + t * 60_000);
+    const zeit = Math.min(b.left, stunden - b.used);
+    return zeit <= 0 || b.readyAt ? null : zeit;
+  };
   for (let b = 0; b < (strat.bindung ?? 0); b++) {
     for (const c of strat.bindungsreihe) {
-      if (c.bindung <= 0) break;          // ohne Bindung bringt es hier nichts
-      if (creator.remainingMs(G, U, c.p, now + t * 60_000) > 0) continue;
-      const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
-      if (r.ok) break;
-    }
-  }
-  for (let i = 0; i < 12; i++) {
-    /*
-     * VORHER fragen statt hinterher absagen lassen.
-     *
-     * Jede Plattform hat eine eigene Sperre (YouTube 180 Minuten). Wer nach
-     * jeder Aktion die ganze Formatliste neu durchprobiert, holt sich 51
-     * Absagen für 4 Treffer – gemessen 93 % Ausschuss und damit der Grund,
-     * warum ein Messlauf über eine Stunde brauchte. `remainingMs` und
-     * `budget` sind billige Abfragen, `act` ist es nicht.
-     */
-    const zeit = creator.budget(G, U, now).left;
-    if (zeit <= 0) return;
-
-    let gemacht = false;
-    for (const c of strat.reihe) {
+      if (c.bindung <= 0) break;               // ohne Bindung bringt es hier nichts
+      /*
+       * Auch hier gilt der Deckel: Ist Twitter gesperrt, steht als Nächstes
+       * ein Stream (2 h) oder ein Video (3 h) in der Bindungsreihe – ohne
+       * diese Prüfung kam ein „8-h-Tag" auf 11 Stunden (Handprüfung).
+       */
+      const zeit = frei();
+      if (zeit === null) return t;
       if (c.time > zeit) continue;
       if (creator.remainingMs(G, U, c.p, now + t * 60_000) > 0) continue;
       const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
-      if (r.ok) { gemacht = true; break; }
+      if (r.ok) break;
+      if (r.reason === 'exhausted') return t;
     }
-    if (!gemacht) return;
   }
+  for (let i = 0; i < 60; i++) {
+    /*
+     * VORHER fragen statt hinterher absagen lassen: `remainingMs` und
+     * `budget` sind billige Abfragen, `act` ist es nicht (gemessen 93 %
+     * Ausschuss, als jede Aktion die ganze Formatliste neu durchprobierte).
+     */
+    const zeit = frei();
+    if (zeit === null) return t;               // Zeit alle oder an der Wand
+
+    let gemacht = false;
+    let warten = Infinity;
+    for (const c of strat.reihe) {
+      if (c.time > zeit) continue;
+      const rest = creator.remainingMs(G, U, c.p, now + t * 60_000);
+      if (rest > 0) { warten = Math.min(warten, rest); continue; }
+      const r = await creator.act(G, U, c.p, c.f, now + (t++) * 60_000, rand);
+      if (r.ok) { gemacht = true; break; }
+      if (r.reason === 'exhausted') return t;
+    }
+    if (gemacht) continue;
+    // Nichts frei: die Uhr bis zur nächsten freien Plattform vorstellen.
+    if (!Number.isFinite(warten)) return t;
+    t += Math.ceil(warten / 60_000) + 1;
+    if (t > ENDE) return t;
+  }
+  return t;
 }
 
 /**
@@ -304,22 +336,30 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    * gescheitert. Die Tests des Projekts machen es aus demselben Grund so.
    */
   let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+  let energieSumme = 0;
   for (let d = 0; d < tage; d++) {
     ausruesten(G, U);                 // Defekte von gestern ersetzen
+    // Marathon-Modus: ungerade Tage sind Ruhetage – nur Abrechnungen, keine Arbeit.
+    const ruhetag = MARATHON && d % 2 === 1;
     if (musik) {
       // Erst abrechnen, dann handeln: So liegt ein voller Tag zwischen zwei
       // Abrechnungen (`MIN_SETTLE_MS` verlangt mindestens eine Stunde).
       await music.settle(G, U, now);
       music.settleContracts(G, U, now + 1e5);
-      const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
-      if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
-        await music.show(G, U, now + 4e6, rand, musikOpts);
+      if (!ruhetag) {
+        const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
+        if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
+          await music.show(G, U, now + 4e6, rand, musikOpts);
+        }
       }
     }
-    await kanaltag(G, U, strat, now + 6e6, rand);
+    const minuten = ruhetag ? 0 : await kanaltag(G, U, strat, now + 6e6, rand);
     await creator.settle(G, U, now + 20e6);
     await creator.settleMerch(G, U, now + 20e6);
     await creator.settleDeals(G, U, now + 20e6);
+    // Energie am Tagesende: nach der letzten Kanalaktion (die Uhr kann bis
+    // ~22:40 vorrücken), sonst zur Abrechnung um ~11:33 – Mittel über den Lauf.
+    energieSumme += creator.energyOf(G, U, Math.max(now + 20e6, now + 6e6 + minuten * 60_000)).energy;
 
     /*
      * Vorfälle wie ein Spieler behandeln: Verfallene abrechnen, offene mit
@@ -370,6 +410,7 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
     quellen: quellen[U] ?? {},
     follower: db.allCreator(G, U).reduce((s, r) => s + r.followers, 0),
     hoerer: musik ? Math.round(music.status(G, U, now).listeners ?? 0) : 0,
+    energie: energieSumme / Math.max(1, tage),
     erreicht,
   };
 }
@@ -414,6 +455,7 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
     const geld = [];
     const follower = [];
     const hoerer = [];
+    const energie = [];
     const summe = {};
     for (let i = 0; i < laeufe; i++) {
       // Welt UND Konto je Lauf eindeutig: Sonst zählt `konto` über die
@@ -426,12 +468,14 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
       geld.push(r.geld);
       follower.push(r.follower);
       hoerer.push(r.hoerer);
+      energie.push(r.energie);
       for (const [k, v] of Object.entries(r.quellen)) summe[k] = (summe[k] ?? 0) + v;
     }
     const erg = {
       strategie: strat.name,
       median: median(geld), q25: quantil(geld, 0.25), q75: quantil(geld, 0.75),
       follower: median(follower), hoerer: median(hoerer),
+      energie: energie.reduce((a, b) => a + b, 0) / Math.max(1, energie.length),
       quellen: Object.fromEntries(
         Object.entries(summe).map(([k, v]) => [k, v / laeufe]).sort((a, b) => b[1] - a[1])),
     };
@@ -439,7 +483,8 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
     if (!kurz || laeufe <= 3) {
       console.log(`    ${strat.name.padEnd(30)} Median ${de(erg.median).padStart(12)}` +
         `   ${de(erg.follower).padStart(9)} Follower` +
-        (musik ? `   ${de(erg.hoerer).padStart(8)} Hörer` : ''));
+        (musik ? `   ${de(erg.hoerer).padStart(8)} Hörer` : '') +
+        `   Energie Ø ${Math.round(erg.energie * 100)} %`);
     }
   }
   return beste;
@@ -452,9 +497,10 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  * test/company.test.js:
  *
  *   Tag 1 Gründung und volle NPC-Besetzung (Aushilfen), ab Tag 30 wird jeder
- *   unter Schichtleiter befördert, täglich Werbung und Anpacken, bis das
- *   Zeitbudget alle ist (Werbung 2 + 4 × Anpacken 2 = 10 > 8, also an
- *   Werbetagen nur drei), abends Abrechnung und Entnahme des Gewinns.
+ *   unter Schichtleiter befördert, täglich Werbung und Anpacken (Werbung 2
+ *   + 4 × Anpacken 2 = 10 von 24 Stunden, alles passt; die Energie drückt
+ *   das vierte Anpacken um ein paar Prozent), abends Abrechnung und Entnahme
+ *   des Gewinns.
  *
  * Drei Spielweisen (`ausbau`, seit 1.32.0):
  *
@@ -687,8 +733,8 @@ async function verlauf(laeufe, tage) {
   console.log();
 }
 
-/** Für Prüfläufe importierbar (test/…): nur als Hauptprogramm messen. */
-module.exports = { firmenlauf };
+/** Für Prüf- und Kontrollläufe importierbar (test/…, Handprüfung): nur als Hauptprogramm messen. */
+module.exports = { firmenlauf, karriere, kanaltag, strategien, welt, main };
 
 async function main() {
   if (process.argv[2] === 'verlauf') {
@@ -698,7 +744,8 @@ async function main() {
   const LAEUFE = Number(process.argv[2] || 30);
   const TAGE = Number(process.argv[3] || 730);
 
-  console.log(`\n=== Messung: ${LAEUFE} Läufe à ${TAGE} Tage, fester Würfel${STRATEGIE ? ' (Strategie festgelegt)' : ''} ===\n`);
+  console.log(`\n=== Messung: ${LAEUFE} Läufe à ${TAGE} Tage, fester Würfel${STRATEGIE ? ' (Strategie festgelegt)' : ''}` +
+    `, Deckel ${STUNDEN} h/Tag${MARATHON ? ', Marathon im Wechsel' : ''} ===\n`);
 
   console.log('  nur Creator');
   const a = await archetyp('creator', false, LAEUFE, TAGE);
@@ -708,7 +755,8 @@ async function main() {
   const zeile = (name, r) =>
     `  ${name.padEnd(16)}${de(r.median / TAGE).padStart(9)}/Tag   ` +
     `[${de(r.q25 / TAGE)} … ${de(r.q75 / TAGE)}]   ` +
-    `${de(r.follower)} Follower` + (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '');
+    `${de(r.follower)} Follower` + (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '') +
+    ` · Energie Ø ${Math.round(r.energie * 100)} %`;
 
   console.log(`\n--- Beste Strategie je Archetyp (Median, Quartile) ---\n`);
   console.log(zeile('nur Creator', a), `\n    via "${a.strategie}"`);
