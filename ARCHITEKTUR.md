@@ -455,17 +455,27 @@ Moderationsthema, kein Balance-Thema.
 Median je Tag, Musik+Creator mit Stundendeckel (`--stunden=N`) – 8 h/Tag
 149.415 (Ø Energie am Tagesende 98 %), 12 h 234.731 (83 %), 16 h 329.875
 (63 %), bis zur Wand 369.752 (11 %), Marathon im Wechsel mit Ruhetag
-(`--marathon`) 133.796 (49 %). Die Energie ist die Bremse für lange Tage:
-ohne Malus (Kontrolllauf, Faktor ≡ 1, Wand bleibt) lägen 16 h bei 390.345 und
-die Wand bei 570.473 – der Faktor nimmt dem 16-h-Tag 15 %, dem Marathon 35 %.
-Die 8-h-Zahl vor 1.33.0 war 100.916/Tag (reproduziert, gleicher Würfel); der
-Sprung auf 149.415 hat zwei gemessene Gründe, keiner davon ist die Kurve:
-Das alte Messskript rückte die Uhr nicht vor und ließ Stunden liegen, sobald
-alle Plattformen gesperrt waren (dasselbe neue Skript auf dem alten Spiel:
-134.870), und die alte Creator-Erschöpfung (linear −35 %, nur 55 % Erholung
-je Tag) drückte einen normalen Tag dauerhaft auf ~0,85 – die neue Kurve lässt
-ihn bei Faktor ≈ 1 (Ø 98 % Energie). Die Quartile der 10 Läufe liegen ±10 %
-um den Median, die Wahl der Strategie in der Suchphase streut ähnlich.
+(`--marathon`) 133.796 (49 %). Die Ø-Energie-Werte sind gemessen nach der
+letzten Aktion, mit Aktionen so dicht, wie die Sperren es zulassen; wer 16
+Stunden über den ganzen Tag verteilt, erholt sich zwischendurch (4 Punkte je
+Echtzeit-Stunde) und sieht diese Werte nicht. Die Energie ist die Bremse für
+lange Tage: ohne Malus (Kontrolllauf, Faktor ≡ 1, Wand bleibt) lägen 16 h bei
+390.345 und die Wand bei 570.473 – der Faktor nimmt dem 16-h-Tag 15 %, dem
+Tag bis zur Wand 35 %. Die 8-h-Zahl vor 1.33.0 war 100.916/Tag (reproduziert,
+gleicher Würfel); der Sprung auf 149.415 hat zwei gemessene Gründe, keiner
+davon ist die Kurve: Das alte Messskript rückte die Uhr nicht vor und ließ
+Stunden liegen, sobald alle Plattformen gesperrt waren (dasselbe neue Skript
+auf dem alten Spiel: 134.870), und die alte Creator-Erschöpfung (linear
+−35 %, nur 55 % Erholung je Tag) drückte einen normalen Tag dauerhaft auf
+einen Dauer-Malus von überschlägig ×0,85 – die neue Kurve lässt ihn bei
+Faktor ≈ 1 (Ø 98 % Energie). Die Quartile der 10 Läufe liegen zwischen −3 %
+und −12 % unter bzw. +2 % und +20 % über dem Median (8 h streut am
+stärksten: 131.511 … 179.739); die Wahl der Strategie in der Suchphase
+streut ähnlich. Die Spec hatte 8 h innerhalb ±15 % von 100.916 und 16 h
+‚deutlich unter 2×' erwartet; gemessen sind es +48 % (davon +34 %
+Messskript, +11 % Spiel) und 2,21×, bis zur Wand 2,47× – knapp unter dem
+2,5×-Auslöser für eine steilere Kurve und innerhalb der Strategie-Streuung.
+Beschluss des Nutzers 2026-09-14: Konstanten bleiben (‚einfach lassen').
 
 Firmen im Vollbetrieb neu (365 Tage, Median): Kiosk 2.831/Tag, Café 21.529,
 Spedition 77.849; voll ausgebaut Baufirma 557.910, Spedition 486.664, Café
