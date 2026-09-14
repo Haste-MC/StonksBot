@@ -1603,7 +1603,7 @@ async function buildCreatorView({ guildId, userId }) {
     (s.market.atHome ? ' 🏡' : ''),
     `⏳ **Zeit heute:** ${s.budget.left} von ${s.budget.max} übrig`,
     `🔋 **Energie:** ${progressBar(s.energy, 8)} ${Math.round(s.energy * 100)} %` +
-    (s.energy < 0.95 ? ' _(ausgebrannt – Pausen helfen)_' : ''),
+    (s.factor < 0.95 ? ' _(ausgebrannt – Pausen helfen)_' : ''),
   ];
   if (s.boost > 0) {
     extras.push(`🐦 **Promo läuft:** nächste Aktion +${Math.round(s.boost * 100)} % Reichweite`);

@@ -2390,8 +2390,8 @@ Object.assign(buttons, {
           'du musst dich entscheiden (⚠️ im Netzwerk).';
       }
       if (res.tired) {
-        note += `\n🔋 Du wirkst müde: **${Math.round(res.energy * 100)} %** Reichweite. ` +
-          'Eine Pause hilft.';
+        note += `\n🔋 Du wirkst müde: **${Math.round(res.energy * 100)} %** Energie, ` +
+          `Wirkung ×${res.factor.toFixed(2)}. Eine Pause hilft.`;
       }
     }
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});

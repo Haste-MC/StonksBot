@@ -84,6 +84,67 @@ const H = 60 * 60 * 1000;
     check('abgelaufen → „jetzt"', past.includes('jetzt'), past);
   }
 
+  console.log('--- Zeit und Zustand (creator.previewTime / useTime / energyOf) ---');
+  {
+    const db = require('../src/db');
+    const creator = require('../src/creator');
+    const G = `ENERGIE_T${Date.now()}`;
+    const U = 'u1';
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * H;
+
+    check('der Tag hat 24 Stunden', creator.TIME_PER_DAY === 24);
+    let b = creator.budget(G, U, t0);
+    check('frisch: 0 von 24, Energie 100 %, Faktor 1',
+      b.used === 0 && b.max === 24 && b.left === 24 && b.energy === 1 && b.factor === 1 && b.readyAt === null,
+      JSON.stringify(b));
+
+    // Vorschau schreibt nichts.
+    let p = creator.previewTime(G, U, 8, t0);
+    check('Vorschau 8 h: ok, Energie danach 79,8 %', p.ok && near(p.energy, 0.798) && near(p.factor, energy.factorOf(0.798)), JSON.stringify(p));
+    check('… und hat nichts geschrieben', creator.budget(G, U, t0).used === 0);
+
+    // Buchen: 8 h am Stück.
+    let r = creator.useTime(G, U, 8, t0);
+    check('8 h gebucht: 16 übrig, Energie 79,8 %', r.ok && r.used === 8 && r.left === 16 && near(r.energy, 0.798), JSON.stringify(r));
+    check('energyOf liest denselben Stand', near(creator.energyOf(G, U, t0).energy, 0.798));
+
+    // Überstunde: 2 h mit doppelter Müdigkeit → 64,7 %.
+    r = creator.useTime(G, U, 2, t0, { fatigueFactor: 2 });
+    check('2 h doppelt müde: 64,7 %', r.ok && near(r.energy, 0.647), JSON.stringify(r));
+
+    // Erholung wirkt in Echtzeit: 1 h später 4 Punkte weniger.
+    check('eine Stunde später +4 Punkte', near(creator.energyOf(G, U, t0 + H).energy, 0.687));
+
+    // Bis zur Wand: weitere 12 h (insgesamt 22) am selben Zeitpunkt t0.
+    r = creator.useTime(G, U, 12, t0);
+    check('22 h gebucht, jetzt unter der Wand', r.ok && r.used === 22 && r.energy < 0.1, JSON.stringify(r));
+    r = creator.useTime(G, U, 1, t0);
+    check('nächste Aktion: exhausted mit readyAt', r.ok === false && r.reason === 'exhausted' && r.readyAt > t0, JSON.stringify(r));
+    check('… und die Stunden bleiben bei 22', creator.budget(G, U, t0).used === 22);
+    const ready = creator.energyOf(G, U, t0).readyAt;
+    r = creator.useTime(G, U, 1, ready + 1);
+    check('ab readyAt geht es wieder (23. Stunde)', r.ok && r.used === 23, JSON.stringify(r));
+    // Die 23. Stunde reißt die Erschöpfung selbst wieder über die Wand
+    // (97,15 Punkte); erst wenn sie zwei weitere Stunden real abgeklungen
+    // ist, greift beim Versuch, mehr als 24 h zu buchen, tatsächlich
+    // no_time statt exhausted (Wand wird vor den Stunden geprüft, §Spec).
+    r = creator.useTime(G, U, 2, ready + 1 + 2 * H);
+    check('mehr als 24: no_time', r.ok === false && r.reason === 'no_time' && r.left === 1, JSON.stringify(r));
+
+    // Neuer Tag: Stunden auf 0, Erschöpfung erholt sich nur mit der Zeit.
+    // Stand nach der 23. Stunde (bei ready+1 = t0 + 2,5 h): 90 + costOf(22, 1) = 90 + 7,15 = 97,15;
+    // bis t0 + 24 h vergehen 21,5 h × 4 = 86 Punkte → 11,15 → 88,85 %.
+    b = creator.budget(G, U, t0 + 24 * H);
+    check('nächster Tag: 0 von 24, Energie bei ~88,9 %', b.used === 0 && near(b.energy, 0.8885, 1e-3), JSON.stringify(b));
+
+    // Marathon-Prüfpunkt: Wand um Mitternacht, 8 Uhr ~38 %.
+    const V = 'u2';
+    const mitternacht = new Date(new Date(t0).setHours(24, 0, 0, 0)).getTime();
+    creator.useTime(G, V, 22, mitternacht - 1);
+    const morgen = creator.energyOf(G, V, mitternacht - 1 + 8 * H);
+    check('Marathon: um 8 Uhr 35–45 % Energie', morgen.energy > 0.35 && morgen.energy < 0.45, String(morgen.energy));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

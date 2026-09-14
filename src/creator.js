@@ -42,8 +42,8 @@ const changeCash = (...a) => unb.changeCash(...a);
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-/** Zeitbudget pro Tag. Ein Stream kostet 2, ein Video 3, ein Post 1. */
-const TIME_PER_DAY = 8;
+/** Zeitbudget pro Tag – 24 Stunden für alles: Kanäle, Musik, Firma und Jobs (siehe src/energy.js). */
+const TIME_PER_DAY = 24;
 
 /**
  * Wie schnell die Kanaele wachsen – EIN Regler statt vier Plattformwerten.
@@ -161,11 +161,13 @@ function monetization(reach, pool = 1) {
  * Wer jeden Tag das volle Budget raushaut, brennt aus: Die Reichweite sinkt,
  * bis er sich erholt. Das macht aus dem Zeitdeckel eine Entscheidung statt
  * einer Wand – und ist nebenbei eine weitere Obergrenze (§3).
+ *
+ * Erschöpfung: Zustand liegt hier (creator_state.fatigue, fatigue_at), das
+ * Modell in src/energy.js. Eine Energie für alle – wer nachts noch streamt,
+ * ist morgens im Job müde, und umgekehrt.
  */
-const FATIGUE_PER_TIME = 4;            // je Zeiteinheit einer Aktion
-const FATIGUE_MAX = 100;              // ein voller Tag = 96
-const FATIGUE_RECOVERY = 0.55;        // Anteil, der pro Tag Pause abklingt
-const FATIGUE_MALUS = 0.35;           // höchstens −35 % Publikum
+const energyModel = require('./energy');
+const FATIGUE_MAX = energyModel.FATIGUE_MAX;
 
 // ----------------------------------------------------------------- Merch
 /**
@@ -348,12 +350,50 @@ function remainingMs(guildId, userId, platformId, now = Date.now()) {
   return Math.max(0, row.last_action_at + p.cooldownMin * 60 * 1000 - now);
 }
 
-/** Zeitbudget des Tages. */
+/** Energie eines Spielers jetzt – nach Erholung, ohne zu schreiben. */
+function energyOf(guildId, userId, now = Date.now()) {
+  const state = db.getCreatorState(guildId, userId, now);
+  const fatigue = fatigueNow(state, now);
+  const energy = energyModel.energyOf(fatigue);
+  return { fatigue, energy, factor: energyModel.factorOf(energy),
+    readyAt: energyModel.readyAt(fatigue, state.fatigue_at || now) };
+}
+
+/** Zeitbudget des Tages samt Energie. */
 function budget(guildId, userId, now = Date.now()) {
   const state = db.getCreatorState(guildId, userId, now);
   const day = today(new Date(now));
   const used = state.day === day ? state.time_used : 0;
-  return { used, max: TIME_PER_DAY, left: Math.max(0, TIME_PER_DAY - used) };
+  const e = energyOf(guildId, userId, now);
+  return { used, max: TIME_PER_DAY, left: Math.max(0, TIME_PER_DAY - used),
+    energy: e.energy, factor: e.factor, readyAt: e.readyAt };
+}
+
+/**
+ * Rechnet eine Buchung vor, ohne zu schreiben: Wand (Energie unter 10 % VOR
+ * der Aktion), dann Stunden. Liefert bei `ok` Erschöpfung, Energie und
+ * Faktor NACH der Aktion – die letzte Stunde eines langen Tags ist die müdeste.
+ */
+function previewTime(guildId, userId, cost, now = Date.now(), { fatigueFactor = 1 } = {}) {
+  const state = db.getCreatorState(guildId, userId, now);
+  const day = today(new Date(now));
+  const used = state.day === day ? state.time_used : 0;
+  const resetMs = new Date(new Date(now).setHours(24, 0, 0, 0)).getTime() - now;
+  const before = fatigueNow(state, now);
+  const base = { used, left: TIME_PER_DAY - used, max: TIME_PER_DAY, resetMs };
+
+  if (energyModel.exhausted(before)) {
+    return { ok: false, reason: 'exhausted', ...base,
+      energy: energyModel.energyOf(before),
+      readyAt: energyModel.readyAt(before, state.fatigue_at || now) };
+  }
+  if (used + cost > TIME_PER_DAY) {
+    return { ok: false, reason: 'no_time', ...base, energy: energyModel.energyOf(before) };
+  }
+  const fatigue = clamp(0, FATIGUE_MAX, before + energyModel.costOf(used, cost, fatigueFactor));
+  const energy = energyModel.energyOf(fatigue);
+  return { ok: true, used: used + cost, left: TIME_PER_DAY - used - cost, max: TIME_PER_DAY, resetMs,
+    fatigue, energy, factor: energyModel.factorOf(energy), state, day };
 }
 
 /**
@@ -392,16 +432,14 @@ function churnFactor(community) {
   return 1 - COMMUNITY_CHURN_CUT * clamp(0, 1, community / COMMUNITY_MAX);
 }
 
-/** Erschöpfung, nachdem sie seit der letzten Aktion abgeklungen ist. */
+/** Erschöpfung, nachdem sie seit der letzten Aktion abgeklungen ist (linear, Echtzeit). */
 function fatigueNow(state, now) {
-  if (!state.fatigue || !state.fatigue_at) return state.fatigue || 0;
-  const days = Math.max(0, (now - state.fatigue_at) / DAY_MS);
-  return clamp(0, FATIGUE_MAX, state.fatigue * Math.pow(1 - FATIGUE_RECOVERY, days));
+  return energyModel.recover(state.fatigue || 0, state.fatigue_at || 0, now);
 }
 
-/** Was die Erschöpfung von der Reichweite übrig lässt (1 = ausgeruht). */
+/** Was die Erschöpfung von der Wirkung übrig lässt (1 = ausgeruht). */
 function energyFactor(fatigue) {
-  return 1 - FATIGUE_MALUS * clamp(0, 1, fatigue / FATIGUE_MAX);
+  return energyModel.factorOf(energyModel.energyOf(fatigue));
 }
 
 /** Anteil der Follower, der die Untätigkeit überlebt hat (1 = kein Verfall). */
@@ -800,16 +838,10 @@ async function act(
     return { ok: false, reason: 'locked', platform: p, until: locked, remainingMs: locked - now };
   }
 
-  const state = db.getCreatorState(guildId, userId, now);
-  const day = today(new Date(now));
-  const used = state.day === day ? state.time_used : 0;
-  if (used + p.time > TIME_PER_DAY) {
-    return {
-      ok: false, reason: 'no_time', platform: p, need: p.time,
-      used, max: TIME_PER_DAY, left: TIME_PER_DAY - used,
-      resetMs: new Date(new Date(now).setHours(24, 0, 0, 0)).getTime() - now,
-    };
-  }
+  const time = previewTime(guildId, userId, p.time, now);
+  if (!time.ok) return { ok: false, ...time, platform: p, need: p.time };
+  const { state, day, used: usedAfter } = time;
+  const used = usedAfter - p.time;
 
   const rows = new Map(db.allCreator(guildId, userId).map((r) => [r.platform, r]));
   const own = rows.get(platformId) ?? db.getCreator(guildId, userId, platformId, now);
@@ -822,8 +854,8 @@ async function act(
 
   const community = communityNow(state, now);
   const boost = activeBoost(state, now);
-  const fatigue = fatigueNow(state, now);
-  const energy = energyFactor(fatigue);
+  const fatigue = time.fatigue;          // nach dieser Aktion
+  const energy = time.factor;            // in simulate heißt der Faktor weiterhin `energy`
 
   const sim = simulate(own, p, fmt, {
     cross, community, boost, energy,
@@ -869,15 +901,15 @@ async function act(
 
   db.saveCreatorState(guildId, userId, {
     day,
-    time_used: used + p.time,
+    time_used: usedAfter,
     // Der Schub wird von der nächsten Aktion verbraucht; ein neuer Tweet
     // ersetzt ihn, eine andere Aktion räumt ihn ab.
     boost: p.id === 'twitter' ? sim.boost : 0,
     boost_until: p.id === 'twitter' ? now + BOOST_MS : 0,
     community: clamp(0, COMMUNITY_MAX, community + (sim.community ?? 0)),
     community_at: now,
-    // Jede Aktion kostet Kraft, im Verhältnis zu ihrer Länge.
-    fatigue: clamp(0, FATIGUE_MAX, fatigue + p.time * FATIGUE_PER_TIME),
+    // Jede Aktion kostet Kraft – bereits in `time.fatigue` verrechnet.
+    fatigue,
     fatigue_at: now,
     merch_at: state.merch_at || now,
   });
@@ -938,43 +970,29 @@ async function act(
     subIncome: sim.subIncome, coop: sim.coop,
     base: sim.money, amount, levelBonus: amount - sim.money, level: perk.level,
     boostUsed: boost, boost: sim.boost, community: sim.community,
-    fatigue: clamp(0, FATIGUE_MAX, fatigue + p.time * FATIGUE_PER_TIME),
-    energy, tired: energy < 0.95,
+    fatigue,
+    energy: time.energy, factor: time.factor, tired: time.factor < 0.95,
     deal, offer, incident,
     stock: sim.stock, hype: sim.hype, broke, balance,
-    timeUsed: used + p.time, timeMax: TIME_PER_DAY,
+    timeUsed: usedAfter, timeMax: TIME_PER_DAY,
   };
 }
 
 /**
  * Bucht Zeit aus dem gemeinsamen Tagesbudget ab.
  *
- * Musik und Kanäle teilen sich denselben Tag (siehe src/music.js): Wer
- * vormittags im Studio war, kann abends nicht mehr vier Stunden streamen.
- * Genau deshalb liegt der Zähler hier und nicht doppelt.
- *
- * @returns {{ok:boolean, used:number, left:number, max:number, resetMs:number}}
+ * Musik, Firma und Jobs teilen sich denselben Tag: Wer vormittags im Studio
+ * war, kann abends nicht mehr vier Stunden streamen. Synchron (§7).
  */
-function useTime(guildId, userId, cost, now = Date.now()) {
-  const state = db.getCreatorState(guildId, userId, now);
-  const day = today(new Date(now));
-  const used = state.day === day ? state.time_used : 0;
-  const resetMs = new Date(new Date(now).setHours(24, 0, 0, 0)).getTime() - now;
-
-  if (used + cost > TIME_PER_DAY) {
-    return { ok: false, used, left: TIME_PER_DAY - used, max: TIME_PER_DAY, resetMs };
-  }
-
-  const fatigue = fatigueNow(state, now);
+function useTime(guildId, userId, cost, now = Date.now(), opts = {}) {
+  const p = previewTime(guildId, userId, cost, now, opts);
+  if (!p.ok) return p;
+  const { state, day, ...out } = p;
   db.saveCreatorState(guildId, userId, {
-    ...state,
-    day,
-    time_used: used + cost,
-    fatigue: clamp(0, FATIGUE_MAX, fatigue + cost * FATIGUE_PER_TIME),
-    fatigue_at: now,
+    ...state, day, time_used: out.used, fatigue: out.fatigue, fatigue_at: now,
     merch_at: state.merch_at || now,
   });
-  return { ok: true, used: used + cost, left: TIME_PER_DAY - used - cost, max: TIME_PER_DAY, resetMs };
+  return out;
 }
 
 /**
@@ -1038,7 +1056,9 @@ function status(guildId, userId, now = Date.now()) {
     boostMs: Math.max(0, state.boost_until - now),
     budget: budget(guildId, userId, now),
     fatigue,
-    energy: energyFactor(fatigue),
+    energy: energyModel.energyOf(fatigue),
+    factor: energyFactor(fatigue),
+    readyAt: energyModel.readyAt(fatigue, state.fatigue_at || now),
     merch: {
       unlocked: merchUnlocked(total),
       minReach: MERCH_MIN_REACH,
@@ -1161,10 +1181,10 @@ module.exports = {
   YT_RPV, YT_TAIL, YT_TAIL_KEEP, MAX_SUB_SHARE, BREAK_CHANCE,
   platform, format, formats, reachOf, reachTotalOf, musikBoden, startbonus, hasGear, remainingMs, budget, today, cleanTitle,
   monetization, MON_FULL, MON_EXP, MON_MIN,
-  idleDays, communityNow, churnFactor, keepFactor, activeBoost, useTime,
+  idleDays, communityNow, churnFactor, keepFactor, activeBoost, useTime, previewTime, energyOf,
   fatigueNow, energyFactor, merchUnlocked, settleMerch, rollDeal, settleDeals,
   accept, decline,
-  FATIGUE_MAX, FATIGUE_PER_TIME, FATIGUE_MALUS, FATIGUE_RECOVERY,
+  FATIGUE_MAX,
   MERCH_MIN_REACH, MERCH_DAILY_CAP, MERCH_FACTOR, merchPerDay,
   DEAL_MIN_REACH, DEAL_PENALTY, DEAL_MAX_OFFERS, DEAL_REACH_EXP,
   rollEvent, rollDonations, simulate, settle, act, status, describe,

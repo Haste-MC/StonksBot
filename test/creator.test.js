@@ -463,12 +463,14 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
     const tweet = await creator.act(G, U, 'twitter', 'witz', t0 + 1000);
     check('eine andere Plattform ist trotzdem frei', tweet.ok === true, tweet.reason ?? '');
 
-    // Budget leerfahren: Stream 2 + Tweet 1 = 3, es bleiben 5.
+    // Budget leerfahren: Stream 2 + Tweet 1 = 3, es bleiben 21 (24-Stunden-Tag).
+    // 46 Minuten je Schritt: knapp über dem Instagram-Cooldown (45 min), aber
+    // knapp genug, dass alle 21 Reels noch vor Mitternacht passen.
     let now = t0;
     let spent = 3;
     let blocked = null;
-    for (let i = 0; i < 12 && !blocked; i++) {
-      now += 50 * 60 * 1000;
+    for (let i = 0; i < 25 && !blocked; i++) {
+      now += 46 * 60 * 1000;
       refill(U);
       const r = await creator.act(G, U, 'instagram', 'reel', now);
       if (r.ok) spent += 1;
@@ -589,23 +591,20 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
   console.log('\n--- Burnout ---');
   {
     check('ausgeruht gibt es keinen Malus', creator.energyFactor(0) === 1);
-    check('der Malus ist gedeckelt',
-      Math.abs(creator.energyFactor(creator.FATIGUE_MAX) - (1 - creator.FATIGUE_MALUS)) < 1e-9);
+    check('der Malus ist gedeckelt (0,2 bleibt)', Math.abs(creator.energyFactor(creator.FATIGUE_MAX) - 0.2) < 1e-9);
     check('Erschöpfung klingt in Pausen ab',
       creator.fatigueNow({ fatigue: 100, fatigue_at: 1 }, 1 + DAY_MS) < 100,
       String(creator.fatigueNow({ fatigue: 100, fatigue_at: 1 }, 1 + DAY_MS)));
-    check('Vollgas kostet spürbar Reichweite, aber nie alles',
-      creator.energyFactor(creator.FATIGUE_MAX) > 0.5
-      && creator.energyFactor(creator.FATIGUE_MAX) < 0.9,
-      String(creator.energyFactor(creator.FATIGUE_MAX)));
+    check('ein normaler Tag merkt fast nichts (75 % → 0,95)',
+      Math.abs(creator.energyFactor(25) - 0.95) < 1e-9, String(creator.energyFactor(25)));
 
     // Zwei identische Tage, einmal frisch, einmal ausgebrannt.
     const U = player('burnout');
     const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
     refill(U);
     const fresh = await creator.act(G, U, 'twitch', 'gaming', t0, rng(3).valueOf ? rng(3) : Math.random);
-    check('die erste Aktion des Tages läuft mit voller Energie',
-      fresh.ok && fresh.energy === 1, String(fresh.energy));
+    check('die erste Aktion des Tages läuft mit fast voller Energie',
+      fresh.ok && fresh.factor > 0.99, String(fresh.factor));
 
     let now = t0;
     for (let i = 0; i < 3; i++) {
