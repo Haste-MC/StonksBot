@@ -361,7 +361,7 @@ const user = () => `u${++n}`;
     const s = company.status(G, U, t0);
     check('status: Kasse, Auslastung, Personal, Decke, Tagesprognose',
       s.company.id === cid && s.staff.length === 4 && s.free === 1 && s.ceiling.net > 0 && typeof s.forecast === 'number'
-      && s.budget.max === 8, JSON.stringify({ free: s.free, forecast: s.forecast }));
+      && s.budget.max === 24, JSON.stringify({ free: s.free, forecast: s.forecast }));
 
     // Schließen: Kasse wird entnommen, Personal weg.
     db.saveCompany({ ...db.getCompany(cid), kasse: 700 });
@@ -710,13 +710,16 @@ const user = () => `u${++n}`;
     const p = await company.pitchIn(G, U, t0 + DAY_MS);
     check('Anpacken nutzt den Faktor (648)', p.ok && p.umsatz === 648, String(p.umsatz));
 
-    // Spieler-Schicht: Umsatz round(900 × 1 × 0,4 × 1,3 × 1,2) = 562.
+    // Spieler-Schicht: Umsatz round(900 × 1 × 0,4 × 1,3 × 1,2 × f) = 561. f ist der
+    // Energiefaktor NACH dieser Schicht (§Zeit und Energie): selbst ein frischer
+    // Spieler kostet die erste 2-h-Schicht 3,55 Erschöpfungspunkte, also
+    // f = factorOf(energyOf(3.55)) = 0,998992 statt exakt 1 – 561,6 × f rundet auf 561.
     const P = user(); funds(P, 0);
     company.fire(G, U, db.companyStaff(cid)[0].id, t0 + DAY_MS);
     company.join(G, P, cid, t0 + DAY_MS);
     const jobs = require('../src/jobs');
     const w = await jobs.work(G, P, new Date(t0 + DAY_MS + 1000), seq(0.5));
-    check('Spieler-Schicht nutzt den Faktor (562)', w.ok && w.umsatz === 562, String(w.umsatz));
+    check('Spieler-Schicht nutzt den Faktor (561)', w.ok && w.umsatz === 561, String(w.umsatz));
 
     // Extra mit Plätzen: +2 ab Stufe 2.
     await company.upgrade(G, U, t0 + DAY_MS);

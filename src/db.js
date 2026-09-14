@@ -3422,7 +3422,7 @@ function addCreatorFollowers(guildId, userId, platform, delta, keep = 1, now = D
 
 /** Der geteilte Zustand (Tagesbudget, Promo-Schub, Community). */
 function getCreatorState(guildId, userId, now = Date.now()) {
-  stmt.createCreatorState.run(guildId, String(userId), now);
+  stmt.createCreatorState.run(guildId, String(userId), Number(now));
   return stmt.getCreatorState.get(guildId, String(userId));
 }
 

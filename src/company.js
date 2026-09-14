@@ -344,7 +344,8 @@ function leave(guildId, userId) {
  * den Spieler macht jobs.work – mit dessen Level-Zuschlag, der die Kasse nicht
  * belastet. Nur bei gedecktem Lohn.
  */
-function workShift(guildId, userId, companyId, now = Date.now(), random = Math.random) {
+function workShift(guildId, userId, companyId, now = Date.now(), random = Math.random,
+  { factor = 1, overtime = false } = {}) {
   settle(companyId, now);
   const c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
@@ -353,13 +354,15 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const b = branch(c.branch);
   const eff = effectiveOf(c, b);
   const f = rankOf(s.rank).factor;
-  const lohn = Math.max(1, Math.round(b.lohn * f * (0.85 + random() * 0.3)));
-  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS * eff.umsatzFactor);
+  // Müde verkauft man weniger und arbeitet langsamer: Umsatz und Lohn × Faktor.
+  const plain = Math.max(1, Math.round(b.lohn * f * (0.85 + random() * 0.3) * factor));
+  const lohn = overtime ? Math.round(plain * require('./jobs').OVERTIME_PAY) : plain;
+  const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS * eff.umsatzFactor * factor);
   if (c.kasse < lohn) return { ok: false, reason: 'kasse', lohn, kasse: c.kasse };
 
   db.saveCompany({ ...c, kasse: c.kasse - lohn + umsatz });
   db.saveStaff({ ...s, shifts: s.shifts + 1 });
-  return { ok: true, lohn, umsatz, company: c, branch: b, rank: rankOf(s.rank) };
+  return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: c, branch: b, rank: rankOf(s.rank) };
 }
 
 // --------------------------------------------------------- Inhaber-Aktionen

@@ -151,6 +151,71 @@ const H = 60 * 60 * 1000;
     check('Marathon: um 8 Uhr 35–45 % Energie', morgen.energy > 0.35 && morgen.energy < 0.45, String(morgen.energy));
   }
 
+  console.log('--- Jobs: Zeit, Überstunde, Faktor ---');
+  {
+    const db = require('../src/db');
+    const creator = require('../src/creator');
+    const jobs = require('../src/jobs');
+    const JOBS = require('../src/data/jobs');
+    const G = `ENERGIE_J${Date.now()}`;
+    const U = 'j1';
+    const easy = JOBS.find((j) => !(j.requires ?? []).length);
+    db.setEmployment(G, U, easy.id);
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * H;
+    const at = (h) => new Date(t0 + h * H);
+
+    check('Konstanten: 1 Überstunde, ×1,25, doppelt müde',
+      jobs.OVERTIME_SHIFTS === 1 && jobs.OVERTIME_PAY === 1.25 && jobs.OVERTIME_FATIGUE === 2);
+
+    // Vier reguläre Schichten, jede 2 h aus dem 24-h-Tag (Cooldown des Jobs beachten).
+    const step = Math.max(2, Math.ceil(easy.cooldown / 60) + 0.01);
+    let r;
+    for (let i = 0; i < 4; i++) {
+      r = await jobs.work(G, U, at(i * step));
+      check(`Schicht ${i + 1} regulär`, r.ok && r.overtime === false && r.overtimeBonus === 0, JSON.stringify(r));
+    }
+    check('vier Schichten = 8 von 24 Stunden', creator.budget(G, U, at(3 * step)).used === 8);
+    let b = jobs.shiftBudget(G, U, at(3 * step));
+    check('shiftBudget: 4/4, nächste ist Überstunde', b.done === 4 && b.left === 0 && b.nextIsOvertime === true && b.overtimeLeft === 1, JSON.stringify(b));
+
+    // Die fünfte Schicht ist die Überstunde: Lohn ×1,25 auf den Grundlohn, doppelte Müdigkeit.
+    const vor = creator.energyOf(G, U, at(4 * step)).fatigue;
+    r = await jobs.work(G, U, at(4 * step));
+    check('5. Schicht = Überstunde', r.ok && r.overtime === true && r.overtimeBonus > 0, JSON.stringify(r));
+    check('Bonus ist ein Viertel des Grundlohns (auf Taler gerundet)',
+      Math.abs(r.overtimeBonus - Math.round((r.base - r.overtimeBonus) * 0.25)) <= 1, `${r.base} / ${r.overtimeBonus}`);
+    const nach = creator.energyOf(G, U, at(4 * step)).fatigue;
+    check('Überstunde macht doppelt müde: 2 × costOf(8, 2) = 15,1 (nach Erholung seit der 4. Schicht)',
+      near(nach - vor, energy.costOf(8, 2, 2), 1e-6), `${nach - vor}`);
+    check('10 von 24 Stunden', creator.budget(G, U, at(4 * step)).used === 10);
+
+    r = await jobs.work(G, U, at(5 * step));
+    check('6. Schicht: daily_limit mit 5 von 5', r.ok === false && r.reason === 'daily_limit' && r.done === 5 && r.max === 5, JSON.stringify(r));
+
+    // Faktor auf den Lohn: bei 50 Punkten Erschöpfung (vor der Schicht) zahlt die Schicht weniger.
+    const V = 'j2';
+    db.setEmployment(G, V, easy.id);
+    const s = db.getCreatorState(G, V, t0);
+    db.saveCreatorState(G, V, { ...s, fatigue: 50, fatigue_at: t0 });
+    const realRandom = Math.random; Math.random = () => 0.5;           // variance = 1,0
+    r = await jobs.work(G, V, new Date(t0));
+    Math.random = realRandom;
+    // Nach der Schicht: 50 + costOf(0, 2) = 53,55 → Energie 0,4645 → Faktor 0,77059.
+    const erwartet = Math.max(1, Math.round(easy.pay * 0.77059));
+    check('Lohn bei 46 % Energie: Grundlohn × 0,7706', r.ok && Math.abs(r.base - erwartet) <= 1 && near(r.factor, 0.77059, 1e-4),
+      `base ${r.base} erwartet ${erwartet} factor ${r.factor}`);
+
+    // Wand: erschöpft → keine Schicht, keine Buchung.
+    const W = 'j3';
+    db.setEmployment(G, W, easy.id);
+    const sw = db.getCreatorState(G, W, t0);
+    db.saveCreatorState(G, W, { ...sw, fatigue: 95, fatigue_at: t0 });
+    bookings = [];
+    r = await jobs.work(G, W, new Date(t0));
+    check('erschöpft: exhausted mit readyAt, nichts gebucht', r.ok === false && r.reason === 'exhausted' && r.readyAt > t0 && bookings.length === 0, JSON.stringify(r));
+    check('… und die Schicht zählt nicht', db.shiftsToday(G, W, jobs.today(new Date(t0))) === 0);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

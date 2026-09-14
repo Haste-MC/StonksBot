@@ -30,6 +30,8 @@ console.log('--- Konfiguration ---');
 check('4 Schichten pro Tag', jobs.MAX_SHIFTS_PER_DAY === 4);
 check('2 Stunden pro Schicht', jobs.HOURS_PER_SHIFT === 2);
 check('ergibt 8-Stunden-Tag', jobs.MAX_SHIFTS_PER_DAY * jobs.HOURS_PER_SHIFT === 8);
+check('eine Überstunde, ×1,25, doppelt müde',
+  jobs.OVERTIME_SHIFTS === 1 && jobs.OVERTIME_PAY === 1.25 && jobs.OVERTIME_FATIGUE === 2);
 
 console.log('--- Verschleiß-Zuordnung ---');
 check('Führerscheine unzerstörbar',
@@ -73,16 +75,17 @@ const fixed = new Date('2026-07-20T10:00:00');
 db.recordShift(G, U, 100, jobs.today(fixed));
 const budget = jobs.shiftBudget(G, U, fixed);
 check('1 von 4 gearbeitet', budget.done === 1 && budget.left === 3, JSON.stringify(budget));
-check('entspricht 2 von 8 Stunden', budget.hours === 2 && budget.maxHours === 8);
+check('entspricht 2 von 8 Stunden (+1 Überstunde offen)',
+  budget.hours === 2 && budget.maxHours === 8 && budget.overtimeLeft === 1 && budget.nextIsOvertime === false);
 
 console.log('--- Limit greift ---');
 db.clearEmployment(G, U);
 db.setEmployment(G, U, easy.id);
-for (let i = 0; i < 4; i++) db.recordShift(G, U, 100, jobs.today(fixed));
+for (let i = 0; i < 5; i++) db.recordShift(G, U, 100, jobs.today(fixed));
 const blocked = await jobs.work(G, U, fixed);
-check('5. Schicht wird abgelehnt',
+check('6. Schicht wird abgelehnt',
   blocked.ok === false && blocked.reason === 'daily_limit', JSON.stringify(blocked));
-check('meldet 4 von 4', blocked.done === 4 && blocked.max === 4);
+check('meldet 5 von 5', blocked.done === 5 && blocked.max === 5);
 check('nennt Zeit bis Zurücksetzung', blocked.resetMs > 0);
 
 console.log('--- Verschleiß im Betrieb ---');

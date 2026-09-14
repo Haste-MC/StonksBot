@@ -14,11 +14,14 @@ function resolveJob(jobId) {
 const OFFERS_PER_DAY = 5;
 
 /**
- * Eine Schicht entspricht etwa zwei Stunden Arbeit. Mehr als vier Schichten
- * am Tag – also acht Stunden – lässt das Arbeitsamt nicht zu.
+ * Eine Schicht sind zwei Stunden aus dem gemeinsamen 24-h-Tag (creator.useTime).
+ * Vier reguläre Schichten plus eine Überstunde: ×1,25 Lohn, doppelt müde.
  */
 const HOURS_PER_SHIFT = 2;
 const MAX_SHIFTS_PER_DAY = 4;
+const OVERTIME_SHIFTS = 1;
+const OVERTIME_PAY = 1.25;
+const OVERTIME_FATIGUE = 2;
 
 /**
  * Ziehungsgewichte. Kleinere Zahlen = seltener im Tagesangebot.
@@ -201,10 +204,11 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
 
   const day = today(now);
   const done = db.shiftsToday(guildId, userId, day);
-  if (done >= MAX_SHIFTS_PER_DAY) {
+  const maxShifts = MAX_SHIFTS_PER_DAY + OVERTIME_SHIFTS;
+  if (done >= maxShifts) {
     return {
       ok: false, reason: 'daily_limit', job,
-      done, max: MAX_SHIFTS_PER_DAY, resetMs: msUntilRefresh(now),
+      done, max: maxShifts, resetMs: msUntilRefresh(now),
     };
   }
 
@@ -214,15 +218,24 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
     return { ok: false, reason: 'cooldown', job, remainingMs: cooldownMs - waited };
   }
 
+  const overtime = done >= MAX_SHIFTS_PER_DAY;
+  const creator = require('./creator');
+  const timeOpts = { fatigueFactor: overtime ? OVERTIME_FATIGUE : 1 };
+  // Vorschau zuerst (Wand, Stunden) – gebucht wird erst, wenn die Schicht steht (§7: alles synchron bis dahin).
+  const preview = creator.previewTime(guildId, userId, HOURS_PER_SHIFT, now.getTime(), timeOpts);
+  if (!preview.ok) return { ok: false, ...preview, job };
+
   // Firmenstelle: Zustand macht die Firma, gebucht wird hier – einmal (§9).
   const company = require('./company');
   const cid = company.companyIdOfJob(employment.job_id);
   if (cid !== null) {
-    const shift = company.workShift(guildId, userId, cid, now.getTime(), random);
+    const shift = company.workShift(guildId, userId, cid, now.getTime(), random,
+      { factor: preview.factor, overtime });
     if (!shift.ok) {
       if (shift.reason === 'closed') { db.clearEmployment(guildId, userId); return { ok: false, reason: 'unemployed' }; }
       return { ok: false, reason: shift.reason, job, lohn: shift.lohn, kasse: shift.kasse };
     }
+    const time = creator.useTime(guildId, userId, HOURS_PER_SHIFT, now.getTime(), timeOpts);
     const perk = require('./perks').perksOf(guildId, userId);
     const amount = require('./perks').payout(guildId, userId, shift.lohn);
     const balance = await changeCash(
@@ -232,8 +245,9 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
     return {
       ok: true, job, amount, base: shift.lohn, levelBonus: amount - shift.lohn, level: perk.level,
       rank: null, promotion: null, nextChance: 0, balance, broken: [],
-      employment: updated, shiftsToday: updated.shifts_today, maxShifts: MAX_SHIFTS_PER_DAY,
+      employment: updated, shiftsToday: updated.shifts_today, maxShifts,
       company: shift.company, umsatz: shift.umsatz, companyRank: shift.rank,
+      overtime, overtimeBonus: shift.overtimeBonus, energy: time.energy, factor: time.factor,
     };
   }
 
@@ -241,13 +255,15 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
   const check = checkRequirements(guildId, userId, job);
   if (!check.ok) return { ok: false, reason: 'requirements', job, missing: check.missing };
 
+  const time = creator.useTime(guildId, userId, HOURS_PER_SHIFT, now.getTime(), timeOpts);
   const variance = 0.85 + Math.random() * 0.3;
-  // Zwei Aufschläge, beide gedeckelt: das Konto-Level (perks.js) und der
-  // Rang in DIESEM Job (ranks.js – wer bleibt, verdient mehr).
   const perk = require('./perks').perksOf(guildId, userId);
   const ranks = require('./ranks');
   const rank = ranks.rank(employment.rank ?? 0);
-  const base = Math.max(1, Math.round(job.pay * variance));
+  // Müde arbeitet man langsamer (Faktor), die Überstunde zahlt einen Zuschlag auf den Grundlohn.
+  const plain = Math.max(1, Math.round(job.pay * variance * time.factor));
+  const base = overtime ? Math.round(plain * OVERTIME_PAY) : plain;
+  const overtimeBonus = base - plain;
   const amount = Math.max(1, Math.round(base * perk.income * rank.pay));
 
   const balance = await changeCash(
@@ -274,7 +290,8 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
     balance, broken,
     employment: updated,
     shiftsToday: updated.shifts_today,
-    maxShifts: MAX_SHIFTS_PER_DAY,
+    maxShifts,
+    overtime, overtimeBonus, energy: time.energy, factor: time.factor,
   };
 }
 
@@ -305,10 +322,13 @@ function applyWear(guildId, userId, job) {
 /** Schichten heute und verbleibendes Kontingent. */
 function shiftBudget(guildId, userId, now = new Date()) {
   const done = db.shiftsToday(guildId, userId, today(now));
+  const maxAll = MAX_SHIFTS_PER_DAY + OVERTIME_SHIFTS;
   return {
     done,
-    max: MAX_SHIFTS_PER_DAY,
+    max: MAX_SHIFTS_PER_DAY, maxAll,
     left: Math.max(0, MAX_SHIFTS_PER_DAY - done),
+    overtimeLeft: Math.max(0, maxAll - Math.max(done, MAX_SHIFTS_PER_DAY)),
+    nextIsOvertime: done >= MAX_SHIFTS_PER_DAY && done < maxAll,
     hours: done * HOURS_PER_SHIFT,
     maxHours: MAX_SHIFTS_PER_DAY * HOURS_PER_SHIFT,
   };
@@ -336,5 +356,5 @@ module.exports = {
   JOBS, byId, resolveJob, dailyOffers, msUntilRefresh, checkRequirements, requirementLabels,
   apply, work, quit, currentJob, today, applyWear, shiftBudget,
   OFFERS_PER_DAY, TIER_WEIGHT, TIER_LABEL, TIER_COLOR,
-  HOURS_PER_SHIFT, MAX_SHIFTS_PER_DAY,
+  HOURS_PER_SHIFT, MAX_SHIFTS_PER_DAY, OVERTIME_SHIFTS, OVERTIME_PAY, OVERTIME_FATIGUE,
 };
