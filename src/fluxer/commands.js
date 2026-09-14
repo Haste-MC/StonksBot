@@ -479,6 +479,10 @@ function workProblem(res, prefix, symbol) {
       return `🧰 Dir fehlt: **${res.missing.join(', ')}**`;
     case 'kasse':
       return '💸 Die Kasse deckt deinen Lohn nicht – sprich mit dem Inhaber.';
+    case 'exhausted':
+      return require('../energy').blockText(res);
+    case 'no_time':
+      return `😴 Der Tag hat nur ${res.max} Stunden – übrig sind **${res.left}**.`;
     default:
       return '❌ Das hat nicht geklappt.';
   }

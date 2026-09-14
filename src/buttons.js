@@ -299,9 +299,14 @@ async function shiftResult(interaction, result) {
       const m = Math.floor((result.resetMs % 3600000) / 60000);
       return {
         content: `🛌 Feierabend! Du hast heute schon ${result.done} Schichten gearbeitet ` +
-          `(${result.done * jobs.HOURS_PER_SHIFT} Stunden). ` +
+          `(${Math.min(result.done, jobs.MAX_SHIFTS_PER_DAY) * jobs.HOURS_PER_SHIFT} Stunden` +
+          `${result.done > jobs.MAX_SHIFTS_PER_DAY ? ' + Überstunde' : ''}). ` +
           `Neue Schichten in ${h} h ${m} min.`,
       };
+    }
+    if (result.reason === 'exhausted') return { content: require('./energy').blockText(result) };
+    if (result.reason === 'no_time') {
+      return { content: `😴 Der Tag hat nur ${result.max} Stunden – übrig sind **${result.left}**, eine Schicht braucht ${jobs.HOURS_PER_SHIFT}.` };
     }
     const texts = {
       unemployed: '❌ Du hast keine Anstellung. Schau ins Arbeitsamt.',
@@ -312,12 +317,18 @@ async function shiftResult(interaction, result) {
   }
 
   const embed = new EmbedBuilder()
-    .setTitle(result.company
-      ? `${result.job.emoji} Schicht bei ${result.company.name}`
-      : `${result.job.emoji} Schicht beendet`)
+    .setTitle(result.overtime
+      ? (result.company ? `⏰ Überstunde bei ${result.company.name}` : '⏰ Überstunde beendet')
+      : (result.company ? `${result.job.emoji} Schicht bei ${result.company.name}` : `${result.job.emoji} Schicht beendet`))
     .setDescription(`Als **${result.job.title}** hast du ${money(symbol, result.amount)} verdient.` +
       (result.levelBonus > 0
         ? `\n🏆 Darin stecken **${money(symbol, result.levelBonus)}** Level-Zuschlag (Level ${result.level}).`
+        : '') +
+      (result.overtime
+        ? `\n⏰ Überstunde: **${money(symbol, result.overtimeBonus)}** Zuschlag – du bist ziemlich platt.`
+        : '') +
+      (result.factor < 0.95
+        ? `\n🔋 Müde gearbeitet: Wirkung ×${result.factor.toFixed(2)} (${Math.round(result.energy * 100)} % Energie).`
         : ''))
     .addFields(
       { name: 'Bargeld', value: money(symbol, result.balance.cash), inline: true },
@@ -1798,8 +1809,10 @@ Object.assign(buttons, {
       if (res.reason === 'cooldown') {
         note = `⏳ Die Ohren brauchen Pause – wieder in ` +
           `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'exhausted') {
+        note = require('./energy').blockText(res);
       } else if (res.reason === 'no_time') {
-        note = `😴 Eine Session kostet **${res.need}** Zeit, übrig sind **${res.left}**. ` +
+        note = `😴 Eine Session kostet **${res.need}** Stunden, übrig sind **${res.left}**. ` +
           'Morgen wieder.';
       } else note = problems[res.reason] ?? '❌ Das ging nicht.';
     } else {
@@ -1840,8 +1853,10 @@ Object.assign(buttons, {
       } else if (res.reason === 'cooldown') {
         note = '⏳ Zu früh. Zwei Veröffentlichungen am selben Tag nimmt dir niemand ab – ' +
           `wieder in **${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'exhausted') {
+        note = require('./energy').blockText(res);
       } else if (res.reason === 'no_time') {
-        note = `😴 Dafür fehlt die Zeit (**${res.need}** nötig, **${res.left}** übrig).`;
+        note = `😴 Dafür fehlen die Stunden (**${res.need}** nötig, **${res.left}** übrig).`;
       } else note = '❌ Das ging nicht.';
     } else {
       const delta = res.listeners - res.listenersBefore;
@@ -1887,8 +1902,10 @@ Object.assign(buttons, {
       } else if (res.reason === 'cooldown') {
         note = `⏳ Die Tour braucht Pause – wieder in ` +
           `**${require('./income').formatRemaining(res.remainingMs)}**.`;
+      } else if (res.reason === 'exhausted') {
+        note = require('./energy').blockText(res);
       } else if (res.reason === 'no_time') {
-        note = `😴 Ein Konzert kostet **${res.need}** Zeit, übrig sind **${res.left}**.`;
+        note = `😴 Ein Konzert kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
       } else note = '🎤 Starte zuerst deine Karriere.';
     } else if (res.cancelled) {
       note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
@@ -1955,12 +1972,14 @@ Object.assign(buttons, {
       note = r.ok ? `📣 Werbung geschaltet für ${money(symbol, r.cost)} – drei Tage mehr Kundschaft.`
         : { no_company: '🏢 Du hast keine Firma.', running: '📣 Die Kampagne läuft noch.',
           kasse: `💸 Dafür fehlen ${money(symbol, r.cost ?? 0)} in der Kasse.`,
-          no_time: `😴 Werbung kostet **${r.need}** Zeit, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
+          exhausted: require('./energy').blockText(r),
+          no_time: `😴 Werbung kostet **${r.need}** Stunden, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
     } else if (aktion === 'anpacken') {
       const r = await company.pitchIn(guildId, userId);
       note = r.ok ? `🧑‍🔧 Selbst angepackt: **${money(symbol, r.umsatz)}** Umsatz für die Firma (${r.done}/${r.max} heute).`
         : { no_company: '🏢 Du hast keine Firma.', limit: '🛌 Für heute reicht es – vier Schichten sind das Maximum.',
-          no_time: `😴 Anpacken kostet **${r.need}** Zeit, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
+          exhausted: require('./energy').blockText(r),
+          no_time: `😴 Anpacken kostet **${r.need}** Stunden, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
     } else if (aktion === 'npc') {
       const r = company.hireNpc(guildId, userId);
       note = r.ok ? `🤖 **${r.staff.name}** fängt morgen an (noch ${r.free} Plätze frei).`
@@ -2355,8 +2374,10 @@ Object.assign(buttons, {
       if (res.reason === 'cooldown') {
         note = `⏳ Zu früh – ${res.platform.name} ist in ` +
           `**${require('./income').formatRemaining(res.remainingMs)}** wieder dran.`;
+      } else if (res.reason === 'exhausted') {
+        note = require('./energy').blockText(res);
       } else if (res.reason === 'no_time') {
-        note = `😴 Der Tag hat nur ${res.max} Stunden Kreativzeit. ` +
+        note = `😴 Der Tag hat ${res.max} Stunden. ` +
           `Für ${res.platform.action} brauchst du **${res.need}**, übrig sind **${res.left}**. ` +
           `Morgen wieder (in **${require('./income').formatRemaining(res.resetMs)}**).`;
       } else if (res.reason === 'locked') {

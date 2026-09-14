@@ -905,11 +905,14 @@ async function buildJobCenterView({ guildId, userId }) {
           `_(steigt mit jeder Schicht ohne Aufstieg)_`;
       })(),
     });
+    const kacheln = '▰'.repeat(Math.min(budget.done, budget.max)) + '▱'.repeat(budget.left)
+      + (budget.done > budget.max ? '⏰' : '▫️');
     embed.addFields({
       name: 'Heute gearbeitet',
-      value: `${'▰'.repeat(budget.done)}${'▱'.repeat(budget.left)}  ` +
-        `${budget.done}/${budget.max} Schichten · ${budget.hours}/${budget.maxHours} Stunden` +
-        (budget.left === 0 ? '\n🛌 Feierabend – morgen geht es weiter.' : ''),
+      value: `${kacheln}  ${Math.min(budget.done, budget.max)}/${budget.max} Schichten · ${Math.min(budget.hours, budget.maxHours)}/${budget.maxHours} Stunden`
+        + (budget.done > budget.max ? ` + ${(budget.done - budget.max) * jobs.HOURS_PER_SHIFT} Überstunden` : '')
+        + `\n${zeitEnergieZeile(require('./creator').budget(guildId, userId))}`
+        + (budget.left === 0 && budget.overtimeLeft === 0 ? '\n🛌 Feierabend – morgen geht es weiter.' : ''),
     });
   }
 
@@ -960,10 +963,10 @@ async function buildJobCenterView({ guildId, userId }) {
       .setCustomId(`shift|${userId}`)
       .setLabel(budget.left > 0
         ? `Schicht arbeiten (${budget.left} übrig)`
-        : 'Heute fertig')
-      .setEmoji(budget.left > 0 ? '⚒️' : '🛌')
+        : budget.nextIsOvertime ? 'Überstunde (+25 %)' : 'Heute fertig')
+      .setEmoji(budget.left > 0 ? '⚒️' : budget.nextIsOvertime ? '⏰' : '🛌')
       .setStyle(ButtonStyle.Primary)
-      .setDisabled(!current || budget.left === 0),
+      .setDisabled(!current || (budget.left === 0 && !budget.nextIsOvertime)),
     new ButtonBuilder()
       .setCustomId(ID.menu('gear', 1, userId))
       .setLabel('Ausrüstung kaufen').setEmoji('🧰')
@@ -986,6 +989,21 @@ const pct = (a) => `${Math.round(a * 100)} %`;
 function auslastungBar(a) {
   const n = Math.round(Math.max(0, Math.min(1, a)) * 10);
   return `${'▰'.repeat(n)}${'▱'.repeat(10 - n)} ${pct(a)}`;
+}
+
+/**
+ * Die gemeinsame Zeile für Zeit und Energie (ein Tag, eine Energie – §17).
+ * `budget` kommt aus creator.budget().
+ */
+function zeitEnergieZeile(budget) {
+  const n = Math.round(Math.max(0, Math.min(1, budget.energy)) * 8);
+  let s = `⏳ Zeit: **${budget.left}** von ${budget.max} · 🔋 ${'▰'.repeat(n)}${'▱'.repeat(8 - n)} ${pct(budget.energy)}`;
+  if (budget.readyAt) {
+    s += `\n_erschöpft – wieder in ${require('./income').formatRemaining(Math.max(0, budget.readyAt - Date.now()))}_`;
+  } else if (budget.factor < 0.95) {
+    s += `\n_müde – Wirkung ×${budget.factor.toFixed(2).replace('.', ',')}_`;
+  }
+  return s;
 }
 
 const KLASSEN = [
@@ -1105,8 +1123,7 @@ async function buildFirmaView({ guildId, userId }) {
   }
   embed.addFields({
     name: '⏳ Heute',
-    value: `Zeit: **${s.budget.left}** von ${s.budget.max} · Anpacken noch **${s.pitchLeft}×** · `
-      + `Werbung kostet ${money(symbol, s.werbungCost)}`,
+    value: `${zeitEnergieZeile(s.budget)}\nAnpacken noch **${s.pitchLeft}×** · Werbung kostet ${money(symbol, s.werbungCost)}`,
   });
   embed.addFields({
     name: '🏗️ Ausbau',
@@ -1601,9 +1618,7 @@ async function buildCreatorView({ guildId, userId }) {
     `🌍 **Markt:** ${s.market.country.id ? `${s.market.country.flag} ` : ''}` +
     `${s.market.language.id ? `${s.market.language.emoji} ${s.market.language.name}` : '_keine Sprache gewählt_'}` +
     (s.market.atHome ? ' 🏡' : ''),
-    `⏳ **Zeit heute:** ${s.budget.left} von ${s.budget.max} übrig`,
-    `🔋 **Energie:** ${progressBar(s.energy, 8)} ${Math.round(s.energy * 100)} %` +
-    (s.factor < 0.95 ? ' _(ausgebrannt – Pausen helfen)_' : ''),
+    zeitEnergieZeile(s.budget),
   ];
   if (s.boost > 0) {
     extras.push(`🐦 **Promo läuft:** nächste Aktion +${Math.round(s.boost * 100)} % Reichweite`);
@@ -2198,7 +2213,7 @@ async function buildMusicView({ guildId, userId }) {
 
   embed.addFields({
     name: '⏳ Heute',
-    value: `Zeit: **${s.budget.left}** von ${s.budget.max} · `
+    value: `${zeitEnergieZeile(s.budget)}\n`
       + `Studio ${s.recordMs > 0 ? `in ${require('./income').formatRemaining(s.recordMs)}` : '**frei**'} · `
       + `Release ${s.releaseMs > 0 ? `in ${require('./income').formatRemaining(s.releaseMs)}` : '**frei**'}`,
   });
@@ -2887,7 +2902,7 @@ async function buildPlatformView({ guildId, userId, key, titleMode = false }) {
 
   embed.addFields({
     name: '⏳ Bereit',
-    value: `${readyIn(me.remainingMs)} · Zeit: **${p.time}** von ${s.budget.left} übrig` +
+    value: `${readyIn(me.remainingMs)} · braucht **${p.time}** h\n${zeitEnergieZeile(s.budget)}` +
       (s.boost > 0 && p.id !== 'twitter'
         ? `\n🐦 Promo aktiv: **+${Math.round(s.boost * 100)} %** Reichweite` : ''),
   });
@@ -4527,4 +4542,5 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
+  zeitEnergieZeile,
 };
