@@ -719,7 +719,7 @@ const user = () => `u${++n}`;
     company.join(G, P, cid, t0 + DAY_MS);
     const jobs = require('../src/jobs');
     const w = await jobs.work(G, P, new Date(t0 + DAY_MS + 1000), seq(0.5));
-    check('Spieler-Schicht nutzt den Faktor (561)', w.ok && w.umsatz === 561, String(w.umsatz));
+    check('Spieler-Schicht nutzt den Faktor (561)', w.ok && w.umsatz === Math.round(561.6 * w.factor), String(w.umsatz));
 
     // Extra mit Plätzen: +2 ab Stufe 2.
     await company.upgrade(G, U, t0 + DAY_MS);

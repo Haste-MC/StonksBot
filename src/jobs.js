@@ -257,6 +257,8 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
 
   const time = creator.useTime(guildId, userId, HOURS_PER_SHIFT, now.getTime(), timeOpts);
   const variance = 0.85 + Math.random() * 0.3;
+  // Zwei Aufschläge, beide gedeckelt: das Konto-Level (perks.js) und der
+  // Rang in DIESEM Job (ranks.js – wer bleibt, verdient mehr).
   const perk = require('./perks').perksOf(guildId, userId);
   const ranks = require('./ranks');
   const rank = ranks.rank(employment.rank ?? 0);

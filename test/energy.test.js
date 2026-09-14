@@ -174,20 +174,20 @@ const H = 60 * 60 * 1000;
       r = await jobs.work(G, U, at(i * step));
       check(`Schicht ${i + 1} regulär`, r.ok && r.overtime === false && r.overtimeBonus === 0, JSON.stringify(r));
     }
-    check('vier Schichten = 8 von 24 Stunden', creator.budget(G, U, at(3 * step)).used === 8);
+    check('vier Schichten = 8 von 24 Stunden', creator.budget(G, U, t0 + 3 * step * H).used === 8);
     let b = jobs.shiftBudget(G, U, at(3 * step));
     check('shiftBudget: 4/4, nächste ist Überstunde', b.done === 4 && b.left === 0 && b.nextIsOvertime === true && b.overtimeLeft === 1, JSON.stringify(b));
 
     // Die fünfte Schicht ist die Überstunde: Lohn ×1,25 auf den Grundlohn, doppelte Müdigkeit.
-    const vor = creator.energyOf(G, U, at(4 * step)).fatigue;
+    const vor = creator.energyOf(G, U, t0 + 4 * step * H).fatigue;
     r = await jobs.work(G, U, at(4 * step));
     check('5. Schicht = Überstunde', r.ok && r.overtime === true && r.overtimeBonus > 0, JSON.stringify(r));
     check('Bonus ist ein Viertel des Grundlohns (auf Taler gerundet)',
       Math.abs(r.overtimeBonus - Math.round((r.base - r.overtimeBonus) * 0.25)) <= 1, `${r.base} / ${r.overtimeBonus}`);
-    const nach = creator.energyOf(G, U, at(4 * step)).fatigue;
+    const nach = creator.energyOf(G, U, t0 + 4 * step * H).fatigue;
     check('Überstunde macht doppelt müde: 2 × costOf(8, 2) = 15,1 (nach Erholung seit der 4. Schicht)',
       near(nach - vor, energy.costOf(8, 2, 2), 1e-6), `${nach - vor}`);
-    check('10 von 24 Stunden', creator.budget(G, U, at(4 * step)).used === 10);
+    check('10 von 24 Stunden', creator.budget(G, U, t0 + 4 * step * H).used === 10);
 
     r = await jobs.work(G, U, at(5 * step));
     check('6. Schicht: daily_limit mit 5 von 5', r.ok === false && r.reason === 'daily_limit' && r.done === 5 && r.max === 5, JSON.stringify(r));
