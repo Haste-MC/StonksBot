@@ -390,8 +390,9 @@ async function advertise(guildId, userId, now = Date.now()) {
   if (c.werbung_until > now) return { ok: false, reason: 'running', until: c.werbung_until };
   const cost = Math.round(b.price * data.WERBUNG_COST_SHARE);
   if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
+  // Werbung kostet Stunden und Energie, skaliert nichts – der Faktor greift nicht.
   const time = useTime(guildId, userId, data.TIME_WERBUNG, now);
-  if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_WERBUNG, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: data.TIME_WERBUNG, ...time };
   const until = now + data.WERBUNG_DAYS * DAY_MS;
   db.saveCompany({ ...c, kasse: c.kasse - cost, werbung_until: until });
   return { ok: true, cost, until, time };
@@ -406,11 +407,12 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   const done = c.pitch_day === day ? c.pitch_today : 0;
   if (done >= data.MAX_PITCH_PER_DAY) return { ok: false, reason: 'limit', done, max: data.MAX_PITCH_PER_DAY };
   const time = useTime(guildId, userId, data.TIME_ANPACKEN, now);
-  if (!time.ok) return { ok: false, reason: 'no_time', need: data.TIME_ANPACKEN, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: data.TIME_ANPACKEN, ...time };
   const eff = effectiveOf(c, b);
-  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung * eff.umsatzFactor);
+  // Müde packt man weniger an: Umsatz × Energiefaktor (nach der Buchung).
+  const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung * eff.umsatzFactor * time.factor);
   db.saveCompany({ ...c, kasse: c.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
-  return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time };
+  return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time, factor: time.factor };
 }
 
 /**

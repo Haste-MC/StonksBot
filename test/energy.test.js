@@ -216,6 +216,66 @@ const H = 60 * 60 * 1000;
     check('… und die Schicht zählt nicht', db.shiftsToday(G, W, jobs.today(new Date(t0))) === 0);
   }
 
+  console.log('--- Wirkung: Anpacken, Studio, Release, Show ---');
+  {
+    const db = require('../src/db');
+    const company = require('../src/company');
+    const music = require('../src/music');
+    const G = `ENERGIE_W${Date.now()}`;
+    const U = 'w1';
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * H;
+    konten.set(U, 1_000_000);
+
+    // Kiosk, Auslastung 0,3, kein Ausbau: Anpacken = round(250 × 1,5 × 0,3 × factor).
+    let r = await company.found(G, U, 'kiosk', 'Müde Ecke', t0);
+    check('Kiosk gegründet', r.ok, JSON.stringify(r));
+    const s0 = db.getCreatorState(G, U, t0);
+    db.saveCreatorState(G, U, { ...s0, fatigue: 50, fatigue_at: t0 });
+    r = await company.pitchIn(G, U, t0);
+    // 50 + costOf(0, 2) = 53,55 → Energie 0,4645 → Faktor 0,77059 → 112,5 × 0,77059 = 86,69 → 87
+    check('Anpacken bei 46 % Energie: 87 statt 113', r.ok && r.umsatz === 87 && near(r.factor, 0.77059, 1e-4), JSON.stringify(r));
+
+    // Wand bei Anpacken und Werbung.
+    db.saveCreatorState(G, U, { ...db.getCreatorState(G, U, t0), fatigue: 95, fatigue_at: t0 });
+    r = await company.pitchIn(G, U, t0);
+    check('Anpacken erschöpft: exhausted + readyAt', r.ok === false && r.reason === 'exhausted' && r.readyAt > t0, JSON.stringify(r));
+    await company.deposit(G, U, 50_000, t0);          // Werbung prüft die Kasse vor der Zeit
+    r = await company.advertise(G, U, t0);
+    check('Werbung erschöpft: exhausted', r.ok === false && r.reason === 'exhausted', JSON.stringify(r));
+    await company.close(G, U, t0);
+
+    // Musik: Studio-Qualität × Faktor. Mit festem Würfel 0,5 wäre quality 1,05.
+    const M = 'w2';
+    konten.set(M, 1_000_000);
+    const setup = db.createItem({ guildId: G, name: music.GEAR, price: 1, kind: 'gear', stock: null, createdBy: 't' });
+    db.reservePurchase(G, M, setup.id, 1);
+    music.setup(G, M, 'pop', music.PERSONAS[0].id);
+    db.saveCreatorState(G, M, { ...db.getCreatorState(G, M, t0), fatigue: 50, fatigue_at: t0 });
+    r = music.record(G, M, t0, () => 0.5, { events: false });
+    // 50 + costOf(0, 3) = 50 + 4,2 + 0,25 × 6 = 55,7 → Energie 0,443 → Faktor 1 − 0,8 × 0,557² = 0,75180
+    check('Aufnahme bei 44 % Energie: quality 1,05 × 0,7518', r.ok && near(r.quality, 1.05 * 0.75180, 1e-4) && near(r.factor, 0.75180, 1e-4), JSON.stringify(r));
+
+    // Release: audience × Faktor. Vergleich frisch gegen müde mit demselben Würfel.
+    const F = 'w3';
+    konten.set(F, 1_000_000);
+    db.reservePurchase(G, F, setup.id, 1);
+    music.setup(G, F, 'pop', music.PERSONAS[0].id);
+    music.record(G, F, t0, () => 0.5, { events: false });
+    const frisch = music.publish(G, F, 'single', t0 + 21 * H, () => 0.5, { events: false });
+    // M ist bis dahin erholt – für den Vergleich wieder auf 50 Punkte setzen.
+    db.saveCreatorState(G, M, { ...db.getCreatorState(G, M, t0 + 21 * H), fatigue: 50, fatigue_at: t0 + 21 * H });
+    const muede = music.publish(G, M, 'single', t0 + 21 * H, () => 0.5, { events: false });
+    check('Release frisch ok und müde ok', frisch.ok && muede.ok, JSON.stringify({ frisch: frisch.reason, muede: muede.reason }));
+    check('müdes Release erreicht weniger Publikum (Faktor < 1)',
+      muede.ok && frisch.ok && muede.audience < frisch.audience && muede.factor < 1 && frisch.factor > 0.95,
+      `${muede.audience} < ${frisch.audience}`);
+
+    // Wand im Studio.
+    db.saveCreatorState(G, M, { ...db.getCreatorState(G, M, t0), fatigue: 95, fatigue_at: t0 + 22 * H });
+    r = music.record(G, M, t0 + 22 * H, () => 0.5, { events: false });
+    check('Studio erschöpft: exhausted', r.ok === false && r.reason === 'exhausted' && r.readyAt > t0 + 22 * H, JSON.stringify(r));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

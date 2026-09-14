@@ -399,13 +399,14 @@ function record(guildId, userId, now = Date.now(), random = Math.random, { event
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
 
   const time = useTime(guildId, userId, RECORD_TIME, now);
-  if (!time.ok) return { ok: false, reason: 'no_time', need: RECORD_TIME, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: RECORD_TIME, ...time };
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf – so lässt sich ein
   // Ereignis im Test mit einer festen Zahlenfolge erzwingen.
   const g = genre(row.genre);
   const event = events ? rollMusicEvent('record', g, random) : NO_EVENT;
-  const quality = 0.7 + random() * 0.7;
+  // Müde nimmt man schlechter auf: Qualität × Energiefaktor (nach der Buchung).
+  const quality = (0.7 + random() * 0.7) * time.factor;
   const songs = row.songs + (event.songs ?? 1);
   db.saveArtist(guildId, userId, {
     ...row,
@@ -423,7 +424,7 @@ function record(guildId, userId, now = Date.now(), random = Math.random, { event
     ? require('./decisions').roll(guildId, userId, row.listeners, now, random, 'music') : null;
 
   return {
-    ok: true, songs, quality,
+    ok: true, songs, quality, factor: time.factor,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
     incident,
     text: pick(data.STUDIO, random), time,
@@ -495,8 +496,11 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const left = force ? 0 : remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, release: type };
 
-  const time = force ? { ok: true, forced: true } : useTime(guildId, userId, type.time, now);
-  if (!time.ok) return { ok: false, reason: 'no_time', need: type.time, release: type, ...time };
+  // `force` bucht keine Zeit, nimmt aber die aktuelle Energie.
+  const time = force
+    ? { ok: true, forced: true, factor: require('./creator').energyOf(guildId, userId, now).factor }
+    : useTime(guildId, userId, type.time, now);
+  if (!time.ok) return { ok: false, reason: time.reason, need: type.time, release: type, ...time };
 
   const market = marketOf(guildId, userId);
   const g = genre(row.genre);
@@ -512,7 +516,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const sim = simulateRelease(row, {
     type, genre: g, persona: p, market, idol,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
-    audienceFactor: audienceFactor * (event.audience ?? 1),
+    audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor,
   });
 
   const { audience, gained, lost, listeners, buzz, position } = sim;
@@ -553,7 +557,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   return {
     ok: true, release: type, genre: g, persona: p,
     audience, gained, lost, lostToIdle: sim.lostToIdle,
-    audienceFactor,
+    audienceFactor, factor: time.factor,
     listeners: Math.round(listeners), listenersBefore: row.listeners,
     buzz, position: charted ? position : 0, best,
     spill, spilled, offer, time,
@@ -587,7 +591,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
 
   const time = useTime(guildId, userId, SHOW_TIME, now);
-  if (!time.ok) return { ok: false, reason: 'no_time', need: SHOW_TIME, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time };
 
   const g = genre(row.genre);
   const p = persona(row.persona);
@@ -596,7 +600,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
   const event = events ? rollMusicEvent('show', g, random) : NO_EVENT;
-  const quality = 0.75 + random() * 0.6;
+  const quality = (0.75 + random() * 0.6) * time.factor;   // Gage und Zuwachs hängen daran
   const gross = Math.round(
     Math.pow(before.listeners, SHOW_EXP) * SHOW_PAY
     * market.scene * market.deal * g.live * p.live * quality
@@ -629,7 +633,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
     : null;
 
   return {
-    ok: true, gross, cut, amount: net, gained, quality, genre: g,
+    ok: true, gross, cut, amount: net, gained, quality, factor: time.factor, genre: g,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
     incident, cancelled,
     text: pick(data.SHOWS, random), balance, time,

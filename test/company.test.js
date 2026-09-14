@@ -289,10 +289,12 @@ const user = () => `u${++n}`;
     check('Werbung kostet Zeit aus dem Creator-Budget', creator.budget(G, U, t0).left === zeitVor - data.TIME_WERBUNG);
     check('Werbung läuft schon -> abgelehnt', (await company.advertise(G, U, t0 + 1000)).reason === 'running');
 
-    // Anpacken: Umsatz als Schichtleiter, kein Lohn.
+    // Anpacken: Umsatz als Schichtleiter, kein Lohn. Werbung eben hat schon Zeit und
+    // Energie gekostet, darum wirkt hier schon der Energiefaktor (§Zeit und Energie).
     const a = db.getCompany(cid).auslastung;
     r = await company.pitchIn(G, U, t0);
-    check('Anpacken bringt 900 × 1,5 × Auslastung', r.ok && r.umsatz === Math.round(b.umsatz * 1.5 * a)
+    check('Anpacken bringt 900 × 1,5 × Auslastung × Faktor', r.ok
+      && r.umsatz === Math.round(b.umsatz * 1.5 * a * r.factor)
       && db.getCompany(cid).kasse === 14_000 + r.umsatz, JSON.stringify(r));
     check('… und kostet Zeit', creator.budget(G, U, t0).left === zeitVor - data.TIME_WERBUNG - data.TIME_ANPACKEN);
     for (let i = 0; i < 3; i++) await company.pitchIn(G, U, t0);
@@ -706,9 +708,11 @@ const user = () => `u${++n}`;
     check('Auslastungsziel nutzt die neuen Plätze', Math.abs(company.dailyTarget(b, 6, false, 6) - 0.8) < 1e-9
       && Math.abs(company.dailyTarget(b, 5, false, 6) - (0.3 + 0.5 * 5 / 6)) < 1e-9);
 
-    // Anpacken: round(900 × 1,5 × a × 1,2) mit a = 0,4 → 648.
+    // Anpacken: round(900 × 1,5 × a × 1,2) mit a = 0,4 → 648, mal Energiefaktor. Erste
+    // 2-h-Aktion für U kostet 3,55 Punkte, also f = factorOf(energyOf(3.55)) = 0,998992
+    // statt exakt 1 – 648 × f rundet auf 647.
     const p = await company.pitchIn(G, U, t0 + DAY_MS);
-    check('Anpacken nutzt den Faktor (648)', p.ok && p.umsatz === 648, String(p.umsatz));
+    check('Anpacken nutzt den Faktor (647)', p.ok && p.umsatz === 647, String(p.umsatz));
 
     // Spieler-Schicht: Umsatz round(900 × 1 × 0,4 × 1,3 × 1,2 × f) = 561. f ist der
     // Energiefaktor NACH dieser Schicht (§Zeit und Energie): selbst ein frischer
