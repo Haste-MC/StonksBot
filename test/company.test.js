@@ -401,12 +401,16 @@ const user = () => `u${++n}`;
       JSON.stringify({ a: s.auslastung, target: s.target, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
 
     // Nach dem ersten Tick steht die Auslastung genau auf dem angekündigten Wert.
+    // Explizit ohne Ereignis abrechnen – status() würde sonst mit Math.random würfeln.
+    company.settle(s.company.id, t0 + DAY_MS + H, keinWurf);
     s = company.status(G, U, t0 + DAY_MS + H);
     check('Tag 1: Auslastung 44 % wie angekündigt, morgen ~55 %',
       Math.abs(s.auslastung - 0.44) < 1e-9 && Math.abs(s.auslastungTomorrow - 0.552) < 1e-9 && s.nextSettleMs === 23 * H,
       JSON.stringify({ a: s.auslastung, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
 
     // Werbung läuft 3 Tage: Tag 3 zählt sie noch (>=), Tag 4 nicht mehr -> Ziel 0,8.
+    // Explizit ohne Ereignis abrechnen – status() würde sonst mit Math.random würfeln.
+    company.settle(s.company.id, t0 + 3 * DAY_MS + H, keinWurf);
     s = company.status(G, U, t0 + 3 * DAY_MS + H);
     check('Tag 3: Werbung abgelaufen, nächstes Ziel 80 %', s.target === 0.8 && s.werbungMs === 0,
       JSON.stringify({ target: s.target, werbungMs: s.werbungMs }));

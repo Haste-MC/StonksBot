@@ -317,7 +317,7 @@ function wirkungOk(e, label) {
     check('Größe 9: griff_in_die_kasse gewürfelt', row?.kind === 'griff_in_die_kasse', row?.kind);
     vor = db.getCompany(cid).kasse;
     const g2 = await decisions.settle(G, U, t0 + 6 * DAY_MS + 25 * H);
-    check('Schweigen bei Größe 9: −2 × 1,6 × 1,6 × Decke', g2[0].effect.kasse === -Math.round(2 * 1.6 * 1.6 * decke9)
+    check('Schweigen bei Größe 9: −2 × 1,6 × 1,6 × Decke', g2[0].effect.kasse === -Math.round(2 * decke9 * (1.6 * 1.6))
       && db.getCompany(cid).kasse === vor + g2[0].effect.kasse, JSON.stringify(g2[0]?.effect));
 
     // Übernahme: verkaufen → Firma sold, Auszahlung = investiert + Kasse, eine Buchung.
