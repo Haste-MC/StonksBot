@@ -2054,10 +2054,7 @@ Object.assign(buttons, {
       if (arg !== 'ja') {
         // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
         const s = company.status(guildId, userId);
-        const investiert = s
-          ? s.stufen.filter((st) => st.owned).reduce((sum, st) => sum + st.price, 0)
-            + s.extras.filter((e) => e.owned).reduce((sum, e) => sum + e.price, 0)
-          : 0;
+        const investiert = s ? s.invested : 0;
         const extras = s ? s.extras.filter((e) => e.owned).length : 0;
         const ausbau = investiert > 0
           ? ` – bei Stufe ${s.stufe} und ${extras} Extra${extras === 1 ? '' : 's'} sind das ${money(symbol, investiert)} Investition`

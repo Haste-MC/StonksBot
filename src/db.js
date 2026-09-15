@@ -542,7 +542,13 @@ db.exec(`
     status         TEXT    NOT NULL DEFAULT 'open',
     closed_at      INTEGER NOT NULL DEFAULT 0,
     stufe          INTEGER NOT NULL DEFAULT 0,
-    closed_why     TEXT    NOT NULL DEFAULT ''
+    closed_why     TEXT    NOT NULL DEFAULT '',
+    news               TEXT    NOT NULL DEFAULT '[]',
+    closed_until       INTEGER NOT NULL DEFAULT 0,
+    umsatz_boost       REAL    NOT NULL DEFAULT 1,
+    umsatz_boost_until INTEGER NOT NULL DEFAULT 0,
+    wage_factor        REAL    NOT NULL DEFAULT 1,
+    wage_factor_until  INTEGER NOT NULL DEFAULT 0
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
     ON companies (guild_id, owner_id) WHERE status = 'open';
@@ -556,6 +562,20 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'cl
 // Ausbau (Stück 2a): die Stufe hängt an der Firma, die Extras in eigener Tabelle.
 if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'stufe')) {
   db.exec('ALTER TABLE companies ADD COLUMN stufe INTEGER NOT NULL DEFAULT 0');
+}
+// Ereignisse (Stück 2b): Chronik, Schließung und mehrtägige Faktoren hängen an der Firma.
+{
+  const have = new Set(db.prepare('PRAGMA table_info(companies)').all().map((c) => c.name));
+  for (const [column, definition] of [
+    ['news', "TEXT NOT NULL DEFAULT '[]'"],
+    ['closed_until', 'INTEGER NOT NULL DEFAULT 0'],
+    ['umsatz_boost', 'REAL NOT NULL DEFAULT 1'],
+    ['umsatz_boost_until', 'INTEGER NOT NULL DEFAULT 0'],
+    ['wage_factor', 'REAL NOT NULL DEFAULT 1'],
+    ['wage_factor_until', 'INTEGER NOT NULL DEFAULT 0'],
+  ]) {
+    if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
+  }
 }
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_extras (
@@ -1751,7 +1771,9 @@ const stmt = {
   saveCompany: db.prepare(
     `UPDATE companies SET name = ?, kasse = ?, auslastung = ?, paid_through = ?,
        negative_since = ?, werbung_until = ?, pitch_day = ?, pitch_today = ?,
-       status = ?, closed_at = ?, closed_why = ?
+       status = ?, closed_at = ?, closed_why = ?,
+       news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
+       wage_factor = ?, wage_factor_until = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -3796,7 +3818,11 @@ function saveCompany(c) {
   stmt.saveCompany.run(
     c.name, Math.round(c.kasse), c.auslastung, c.paid_through, c.negative_since ?? 0,
     c.werbung_until ?? 0, c.pitch_day ?? '', c.pitch_today ?? 0, c.status ?? 'open',
-    c.closed_at ?? 0, c.closed_why ?? '', Number(c.id));
+    c.closed_at ?? 0, c.closed_why ?? '',
+    typeof c.news === 'string' ? c.news : JSON.stringify(c.news ?? []),
+    c.closed_until ?? 0, c.umsatz_boost ?? 1, c.umsatz_boost_until ?? 0,
+    c.wage_factor ?? 1, c.wage_factor_until ?? 0,
+    Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */
 function lastClosedCompany(guildId, ownerId) {
