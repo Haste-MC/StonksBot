@@ -1109,6 +1109,25 @@ async function buildFirmaView({ guildId, userId }) {
   if (s.werbungMs > 0) {
     embed.addFields({ name: '📣 Werbung läuft', value: `noch ${fmt(s.werbungMs)}` });
   }
+  if (s.closedMs > 0) {
+    embed.addFields({
+      name: '🔒 Geschlossen',
+      value: `Der Betrieb steht still – noch **${fmt(s.closedMs)}**. Löhne laufen weiter.`,
+    });
+  }
+  if (s.incident) {
+    embed.addFields({
+      name: '⚠️ Vorfall',
+      value: `**${s.incident.decision.emoji} ${s.incident.decision.title}** – noch **${fmt(s.incident.remainingMs)}**. `
+        + 'Entscheiden über den Knopf ⚠️ Vorfall.',
+    });
+  }
+  if (s.news.length) {
+    embed.addFields({
+      name: '📰 Chronik',
+      value: s.news.map((n) => `${new Date(n.at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} · ${n.text}`).join('\n'),
+    });
+  }
   if (s.staff.length) {
     const identity = require('./identity');
     embed.addFields({
@@ -1141,10 +1160,10 @@ async function buildFirmaView({ guildId, userId }) {
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`firma|werbung|0|${userId}`)
         .setLabel(`Werbung (${data.TIME_WERBUNG})`).setEmoji('📣').setStyle(ButtonStyle.Primary)
-        .setDisabled(s.werbungMs > 0 || s.kasse < s.werbungCost || !ready(data.TIME_WERBUNG)),
+        .setDisabled(s.werbungMs > 0 || s.kasse < s.werbungCost || !ready(data.TIME_WERBUNG) || s.closedMs > 0),
       new ButtonBuilder().setCustomId(`firma|anpacken|0|${userId}`)
         .setLabel(`Anpacken (${data.TIME_ANPACKEN})`).setEmoji('🧑‍🔧').setStyle(ButtonStyle.Primary)
-        .setDisabled(s.pitchLeft <= 0 || !ready(data.TIME_ANPACKEN)),
+        .setDisabled(s.pitchLeft <= 0 || !ready(data.TIME_ANPACKEN) || s.closedMs > 0),
       new ButtonBuilder().setCustomId(`firma|entnehmen|0|${userId}`)
         .setLabel('Entnehmen').setEmoji('💸').setStyle(ButtonStyle.Success)
         .setDisabled(s.kasse <= 0),
@@ -1157,7 +1176,9 @@ async function buildFirmaView({ guildId, userId }) {
         .setLabel('Ausbau').setEmoji('🏗️').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
         .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-      homeButton(userId)),
+      s.incident
+        ? new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)
+        : homeButton(userId)),
   ];
   return { embeds: [embed], components: rows };
 }
@@ -2759,7 +2780,7 @@ async function buildDecisionView({ guildId, userId }) {
           + 'desto öfter musst du dich entscheiden.');
     for (const p of past) {
       embed.addFields({
-        name: `${p.platform === 'music' ? '🎵 ' : ''}${p.decision.emoji} ${p.decision.title}`,
+        name: `${p.platform === 'music' ? '🎵 ' : p.platform === 'company' ? '🏢 ' : ''}${p.decision.emoji} ${p.decision.title}`,
         value: `${p.status === 'expired' ? '⏱️ _nicht reagiert_' : '✅ entschieden'}\n`
           + `_${p.outcome}_`,
       });
@@ -2775,10 +2796,12 @@ async function buildDecisionView({ guildId, userId }) {
 
   const d = open.decision;
   const isMusic = open.platform === 'music';
-  const platform = !isMusic && open.platform ? creator.platform(open.platform) : null;
+  const isCompany = open.platform === 'company';
+  const platform = !isMusic && !isCompany && open.platform ? creator.platform(open.platform) : null;
+  const firma = isCompany ? require('./company').ownCompany(guildId, userId) : null;
 
   const embed = new EmbedBuilder()
-    .setTitle(`${isMusic ? '🎵 ' : ''}${d.emoji} ${d.title}`)
+    .setTitle(`${isMusic ? '🎵 ' : isCompany ? '🏢 ' : ''}${d.emoji} ${d.title}`)
     .setColor(0xe74c3c)
     .setDescription(d.text)
     .addFields({
@@ -2787,7 +2810,8 @@ async function buildDecisionView({ guildId, userId }) {
         + 'Wer nicht entscheidet, bekommt das Ergebnis, das Schweigen eben hat.',
     })
     .setFooter({
-      text: isMusic ? 'Betrifft deine Musik'
+      text: isCompany ? `Betrifft deine Firma ${firma?.name ?? ''}`.trim()
+        : isMusic ? 'Betrifft deine Musik'
         : platform ? `Betrifft ${platform.name}` : 'Betrifft dein ganzes Netzwerk',
     });
 
@@ -2797,11 +2821,14 @@ async function buildDecisionView({ guildId, userId }) {
       .setLabel(o.label.slice(0, 78)).setEmoji(o.emoji)
       .setStyle(ButtonStyle.Secondary)))];
   rows.push(new ActionRowBuilder().addComponents(
-    isMusic
-      ? new ButtonBuilder().setCustomId(ID.menu('musik', 1, userId))
-        .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary)
-      : new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
-        .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
+    isCompany
+      ? new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId))
+        .setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary)
+      : isMusic
+        ? new ButtonBuilder().setCustomId(ID.menu('musik', 1, userId))
+          .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary)
+        : new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+          .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
     homeButton(userId)));
 
   return { embeds: [embed], components: rows };

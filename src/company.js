@@ -728,9 +728,16 @@ function status(guildId, userId, now = Date.now()) {
   const ceilingNow = ceilingOf(b, c.stufe, extraIds);
   // Prognose: was die heutige NPC-Besetzung bei heutiger Auslastung am Tag
   // bringt – Spieler-Schichten (freiwillig, ungewiss) zählen hier nicht mit.
+  // Laufende Ereignis-Faktoren (Umsatz-Boost, Lohn-Faktor, Schließung) zählen
+  // hier mit – sonst zeigt die Prognose an geschlossenen oder verboosteten
+  // Tagen einen Wert, den die Abrechnung so nie bringt.
+  const fUmsatz = c.umsatz_boost_until >= now ? c.umsatz_boost : 1;
+  const fLohn = c.wage_factor_until >= now ? c.wage_factor : 1;
+  const closedNow = (c.closed_until ?? 0) >= now;
   const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
     const f = rankOf(s.rank).factor;
-    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor) - Math.round(b.lohn * f));
+    const umsatzTeil = closedNow ? 0 : Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor * fUmsatz);
+    return sum + data.NPC_SHIFTS * (umsatzTeil - Math.round(b.lohn * f * fLohn));
   }, 0);
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
   // Die Auslastung bewegt sich nur bei der Abrechnung (§4) – die Ansicht zeigt
@@ -759,6 +766,8 @@ function status(guildId, userId, now = Date.now()) {
     groesse: groesse(c, extraIds), invested: investedOf(b, c, extraIds),
     umsatzBoost: c.umsatz_boost_until >= now ? { factor: c.umsatz_boost, until: c.umsatz_boost_until } : null,
     wageFactor: c.wage_factor_until >= now ? { factor: c.wage_factor, until: c.wage_factor_until } : null,
+    // Offener Vorfall (spät gebunden, nur diese Domäne – decisions kennt alle drei).
+    incident: (() => { const p = require('./decisions').pending(guildId, userId, now); return p?.platform === 'company' ? p : null; })(),
   };
 }
 
