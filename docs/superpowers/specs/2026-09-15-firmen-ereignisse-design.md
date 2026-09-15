@@ -17,7 +17,7 @@ Beschlüsse aus dem Gespräch:
 |---|---|
 | 1 | Beide Schichten in einem Stück (A): leichte Ereignisse in der Abrechnung, Vorfälle im bestehenden Entscheidungs-System mit Domäne `company`. |
 | 2 | Häufigkeit und Härte hängen an der **Firmengröße** = Ausbaustufe + gekaufte Extras (A); Geldwirkungen sind Vielfache der aktuellen Tagesdecke. |
-| 3 | Die Decke bekommt ausgewiesenen Ereignis-Spielraum (B): `EVENT_UMSATZ_MAX = 1,15`; der Decken-Test prüft gegen `ceiling × 1,15`. |
+| 3 | Die Decke bekommt ausgewiesenen Ereignis-Spielraum (B): `EVENT_UMSATZ_MAX = 1,15` auf den Tagesumsatz; ein Lauf mit Ereignissen prüft den Umsatz gegen `Umsatz-Decke × 1,15`. |
 | 4 | Härtester Ausgang ist die **Betriebsschließung für Tage** (bis Stufe 3). Ausbau wird nie zerstört. |
 | 5 | Ein gemeinsamer, branchenneutraler Katalog mit Klassen-Filter und optionalem `flavor`-Feld je Branche (C); Start ohne Branchentexte. |
 
@@ -161,8 +161,14 @@ Neue Konstante `EVENT_UMSATZ_MAX = 1.15` in `data/companies.js`. Regeln:
 - Kein Katalogeintrag hat `umsatz > 1,15`; mehrere Wirkungen stapeln sich
   nicht: Ein neuer `umsatz`-Boost ersetzt den laufenden (`Math.max` der
   Faktoren, längeres `until` gewinnt), er multipliziert ihn nie.
-- Der Test „§3: kein Tag über der Decke" prüft gegen
-  `ceilingOf(b, stufe, extras).net × EVENT_UMSATZ_MAX + 0,5 × Schichten`.
+- Der bestehende Test „§3: kein Tag über der Decke" läuft ohne Ereignisse
+  (fester Würfel) weiter gegen die Netto-Decke. Ein zweiter 365-Tage-Lauf
+  **mit** Ereignissen prüft den **Umsatz** der NPC-Schichten je Tag gegen
+  `slots × NPC_SHIFTS × round(umsatz × 1,5) × EVENT_UMSATZ_MAX` (+ Rundungs-
+  toleranz). Die Ereignis-Decke ist eine Umsatz-Decke: Lohnnachlässe
+  (`guter_tag`, `wages 0,5`) heben den Nettogewinn eines Tages über die
+  Netto-Decke, höchstens um die halben Löhne eines Tages – gewollt, weil sie
+  kein Umsatz sind, und gedeckelt durch `wages ≥ 0`.
 - `kasse` ist nie positiv; `refund` nie größer als der Abzug derselben Option.
 - Die Übernahme zahlt `investiert + kasse`, wobei `investiert` = Summe der
   gekauften Stufen- und Extra-Preise (dieselbe Rechnung wie der
