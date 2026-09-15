@@ -348,6 +348,37 @@ function wirkungOk(e, label) {
     check('Frist läuft ab jetzt (24 h), nicht ab dem Abrechnungstag', s.incident.expires_at === t0 + DAY_MS + decisions.DECIDE_MS);
   }
 
+  console.log('--- Prognose respektiert Boost, Lohnfaktor und Schließung ---');
+  {
+    const db = require('../src/db');
+    const company = require('../src/company');
+    const G = `FPROG_T${Date.now()}`;
+    const U = 'f1';
+    konten.set(U, 1_000_000);
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
+    const r = await company.found(G, U, 'kiosk', 'Prognosebude', t0);
+    const cid = r.company.id;
+    company.hireNpc(G, U, t0, seq(0.1));
+    company.hireNpc(G, U, t0, seq(0.2));
+    // Auslastung 0,3, Rang Aushilfe (×1): je Schicht round(250 × 0,3) = 75 Umsatz, 100 Lohn → 2 × 3 × (75 − 100) = −150.
+    let s = company.status(G, U, t0);
+    check('Prognose ohne Faktoren: −150', s.forecast === -150, String(s.forecast));
+    db.saveCompany({ ...db.getCompany(cid), umsatz_boost: 1.15, umsatz_boost_until: t0 + DAY_MS });
+    s = company.status(G, U, t0);
+    // round(250 × 0,3 × 1,15) = round(86,25) = 86 → 2 × 3 × (86 − 100) = −84.
+    check('Prognose mit Boost 1,15: −84', s.forecast === -84, String(s.forecast));
+    db.saveCompany({ ...db.getCompany(cid), umsatz_boost: 1, umsatz_boost_until: 0, wage_factor: 0.5, wage_factor_until: t0 + DAY_MS });
+    s = company.status(G, U, t0);
+    // Lohn round(100 × 0,5) = 50 → 2 × 3 × (75 − 50) = +150.
+    check('Prognose mit Lohnfaktor 0,5: +150', s.forecast === 150, String(s.forecast));
+    db.saveCompany({ ...db.getCompany(cid), wage_factor: 1, wage_factor_until: 0, closed_until: t0 + 2 * DAY_MS });
+    s = company.status(G, U, t0);
+    // Geschlossen: kein Umsatz, Löhne laufen → 2 × 3 × (0 − 100) = −600.
+    check('Prognose bei Schließung: −600 (nur Löhne)', s.forecast === -600, String(s.forecast));
+    await company.close(G, U, t0);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
