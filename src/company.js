@@ -425,6 +425,12 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   for (const s of staff) db.saveStaff(s);
   db.saveCompany({ ...cur, paid_through: tag });
   out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+
+  // Ein Vorfall je Abrechnung – über die nachgeholten Tage, nicht je Tag (§4).
+  // Gewürfelt mit `now`, nicht mit dem Abrechnungstag: die 24-h-Frist läuft ab jetzt.
+  out.incident = require('./decisions').roll(guildId, c.owner_id,
+    { groesse: groesse(cur, extraIds), days, npc: staff.filter((s) => s.kind === 'npc').length },
+    now, random, 'company');
   return out;
 }
 
@@ -684,6 +690,31 @@ async function close(guildId, userId, now = Date.now()) {
   }
 }
 
+/**
+ * Verkauf im Übernahme-Vorfall: schließt mit Grund `sold` und zahlt
+ * Gründung + Ausbau + Kasse – nie mehr, als reingesteckt wurde (§3).
+ * Eine Buchung, ohne XP und Steuer (Umbuchung wie bei `close`).
+ * Ohne Abrechnung (`ownerContext`, nicht `fresh`): der Aufrufer steht
+ * mitten in einem Vorfall, die Firma ist schon abgerechnet.
+ */
+async function sell(guildId, userId, now = Date.now()) {
+  const ctx = ownerContext(guildId, userId);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const extraIds = db.companyExtras(c.id);
+  const payout = Math.max(0, Math.round(investedOf(b, c, extraIds) + c.kasse));
+  const closed = closeCompany(guildId, c.id, now, 'sold');
+  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
+  try {
+    const balance = await changeCash(guildId, userId, payout, `Verkauf: ${c.name}`,
+      { xp: false, tax: false, kind: 'company' });
+    return { ok: true, company: closed, payout, paid: true, balance };
+  } catch (err) {
+    console.warn(`Firma ${c.id}: Auszahlung von ${payout} beim Verkauf fehlgeschlagen – ${err.message}`);
+    return { ok: true, company: closed, payout, paid: false, error: err.message };
+  }
+}
+
 // ------------------------------------------------------------------ Anzeige
 
 /** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
@@ -841,7 +872,7 @@ module.exports = {
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
-  advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
+  advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
   upgrade, buyExtra,
   groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, rollLightEvent, NEWS_MAX,
 };

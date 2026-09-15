@@ -1,6 +1,7 @@
 const db = require('./db');
 const { DECISIONS } = require('./data/decisions');
 const { MUSIC_DECISIONS } = require('./data/musicDecisions');
+const { COMPANY_DECISIONS } = require('./data/companyDecisions');
 // Spät gebunden: creator.js zieht dieses Modul selbst herein (Kreis vermeiden).
 const unb = require('./unb');
 
@@ -62,8 +63,8 @@ const IGNORE_PENALTY = 1.6;
 const SEVERITY_MAX = 1.6;
 const SEVERITY_FULL = 3_000_000;
 
-/** Beide Kataloge in einer Map – die Zeile in der DB kennt nur die `kind`. */
-const byId = new Map([...DECISIONS, ...MUSIC_DECISIONS].map((d) => [d.id, d]));
+/** Alle drei Kataloge in einer Map – die Zeile in der DB kennt nur die `kind`. */
+const byId = new Map([...DECISIONS, ...MUSIC_DECISIONS, ...COMPANY_DECISIONS].map((d) => [d.id, d]));
 
 const clamp = (min, max, v) => Math.min(max, Math.max(min, v));
 
@@ -119,22 +120,33 @@ function musicEligible(d, artist, contract) {
  * als MIN_GAP_MS – sonst wäre der Kanal ein Katastrophengebiet.
  *
  * `size` ist bei Creator die Reichweite, bei Musik die Hörerzahl – dieselbe
- * Risikokurve. Die Sperre „solange einer offen ist" gilt über beide Domänen:
- * Wer gerade ein Creator-Drama hat, bekommt kein Musik-Drama obendrauf.
+ * Risikokurve. Bei Firmen ist es `{ groesse, days, npc }`: Größe 0…9 mit
+ * eigener Kurve (company.riskFor) über die abgerechneten Tage. Die Sperre
+ * „solange einer offen ist" gilt über alle Domänen: Wer gerade ein
+ * Creator-Drama hat, bekommt kein Musik- oder Firmen-Drama obendrauf.
  */
 function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator') {
   if (db.openEvent(guildId, userId)) return null;
   if (now - db.lastEventAt(guildId, userId) < MIN_GAP_MS) return null;
-  if (random() >= riskFor(size)) return null;
 
   let possible;
-  if (domain === 'music') {
-    const artist = db.getArtist(guildId, userId, now);
-    const contract = db.activeContract(guildId, userId);
-    possible = MUSIC_DECISIONS.filter((d) =>
-      size >= d.minListeners && musicEligible(d, artist, contract));
+  if (domain === 'company') {
+    // Firmen: Größe statt Reichweite (0…9), Wahrscheinlichkeit über die
+    // abgerechneten Tage, Kandidaten nach Größe und NPC-Zahl.
+    const company = require('./company');
+    const { groesse, days, npc } = size;
+    if (random() >= company.riskFor(groesse, days)) return null;
+    possible = COMPANY_DECISIONS.filter((d) => groesse >= d.minGroesse && npc >= (d.minNpc ?? 0));
   } else {
-    possible = DECISIONS.filter((d) => size >= d.minReach);
+    if (random() >= riskFor(size)) return null;
+    if (domain === 'music') {
+      const artist = db.getArtist(guildId, userId, now);
+      const contract = db.activeContract(guildId, userId);
+      possible = MUSIC_DECISIONS.filter((d) =>
+        size >= d.minListeners && musicEligible(d, artist, contract));
+    } else {
+      possible = DECISIONS.filter((d) => size >= d.minReach);
+    }
   }
   if (!possible.length) return null;
   const picked = possible[Math.floor(random() * possible.length)];
@@ -142,7 +154,7 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
   return db.insertEvent({
     guildId, userId,
     kind: picked.id,
-    platform: domain === 'music' ? 'music' : (picked.platform ?? ''),
+    platform: domain === 'music' ? 'music' : domain === 'company' ? 'company' : (picked.platform ?? ''),
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
@@ -245,6 +257,36 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
 }
 
 /**
+ * Wendet einen Firmen-Ausgang an. Alles synchron über company.applyEffect
+ * (§7); nur der Verkauf bucht – über company.sell, eine Buchung (§9).
+ * Gibt es die Firma nicht mehr (geschlossen, insolvent), wirkt nichts.
+ */
+async function applyCompany(guildId, userId, row, effect, now, ignored, random) {
+  const company = require('./company');
+  const c = company.ownCompany(guildId, userId);
+  const leer = { kasse: 0, refund: 0, auslastung: 0, quit: [], lock: 0, umsatz: null, days: 0,
+    wages: null, werbung: 0, staffRank: null, sell: false, sold: null, gone: true, text: effect.text };
+  if (!c) return leer;
+  const b = company.branch(c.branch);
+  const extraIds = db.companyExtras(c.id);
+  const haerte = company.severityFor(company.groesse(c, extraIds)) * (ignored ? IGNORE_PENALTY : 1);
+  const staff = db.companyStaff(c.id);
+  const r = company.applyEffect(c, staff, effect, { b, extraIds, at: now, today: false, haerte, random });
+  for (const s of r.quit) db.deleteStaff(s.id);
+  for (const s of r.staff) db.saveStaff(s);
+  const d = decision(row.kind);
+  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`);
+  db.saveCompany(r.company);
+
+  let sold = null;
+  if (effect.sell) {
+    const s = await company.sell(guildId, userId, now);
+    sold = s.ok ? { payout: s.payout, paid: s.paid } : null;
+  }
+  return { ...r.done, sold, gone: false, text: effect.text };
+}
+
+/**
  * Wendet eine Wirkung an.
  *
  * Alles Zustandsbehaftete wird **vor** der Geldbuchung geschrieben (§7), und
@@ -253,6 +295,7 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
 async function apply(guildId, userId, row, effect, now = Date.now(), ignored = false,
   random = Math.random) {
   if (row.platform === 'music') return applyMusic(guildId, userId, row, effect, now, ignored, random);
+  if (row.platform === 'company') return applyCompany(guildId, userId, row, effect, now, ignored, random);
   const creator = require('./creator');
   const rows = db.allCreator(guildId, userId);
   const reach = rows.reduce((s, r) => s + r.followers, 0);
@@ -432,9 +475,9 @@ function history(guildId, userId, limit = 5) {
 }
 
 module.exports = {
-  DECISIONS, MUSIC_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
+  DECISIONS, MUSIC_DECISIONS, COMPANY_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
   SEVERITY_MAX, SEVERITY_FULL,
   IGNORE_PENALTY,
   decision, riskFor, severityFor, scaleMoney, pickOutcome, musicEligible,
-  roll, apply, applyMusic, choose, expire, settle, pending, history,
+  roll, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
 };

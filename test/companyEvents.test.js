@@ -255,6 +255,99 @@ function wirkungOk(e, label) {
     await company.close(G, U, now + 5 * DAY_MS);
   }
 
+  console.log('--- Vorfälle (Domäne company) ---');
+  {
+    const db = require('../src/db');
+    const company = require('../src/company');
+    const decisions = require('../src/decisions');
+    const G = `FDEC_T${Date.now()}`;
+    const U = 'd1';
+    konten.set(U, 100_000_000);
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
+    const H = 60 * 60 * 1000;
+
+    let r = await company.found(G, U, 'cafe', 'Kaffeeklatsch', t0);
+    const cid = r.company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < b.slots; i++) company.hireNpc(G, U, t0, seq(0.1 * i));
+    await company.deposit(G, U, 1_000_000, t0);
+
+    // roll: Größe 0, ein Tag → 2 %. Würfel 0,5 → nichts; 0,01 → Vorfall aus den zulässigen (minGroesse 0, npc ≥ 0).
+    check('roll company: 0,5 → kein Vorfall', decisions.roll(G, U, { groesse: 0, days: 1, npc: 3 }, t0, seq(0.5, 0), 'company') === null);
+    let row = decisions.roll(G, U, { groesse: 0, days: 1, npc: 3 }, t0, seq(0.01, 0), 'company');
+    check('roll company: 0,01 → Vorfall mit platform company, erster zulässiger (gesundheitsamt)',
+      row && row.platform === 'company' && row.kind === 'gesundheitsamt', JSON.stringify(row));
+    check('pending sieht ihn', decisions.pending(G, U, t0)?.kind === 'gesundheitsamt');
+    check('kein zweiter, solange einer offen ist', decisions.roll(G, U, { groesse: 9, days: 30, npc: 9 }, t0, seq(0.01, 0), 'company') === null);
+
+    // Option „beheben": kasse −1 × Decke (Härte 1 bei Größe 0).
+    const decke = company.ceilingOf(b).net;
+    let vor = db.getCompany(cid).kasse;
+    let res = await decisions.choose(G, U, row.id, 'beheben', t0 + H, seq(0.5));
+    check('beheben: Kasse −1 × Decke, Chronik-Zeile mit Ausgangstext',
+      res.ok && res.effect.kasse === -decke && db.getCompany(cid).kasse === vor - decke
+      && JSON.parse(db.getCompany(cid).news)[0].text.includes('Handwerker'), JSON.stringify(res.effect));
+
+    // Abwarten mit schlechtem Ausgang: lock 3 + auslastung −0,2 (Härte 1).
+    db.clearEvents(G, U);
+    row = decisions.roll(G, U, { groesse: 0, days: 1, npc: 3 }, t0 + 2 * DAY_MS, seq(0.01, 0), 'company');
+    res = await decisions.choose(G, U, row.id, 'abwarten', t0 + 2 * DAY_MS + H, seq(0.9));
+    check('abwarten (schlecht): 3 Tage zu, Auslastung −0,2',
+      res.ok && res.effect.lock === 3 && near(res.effect.auslastung, -0.2, 1e-9)
+      && db.getCompany(cid).closed_until === t0 + 2 * DAY_MS + H + 3 * DAY_MS, JSON.stringify(res.effect));
+    db.saveCompany({ ...db.getCompany(cid), closed_until: 0 });
+
+    // Schweigen: expire mit × 1,6 – gesundheitsamt expire lock 5 → 5 (gedeckelt 5).
+    db.clearEvents(G, U);
+    row = decisions.roll(G, U, { groesse: 0, days: 1, npc: 3 }, t0 + 4 * DAY_MS, seq(0.01, 0), 'company');
+    const gone = await decisions.settle(G, U, t0 + 4 * DAY_MS + 25 * H);
+    check('Schweigen: lock 5 (Deckel), Status expired', gone.length === 1 && gone[0].effect.lock === 5
+      && db.getEvent(G, row.id).status === 'expired', JSON.stringify(gone[0]?.effect));
+    db.saveCompany({ ...db.getCompany(cid), closed_until: 0 });
+
+    // Größe 9 und Schweigen: kasse −2 (griff_in_die_kasse expire) × 1,6 × 1,6 = −5,12 × Decke.
+    db.clearEvents(G, U);
+    // saveCompany schreibt die Stufe nicht (die setzt nur `upgrade`) – daher setCompanyStufe.
+    db.setCompanyStufe(cid, 5);
+    for (const e of b.extras) db.addCompanyExtra(cid, e.id, t0);
+    const decke9 = company.ceilingOf(b, 5, b.extras.map((e) => e.id)).net;
+    // Kandidaten bei Größe 9 mit 3+ NPC: alle sechs; zweiter Wurf wählt den Index: 1/6 → griff_in_die_kasse.
+    row = decisions.roll(G, U, { groesse: 9, days: 1, npc: db.companyStaff(cid).length }, t0 + 6 * DAY_MS, seq(0.01, 1.5 / 6), 'company');
+    check('Größe 9: griff_in_die_kasse gewürfelt', row?.kind === 'griff_in_die_kasse', row?.kind);
+    vor = db.getCompany(cid).kasse;
+    const g2 = await decisions.settle(G, U, t0 + 6 * DAY_MS + 25 * H);
+    check('Schweigen bei Größe 9: −2 × 1,6 × 1,6 × Decke', g2[0].effect.kasse === -Math.round(2 * 1.6 * 1.6 * decke9)
+      && db.getCompany(cid).kasse === vor + g2[0].effect.kasse, JSON.stringify(g2[0]?.effect));
+
+    // Übernahme: verkaufen → Firma sold, Auszahlung = investiert + Kasse, eine Buchung.
+    db.clearEvents(G, U);
+    row = decisions.roll(G, U, { groesse: 9, days: 1, npc: 9 }, t0 + 8 * DAY_MS, seq(0.01, 4.5 / 6), 'company');
+    check('uebernahme gewürfelt', row?.kind === 'uebernahme', row?.kind);
+    const invested = company.investedOf(b, db.getCompany(cid), b.extras.map((e) => e.id));
+    const kasse = db.getCompany(cid).kasse;
+    bookings = [];
+    res = await decisions.choose(G, U, row.id, 'verkaufen', t0 + 8 * DAY_MS + H, seq(0.5));
+    check('verkauft: eine Buchung über investiert + Kasse, Firma geschlossen mit Grund sold',
+      res.ok && res.effect.sold?.payout === invested + kasse && bookings.length === 1 && bookings[0].amount === invested + kasse
+      && bookings[0].opts.xp === false && db.getCompany(cid).status === 'closed' && db.getCompany(cid).closed_why === 'sold',
+      JSON.stringify({ eff: res.effect, b: bookings }));
+    check('Verkauf ist eine Umbuchung: kein XP, keine Steuer', bookings[0].opts.tax === false && bookings[0].opts.kind === 'company');
+
+    // Vorfall auf eine Firma, die es nicht mehr gibt: keine Wirkung, `gone`.
+    db.clearEvents(G, U);
+    const stale = db.insertEvent({ guildId: G, userId: U, kind: 'wasserschaden', platform: 'company', createdAt: t0 + 9 * DAY_MS, expiresAt: t0 + 10 * DAY_MS });
+    res = await decisions.choose(G, U, stale.id, 'notdienst', t0 + 9 * DAY_MS + H, seq(0.5));
+    check('ohne Firma: Vorfall geschlossen, gone, keine Wirkung', res.ok && res.effect.gone === true && res.effect.kasse === 0, JSON.stringify(res.effect));
+
+    // settle würfelt den Vorfall selbst (Größe 0, 1 Tag, Wurf 0,01 nach dem Ereigniswurf).
+    const V = 'd2'; konten.set(V, 1_000_000);
+    r = await company.found(G, V, 'kiosk', 'Wurfbude', t0);
+    const s = company.settle(r.company.id, t0 + DAY_MS, seq(0.5, 0.01, 0));
+    check('settle: Vorfall gewürfelt und gemeldet', s.incident?.platform === 'company' && decisions.pending(G, V, t0 + DAY_MS)?.kind === 'gesundheitsamt', JSON.stringify(s.incident));
+    check('Frist läuft ab jetzt (24 h), nicht ab dem Abrechnungstag', s.incident.expires_at === t0 + DAY_MS + decisions.DECIDE_MS);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
