@@ -225,6 +225,17 @@ function ceiling(platformId, market) {
     check('mit Restzeit', again.remainingMs > 0);
     check('nach der Sperre wieder',
       home.setLanguage(G, U, 'spanisch', now + home.LANGUAGE_COOLDOWN_MS + 2000).ok === true);
+
+    // Die Sprache muss jede Aktion überleben: creator.act schreibt die Zustandszeile fort
+    // und darf language/language_at dabei nicht zurücksetzen (gemeldet 2026-09-18).
+    const t = now + home.LANGUAGE_COOLDOWN_MS + 3000;
+    const tweet = await creator.act(G, U, 'twitter', 'ankuendigung', t);
+    check('ein Tweet geht (ohne Ausrüstung)', tweet.ok, JSON.stringify(tweet.reason));
+    check('die Sprache überlebt eine Creator-Aktion', home.languageOf(G, U).id === 'spanisch',
+      `'${home.languageOf(G, U).id}'`);
+    check('… samt Zeitstempel der Wahl (Sperre bleibt)',
+      db.getCreatorState(G, U).language_at === now + home.LANGUAGE_COOLDOWN_MS + 2000,
+      String(db.getCreatorState(G, U).language_at));
   }
 
   console.log('\n--- Der Markt wirkt aufs Geld ---');

@@ -902,7 +902,10 @@ async function act(
     spilled.push({ platform: id, delta, decayed: Math.round((other?.followers ?? 0) - surviving) });
   }
 
+  // `...state` zuerst: Die Zeile trägt auch Sprache und Heimat-Zeitstempel
+  // (home.js). Ohne den Spread hat jede Aktion die Sprachwahl gelöscht.
   db.saveCreatorState(guildId, userId, {
+    ...state,
     day,
     time_used: usedAfter,
     // Der Schub wird von der nächsten Aktion verbraucht; ein neuer Tweet

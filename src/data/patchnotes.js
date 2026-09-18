@@ -18,6 +18,14 @@
  */
 module.exports = [
   {
+    version: '1.33.1',
+    date: '2026-09-18',
+    title: '🗣️ Creator: die Sprache bleibt',
+    lines: [
+      '🐛 **Sprachwahl wird gespeichert.** Die im Profil gewählte Sendesprache ging bisher mit der nächsten Creator-Aktion (Stream, Video, Tweet) wieder verloren – der Heimvorteil und die Wechselsperre damit auch. Jetzt bleibt sie, bis du sie selbst wechselst.',
+    ],
+  },
+  {
     version: '1.33.0',
     date: '2026-09-14',
     title: '⏳ Ein Tag, eine Energie',
