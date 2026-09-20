@@ -1012,6 +1012,12 @@ const KLASSEN = [
   { id: 'gross', label: 'Groß', emoji: '🚚', blurb: 'nur mit voller Mannschaft rentabel – ausgebaut die Spitze' },
 ];
 
+/** Abweichung des Tagespreises vom Normalpreis: „+9 %", „−12 %", bei Kurs = Start „±0 %". */
+function kursAbweichung(ratio) {
+  const pct = Math.round((ratio - 1) * 100);
+  return `${pct > 0 ? '+' : pct < 0 ? '' : '±'}${pct} %`;
+}
+
 /** Ohne Firma: die neun Branchen zur Wahl, je Klasse eine Seite. */
 async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   const company = require('./company');
@@ -1039,9 +1045,14 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   for (const b of branches) {
     const kern = company.ceilingOf(b);
     const voll = company.fullCeilingOf(b);
+    // Gründung plus Erstausstattung (volles Lager zum Einheitspreis) – eine Buchung,
+    // deshalb steht die Summe im Titel und die Aufteilung darunter.
+    const starter = company.starterOf(b);
     embed.addFields({
-      name: `${b.emoji} ${b.name} – ${money(symbol, b.price)}`,
-      value: `_${b.blurb}_\n**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
+      name: `${b.emoji} ${b.name} – ${money(symbol, b.price + starter.cost)}`,
+      value: `_${b.blurb}_\nGründung **${money(symbol, b.price)}** + Erstausstattung **${money(symbol, starter.cost)}** `
+        + `(${starter.units} ${b.ware.emoji} ${b.ware.name}, volles Lager)\n`
+        + `**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
         + `**${money(symbol, b.lohn)}** je Schicht\nDecke ~**${money(symbol, kern.net)}** am Tag, `
         + `ausgebaut bis ~**${money(symbol, voll.net)}** (${voll.slots} Plätze)`,
     });
@@ -1094,7 +1105,7 @@ async function buildFirmaView({ guildId, userId }) {
   embed.addFields({
     name: '📦 Waren',
     value: `${s.ware.emoji} ${s.ware.name} · Lager **${s.ware.stock}/${s.ware.capacity}** · heute **${money(symbol, s.ware.price)}**`
-      + ` (${s.ware.asset.symbol} ${s.ware.ratio >= 1 ? '+' : ''}${Math.round((s.ware.ratio - 1) * 100)} %)`
+      + ` (${s.ware.asset.symbol} ${kursAbweichung(s.ware.ratio)})`
       + (s.ware.stock > 0 ? ` · Ø bezahlt ${money(symbol, s.ware.avgPaid)} · reicht ~${String(s.ware.daysLeft).replace('.', ',')} Tage`
         : `\n⚠️ _leer – Schichten kaufen ad hoc (${money(symbol, s.ware.adhoc)}, +25 %)_`),
   });
@@ -3105,10 +3116,10 @@ async function buildFirmaLagerView({ guildId, userId }) {
     .setColor(0x8e6e53)
     .setDescription(`${w.emoji} **${w.name}** – jede Schicht verbraucht eine Einheit.\n`
       + `Lieferant: ${w.asset.emoji} **${w.asset.name}** (${w.asset.symbol}) · Kurs ${money(symbol, w.kurs)} ${trend}\n`
-      + `Tagespreis **${money(symbol, w.price)}** je Einheit (Normalpreis ${money(symbol, w.unit)}: ${w.ratio >= 1 ? '+' : ''}${Math.round((w.ratio - 1) * 100)} %) · ohne Lager ad hoc ${money(symbol, w.adhoc)}\n`
+      + `Tagespreis **${money(symbol, w.price)}** je Einheit (Normalpreis ${money(symbol, w.unit)}: ${kursAbweichung(w.ratio)}) · ohne Lager ad hoc ${money(symbol, w.adhoc)}\n`
       + `_Aktie **${w.asset.symbol}** halten sichert gegen teure Ware ab._`)
     .addFields(
-      { name: 'Bestand', value: `**${w.stock}/${w.capacity}** Einheiten · reicht ~${String(w.daysLeft).replace('.', ',')} Tage`, inline: true },
+      { name: 'Bestand', value: `**${w.stock}/${w.capacity}** Einheiten · ${w.stock > 0 ? `reicht ~${String(w.daysLeft).replace('.', ',')} Tage` : 'leer'}`, inline: true },
       { name: 'Ø bezahlt', value: w.stock > 0 ? money(symbol, w.avgPaid) : '–', inline: true },
       { name: 'Lagerwert', value: money(symbol, w.value), inline: true },
       { name: '💰 Kasse', value: money(symbol, s.kasse), inline: true },

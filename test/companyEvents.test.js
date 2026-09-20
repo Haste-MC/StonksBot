@@ -126,11 +126,14 @@ function wirkungOk(e, label) {
     const decke = company.ceilingOf(b).net;
     // Stück 3a: net zieht jetzt den Wareneinsatz ab (2 × 3 + 4 = 10 Einheiten × 50) → 2.850 − 500 = 2.350.
     check('Decke Kiosk 2.350', decke === 2_350);
-    // Lager voll (70 Einheiten zu 50 = 3.500 aus der Kasse, vor jeder Messung): die
-    // Handrechnungen unten bleiben Umsatz − Löhne. 70 reichen für elf Tage à 6 Schichten;
-    // die drei gesperrten Tage verbrauchen nichts (Kasse-Deltas danach sind nur „> Löhne").
+    // Lager voll durch die Erstausstattung (Nachtrag: 70 Einheiten zu 50 = 3.500, mit der
+    // Gründung bezahlt): die Handrechnungen unten bleiben Umsatz − Löhne. 70 reichen für elf
+    // Tage à 6 Schichten; die drei gesperrten Tage verbrauchen nichts (Kasse-Deltas danach
+    // sind nur „> Löhne").
+    check('Lager voll ab Gründung: 70 Einheiten, Einstand 3.500', db.getCompany(cid).stock === 70 && db.getCompany(cid).stock_cost === 3_500,
+      JSON.stringify({ stock: db.getCompany(cid).stock, cost: db.getCompany(cid).stock_cost }));
     r = await company.buyStock(G, U, 'voll', t0);
-    check('Lager voll: 70 Einheiten für 3.500', r.ok && r.units === 70 && r.cost === 3_500, JSON.stringify(r));
+    check('nichts nachzukaufen: capacity, free 0', r.ok === false && r.reason === 'capacity' && r.free === 0, JSON.stringify(r));
     check('groesse 0, riskPerDay 2 %, severity 1', company.groesse(db.getCompany(cid), []) === 0
       && near(company.riskPerDay(0), 0.02) && company.severityFor(0) === 1);
     check('groesse 9: riskPerDay 8 %, severity 1,6, riskFor(9, 30) = 1 − 0,92^30',
@@ -328,17 +331,20 @@ function wirkungOk(e, label) {
     check('Schweigen bei Größe 9: −2 × 1,6 × 1,6 × Decke', g2[0].effect.kasse === -Math.round(2 * decke9 * (1.6 * 1.6))
       && db.getCompany(cid).kasse === vor + g2[0].effect.kasse, JSON.stringify(g2[0]?.effect));
 
-    // Übernahme: verkaufen → Firma sold, Auszahlung = investiert + Kasse, eine Buchung.
+    // Übernahme: verkaufen → Firma sold, Auszahlung = investiert + Kasse + Lager zum Einstand
+    // (der Rest der Erstausstattung, Nachtrag), eine Buchung.
     db.clearEvents(G, U);
     row = decisions.roll(G, U, { groesse: 9, days: 1, npc: 9 }, t0 + 8 * DAY_MS, seq(0.01, 4.5 / 6), 'company');
     check('uebernahme gewürfelt', row?.kind === 'uebernahme', row?.kind);
     company.settle(cid, t0 + 8 * DAY_MS + H, () => 0.5);
     const invested = company.investedOf(b, db.getCompany(cid), b.extras.map((e) => e.id));
     const kasse = db.getCompany(cid).kasse;
+    const lager = db.getCompany(cid).stock_cost;
+    check('Lager-Einstand noch da (Erstausstattung, teils verbraucht)', lager > 0 && lager < 23_940, String(lager));
     bookings = [];
     res = await decisions.choose(G, U, row.id, 'verkaufen', t0 + 8 * DAY_MS + H, seq(0.5));
-    check('verkauft: eine Buchung über investiert + Kasse, Firma geschlossen mit Grund sold',
-      res.ok && res.effect.sold?.payout === invested + kasse && bookings.length === 1 && bookings[0].amount === invested + kasse
+    check('verkauft: eine Buchung über investiert + Kasse + Lager, Firma geschlossen mit Grund sold',
+      res.ok && res.effect.sold?.payout === invested + kasse + lager && bookings.length === 1 && bookings[0].amount === invested + kasse + lager
       && bookings[0].opts.xp === false && db.getCompany(cid).status === 'closed' && db.getCompany(cid).closed_why === 'sold',
       JSON.stringify({ eff: res.effect, b: bookings }));
     check('Verkauf ist eine Umbuchung: kein XP, keine Steuer', bookings[0].opts.tax === false && bookings[0].opts.kind === 'company');
@@ -414,9 +420,13 @@ function wirkungOk(e, label) {
     company.hireNpc(G, U, t0, seq(0.1));
     company.hireNpc(G, U, t0, seq(0.2));
     // Auslastung 0,3, Rang Aushilfe (×1): je Schicht round(250 × 0,3) = 75 Umsatz, 100 Lohn → 2 × 3 × (75 − 100) = −150.
-    // Leeres Lager (Stück 3a): dazu 6 Einheiten ad hoc zu 63 → −528. Mit Lager für den Tag
-    // (6 Einheiten, schon bezahlt) bleibt es bei −150 – so rechnen die Faktor-Prüfungen unten.
+    // Mit der Erstausstattung (Nachtrag: 70 im Lager, schon bezahlt) ist das die Prognose;
+    // leeres Lager (Stück 3a): dazu 6 Einheiten ad hoc zu 63 → −528. Die Faktor-Prüfungen
+    // unten rechnen mit 6 Einheiten im Lager, also ohne Warenabzug.
     let s = company.status(G, U, t0);
+    check('Prognose mit Erstausstattung (70 im Lager): −150', s.forecast === -150 && s.ware.stock === 70, String(s.forecast));
+    db.saveCompany({ ...db.getCompany(cid), stock: 0, stock_cost: 0 });
+    s = company.status(G, U, t0);
     check('Prognose mit leerem Lager: −150 − 6 × 63 = −528', s.forecast === -528, String(s.forecast));
     db.saveCompany({ ...db.getCompany(cid), stock: 6, stock_cost: 300 });
     s = company.status(G, U, t0);

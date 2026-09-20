@@ -559,7 +559,9 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  * den Wareneinsatz enthält wie die Decke (`ceilingOf(...).net`); der einmalige
  * Aufbau des Lagers ist ein Ausreißer, den der Median nicht sieht.
  * `wareProTag` = (Einkäufe − Lagerwert am Ende + ad hoc) / Tage, also der
- * tatsächliche Verbrauch; `adhocAnteil` = ad-hoc-Einheiten / alle Einheiten
+ * tatsächliche Verbrauch – die Erstausstattung (mit der Gründung bezahlt)
+ * zählt als erster Einkauf, `investition` enthält sie ebenfalls;
+ * `adhocAnteil` = ad-hoc-Einheiten / alle Einheiten
  * (NPC-Schichten aus `settle` und Anpacken). Ohne Ereignisse muss der beste
  * Tag unter der Decke bleiben – geprüft wird `bestNetto`, der Tag mit der
  * Ware, die er verbraucht hat, zum Einheitspreis (das erste Füllen, die Lücke
@@ -602,7 +604,6 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   /** Was die Entnahme abends in der Kasse lässt: Werbung plus der nächste Einkauf (Stück 3a). */
   let reserve = reserveWerbung;
   const gesamtAusbau = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
-  const investition = b.price + (ausbau === 'kapitalist' ? gesamtAusbau : 0);
   const top = companyData.RANKS.length - 1;
 
   // Ab heute vorwärts, wie `karriere` (die Module schreiben echte Zeitstempel).
@@ -610,6 +611,9 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   const f = await company.found(G, U, b.id, `Mess-${b.name}`, now);
   if (!f.ok) throw new Error(`Gründung ${b.id} gescheitert: ${f.reason}`);
   const cid = f.company.id;
+  // Die Investition ist Gründung plus Erstausstattung (Nachtrag: das volle Kern-Lager wird
+  // mit der Gründung bezahlt), beim Kapitalisten dazu der ganze Ausbau.
+  const investition = b.price + f.starter.cost + (ausbau === 'kapitalist' ? gesamtAusbau : 0);
 
   /** NPCs nachstellen, bis alle Plätze der aktuellen Stufe besetzt sind. */
   const besetzen = (t) => {
@@ -659,7 +663,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   let nachschuss = 0;
   let nachschussTage = 0;
   let werbungAus = 0;
-  let wareEinkauf = 0;                 // Taler für Einkäufe ins Lager
+  let wareEinkauf = f.starter.cost;    // Taler für Einkäufe ins Lager – die Erstausstattung ist der erste
   let einkaufAus = 0;                  // Tage, an denen „voll" an der Kasse scheiterte
   let wareAdhoc = 0;                   // Taler ad hoc (NPC-Schichten und Anpacken ohne Lager)
   let einheiten = 0;                   // verbrauchte Einheiten insgesamt
@@ -699,12 +703,15 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
       const wb = await company.advertise(G, U, now);
       // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
       // Tag 1–3 reicht sie nicht); geschlossen (`locked`) ist erlaubt; mit Ereignissen darf
-      // die Kasse auch später fehlen, wenn der Nachschuss nicht reichte (gezählt); jede andere
-      // Absage wäre ein Fehler, der laut sein soll.
+      // die Kasse auch später fehlen, wenn der Nachschuss nicht reichte (gezählt). In der
+      // Anlaufphase (Tag < 30) darf sie auch ohne Ereignisse fehlen: Die Erstausstattung
+      // (Nachtrag) lässt die erste Kampagne früher zünden (Baufirma Tag 6 bei Auslastung 0,6),
+      // als der Drei-Tage-Takt sich selbst trägt – an Tag 12 fehlen 2.000 von 90.000 (gezählt).
+      // Jede andere Absage wäre ein Fehler, der laut sein soll.
       if (wb.ok) werbungLief = true;
       if (wb.reason === 'kasse' && werbungLief) werbungAus++;
       if (!(wb.ok || wb.reason === 'running' || wb.reason === 'locked'
-        || (wb.reason === 'kasse' && (!werbungLief || ereignisse)))) {
+        || (wb.reason === 'kasse' && (!werbungLief || ereignisse || d < 30)))) {
         throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${wb.reason}`);
       }
       // Einkauf (Stück 3a), nach der Werbung: täglich das Lager voll, solange der Tagespreis

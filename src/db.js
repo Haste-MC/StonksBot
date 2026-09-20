@@ -550,7 +550,8 @@ db.exec(`
     wage_factor        REAL    NOT NULL DEFAULT 1,
     wage_factor_until  INTEGER NOT NULL DEFAULT 0,
     stock              INTEGER NOT NULL DEFAULT 0,   -- Lager: Einheiten (Stück 3a)
-    stock_cost         INTEGER NOT NULL DEFAULT 0    -- … und was sie gekostet haben
+    stock_cost         INTEGER NOT NULL DEFAULT 0,   -- … und was sie gekostet haben
+    stock_seeded       INTEGER NOT NULL DEFAULT 0    -- 1 = Lager einmal befüllt (Erstausstattung / Nachrüstung)
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
     ON companies (guild_id, owner_id) WHERE status = 'open';
@@ -578,6 +579,9 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     // Waren (Stück 3a): Lagerbestand und Einstandswert.
     ['stock', 'INTEGER NOT NULL DEFAULT 0'],
     ['stock_cost', 'INTEGER NOT NULL DEFAULT 0'],
+    // 0 = Firma aus der Zeit vor der Erstausstattung: `settle` füllt das Lager einmal ohne
+    // Einstand auf und setzt 1; neue Gründungen kommen mit 1 und vollem Lager zur Welt.
+    ['stock_seeded', 'INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
@@ -1766,8 +1770,9 @@ const stmt = {
 
   // --- Firmen ---
   insertCompany: db.prepare(
-    `INSERT INTO companies (guild_id, owner_id, branch, name, founded_at, paid_through)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING *`),
+    `INSERT INTO companies (guild_id, owner_id, branch, name, founded_at, paid_through,
+       stock, stock_cost, stock_seeded)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING *`),
   getCompany: db.prepare('SELECT * FROM companies WHERE id = ?'),
   getOpenCompany: db.prepare(
     `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'`),
@@ -1778,7 +1783,7 @@ const stmt = {
        negative_since = ?, werbung_until = ?, pitch_day = ?, pitch_today = ?,
        status = ?, closed_at = ?, closed_why = ?,
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
-       wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?
+       wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -3810,8 +3815,12 @@ function clearRelayPairs() {
 
 // ------------------------------------------------------------------ Firmen
 
-function insertCompany({ guildId, ownerId, branch, name, now = Date.now() }) {
-  return stmt.insertCompany.get(guildId, String(ownerId), branch, name, now, now);
+/**
+ * Legt eine Firma an – mit Erstausstattung (`stock`/`stockCost`, Stück 3a): Das Lager
+ * kommt bei der Gründung mit, deshalb ist `stock_seeded` von Anfang an 1.
+ */
+function insertCompany({ guildId, ownerId, branch, name, now = Date.now(), stock = 0, stockCost = 0 }) {
+  return stmt.insertCompany.get(guildId, String(ownerId), branch, name, now, now, stock, stockCost);
 }
 function getCompany(id) { return stmt.getCompany.get(Number(id)) ?? null; }
 function getOpenCompany(guildId, ownerId) {
@@ -3827,7 +3836,7 @@ function saveCompany(c) {
     typeof c.news === 'string' ? c.news : JSON.stringify(c.news ?? []),
     c.closed_until ?? 0, c.umsatz_boost ?? 1, c.umsatz_boost_until ?? 0,
     c.wage_factor ?? 1, c.wage_factor_until ?? 0,
-    c.stock ?? 0, c.stock_cost ?? 0,
+    c.stock ?? 0, c.stock_cost ?? 0, c.stock_seeded ? 1 : 0,
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */

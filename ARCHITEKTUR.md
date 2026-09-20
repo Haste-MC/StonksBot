@@ -571,10 +571,29 @@ nachgeholten Tage. Wer kein Lager hat, kauft ad hoc zum Aufschlag von 25 %
 (`AD_HOC_MARKUP`), von der Kasse, die dabei wie bei Löhnen ins Minus darf.
 Das Lager fasst sieben Vollbetriebs-Tage (`LAGER_TAGE` × (Plätze × 3 + 4)),
 wird aus der Kasse zum Tagespreis gefüllt (`buyStock`, Menge oder „voll") und
-beim Schließen oder Verkauf zum Einstand (`stock_cost`) ausgezahlt. Der Hedge
+beim Schließen oder Verkauf zum Einstand (`stock_cost`) ausgezahlt. Jede
+Gründung bringt ein volles Kern-Lager mit (**Erstausstattung**, Nachtrag der
+Spec: `company.starterOf` = Kapazität × Einheitspreis – Kiosk 3.500, Café
+23.940, Baufirma 95.200), in derselben Buchung wie der Gründungspreis; sie
+liegt als `stock_cost` im Lager und kommt beim Schließen zum Einstand zurück,
+nie mehr. Ohne sie war der Anlauf ein Tod auf Raten: leeres Lager, ad hoc
++25 %, bei Auslastung 0,3–0,4 tagelang rote Schichten, NPC-Kündigung nach drei
+unbezahlten Tagen, Insolvenz an Tag 15 – für einen Inhaber, der gründet,
+einstellt und wartet. Firmen aus der Zeit davor (`stock_seeded 0`) füllt die
+erste Abrechnung nach dem Update einmal ohne Einstand auf (Chronik-Zeile;
+`stock_cost` bleibt, was wirklich gekauft wurde – das Schließen zahlt
+Geschenktes nicht aus). Der Hedge
 ist die Börse selbst: Wer die Aktie des Lieferanten hält, gewinnt am Kurs, was
 ihn die Ware mehr kostet. Die Decke (`ceilingOf(...).net`) zieht die Ware
-zum Startkurs ab (`Units × wareUnit`, Units = Plätze × 3 + 4). Der Ausbau
+zum Startkurs ab (`Units × wareUnit`, Units = Plätze × 3 + 4). Die
+Geldwirkungen der Ereignisse (`kasse`, `refund` in `applyEffect`) sind
+Vielfache dieses niedrigeren `net` – gewollt: Die Härte bleibt relativ zum
+Gewinn (Kiosk `kuehlung` −1.175 statt −1.425). Grenzen um die Decke: bester
+Fall Kurs 0,5 und volles Lager = Decke + ½ × Units × wareUnit, schlechtester
+Fall Kurs 2,0 und alles ad hoc = Decke − 1,5 × Units × wareUnit; weil `settle`
+den Preis einmal je Abrechnung liest, kann ein 30-Tage-Nachholen komplett zum
+Verhältnis 0,5 laufen – mehr als die Klemmung gibt es aber auch dann nicht.
+Der Ausbau
 hebt den Umsatz, nicht den Warenpreis – deshalb kostet die Ware im Kern
 15–18 % der Decke, voll ausgebaut 5–6 %:
 
@@ -597,7 +616,10 @@ sind Kosten, kein Umsatz. Gemessen (365 Tage, fester Würfel, `DATA_DIR=.testdat
 node scripts/messung-geldquellen.js 10 365`, Firmen-Blöcke in
 `docs/messungen/2026-09-20-firmen-waren.txt`; die Messwelt hat keine
 Börsenticks, also Kurs = Start und Einkauf zum Einheitspreis – Kurs-Effekte
-sind hier nicht gemessen): Der simulierte Inhaber kauft täglich nach der
+sind hier nicht gemessen; die Mediane stammen aus der Messung VOR der
+Erstausstattung – die ändert nur den Anlauf (weniger ad hoc, das erste Lager
+ist schon da), nicht Decken oder stationäre Mediane, und wird mit der
+nächsten Messung aufgefrischt): Der simulierte Inhaber kauft täglich nach der
 Werbung das Lager voll (am ersten Tag mit genug Kasse ein ganzes, danach den
 Verbrauch von gestern; die Entnahme lässt Werbung plus nächsten Einkauf in der
 Kasse; ein Einkauf über den Tagesverbrauch hinaus lässt die Werbekosten

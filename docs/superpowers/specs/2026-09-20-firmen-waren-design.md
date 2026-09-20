@@ -151,3 +151,55 @@ und prüft `best ≤ decke`; ein zweiter Lauf ohne Einkauf prüft `best ≤ deck
   (65.080, 460.495, 15.681) und Rangfolge; Decken-Läufe mit/ohne Einkauf.
 - Docs: §15 (neue Decken, Wareneinsatz 20 %, Hedge-Hinweis, gemessene
   Mediane), Patchnotes 1.35.0, Addendum in der 2a-Spec.
+
+## Nachtrag 2026-09-20: Erstausstattung
+
+**Befund der Gesamt-Review:** Eine frische Firma startete mit `stock 0`. Bei
+Auslastung 0,3–0,4 ist die Schicht mit Ware ad hoc mehrere Tage rot
+(Kiosk, 2 Aushilfen: `6 × (round(250 × 0,4) − 100 − 63) = −378` an Tag 1),
+die NPCs kündigen nach `NPC_QUIT_AFTER_UNPAID = 3` unbezahlten Tagen, und an
+Tag 15 ist die Firma insolvent – für einen Inhaber, der gründet, einstellt
+und wartet (der Ablauf vor 1.35). Betroffen: Kiosk, Imbiss, Autowäsche,
+Werkstatt, Baufirma.
+
+**Beschluss (Option a, plus faules Nachrüsten):**
+
+- **Erstausstattung bei der Gründung.** `company.found` bucht `b.price +
+  starterCost` in EINER Buchung (§9) mit `starterCost = capacityOf(b, Kern) ×
+  wareUnit(b)` (`company.starterOf`): Kiosk 70 × 50 = 3.500, Café 133 × 180 =
+  23.940, Spedition 238 × 380 = 90.440, Baufirma 280 × 340 = 95.200. Die Zeile
+  entsteht mit `stock = Kapazität`, `stock_cost = starterCost`, `stock_seeded
+  = 1`; die Guthabenprüfung nimmt die Summe (`needed`), das Ergebnis trägt
+  `starter: { units, cost }` und `total`. Kein Faucet: Schließen und Verkauf
+  zahlen das Lager zum Einstand – die Erstausstattung kommt zurück wie jeder
+  Einkauf, nie mehr. Die Gründungsansicht zeigt „Gründung X + Erstausstattung
+  Y (N Einheiten, volles Lager)", der Hinweis nach der Gründung nennt beides.
+- **Bestehende Firmen.** Neue Spalte `stock_seeded INTEGER NOT NULL DEFAULT 0`
+  (CREATE TABLE, PRAGMA-Nachrüstung, `saveCompany`; `insertCompany` setzt 1).
+  `settle` prüft sie am Anfang, VOR dem frühen Ausstieg bei `total <= 0` –
+  schon der erste Blick nach dem Update befüllt: `stock = max(stock,
+  capacityOf(b, eff))`, `stock_cost` bleibt, was wirklich gekauft wurde (bei
+  leerem Lager 0 – Bestand aus der Zeit vor dem Update, ohne Einstand, zahlt
+  das Schließen nichts aus), `stock_seeded = 1`, Chronik-Zeile „📦 Lager aus
+  der Zeit vor dem Update aufgefüllt – ohne Einstand." (`pushNews`, Betrag 0).
+- **Wirkung auf den Anlauf (Handrechnung Kiosk, 2 Aushilfen, Hände weg):**
+  Tag 1 a = 0,4 → `6 × (100 − 100) = 0`, Tag 2 a = 0,48 → +120, Tag 3 a =
+  0,544 → +216; die Kasse ist nie negativ, das Lager (70) trägt elf Tage, ab
+  Tag 13 laufen die Schichten ad hoc bei a ≈ 0,77 mit `6 × (193 − 100) − 378
+  = +180` je Tag. Kein NPC kündigt, keine Insolvenz.
+- **Decken und Mediane** ändern sich nicht: Die Decke ist ein Tag mit vollem
+  Lager zum Normalpreis, der stationäre Zustand der Messung ebenso. Nur die
+  Anlaufphase wird kürzer (der Anteil ad hoc sinkt). Die in §15 zitierten
+  Mediane stammen aus der Messung vor der Erstausstattung und werden mit der
+  nächsten Messung aufgefrischt; `firmenlauf` rechnet die Erstausstattung in
+  `investition` (Amortisation) und als ersten Einkauf in `wareProTag`.
+- **Tests** (`test/companyGoods.test.js`): Buchung `−(25.000 + 3.500)`,
+  Zeile `stock 70 / stock_cost 3.500 / stock_seeded 1`, Guthabenprüfung auf die
+  Summe, Sofort-Schließen zahlt genau 3.500; Hände-weg-Szenario über 20 Tage
+  (Kasse = Handrechnung je Tag, Minimum 0, keine Kündigung, Firma offen);
+  Nachrüsten (`stock_seeded 0` → nach `settle` Kapazität, Einstand 0, eine
+  Chronik-Zeile; zweite Abrechnung füllt nicht erneut; Restbestand behält
+  seinen Einstand; Schließen zahlt nur den Einstand). Handwerte in
+  `company.test.js`/`companyEvents.test.js`, die am leeren Start-Lager hingen,
+  sind neu hergeleitet (Minuskiosk −57/−45 statt −246/−612, Wachsendes Café
+  4.536 statt 486 …).

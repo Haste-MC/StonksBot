@@ -297,7 +297,7 @@ function estateFailure(result, symbol) {
 /** Ergebnis eines Wareneinkaufs (`company.buyStock`) als Hinweis – Knopf und Modal teilen ihn. */
 function wareNote(symbol, r) {
   if (r.ok) return `📦 **${r.units}** Einheiten für ${money(symbol, r.cost)} eingelagert (${r.stock}/${r.capacity}).`;
-  return { capacity: '📦 Das Lager ist voll.',
+  return { capacity: r.free > 0 ? `📦 Nur noch **${r.free}** Einheiten passen ins Lager.` : '📦 Das Lager ist voll.',
     kasse: `💸 Dafür fehlen ${money(symbol, (r.cost ?? 0) - (r.kasse ?? 0))} in der Kasse.`,
     units: '❌ Menge? Eine ganze Zahl über 0 oder „voll".', no_company: '🏢 Du hast keine Firma.' }[r.reason]
     ?? '❌ Das ging nicht.';
@@ -2711,7 +2711,8 @@ const modals = {
     const symbol = await getSymbol(guildId);
     const r = await company.found(guildId, userId, branchId, interaction.fields.getTextInputValue('name'));
     const note = r.ok
-      ? `🏢 **${r.company.name}** ist gegründet (${money(symbol, r.branch.price)}). Stell Personal ein – ohne Leute läuft nur der Notbetrieb.`
+      ? `🏢 **${r.company.name}** ist gegründet – Gründung ${money(symbol, r.branch.price)} + Erstausstattung ${money(symbol, r.starter.cost)}: `
+        + `das Lager ist voll (${r.starter.units} ${r.branch.ware.emoji} ${r.branch.ware.name}). Stell Personal ein – ohne Leute läuft nur der Notbetrieb.`
       : { name: '❌ Der Name muss 2–32 Zeichen haben, ohne @.', already: 'ℹ️ Du hast schon eine Firma.',
         funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
         unknown_branch: '❌ Diese Branche gibt es nicht.', payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.' }[r.reason]

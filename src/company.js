@@ -136,6 +136,21 @@ function capacityOf(b, eff) {
 }
 
 /**
+ * Erstausstattung bei der Gründung: ein volles Kern-Lager zum Einheitspreis
+ * (Kiosk 70 × 50 = 3.500, Baufirma 280 × 340 = 95.200). Ohne sie startet jede
+ * Firma mit leerem Lager, und bei Auslastung 0,3–0,4 ist die Schicht mit Ware
+ * ad hoc tagelang rot – die NPCs kündigen nach drei unbezahlten Tagen und der
+ * Betrieb ist an Tag 15 insolvent, bevor er je ein Lager bezahlen konnte
+ * (Spec-Nachtrag 2026-09-20). Der Betrag wird in derselben Buchung wie der
+ * Gründungspreis gezahlt und liegt als `stock_cost` im Lager – beim Schließen
+ * kommt er wie jeder Einkauf zum Einstand zurück, nie mehr (§3, kein Faucet).
+ */
+function starterOf(b) {
+  const units = capacityOf(b, effectiveOf({ id: 0, stufe: 0 }, b, []));
+  return { units, cost: units * wareUnit(b) };
+}
+
+/**
  * Eine Einheit verbrauchen: aus dem Lager (Wert um den Ø-Preis senken) oder
  * ad hoc zum Aufschlag von der Kasse – die darf dabei ins Minus wie bei Löhnen.
  * Rein: liefert die fortgeschriebene Firmenzeile. Jede Schicht (NPC, Spieler,
@@ -164,8 +179,10 @@ function cleanName(name) {
 // ------------------------------------------------------------------ Gründen
 
 /**
- * Gründet eine Firma. Zeile zuerst (§7), dann EINE Buchung des Preises (§9);
- * scheitert die Buchung, wird die Zeile wieder gelöscht.
+ * Gründet eine Firma. Zeile zuerst (§7), dann EINE Buchung von Preis plus
+ * Erstausstattung (§9: Gründung und Lager sind ein Kauf); scheitert die
+ * Buchung, wird die Zeile wieder gelöscht. Die Firma kommt mit vollem Lager
+ * zur Welt (`stock` = Kern-Kapazität, `stock_cost` = Erstausstattung).
  */
 async function found(guildId, userId, branchId, name, now = Date.now()) {
   const b = branch(branchId);
@@ -174,26 +191,29 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
   if (!clean) return { ok: false, reason: 'name' };
   if (db.getOpenCompany(guildId, userId)) return { ok: false, reason: 'already' };
 
+  const starter = starterOf(b);
+  const total = b.price + starter.cost;
   const balance = await getBalance(guildId, userId);
-  if (balance.total < b.price) {
-    return { ok: false, reason: 'funds', needed: b.price, have: balance.total };
+  if (balance.total < total) {
+    return { ok: false, reason: 'funds', needed: total, have: balance.total, starter };
   }
 
   let row;
   try {
-    row = db.insertCompany({ guildId, ownerId: userId, branch: b.id, name: clean, now });
+    row = db.insertCompany({ guildId, ownerId: userId, branch: b.id, name: clean, now,
+      stock: starter.units, stockCost: starter.cost });
   } catch {
     // Eindeutiger Index: zwei Gründungen kurz hintereinander – die zweite verliert.
     return { ok: false, reason: 'already' };
   }
 
   try {
-    if (balance.cash < b.price) {
-      await unb.withdrawFromBank(guildId, userId, b.price - balance.cash, `Gründung: ${clean}`);
+    if (balance.cash < total) {
+      await unb.withdrawFromBank(guildId, userId, total - balance.cash, `Gründung: ${clean}`);
     }
-    const newBalance = await changeCash(guildId, userId, -b.price, `Gründung: ${clean}`,
+    const newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
       { kind: 'company' });
-    return { ok: true, company: row, branch: b, balance: newBalance };
+    return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
   } catch (err) {
     db.deleteCompany(row.id);
     return { ok: false, reason: 'payment', error: err.message };
@@ -413,12 +433,22 @@ function lastClosed(guildId, userId, now = Date.now()) {
  * Synchron, ohne Buchung – nur Zustand. `random` ist der Würfel der Tests.
  */
 function settle(companyId, now = Date.now(), random = Math.random) {
-  const c = db.getCompany(companyId);
+  let c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return null;
   const b = branch(c.branch);
   const extraIds = db.companyExtras(c.id);
   const eff = effectiveOf(c, b, extraIds);
   const guildId = c.guild_id;
+
+  // Firmen aus der Zeit vor der Erstausstattung (stock_seeded 0): einmal das Lager
+  // auffüllen, ohne Einstand – der Bestand wurde nie bezahlt, also zahlt ihn das
+  // Schließen auch nicht aus (`stock_cost` bleibt, was wirklich gekauft wurde). Vor
+  // dem frühen Ausstieg, damit schon der erste Blick nach dem Update befüllt.
+  if (!c.stock_seeded) {
+    c = { ...c, stock: Math.max(c.stock ?? 0, capacityOf(b, eff)), stock_seeded: 1 };
+    c.news = pushNews(c, now, '📦 Lager aus der Zeit vor dem Update aufgefüllt – ohne Einstand.');
+    db.saveCompany(c);
+  }
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
     auslastung: c.auslastung, kasse: c.kasse, news: [], incident: null,
@@ -1010,7 +1040,7 @@ module.exports = {
   MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
-  wareUnit, wareOf, capacityOf, consumeOne, buyStock,
+  wareUnit, wareOf, capacityOf, starterOf, consumeOne, buyStock,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,

@@ -28,6 +28,7 @@ module.exports = [
       '⚠️ **Leeres Lager kostet extra.** Ohne Vorrat kaufen die Schichten ad hoc zum Tagespreis plus 25 % – von der Kasse, die dabei ins Minus darf. Die Lager-Ansicht sagt, wie viele Tage der Bestand reicht.',
       '📏 **Die Decken sinken um den Wareneinsatz** – gemessen, nicht geschätzt: Ein Kiosk macht mit Ereignissen 2.037 statt 2.536 am Tag (Decke 2.350 statt 2.850), eine voll ausgebaute Spedition 412.039 statt 436.834 (Decke 460.495 statt 487.095), die Baufirma voll 471.973 statt 501.780. Im Kern kostet die Ware 16–20 % des Tagesgewinns, voll ausgebaut 6 % – der Ausbau hebt den Umsatz, nicht den Warenpreis.',
       '💰 **Beim Schließen oder Verkauf** wird das Lager zum Einstand mit ausgezahlt – auch beim Investor-Angebot.',
+      '🎁 **Erstausstattung.** Bestehende Firmen bekommen beim ersten Blick nach dem Update ein volles Lager ohne Einstand; neue Firmen zahlen bei der Gründung eine Erstausstattung (Kiosk 3.500, Baufirma 95.200), die beim Schließen wie das übrige Lager zum Einstand zurückkommt.',
     ],
   },
   {

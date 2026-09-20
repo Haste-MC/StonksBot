@@ -133,8 +133,8 @@ function view(buttons) {
     check('Werbung und Anpacken sind bei Schließung gesperrt', row1[0].data.disabled === true && row1[1].data.disabled === true);
     check('letzter Knopf der zweiten Zeile ist der Vorfall', row2[row2.length - 1].data.custom_id === `vorfall|${FU}`,
       row2[row2.length - 1].data.custom_id);
-    const fx = render.toMessage(v);
-    check('Firmenansicht hält das Fluxer-Limit', fx.reactions.length <= render.MAX_REACTIONS, String(fx.reactions.length));
+    // Nicht die (immer wahre) Länge nach dem Abschneiden prüfen, sondern dass nichts abgeschnitten wurde.
+    check('Firmenansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
 
     const d = await ui.buildDecisionView({ guildId: FG, userId: FU });
     check('Vorfall-Ansicht: Titel beginnt mit 🏢', d.embeds[0].data.title.startsWith('🏢'), d.embeds[0].data.title);
@@ -163,7 +163,13 @@ function view(buttons) {
     const cid = r.company.id;
     await company.deposit(FG, FU, 100_000, now);
 
-    // Betriebsansicht: Waren-Feld (leeres Lager warnt), Zeile 2 führt zum Lager statt zum Schließen.
+    // Betriebsansicht: Waren-Feld (Erstausstattung 280/280, Kurs = Start → „±0 %"; leeres Lager
+    // warnt), Zeile 2 führt zum Lager statt zum Schließen.
+    const v0 = await ui.buildFirmaView({ guildId: FG, userId: FU });
+    const waren0 = v0.embeds[0].data.fields.find((f) => f.name === '📦 Waren');
+    check('Erstausstattung: Feld nennt 280/280, reicht ~7 Tage, BETO ±0 %',
+      waren0?.value.includes('**280/280**') && waren0.value.includes('reicht ~7 Tage') && waren0.value.includes('(BETO ±0 %)'), waren0?.value);
+    db.saveCompany({ ...db.getCompany(cid), stock: 0, stock_cost: 0 });
     const v = await ui.buildFirmaView({ guildId: FG, userId: FU });
     const waren = v.embeds[0].data.fields.find((f) => f.name === '📦 Waren');
     check('Betriebsansicht hat das Feld 📦 Waren', !!waren, v.embeds[0].data.fields.map((f) => f.name).join(', '));
@@ -173,13 +179,13 @@ function view(buttons) {
       v.components[1].components.some((b) => b.data.custom_id === `firma|lager|0|${FU}`) && !alleIds.some((id) => id.startsWith('firma|schliessen')),
       alleIds.join(' '));
     check('Betriebsansicht: höchstens 8 Knöpfe', alleIds.length <= 8, String(alleIds.length));
-    check('Betriebsansicht hält das Fluxer-Limit', render.toMessage(v).reactions.length <= render.MAX_REACTIONS);
+    check('Betriebsansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
 
     // Ausbau: Schließen wohnt jetzt hier, in Zeile 1.
     const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FU });
     const zeile1 = a.components[0].components.map((b) => b.data.custom_id);
     check('Ausbau Zeile 1 enthält Schließen', zeile1.includes(`firma|schliessen|0|${FU}`), zeile1.join(' '));
-    check('Ausbau hält das Fluxer-Limit', render.toMessage(a).reactions.length <= render.MAX_REACTIONS, String(render.toMessage(a).reactions.length));
+    check('Ausbau hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(a).overflow === undefined, String(render.mapReactions(a).overflow));
 
     // Lager-Ansicht: Titel, vier Knöpfe, Einkaufen aktiv bei Kasse ≥ Tagespreis.
     const l = await ui.buildFirmaLagerView({ guildId: FG, userId: FU });
@@ -187,10 +193,12 @@ function view(buttons) {
     const lk = l.components[0].components;
     check('Lager: vier Knöpfe', l.components.length === 1 && lk.length === 4, String(lk.length));
     check('Lager: Einkaufen aktiv (Kasse 100.000 ≥ 340)', lk[0].data.custom_id === `firma|einkaufen|0|${FU}` && lk[0].data.disabled !== true);
-    check('Lager: Voll machen nennt die freien Plätze', lk[1].data.custom_id === `firma|lagervoll|0|${FU}` && /\(\d+\)/.test(lk[1].data.label), lk[1].data.label);
+    check('Lager: Voll machen nennt die freien Plätze (280)', lk[1].data.custom_id === `firma|lagervoll|0|${FU}` && lk[1].data.label.includes('(280)'), lk[1].data.label);
+    check('Lager: leerer Bestand sagt „leer", nicht „reicht ~0 Tage"',
+      l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('leer')
+      && !l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('reicht'), l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value);
     check('Lager: Beschreibung nennt Lieferant und Tagespreis', l.embeds[0].data.description.includes('BETO') && l.embeds[0].data.description.includes('Tagespreis'));
-    const lf = render.toMessage(l);
-    check('Lager hält das Fluxer-Limit', lf.reactions.length <= render.MAX_REACTIONS, String(lf.reactions.length));
+    check('Lager hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(l).overflow === undefined, String(render.mapReactions(l).overflow));
     console.log('    ' + l.embeds[0].data.title);
     for (const zeile of l.embeds[0].data.description.split('\n')) console.log('    ' + zeile);
     for (const f of l.embeds[0].data.fields) console.log(`    [${f.name}] ${f.value}`);
@@ -200,6 +208,12 @@ function view(buttons) {
     db.saveCompany({ ...db.getCompany(cid), kasse: 100 });
     const l2 = await ui.buildFirmaLagerView({ guildId: FG, userId: FU });
     check('Lager: Einkaufen gesperrt bei Kasse < Tagespreis', l2.components[0].components[0].data.disabled === true);
+    // Volles Lager (Erstausstattung): nichts zu kaufen, beide Kaufknöpfe aus.
+    db.saveCompany({ ...db.getCompany(cid), kasse: 100_000, stock: 280, stock_cost: 95_200 });
+    const l3 = await ui.buildFirmaLagerView({ guildId: FG, userId: FU });
+    check('Lager voll: Einkaufen und Voll machen (0) gesperrt', l3.components[0].components[0].data.disabled === true
+      && l3.components[0].components[1].data.disabled === true && l3.components[0].components[1].data.label.includes('(0)'),
+      l3.components[0].components[1].data.label);
 
     // Börse: der Lieferant nennt seine Branchen.
     const av = await ui.buildAssetView({ guildId: FG, userId: FU, symbol: 'BETO' });
