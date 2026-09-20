@@ -93,12 +93,46 @@ function ceilingOf(b, stufe = 0, extraIds = []) {
   const gross = Math.round(slots * data.NPC_SHIFTS * b.umsatz * top * umsatzFactor
     + data.MAX_PITCH_PER_DAY * b.umsatz * top * umsatzFactor);
   const wages = Math.round(slots * data.NPC_SHIFTS * b.lohn * top);
+  // Wareneinsatz bei Kurs = Start (Stück 3a) – die Decke ist die eines Tages
+  // mit vollem Lager zum Normalpreis.
+  const ware = (slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY) * wareUnit(b);
   // Ganze Taler: die Anzeige zeigt die Decke, und 16.631,25 sind kein Betrag.
-  return { gross, wages, net: gross - wages, slots, factor: umsatzFactor };
+  return { gross, wages, ware, net: gross - wages - ware, slots, factor: umsatzFactor };
 }
 
 function fullCeilingOf(b) {
   return ceilingOf(b, data.MAX_STUFE, b.extras.map((e) => e.id));
+}
+
+// ----------------------------------------------------------------- Waren
+
+/** Einheitspreis bei Kurs = Start: ein Fünftel des Schichtumsatzes. */
+function wareUnit(b) {
+  return Math.round(b.umsatz * data.WARE_SHARE);
+}
+
+/**
+ * Die Ware einer Branche mit Tagespreis. Der Kurs ist der zuletzt notierte
+ * der Lieferanten-Aktie (die Börse schreibt sich über Ticker und Ansichten
+ * fort – die Firma stößt nichts an); ohne Notierung gilt der Startkurs.
+ * Das Verhältnis ist geklemmt (0,5 … 2,0): Ein Kurssturz macht Ware billig,
+ * nie umsonst; eine Blase teuer, nie unbezahlbar.
+ */
+function wareOf(guildId, b) {
+  const asset = require('./data/wallstreet').find(b.ware.supplier);
+  const kurs = db.getPrice(guildId, asset.symbol)?.price ?? asset.start;
+  const ratio = Math.max(data.WARE_KURS_MIN, Math.min(data.WARE_KURS_MAX, kurs / asset.start));
+  const unit = wareUnit(b);
+  const price = Math.round(unit * ratio);
+  return {
+    ...b.ware, asset, start: asset.start, kurs, ratio, unit, price,
+    adhoc: Math.round(price * data.AD_HOC_MARKUP),
+  };
+}
+
+/** Lagerkapazität: eine Woche Vollbetrieb (NPC-Schichten + Anpacken). */
+function capacityOf(b, eff) {
+  return (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY) * data.LAGER_TAGE;
 }
 
 /** Name-Regeln: 2–32 Zeichen, keine Erwähnungen. */
@@ -894,6 +928,7 @@ module.exports = {
   MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
+  wareUnit, wareOf, capacityOf,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,

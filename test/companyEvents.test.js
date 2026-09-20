@@ -97,7 +97,7 @@ function wirkungOk(e, label) {
       w.outcomes.every((x) => x.kasse === -1.5 && x.lock === 2) && w.outcomes.filter((x) => x.refund === 1).length === 1);
   }
 
-  console.log('--- Abrechnung mit Ereignissen (Kiosk Stufe 0, Decke 2.850) ---');
+  console.log('--- Abrechnung mit Ereignissen (Kiosk Stufe 0, Decke 2.350) ---');
   {
     const db = require('../src/db');
     const company = require('../src/company');
@@ -124,7 +124,8 @@ function wirkungOk(e, label) {
     await company.deposit(G, U, 100_000, t0);
     const b = company.branch('kiosk');
     const decke = company.ceilingOf(b).net;
-    check('Decke Kiosk 2.850', decke === 2_850);
+    // Stück 3a: net zieht jetzt den Wareneinsatz ab (2 × 3 + 4 = 10 Einheiten × 50) → 2.850 − 500 = 2.350.
+    check('Decke Kiosk 2.350', decke === 2_350);
     check('groesse 0, riskPerDay 2 %, severity 1', company.groesse(db.getCompany(cid), []) === 0
       && near(company.riskPerDay(0), 0.02) && company.severityFor(0) === 1);
     check('groesse 9: riskPerDay 8 %, severity 1,6, riskFor(9, 30) = 1 − 0,92^30',
@@ -142,13 +143,13 @@ function wirkungOk(e, label) {
       db.getCompany(cid).kasse - vor === tagesUmsatz(a1) - tagesLohn && s.news.length === 0,
       `${db.getCompany(cid).kasse - vor} vs ${tagesUmsatz(a1) - tagesLohn}`);
 
-    // kuehlung: −0,5 × Decke = −1.425, nicht verstärkt.
+    // kuehlung: −0,5 × Decke = −1.175 (Decke jetzt 2.350, Stück 3a), nicht verstärkt.
     let a = db.getCompany(cid).auslastung; a = a + (ziel - a) * 0.2;
     vor = db.getCompany(cid).kasse;
     s = company.settle(cid, t0 + 2 * DAY_MS, wurf('kuehlung'));
-    check('kuehlung: −1.425 zusätzlich, Chronik-Zeile',
-      db.getCompany(cid).kasse - vor === tagesUmsatz(a) - tagesLohn - 1_425 && s.news.length === 1 && s.news[0].text.startsWith('🧊'),
-      `${db.getCompany(cid).kasse - vor} vs ${tagesUmsatz(a) - tagesLohn - 1_425}`);
+    check('kuehlung: −1.175 zusätzlich, Chronik-Zeile',
+      db.getCompany(cid).kasse - vor === tagesUmsatz(a) - tagesLohn - 1_175 && s.news.length === 1 && s.news[0].text.startsWith('🧊'),
+      `${db.getCompany(cid).kasse - vor} vs ${tagesUmsatz(a) - tagesLohn - 1_175}`);
     check('Chronik in der Firma gespeichert', JSON.parse(db.getCompany(cid).news).length === 1);
 
     // lieferant: Umsatz × 0,7 an diesem Tag, morgen wieder 1,0.
@@ -216,7 +217,7 @@ function wirkungOk(e, label) {
     // Härte: kasse −1 bei groesse 9 und Schweigen = −1 × 1,6 × 1,6 × Decke.
     const c2 = db.getCompany(cid);
     const e2 = company.applyEffect(c2, db.companyStaff(cid), { kasse: -1, refund: 1 }, { b, extraIds: [], at: now, haerte: 1.6 * 1.6 });
-    check('kasse −1 mit Härte 2,56: −7.296, refund 1 = +2.850 (nie mehr als der Abzug)',
+    check('kasse −1 mit Härte 2,56: −6.016, refund 1 = +2.350 (nie mehr als der Abzug)',
       e2.done.kasse === -Math.round(2.56 * decke) && e2.done.refund === decke && e2.company.kasse === c2.kasse - Math.round(2.56 * decke) + decke,
       JSON.stringify(e2.done));
     const e3 = company.applyEffect(c2, db.companyStaff(cid), { kasse: -0.3, refund: 1 }, { b, extraIds: [], at: now, haerte: 1 });

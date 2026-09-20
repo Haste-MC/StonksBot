@@ -71,9 +71,9 @@ const user = () => `u${++n}`;
       company.ceilingOf(k).net < company.ceilingOf(c).net && company.ceilingOf(c).net < company.ceilingOf(s).net,
       data.BRANCHES.map((b) => `${b.id}=${de(company.ceilingOf(b).net)}`).join(' '));
     // Handrechnung Spedition: 10 × 3 × 1.900 × 1,5 = 85.500 + 4 × 2.850 = 96.900 brutto,
-    // Löhne 10 × 3 × 630 = 18.900 → 78.000 netto.
-    check('Decke der Spedition ist die Handrechnung (78.000)',
-      company.ceilingOf(s).net === 78_000, de(company.ceilingOf(s).net));
+    // Löhne 10 × 3 × 630 = 18.900, Ware 34 × 380 = 12.920 → 65.080 netto.
+    check('Decke der Spedition ist die Handrechnung (65.080)',
+      company.ceilingOf(s).net === 65_080, de(company.ceilingOf(s).net));
     check('drei Ränge mit Faktoren 1 / 1,25 / 1,5',
       data.RANKS.map((r) => r.factor).join() === '1,1.25,1.5');
     check('genug NPC-Namen', data.NPC_NAMES.length >= 30);
@@ -432,7 +432,10 @@ const user = () => `u${++n}`;
       const f = await company.found(G, U, b.id, `Voll-${b.id}`, t0);
       for (let i = 0; i < b.slots; i++) company.hireNpc(G, U, t0, seq(0.02 * i));
       for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
-      const decke = company.ceilingOf(b).net;
+      // net + ware statt net: die Abrechnung verbraucht noch keine Ware (Stück 3a
+      // legt nur den Preis fest, der Verbrauch kommt in Task 2) – die hier geprüfte
+      // Decke ist bis dahin die alte (Umsatz − Löhne).
+      const decke = company.ceilingOf(b).net + company.ceilingOf(b).ware;
       let best = -Infinity, gewinn = [];
       let now = t0, werbungLief = false;
       for (let d = 0; d < 365; d++) {
@@ -531,13 +534,15 @@ const user = () => `u${++n}`;
     check('Stufe 5 + alle Extras: 22 Plätze, Faktor 2,65', voll.slots === 22 && Math.abs(voll.umsatzFactor - 2.65) < 1e-9,
       JSON.stringify(voll));
     // Handrechnung Spedition voll: 22 × 3 × 1.900 × 1,5 × 2,65 = 498.465 + 4 × 1.900 × 1,5 × 2,65 = 30.210
-    // → 528.675 brutto − Löhne 22 × 3 × 630 = 41.580 → 487.095.
-    check('volle Decke der Spedition = 487.095 (Handrechnung)',
-      Math.round(company.fullCeilingOf(sp).net) === 487_095, de(company.fullCeilingOf(sp).net));
+    // → 528.675 brutto − Löhne 22 × 3 × 630 = 41.580 → 487.095, − Ware (22 × 3 + 4) × 380 = 26.600
+    // → 460.495 netto (Stück 3a).
+    check('volle Decke der Spedition = 460.495 (Handrechnung)',
+      Math.round(company.fullCeilingOf(sp).net) === 460_495, de(company.fullCeilingOf(sp).net));
     const ki = data.BRANCHES.find((b) => b.id === 'kiosk');
-    // Kiosk voll: 5 × 3 × 250 × 1,5 × 2,65 = 14.906,25 + 3.975 − 2.250 = 16.631,25.
-    check('volle Decke des Kiosks = 16.631 (Handrechnung)',
-      Math.round(company.fullCeilingOf(ki).net) === 16_631, de(company.fullCeilingOf(ki).net));
+    // Kiosk voll: 5 × 3 × 250 × 1,5 × 2,65 = 14.906,25 + 3.975 − 2.250 = 16.631,25,
+    // − Ware (5 × 3 + 4) × 50 = 950 → 15.681,25 netto (Stück 3a).
+    check('volle Decke des Kiosks = 15.681 (Handrechnung)',
+      Math.round(company.fullCeilingOf(ki).net) === 15_681, de(company.fullCeilingOf(ki).net));
 
     // Monotonie: jede Stufe und jedes Extra hebt die Decke echt.
     let ok = true;
@@ -801,7 +806,8 @@ const user = () => `u${++n}`;
       }
       const cid = f.company.id;
       for (const s of db.companyStaff(cid)) db.saveStaff({ ...s, rank: 2 });
-      const decke = company.fullCeilingOf(b).net;
+      // net + ware, siehe §3-Kern-Test oben: kein Verbrauch vor Task 2.
+      const decke = company.fullCeilingOf(b).net + company.fullCeilingOf(b).ware;
       let best = -Infinity, gewinn = [], werbungLief = false;
       let now = t0;
       for (let d = 0; d < 365; d++) {
