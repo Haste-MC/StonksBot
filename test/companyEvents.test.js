@@ -414,7 +414,12 @@ function wirkungOk(e, label) {
     company.hireNpc(G, U, t0, seq(0.1));
     company.hireNpc(G, U, t0, seq(0.2));
     // Auslastung 0,3, Rang Aushilfe (×1): je Schicht round(250 × 0,3) = 75 Umsatz, 100 Lohn → 2 × 3 × (75 − 100) = −150.
+    // Leeres Lager (Stück 3a): dazu 6 Einheiten ad hoc zu 63 → −528. Mit Lager für den Tag
+    // (6 Einheiten, schon bezahlt) bleibt es bei −150 – so rechnen die Faktor-Prüfungen unten.
     let s = company.status(G, U, t0);
+    check('Prognose mit leerem Lager: −150 − 6 × 63 = −528', s.forecast === -528, String(s.forecast));
+    db.saveCompany({ ...db.getCompany(cid), stock: 6, stock_cost: 300 });
+    s = company.status(G, U, t0);
     check('Prognose ohne Faktoren: −150', s.forecast === -150, String(s.forecast));
     db.saveCompany({ ...db.getCompany(cid), umsatz_boost: 1.15, umsatz_boost_until: t0 + DAY_MS });
     s = company.status(G, U, t0);

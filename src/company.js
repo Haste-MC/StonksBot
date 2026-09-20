@@ -144,10 +144,10 @@ function capacityOf(b, eff) {
 function consumeOne(c, w) {
   const next = { ...c };
   if ((next.stock ?? 0) > 0) {
-    const avg = Math.round(next.stock_cost / next.stock);
+    const avg = Math.round((next.stock_cost ?? 0) / next.stock);
     next.stock -= 1;
     // Die letzte Einheit nimmt den Restwert mit – kein Rundungsrest, nie negativ.
-    next.stock_cost = next.stock > 0 ? Math.max(0, next.stock_cost - avg) : 0;
+    next.stock_cost = next.stock > 0 ? Math.max(0, (next.stock_cost ?? 0) - avg) : 0;
     return { company: next, cost: 0, adhoc: false };
   }
   next.kasse -= w.adhoc;
@@ -419,13 +419,13 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   const extraIds = db.companyExtras(c.id);
   const eff = effectiveOf(c, b, extraIds);
   const guildId = c.guild_id;
-  const w = wareOf(guildId, b);                // Tagespreis – gilt für alle nachgeholten Tage
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
     auslastung: c.auslastung, kasse: c.kasse, news: [], incident: null,
     ware: { units: 0, adhoc: 0, cost: 0 } };
   const total = Math.floor((now - c.paid_through) / DAY_MS);
   if (total <= 0) return out;
+  const w = wareOf(guildId, b);                // Tagespreis – gilt für alle nachgeholten Tage
   const days = Math.min(total, data.MAX_SETTLE_DAYS);
   const skipped = total - days;               // ältere Tage verfallen (wie bei Musik)
   out.days = days;
@@ -590,9 +590,10 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
 
   // Eine Schicht, eine Einheit Ware – aus dem Lager oder ad hoc von der Kasse.
   const v = consumeOne(c, wareOf(guildId, b));
-  db.saveCompany({ ...v.company, kasse: v.company.kasse - lohn + umsatz });
+  const after = { ...v.company, kasse: v.company.kasse - lohn + umsatz };
+  db.saveCompany(after);
   db.saveStaff({ ...s, shifts: s.shifts + 1 });
-  return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: c, branch: b, rank: rankOf(s.rank),
+  return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: after, branch: b, rank: rankOf(s.rank),
     ware: { adhoc: v.adhoc, cost: v.cost } };
 }
 
@@ -777,7 +778,9 @@ async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
 }
 
 /**
- * Freiwillig schließen: Kasse (wenn positiv) entnehmen, dann aufräumen. Die Zeile geht
+ * Freiwillig schließen: Kasse (wenn positiv) plus Lager zum Einstand entnehmen, dann
+ * aufräumen. Das Lager zählt mit dem, was es gekostet hat (`stock_cost`) – Geld, das beim
+ * Einkauf aus dem Spiel ging, kommt zurück, nie mehr (§3, kein Faucet). Die Zeile geht
  * zuerst (§7) – schlägt die Auszahlung danach fehl, gibt es niemanden mehr, dem man das
  * Geld zurückbuchen könnte, also bleibt die Firma zu und ein Admin muss von Hand nachbuchen.
  */
@@ -785,7 +788,7 @@ async function close(guildId, userId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
-  const payout = Math.max(0, Math.round(c.kasse));
+  const payout = Math.max(0, Math.round(c.kasse + (c.stock_cost ?? 0)));
   const closed = closeCompany(guildId, c.id, now, 'closed');
   if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
   try {
@@ -800,8 +803,8 @@ async function close(guildId, userId, now = Date.now()) {
 
 /**
  * Verkauf im Übernahme-Vorfall: schließt mit Grund `sold` und zahlt
- * Ausbau + Kasse (die Gründung nicht – so rechnet auch der Schließen-Dialog),
- * nie mehr, als reingesteckt wurde (§3).
+ * Ausbau + Kasse + Lager zum Einstand (die Gründung nicht – so rechnet auch der
+ * Schließen-Dialog), nie mehr, als reingesteckt wurde (§3).
  * Eine Buchung, ohne XP und Steuer (Umbuchung wie bei `close`).
  * Ohne Abrechnung (`ownerContext`, nicht `fresh`): der Aufrufer steht
  * mitten in einem Vorfall, die Firma ist schon abgerechnet.
@@ -811,7 +814,7 @@ async function sell(guildId, userId, now = Date.now()) {
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   const extraIds = db.companyExtras(c.id);
-  const payout = Math.max(0, Math.round(investedOf(b, c, extraIds) + c.kasse));
+  const payout = Math.max(0, Math.round(investedOf(b, c, extraIds) + c.kasse + (c.stock_cost ?? 0)));
   const closed = closeCompany(guildId, c.id, now, 'sold');
   if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
   try {
@@ -843,11 +846,18 @@ function status(guildId, userId, now = Date.now()) {
   const fUmsatz = c.umsatz_boost_until >= now ? c.umsatz_boost : 1;
   const fLohn = c.wage_factor_until >= now ? c.wage_factor : 1;
   const closedNow = (c.closed_until ?? 0) >= now;
-  const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
+  const npcs = staff.filter((s) => s.kind === 'npc');
+  const wareNow = wareOf(guildId, b);
+  const forecastOhneWare = npcs.reduce((sum, s) => {
     const f = rankOf(s.rank).factor;
     const umsatzTeil = closedNow ? 0 : Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor * fUmsatz);
     return sum + data.NPC_SHIFTS * (umsatzTeil - Math.round(b.lohn * f * fLohn));
   }, 0);
+  // Ware der heutigen NPC-Schichten: was im Lager liegt, ist schon bezahlt (kostet heute
+  // nichts); jede fehlende Einheit kommt ad hoc von der Kasse. Geschlossen: keine Schicht.
+  const npcShifts = closedNow ? 0 : npcs.length * data.NPC_SHIFTS;
+  const wareHeute = Math.max(0, npcShifts - (c.stock ?? 0)) * wareNow.adhoc;
+  const forecast = forecastOhneWare - wareHeute;
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
   // Die Auslastung bewegt sich nur bei der Abrechnung (§4) – die Ansicht zeigt
   // deshalb, wohin sie will, was der nächste Tick bringt und wann er kommt.
@@ -879,7 +889,7 @@ function status(guildId, userId, now = Date.now()) {
     incident: (() => { const p = require('./decisions').pending(guildId, userId, now); return p?.platform === 'company' ? p : null; })(),
     // Waren (Stück 3a): Tagespreis, Lager, Einstand und Reichweite bei Vollbetrieb.
     ware: (() => {
-      const w = wareOf(guildId, b);
+      const w = wareNow;
       const perDay = eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY;
       const stock = c.stock ?? 0;
       return {

@@ -20,7 +20,7 @@ const {
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
-  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, ID, homeButton,
+  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, ID, homeButton,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -294,6 +294,15 @@ function estateFailure(result, symbol) {
   return texts[result.reason] ?? '❌ Das hat nicht geklappt.';
 }
 
+/** Ergebnis eines Wareneinkaufs (`company.buyStock`) als Hinweis – Knopf und Modal teilen ihn. */
+function wareNote(symbol, r) {
+  if (r.ok) return `📦 **${r.units}** Einheiten für ${money(symbol, r.cost)} eingelagert (${r.stock}/${r.capacity}).`;
+  return { capacity: '📦 Das Lager ist voll.',
+    kasse: `💸 Dafür fehlen ${money(symbol, (r.cost ?? 0) - (r.kasse ?? 0))} in der Kasse.`,
+    units: '❌ Menge? Eine ganze Zahl über 0 oder „voll".', no_company: '🏢 Du hast keine Firma.' }[r.reason]
+    ?? '❌ Das ging nicht.';
+}
+
 /** Ergebnis einer Schicht als Text bzw. Embed. */
 async function shiftResult(interaction, result) {
   const symbol = await getSymbol(interaction.guildId);
@@ -354,6 +363,10 @@ async function shiftResult(interaction, result) {
 
   if (result.company) {
     embed.addFields({ name: 'Umsatz für die Firma', value: money(symbol, result.umsatz), inline: true });
+    // Leeres Lager: die Schicht hat ihre Einheit ad hoc von der Kasse gekauft (+25 %).
+    if (result.ware?.adhoc) {
+      embed.addFields({ name: 'Ware', value: `ad hoc ${money(symbol, result.ware.cost)} – das Lager ist leer`, inline: true });
+    }
   }
 
   if (result.broken?.length) {
@@ -1977,6 +1990,13 @@ Object.assign(buttons, {
           .setStyle(TextInputStyle.Short).setRequired(true)));
       return interaction.showModal(modal);
     }
+    if (aktion === 'einkaufen') {
+      const modal = new ModalBuilder().setCustomId(`fware|kaufen|${userId}`).setTitle('Ware einkaufen');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('amount').setLabel('Menge (oder „voll")')
+          .setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
 
     await interaction.deferUpdate();
     // §4 faule Abrechnung: ein abgelaufener Vorfall wirkt, wenn gehandelt wird –
@@ -1993,6 +2013,7 @@ Object.assign(buttons, {
     } else if (aktion === 'anpacken') {
       const r = await company.pitchIn(guildId, userId);
       note = r.ok ? `🧑‍🔧 Selbst angepackt: **${money(symbol, r.umsatz)}** Umsatz für die Firma (${r.done}/${r.max} heute).`
+        + (r.ware?.adhoc ? ` _(Ware ad hoc für ${money(symbol, r.ware.cost)} – das Lager ist leer)_` : '')
         : { no_company: '🏢 Du hast keine Firma.', limit: '🛌 Für heute reicht es – vier Schichten sind das Maximum.',
           exhausted: require('./energy').blockText(r),
           no_time: `😴 Anpacken kostet **${r.need}** Stunden, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
@@ -2066,6 +2087,14 @@ Object.assign(buttons, {
     } else if (aktion === 'personal') {
       // `arg` ist die Seite (Personal zu je 4).
       return interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
+    } else if (aktion === 'lager') {
+      return interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+    } else if (aktion === 'lagervoll') {
+      const r = await company.buyStock(guildId, userId, 'voll');
+      note = wareNote(symbol, r);
+      await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
     } else if (aktion === 'schliessen') {
       if (arg !== 'ja') {
         // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
@@ -2075,9 +2104,11 @@ Object.assign(buttons, {
         const ausbau = investiert > 0
           ? ` – bei Stufe ${s.stufe} und ${extras} Extra${extras === 1 ? '' : 's'} sind das ${money(symbol, investiert)} Investition`
           : '';
+        // Das Lager kommt zum Einstand zurück – der Dialog nennt es, wenn etwas drin liegt.
+        const lager = s?.ware.value > 0 ? ` + Lagerwert ${money(symbol, s.ware.value)}` : '';
         return interaction.editReply(buildConfirmView({
           title: '🔒 Firma schließen?',
-          text: `Die Kasse wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}. Sicher?`,
+          text: `Die Kasse${lager} wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}. Sicher?`,
           color: 0xe74c3c,
           yesId: `firma|schliessen|ja|${userId}`,
           yesLabel: 'Ja, schließen',
@@ -2714,6 +2745,20 @@ const modals = {
         ?? '❌ Das ging nicht.';
     await interaction.editReply(await buildFirmaView({ guildId, userId }));
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Menge für den Wareneinkauf eingegeben (Zahl oder „voll"). */
+  async fware(interaction, [modus]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+    const raw = String(interaction.fields.getTextInputValue('amount') ?? '').trim().toLowerCase();
+    const units = raw === 'voll' ? 'voll' : Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
+    const r = modus === 'kaufen' ? await company.buyStock(guildId, userId, units) : { ok: false, reason: 'units' };
+    await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+    await interaction.followUp({ content: wareNote(symbol, r), flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Prämie eingegeben. */

@@ -97,6 +97,24 @@ const de = (n) => Math.round(n).toLocaleString('de-DE');
       return s.ware.stock === 0 && s.ware.capacity === 70 && s.ware.price === 50 && s.ware.adhoc === 63 && s.ware.avgPaid === 0;
     })());
 
+    // Prognose zieht die Ware der heutigen NPC-Schichten ab: 2 NPCs Rang 0 bei Auslastung 0,3
+    // = 6 × (round(250 × 0,3) − 100) = −150; leeres Lager: dazu 6 × 63 ad hoc = −528.
+    // Was im Lager liegt, ist schon bezahlt – ab 6 Einheiten kostet der Tag keine Ware.
+    {
+      const c0 = db.getCompany(cid);
+      for (const st of db.companyStaff(cid)) db.saveStaff({ ...st, rank: 0 });
+      db.saveCompany({ ...c0, auslastung: 0.3 });
+      const leer = company.status(G, U, t0).forecast;
+      db.saveCompany({ ...db.getCompany(cid), stock: 4, stock_cost: 200 });
+      const halb = company.status(G, U, t0).forecast;
+      db.saveCompany({ ...db.getCompany(cid), stock: 6, stock_cost: 300 });
+      const voll = company.status(G, U, t0).forecast;
+      check('Prognose: leer −528, 4 im Lager −276, ab 6 im Lager −150', leer === -528 && halb === -276 && voll === -150,
+        JSON.stringify({ leer, halb, voll }));
+      db.saveCompany({ ...db.getCompany(cid), stock: 0, stock_cost: 0, auslastung: c0.auslastung });
+      for (const st of db.companyStaff(cid)) db.saveStaff({ ...st, rank: 2 });
+    }
+
     // Tag 1 ohne Lager: Umsatz 6 × round(375 × 0,4) = 900, Löhne 900, Ware 6 × 63 = 378 ad hoc.
     let vor = db.getCompany(cid).kasse;
     let s = company.settle(cid, t0 + DAY_MS, keinWurf);
@@ -155,7 +173,19 @@ const de = (n) => Math.round(n).toLocaleString('de-DE');
     const w = company.workShift(G, P, cid, t0 + 4 * DAY_MS + 3600e3, () => 0.5);
     check('Spieler-Schicht: eine Einheit aus dem Lager (5 → 4, Wert 250 → 200)',
       w.ok && w.ware.adhoc === false && db.getCompany(cid).stock === 4 && db.getCompany(cid).stock_cost === 200, JSON.stringify(w));
-    await company.close(G, U, t0 + 4 * DAY_MS + 7200e3);
+    check('Spieler-Schicht liefert die fortgeschriebene Firmenzeile (nach Verbrauch)',
+      w.company.stock === 4 && w.company.stock_cost === 200 && w.company.kasse === db.getCompany(cid).kasse, JSON.stringify(w.company));
+
+    // Schließen zahlt Kasse + Lager zum Einstand aus: 10 Einheiten zu 50 = 500 (kein Faucet:
+    // nur das Geld, das beim Einkauf aus dem Spiel ging – nicht der Tagespreis).
+    db.saveCompany({ ...db.getCompany(cid), stock: 0, stock_cost: 0, kasse: 20_000 });
+    r = await company.buyStock(G, U, 10, t0 + 4 * DAY_MS + 7000e3);
+    check('10 Einheiten zu 50 gekauft', r.ok && r.cost === 500 && db.getCompany(cid).kasse === 19_500, JSON.stringify(r));
+    bookings = [];
+    r = await company.close(G, U, t0 + 4 * DAY_MS + 7200e3);
+    const buchung = bookings.find((x) => x.user === U && x.reason.startsWith('Auflösung'));
+    check('Schließen: Auszahlung = Kasse + Lagerwert (19.500 + 500)',
+      r.ok && r.payout === 20_000 && buchung?.amount === 20_000 && buchung.opts.xp === false, JSON.stringify({ r, buchung }));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -461,7 +461,15 @@ const user = () => `u${++n}`;
           throw new Error(`${b.id}: Werbung an Tag ${d} abgelehnt: ${w.reason}`);
         }
         const k = await company.buyStock(G, U, 'voll', now);
-        if (!(k.ok || (k.reason === 'kasse' && d < 30))) throw new Error(`${b.id}: Einkauf an Tag ${d} abgelehnt: ${k.reason}`);
+        // Eine Absage in der Anlaufphase ist nur in zwei Fällen tragbar – beide machen den Tag
+        // nicht billiger als die Decke: Das Lager ist leer (der Tag läuft ad hoc, +25 %, also
+        // teurer), oder die Werbung lief gerade heute und hat die Kasse geleert (der Tag trägt
+        // die Kampagne – 5 % des Gründungspreises, mehr als eine Woche Ware – und verbraucht
+        // Ware, die ein früherer Tag schon bezahlt hat).
+        const leer = db.getCompany(f.company.id).stock === 0;
+        if (!(k.ok || (k.reason === 'kasse' && d < 30 && (leer || w.ok)))) {
+          throw new Error(`${b.id}: Einkauf an Tag ${d} abgelehnt: ${k.reason} (Lager ${db.getCompany(f.company.id).stock}, Werbung ${w.ok})`);
+        }
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
         company.settle(f.company.id, now + DAY_MS, keinWurf);
         const tag = db.getCompany(f.company.id).kasse - vor;
@@ -872,7 +880,12 @@ const user = () => `u${++n}`;
         if (w.ok) werbungLief = true;
         if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) throw new Error(`${b.id} Werbung Tag ${d + 1}: ${w.reason}`);
         const k = await company.buyStock(G, U, 'voll', now);
-        if (!(k.ok || (k.reason === 'kasse' && d < 30))) throw new Error(`${b.id} Einkauf Tag ${d + 1}: ${k.reason}`);
+        // Wie im Kern-Test: eine Absage nur bei leerem Lager (ad hoc, teurer) oder am Werbetag
+        // (die Kampagne hat die Kasse geleert, der Tag trägt sie).
+        const leer = db.getCompany(cid).stock === 0;
+        if (!(k.ok || (k.reason === 'kasse' && d < 30 && (leer || w.ok)))) {
+          throw new Error(`${b.id} Einkauf Tag ${d + 1}: ${k.reason} (Lager ${db.getCompany(cid).stock}, Werbung ${w.ok})`);
+        }
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) { const p = await company.pitchIn(G, U, now + i * 60e3); if (!p.ok) break; }
         company.settle(cid, now + DAY_MS, keinWurf);
         const tag = db.getCompany(cid).kasse - vor;
