@@ -122,7 +122,7 @@ const COMMANDS = [
   },
   {
     names: ['vorfall', 'vorfaelle', 'entscheidung', 'drama'],
-    info: 'Offene Entscheidung deines Kanals',
+    info: 'Offener Vorfall – Kanal, Musik oder Firma',
     run: async ({ guildId, userId }) =>
       ({ view: await ui.buildDecisionView({ guildId, userId }) }),
   },

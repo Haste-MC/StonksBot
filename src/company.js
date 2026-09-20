@@ -297,10 +297,20 @@ function applyEffect(c, staff, effect, { b, extraIds, at, today = false, haerte 
   return { company: next, staff: rest, quit, done };
 }
 
-/** Eine Zeile in die Chronik (neueste zuerst, höchstens NEWS_MAX). */
-function pushNews(c, at, text) {
-  const list = typeof c.news === 'string' ? JSON.parse(c.news || '[]') : (c.news ?? []);
-  return [{ at, text }, ...list].slice(0, NEWS_MAX);
+/** Die Chronik einer Firmenzeile – leer, wenn das Feld fehlt oder kaputt ist. */
+function newsOf(c) {
+  try {
+    const list = typeof c.news === 'string' ? JSON.parse(c.news || '[]') : (c.news ?? []);
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+/**
+ * Eine Zeile in die Chronik (neueste zuerst, höchstens NEWS_MAX). `kasse` ist,
+ * was die Zeile die Kasse netto gekostet oder gebracht hat (0 = nur Zustand).
+ */
+function pushNews(c, at, text, kasse = 0) {
+  return [{ at, text, kasse }, ...newsOf(c)].slice(0, NEWS_MAX);
 }
 
 /** Würfelt ein leichtes Ereignis für einen Abrechnungstag. */
@@ -385,8 +395,9 @@ function settle(companyId, now = Date.now(), random = Math.random) {
       cur = r.company; staff = r.staff;
       for (const s of r.quit) { db.deleteStaff(s.id); out.quit.push(s.name); }
       const text = ev.flavor?.[b.id] ?? ev.text;
-      cur.news = pushNews(cur, tag, text);
-      out.news.push({ at: tag, text, kasse: r.done.kasse + r.done.refund });
+      const kasse = r.done.kasse + r.done.refund;
+      cur.news = pushNews(cur, tag, text, kasse);
+      out.news.push({ at: tag, text, kasse });
     }
 
     // 3. Faktoren des Tages und Schließung.
@@ -523,11 +534,14 @@ function useTime(guildId, userId, cost, now) {
   return require('./creator').useTime(guildId, userId, cost, now);
 }
 
-/** Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent geworden). */
-function fresh(guildId, userId, now) {
+/**
+ * Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent
+ * geworden). `random` ist der Würfel der Abrechnung (Tests).
+ */
+function fresh(guildId, userId, now, random = Math.random) {
   const c = db.getOpenCompany(guildId, userId);
   if (!c) return null;
-  settle(c.id, now);
+  settle(c.id, now, random);
   const after = db.getCompany(c.id);
   if (!after || after.status !== 'open') return null;
   return { company: after, branch: branch(after.branch), staff: db.companyStaff(after.id) };
@@ -692,7 +706,8 @@ async function close(guildId, userId, now = Date.now()) {
 
 /**
  * Verkauf im Übernahme-Vorfall: schließt mit Grund `sold` und zahlt
- * Gründung + Ausbau + Kasse – nie mehr, als reingesteckt wurde (§3).
+ * Ausbau + Kasse (die Gründung nicht – so rechnet auch der Schließen-Dialog),
+ * nie mehr, als reingesteckt wurde (§3).
  * Eine Buchung, ohne XP und Steuer (Umbuchung wie bei `close`).
  * Ohne Abrechnung (`ownerContext`, nicht `fresh`): der Aufrufer steht
  * mitten in einem Vorfall, die Firma ist schon abgerechnet.
@@ -761,7 +776,7 @@ function status(guildId, userId, now = Date.now()) {
     extras: b.extras.map((e) => ({ ...e, owned: extraIds.includes(e.id), locked: c.stufe < e.minStufe })),
     werbungCost: Math.round(b.price * data.WERBUNG_COST_SHARE),
     // Ereignisse (Stück 2b): Chronik, Schließung, laufende Faktoren, Größe und Investition.
-    news: typeof c.news === 'string' ? JSON.parse(c.news || '[]') : (c.news ?? []),
+    news: newsOf(c),
     closedMs: Math.max(0, (c.closed_until ?? 0) - now),
     groesse: groesse(c, extraIds), invested: investedOf(b, c, extraIds),
     umsatzBoost: c.umsatz_boost_until >= now ? { factor: c.umsatz_boost, until: c.umsatz_boost_until } : null,
@@ -883,5 +898,5 @@ module.exports = {
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
   upgrade, buyExtra,
-  groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, rollLightEvent, NEWS_MAX,
+  groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, newsOf, rollLightEvent, NEWS_MAX,
 };

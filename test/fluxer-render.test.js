@@ -9,6 +9,13 @@
  * Aufruf: npm run test:fluxer
  */
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require('discord.js');
+// Guthaben mocken (ARCHITEKTUR §12: „npm test – kein Netz nötig"): die Firmenansicht
+// unten gründet eine Firma, und das bucht.
+const unb = require('../src/unb');
+const wallet = { cash: 10_000_000, bank: 0, total: 10_000_000 };
+unb.getBalance = async () => ({ ...wallet });
+unb.changeCash = async () => ({ ...wallet });
+unb.withdrawFromBank = async () => ({ ...wallet });
 const render = require('../src/fluxer/render');
 const db = require('../src/db');
 const { buildMainMenu, ENTRIES, buildEntryView } = require('../src/menu');
@@ -92,6 +99,57 @@ function view(buttons) {
     if (!r.embed.title && !r.embed.description) problems.push(`${entry.id}: leer`);
   }
   check('jeder Menüpunkt rendert sauber', problems.length === 0, problems.join('; '));
+
+  console.log('--- Firma mit Schließung, Vorfall und Chronik (Spec 2b: Darstellung) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const DAY = 24 * 60 * 60 * 1000;
+    const FG = `FR_T${Date.now()}`;
+    const FU = 'fr_firma';
+    const now = Date.now();
+    const r = await company.found(FG, FU, 'cafe', 'Rösterei', now);
+    check('Firma gegründet', r.ok, JSON.stringify(r));
+    const c = db.getCompany(r.company.id);
+    db.saveCompany({
+      ...c,
+      closed_until: now + 2 * DAY,
+      news: [
+        { at: now, text: '💧 Rohrbruch – Notdienst.', kasse: -1425 },
+        { at: now - DAY, text: '⭐ Gute Bewertung.' },              // alte Zeile ohne kasse
+      ],
+    });
+    db.insertEvent({ guildId: FG, userId: FU, kind: 'wasserschaden', platform: 'company',
+      createdAt: now, expiresAt: now + DAY });
+
+    const v = await ui.buildFirmaView({ guildId: FG, userId: FU });
+    const fields = v.embeds[0].data.fields.map((f) => f.name);
+    check('Felder Geschlossen, Vorfall, Chronik', ['🔒 Geschlossen', '⚠️ Vorfall', '📰 Chronik'].every((n) => fields.includes(n)),
+      fields.join(', '));
+    const chronik = v.embeds[0].data.fields.find((f) => f.name === '📰 Chronik').value;
+    check('Chronik nennt die Kosten, alte Zeile ohne Betrag bleibt',
+      chronik.includes('-1.425)') && chronik.includes('Gute Bewertung.') && !chronik.includes('Gute Bewertung. ('), chronik);
+    const [row1, row2] = v.components.map((row) => row.components);
+    check('Werbung und Anpacken sind bei Schließung gesperrt', row1[0].data.disabled === true && row1[1].data.disabled === true);
+    check('letzter Knopf der zweiten Zeile ist der Vorfall', row2[row2.length - 1].data.custom_id === `vorfall|${FU}`,
+      row2[row2.length - 1].data.custom_id);
+    const fx = render.toMessage(v);
+    check('Firmenansicht hält das Fluxer-Limit', fx.reactions.length <= render.MAX_REACTIONS, String(fx.reactions.length));
+
+    const d = await ui.buildDecisionView({ guildId: FG, userId: FU });
+    check('Vorfall-Ansicht: Titel beginnt mit 🏢', d.embeds[0].data.title.startsWith('🏢'), d.embeds[0].data.title);
+    check('Fußzeile nennt die Firma', d.embeds[0].data.footer.text.includes('Rösterei'), d.embeds[0].data.footer.text);
+    const back = d.components[1].components[0].data.custom_id;
+    check('Zurück führt zur Firma', back === `menu|firma|1|${FU}`, back);
+    check('Vorfall-Ansicht hält das Fluxer-Limit', render.toMessage(d).reactions.length <= render.MAX_REACTIONS);
+
+    // Rückschau ohne offenen Vorfall: Firmeninhaber bekommen einen Firma-Knopf.
+    db.clearEvents(FG, FU);
+    const h = await ui.buildDecisionView({ guildId: FG, userId: FU });
+    const ids = h.components[0].components.map((b) => b.data.custom_id);
+    check('Rückschau: Netzwerk, Firma, Home', ids.includes(`menu|firma|1|${FU}`) && ids.includes(`menu|creator|1|${FU}`) && ids.length === 3, ids.join(' '));
+    await company.close(FG, FU, now);
+  }
 
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');
   const msgId = `MSG_${Date.now()}`;

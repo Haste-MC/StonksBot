@@ -97,7 +97,7 @@ function wirkungOk(e, label) {
       w.outcomes.every((x) => x.kasse === -1.5 && x.lock === 2) && w.outcomes.filter((x) => x.refund === 1).length === 1);
   }
 
-  console.log('--- Abrechnung mit Ereignissen (Kiosk Stufe 1, Decke 2.850) ---');
+  console.log('--- Abrechnung mit Ereignissen (Kiosk Stufe 0, Decke 2.850) ---');
   {
     const db = require('../src/db');
     const company = require('../src/company');
@@ -315,6 +315,8 @@ function wirkungOk(e, label) {
     // Kandidaten bei Größe 9 mit 3+ NPC: alle sechs; zweiter Wurf wählt den Index: 1/6 → griff_in_die_kasse.
     row = decisions.roll(G, U, { groesse: 9, days: 1, npc: db.companyStaff(cid).length }, t0 + 6 * DAY_MS, seq(0.01, 1.5 / 6), 'company');
     check('Größe 9: griff_in_die_kasse gewürfelt', row?.kind === 'griff_in_die_kasse', row?.kind);
+    // Die Wirkung rechnet erst ab (fresh) – hier vorher mit festem Würfel, damit `vor` stimmt.
+    company.settle(cid, t0 + 6 * DAY_MS + 25 * H, () => 0.5);
     vor = db.getCompany(cid).kasse;
     const g2 = await decisions.settle(G, U, t0 + 6 * DAY_MS + 25 * H);
     check('Schweigen bei Größe 9: −2 × 1,6 × 1,6 × Decke', g2[0].effect.kasse === -Math.round(2 * decke9 * (1.6 * 1.6))
@@ -324,6 +326,7 @@ function wirkungOk(e, label) {
     db.clearEvents(G, U);
     row = decisions.roll(G, U, { groesse: 9, days: 1, npc: 9 }, t0 + 8 * DAY_MS, seq(0.01, 4.5 / 6), 'company');
     check('uebernahme gewürfelt', row?.kind === 'uebernahme', row?.kind);
+    company.settle(cid, t0 + 8 * DAY_MS + H, () => 0.5);
     const invested = company.investedOf(b, db.getCompany(cid), b.extras.map((e) => e.id));
     const kasse = db.getCompany(cid).kasse;
     bookings = [];
@@ -346,6 +349,49 @@ function wirkungOk(e, label) {
     const s = company.settle(r.company.id, t0 + DAY_MS, seq(0.5, 0.01, 0));
     check('settle: Vorfall gewürfelt und gemeldet', s.incident?.platform === 'company' && decisions.pending(G, V, t0 + DAY_MS)?.kind === 'gesundheitsamt', JSON.stringify(s.incident));
     check('Frist läuft ab jetzt (24 h), nicht ab dem Abrechnungstag', s.incident.expires_at === t0 + DAY_MS + decisions.DECIDE_MS);
+  }
+
+  console.log('--- Vorfall wirkt auf die abgerechnete Firma (kein Extra-Tag) ---');
+  {
+    // Ein Vorfall wird zur Abrechnung gewürfelt, entschieden wird bis 24 h später –
+    // dazwischen kann ein Abrechnungstag liegen. Der gehört nicht mehr unter die
+    // Wirkung: „Löhne × 1,3 für 7 Tage" sind sieben Tage, nicht acht.
+    const db = require('../src/db');
+    const company = require('../src/company');
+    const decisions = require('../src/decisions');
+    const G = `FFRESH_T${Date.now()}`;
+    const U = 'g1';
+    konten.set(U, 10_000_000);
+    const S = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    const H = 60 * 60 * 1000;
+    const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
+
+    const r = await company.found(G, U, 'cafe', 'Lohnstube', S);
+    const cid = r.company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < 3; i++) company.hireNpc(G, U, S, seq(0.1 * i));
+    await company.deposit(G, U, 1_000_000, S);
+    check('paid_through = Gründung', db.getCompany(cid).paid_through === S);
+
+    // Vorfall aus einer Abrechnung um S + 12 h; entschieden wird um S + 1 Tag + 6 h –
+    // der Tag S + 1 ist zu dem Zeitpunkt noch nicht abgerechnet.
+    const row = db.insertEvent({ guildId: G, userId: U, kind: 'streik', platform: 'company',
+      createdAt: S + 12 * H, expiresAt: S + 36 * H });
+    const res = await decisions.choose(G, U, row.id, 'nachgeben', S + DAY_MS + 6 * H, seq(0.5));
+    check('nachgeben: Löhne × 1,3 für 7 Tage', res.ok && res.effect.wages === 1.3 && res.effect.days === 7, JSON.stringify(res.effect));
+    check('der offene Tag wurde vor der Wirkung abgerechnet', db.getCompany(cid).paid_through === S + DAY_MS,
+      String((db.getCompany(cid).paid_through - S) / H));
+    check('Chronik-Zeile trägt die Kosten (0 bei reinem Lohnfaktor)', JSON.parse(db.getCompany(cid).news)[0].kasse === 0);
+
+    // Tag für Tag abrechnen und die teuren Tage zählen (3 NPC × 3 Schichten × Lohn).
+    const basis = 3 * data.NPC_SHIFTS * b.lohn;
+    const teuer = 3 * data.NPC_SHIFTS * Math.round(b.lohn * 1.3);
+    const tage = [];
+    for (let k = 1; k <= 9; k++) tage.push(company.settle(cid, S + DAY_MS + 6 * H + k * DAY_MS, () => 0.5).loehne);
+    check('genau 7 Tage mit Lohn × 1,3, davor und danach Basis',
+      tage.filter((l) => l === teuer).length === 7 && tage.filter((l) => l === basis).length === 2 && tage[7] === basis,
+      tage.join(' '));
+    await company.close(G, U, S + 20 * DAY_MS);
   }
 
   console.log('--- Prognose respektiert Boost, Lohnfaktor und Schließung ---');

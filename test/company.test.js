@@ -46,8 +46,10 @@ unb.withdrawFromBank = async (g, u, amount) => {
 
 /** Fester Würfel: liefert nacheinander die Werte, danach 0,5. */
 const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
-// Würfel für settle, der nie ein Ereignis und nie einen Vorfall bringt (0,5 × 200 = 100 < 140;
-// 0,5 ≥ 8 %): Handrechnungen ohne Ereignisse bleiben so exakt (test/companyEvents.test.js würfelt).
+// Würfel für settle, der kein leichtes Ereignis bringt (0,5 × Gewichtssumme < 140) und keinen
+// Vorfall, solange riskFor(groesse, days) ≤ 0,5 ist – also bei Einzeltag-Abrechnungen oder
+// Stufe 0 bis 30 Tage (riskFor(0, 30) = 0,455; riskFor(2, 30) = 0,64 wäre schon ein Vorfall).
+// Handrechnungen ohne Ereignisse bleiben so exakt (test/companyEvents.test.js würfelt).
 const keinWurf = () => 0.5;
 const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
 let n = 0;

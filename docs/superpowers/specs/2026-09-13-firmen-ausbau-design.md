@@ -338,7 +338,9 @@ voll ausgebaut Kiosk 15.256 statt 16.583, Café 126.958 statt 133.173,
 Spedition 436.834 statt 486.664, Baufirma 501.780 statt 557.910, Club 374.329
 statt 414.397 – 5–11 %, 24–32 Vorfälle im gemessenen Jahr; Amortisation des
 Gesamtausbaus mit Ereignissen 61 (Café) bis 178 (Baufirma) Tage statt 51 bis
-158. Die Zahlen ohne Ereignisse reproduzieren die Messung vom 2026-09-14
+158. Die Mediane sind reine Kassenbewegungen je Tag; die Amortisation rechnet
+den Nachschuss des Inhabers (Einzahlungen bei negativer Kasse) gegen die
+Entnahmen. Die Zahlen ohne Ereignisse reproduzieren die Messung vom 2026-09-14
 exakt (gleicher Würfel; der Lauf vom 2026-09-20 reproduziert den vom
 2026-09-15 im Firmen-Teil Zeile für Zeile). Die Baufirma bleibt die Spitze; die Spedition
 (436.834) fällt mit Ereignissen unter Musik+Creator nach zwei Jahren

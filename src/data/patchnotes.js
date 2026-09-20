@@ -25,7 +25,7 @@ module.exports = [
       '📜 **Chronik.** Die Betriebsansicht zeigt die letzten fünf Ereignisse deiner Firma – was passiert ist und was es gekostet hat.',
       '🎲 **Zwölf leichte Ereignisse.** Jede Abrechnung würfelt je Tag einmal: Stammkunden, Großauftrag, Lokalpresse, ein ruhiger Tag mit halben Löhnen – oder der Lieferant kommt nicht, die Kühlung fällt aus, einer geht zur Konkurrenz. Wirkt sofort, kein Klick; an jedem dritten bis vierten Tag passiert etwas.',
       '⚠️ **Sechs Vorfälle mit Entscheidung.** Gesundheitsamt, Griff in die Kasse, Streik, Rohrbruch, ein Investor, ein riskanter Großauftrag – 24 Stunden Frist, ein Knopf in der Betriebsansicht, Schweigen ist die teuerste Antwort (×1,6). Je größer die Firma (Stufe + Extras), desto häufiger und härter: 2 % am Tag im Kern, 8 % voll ausgebaut.',
-      '🔒 **Betriebsschließung** ist der härteste Ausgang: bis zu fünf Tage kein Umsatz, die Löhne laufen weiter. Ausbau geht nie verloren; ein Vorfall kann dir nie mehr nehmen, als du reingesteckt hast.',
+      '🔒 **Betriebsschließung** ist der härteste Ausgang: bis zu fünf Tage kein Umsatz, die Löhne laufen weiter. Ausbau geht nie verloren – die Kasse kann aber ins Minus, und dann läuft die Minus-Uhr.',
       '📏 Gemessen, nicht geschätzt: Ereignisse kosten 5–11 % des Tagesgewinns – ein Kiosk macht 2.536 statt 2.831 am Tag, eine voll ausgebaute Spedition 436.834 statt 486.664; im gemessenen Jahr kamen im Kern 4–8 Vorfälle, voll ausgebaut 24–32 (die Kurve gibt im Schnitt 7 bzw. 27). Kein Ereignis hebt den Umsatz über die Decke × 1,15.',
     ],
   },

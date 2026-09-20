@@ -260,22 +260,26 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
  * Wendet einen Firmen-Ausgang an. Alles synchron über company.applyEffect
  * (§7); nur der Verkauf bucht – über company.sell, eine Buchung (§9).
  * Gibt es die Firma nicht mehr (geschlossen, insolvent), wirkt nichts.
+ *
+ * Erst abrechnen (`fresh`), dann wirken: zwischen Wurf und Entscheidung
+ * liegen bis zu 24 h, und ein Abrechnungstag darin gehört nicht mehr unter
+ * „7 Tage" oder „3 Tage zu". Ein zweiter Vorfall kann dabei nicht fallen –
+ * MIN_GAP_MS (36 h) ist länger als die Frist.
  */
 async function applyCompany(guildId, userId, row, effect, now, ignored, random) {
   const company = require('./company');
-  const c = company.ownCompany(guildId, userId);
+  const ctx = company.fresh(guildId, userId, now, random);
   const leer = { kasse: 0, refund: 0, auslastung: 0, quit: [], lock: 0, umsatz: null, days: 0,
     wages: null, werbung: 0, staffRank: null, sell: false, sold: null, gone: true, text: effect.text };
-  if (!c) return leer;
-  const b = company.branch(c.branch);
+  if (!ctx) return leer;
+  const { company: c, branch: b, staff } = ctx;
   const extraIds = db.companyExtras(c.id);
   const haerte = company.severityFor(company.groesse(c, extraIds)) * (ignored ? IGNORE_PENALTY : 1);
-  const staff = db.companyStaff(c.id);
   const r = company.applyEffect(c, staff, effect, { b, extraIds, at: now, today: false, haerte, random });
   for (const s of r.quit) db.deleteStaff(s.id);
   for (const s of r.staff) db.saveStaff(s);
   const d = decision(row.kind);
-  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`);
+  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`, r.done.kasse + r.done.refund);
   db.saveCompany(r.company);
 
   let sold = null;

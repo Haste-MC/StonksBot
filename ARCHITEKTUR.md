@@ -496,18 +496,23 @@ hebt den Tagesumsatz über `× 1,15` (`EVENT_UMSATZ_MAX`), Boosts stapeln nicht
 (ein neuer ersetzt den laufenden, Maximum statt Produkt), `kasse` ist nie
 positiv, eine Rückerstattung nie größer als der Abzug derselben Option, und
 die Übernahme zahlt höchstens investiert + Kasse. Je Branche gilt für den
-NPC-Umsatz eines Tages `Plätze × 3 × round(Umsatz × 1,5) × 1,15` – im Kern
-Kiosk 2.588, Imbiss 3.726, Autowäsche 2.691, Café 23.288, Fitnessstudio
+NPC-Umsatz eines Tages `Plätze × 3 × round(Umsatz × 1,5) × 1,15` – im Kern (gerundet, Kiosk
+exakt 2.587,5) Kiosk 2.588, Imbiss 3.726, Autowäsche 2.691, Café 23.288, Fitnessstudio
 14.490, Werkstatt 22.770, Spedition 98.325, Baufirma 105.570, Club 74.520
 (brutto, neben der Netto-Decke 2.850 … 78.000 oben); voll ausgebaut Kiosk
 17.147, Café 148.129, Spedition 573.273, Baufirma 674.813, Club 460.782.
 Die Abrechnung rundet je Schicht `round(Umsatz × Faktor × 1,15)`, die Decke
 `round(Umsatz × Faktor) × 1,15` – der Unterschied ist höchstens 0,8 je
-Schicht über alle Stufen und Extras (nachgerechnet), im Kern höchstens 0,5;
+Schicht darüber (nach unten bis 1,05) über alle Stufen und Extras
+(nachgerechnet), im Kern höchstens 0,5;
 die Prüfgrenze ist deshalb Decke + 0,5 je Schicht (Test) bzw. + 1 je
 Schicht (Messskript). Gemessen (365 Tage, fester Würfel, `firmenlauf` mit und
-ohne Ereignisse im selben Lauf, `.superpowers/sdd/task-5-messung/mess-2b.txt`,
-2026-09-15) liegt der beste Tag überall unter dieser Grenze: Der Club trifft
+ohne Ereignisse im selben Lauf: `DATA_DIR=.testdata node
+scripts/messung-geldquellen.js 10 365`, fester Seed – der Lauf vom 2026-09-20
+war im Firmen-Teil zeilengleich mit dem vom 2026-09-15; die Firmen-Blöcke
+liegen in `docs/messungen/2026-09-20-firmen-ereignisse.txt`) liegt der beste
+Tag überall höchstens auf der Prüfgrenze (Club genau auf der Ereignis-Decke,
+Baufirma und Fitnessstudio auf der +0,5-je-Schicht-Grenze): Der Club trifft
 die Decke exakt (Kern 74.520, voll 460.782), Baufirma und Fitnessstudio im
 Kern liegen um genau die Rundung darüber – Baufirma 105.588 = 36 × round(2.932,5) = 36 × 2.933 gegen 105.570
 (+18 = 0,5 × 36 Schichten), Fitnessstudio 14.496 = 12 × round(1.207,5) gegen
@@ -521,19 +526,19 @@ statt 74.865 (−11 %), Club 62.145 statt 68.749 (−10 %); voll ausgebaut Kiosk
 15.977 statt 17.773 (−10 %), Café 126.958 statt 133.173 (−5 %),
 Fitnessstudio 80.056 statt 87.693 (−9 %), Werkstatt 123.787 statt 134.020
 (−8 %), Spedition 436.834 statt 486.664 (−10 %), Baufirma 501.780 statt
-557.910 (−10 %), Club 374.329 statt 414.397 (−10 %). Ereignisse kosten also
-rund ein Zehntel des Tagesgewinns – schlecht ist teurer als gut, wie in §3
-gewollt. Vorfälle im Lauf: 4–8 im Jahr bei Größe 0, 24–32 voll ausgebaut,
+557.910 (−10 %), Club 374.329 statt 414.397 (−10 %). Schlecht ist teurer
+als gut, wie in §3 gewollt. Vorfälle im Lauf: 4–8 im Jahr bei Größe 0, 24–32 voll ausgebaut,
 mit 5–9 bzw. 9–20 geschlossenen Betriebstagen (Schließung bis 5 Tage, Löhne
 laufen weiter). Die Kurve allein gäbe 7,3 bzw. 29,2; nach jedem Vorfall ist
 der nächste Abrechnungstag gesperrt (`MIN_GAP_MS` 36 h, die Entscheidung
-fällt im Lauf sofort), was die Erwartung nur auf 7,1 bzw. 27,0 drückt
-(`vorfaelle-verteilung.txt`: 10.000 gewürfelte Jahre, Mittel 7,14 und
-27,05). Der Rest ist Streuung: 10–90 % der Jahre liegen bei 4…11 bzw.
-21…33 Vorfällen, und der Lauf hat einen festen Seed – die Zählung je Branche
-ist eine Stichprobe von 365 Tagen, keine neun unabhängigen (alle mittleren
-und großen Branchen zählen im Kern dieselben 4, Kiosk und Autowäsche
-dieselben 8). Der simulierte Inhaber entscheidet Vorfälle sofort mit einer
+fällt im Lauf sofort), was die Erwartung nur wenig drückt: die Formel
+p/(1+p) je Tag gibt 7,2 bzw. 27,0, die Simulation (10.000 gewürfelte Jahre,
+`vorfaelle-verteilung.js` im lokalen Messordner) im Mittel 7,14 bzw. 27,05. Der Rest ist Streuung:
+10–90 % der Jahre liegen bei 4…11 bzw. 21…33 Vorfällen, und der Lauf hat
+einen festen Seed – die Zählung je Branche ist eine Stichprobe von 365 Tagen,
+keine neun unabhängigen (dass alle mittleren und großen Branchen im Kern auf
+4 kommen und Kiosk wie Autowäsche auf 8, legt dasselbe Würfelfenster nahe;
+geprüft ist das nicht). Der simulierte Inhaber entscheidet Vorfälle sofort mit einer
 zufälligen Option (nie „Verkaufen") und schießt Kapital nach, wenn Ereignis
 oder Schließung die Kasse unter die Werbekosten oder ins Minus drücken – die
 Spielweise, die die Ansicht bei „Kasse im Minus" empfiehlt (Kern-Kiosk
@@ -544,7 +549,13 @@ Spedition (436.834) fällt mit Ereignissen unter Musik+Creator nach zwei
 Jahren (490.099); die Amortisation des Vollausbaus dauert 61 (Café) bis 178
 (Baufirma) Tage statt 51 bis 158. Aus eigener Kraft kostet der Weg zum
 Vollausbau mit Ereignissen 4–20 Tage mehr (Café 98 statt 94, Kiosk 141 statt
-136, Spedition 280 statt 260, Club 270 statt 254).
+136, Spedition 280 statt 260, Club 270 statt 254). Eine Beobachtung am
+Entwurf, hier nicht behoben: `hireNpc`, `fire` und `promote` sind kostenlos
+und sofort wirksam, also lassen sich die Stiche `quit`, `wages` und `lock`
+weitgehend umgehen – wer die Belegschaft entlässt und am nächsten Tag neu
+einstellt, zahlt weder den Lohnfaktor noch die Löhne der Schließung, nur das
+Auslastungsziel sinkt für die Zeit. Ein Balance-Punkt für später
+(Einstellsperre nach Entlassung oder Rang-Anlauf), kein Fehler in 2b.
 
 ### Eine Bremse, nicht zwei
 

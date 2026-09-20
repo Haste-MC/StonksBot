@@ -1979,6 +1979,9 @@ Object.assign(buttons, {
     }
 
     await interaction.deferUpdate();
+    // §4 faule Abrechnung: ein abgelaufener Vorfall wirkt, wenn gehandelt wird –
+    // sonst stünde er nach der Frist noch in der Ansicht (wie bei der Musik).
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     let note = null;
     if (aktion === 'werbung') {
       const r = await company.advertise(guildId, userId);

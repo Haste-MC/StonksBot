@@ -96,7 +96,7 @@ const COMPANY_DECISIONS = [
   {
     id: 'uebernahme', emoji: '🏦', title: 'Ein Investor will den Laden',
     minGroesse: 3,
-    text: 'Ein Angebot auf dem Tisch: alles, was du reingesteckt hast, plus die Kasse. Sofort.',
+    text: 'Ein Angebot auf dem Tisch: deinen ganzen Ausbau plus die Kasse. Sofort.',
     options: [
       { id: 'verkaufen', label: 'Verkaufen', emoji: '💰',
         outcomes: [

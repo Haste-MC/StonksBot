@@ -1125,7 +1125,8 @@ async function buildFirmaView({ guildId, userId }) {
   if (s.news.length) {
     embed.addFields({
       name: '📰 Chronik',
-      value: s.news.map((n) => `${new Date(n.at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} · ${n.text}`).join('\n'),
+      value: s.news.map((n) => `${new Date(n.at).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} · ${n.text}`
+        + (n.kasse ? ` (${n.kasse > 0 ? '+' : ''}${money(symbol, n.kasse)})` : '')).join('\n'),
     });
   }
   if (s.staff.length) {
@@ -2785,12 +2786,16 @@ async function buildDecisionView({ guildId, userId }) {
           + `_${p.outcome}_`,
       });
     }
+    // Zurück: Netzwerk, bei Firmeninhabern auch die Firma (3 Knöpfe, weit unter dem Limit).
+    const back = [new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
+      .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary)];
+    if (require('./company').ownCompany(guildId, userId)) {
+      back.push(new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId))
+        .setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary));
+    }
     return {
       embeds: [embed],
-      components: [new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(ID.menu('creator', 1, userId))
-          .setLabel('Netzwerk').setEmoji('📡').setStyle(ButtonStyle.Secondary),
-        homeButton(userId))],
+      components: [new ActionRowBuilder().addComponents(...back, homeButton(userId))],
     };
   }
 
