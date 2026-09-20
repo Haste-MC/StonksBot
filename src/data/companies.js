@@ -30,8 +30,10 @@
  * Gründung × 1,5 · 3 · 6 · 9 · 14; Extras je 2× Gründung, drei à +0,15 Umsatz,
  * eines +2 Plätze (klein +1); minStufe 3 auf dem dritten Umsatz-Extra, 2 auf dem
  * Platz-Extra. Löhne skalieren NICHT mit – die Marge wächst mit der Größe.
- * Spedition voll: 22 Plätze, Faktor 2,65 → 487.095/Tag (company.fullCeilingOf).
- * Ausnahme Baufirma: eigene Faktoren 1,3…2,5 (siehe dort), voll 558.345/Tag.
+ * Spedition voll: 22 Plätze, Faktor 2,65 → 460.495/Tag (company.fullCeilingOf,
+ * seit 1.35.0 netto nach Wareneinsatz zum Startkurs; vorher 487.095).
+ * Ausnahme Baufirma: eigene Faktoren 1,3…2,5 (siehe dort), voll 530.465/Tag
+ * (vorher 558.345).
  */
 const MAX_STUFE = 5;
 const CONFIRM_ABOVE = 5_000_000;          // ab hier fragt der Ausbau-Knopf nach

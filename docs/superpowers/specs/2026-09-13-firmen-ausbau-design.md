@@ -346,3 +346,7 @@ exakt (gleicher Würfel; der Lauf vom 2026-09-20 reproduziert den vom
 (436.834) fällt mit Ereignissen unter Musik+Creator nach zwei Jahren
 (490.099). Aus eigener Kraft dauert der Vollausbau 4–20 Tage länger
 (Spedition 280 statt 260, Club 270 statt 254, Café 98 statt 94).
+
+## Nachtrag 2026-09-20: Stück 3a umgesetzt (siehe 2026-09-20-firmen-waren-design.md)
+
+3a umgesetzt 2026-09-20: Ware je Branche, Lager, Tagespreis am Kurs des Lieferanten; die Decken ziehen den Wareneinsatz zum Startkurs ab (Spedition voll 487.095 → 460.495, Baufirma voll 558.345 → 530.465), gemessen in `docs/messungen/2026-09-20-firmen-waren.txt` (ARCHITEKTUR §15, Absatz „Waren").
