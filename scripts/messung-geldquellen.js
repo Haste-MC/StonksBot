@@ -58,7 +58,7 @@ const company = require('../src/company');
 const companyData = require('../src/data/companies');
 
 const DAY = 24 * 60 * 60 * 1000;
-/** `--ohne-ereignisse`: Musik ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
+/** `--ohne-ereignisse`: Musik und Firmen ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
 const OHNE_EREIGNISSE = process.argv.includes('--ohne-ereignisse');
 const musikOpts = { events: !OHNE_EREIGNISSE };
 /*
@@ -519,20 +519,51 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  *
  * Die Entnahme lässt die Werbekosten in der Kasse: Wer abends alles
  * herausnimmt, kann morgens keine Werbung bezahlen – dann misst man einen
- * Spieler, der sich selbst im Weg steht, nicht die Firma. Ohne Zufall: Die
- * Firma würfelt nicht (nur NPC-Namen), der Lauf ist deterministisch.
+ * Spieler, der sich selbst im Weg steht, nicht die Firma.
+ *
+ * Ereignisse (seit 1.34.0, Stück 2b): Standard ist `ereignisse = true` – die
+ * Abrechnung würfelt je Tag ein leichtes Ereignis und je Abrechnung einen
+ * Vorfall, beides aus dem festen Würfel. Der simulierte Inhaber schaut
+ * täglich: Einen offenen Vorfall entscheidet er sofort mit einer zufälligen
+ * Option, aber NIE mit einer, die verkaufen kann (sonst endet der Lauf).
+ * Ist die Firma geschlossen (`locked`), fallen Werbung und Anpacken aus;
+ * gekündigte NPCs werden täglich nachbesetzt (als Aushilfe – die Beförderung
+ * ab Tag 30 holt sie nach). Reicht die Kasse morgens nicht für die Werbung
+ * oder ist sie im Minus (nach Schließung oder Kassenabzug), schießt er den
+ * Fehlbetrag nach – „Einzahlen rettet" ist die Spielweise, die die Ansicht
+ * empfiehlt. Ein- und Auszahlungen sind Umbuchungen: `median` misst nur die
+ * Kasse (Umsatz, Löhne, Werbung, Anpacken, Ereignisse), `amortTage` rechnet
+ * Entnahmen minus Nachschuss gegen die Investition.
+ * `ereignisse = false` (Schalter `--ohne-ereignisse`): Würfel ≡ 0,5, also
+ * weder Ereignis noch Vorfall – der Lauf ist dann deterministisch wie vor 2b.
  *
  * @returns {{median:number, decke:number, amortTage:number|null, entnommen:number,
- *   stufe5Tag:number|null, vollTag:number|null, endeProTag:number}}
+ *   stufe5Tag:number|null, vollTag:number|null, endeProTag:number,
+ *   ereignisTage:number, vorfaelle:number, zuTage:number, best:number, ereignisDecke:number,
+ *   nachschuss:number, nachschussTage:number, werbungAus:number}}
  *   `median` Tagesgewinn (Kassenstand nach Abrechnung minus Tagesbeginn),
- *   `decke` die Kern-Decke bzw. beim Ausbau die volle (`fullCeilingOf`).
+ *   `decke` die Kern-Decke bzw. beim Ausbau die volle (`fullCeilingOf`),
+ *   `ereignisTage` Tage mit Chronik-Zeile, `vorfaelle` gewürfelte Vorfälle,
+ *   `zuTage` abgerechnete Tage mit geschlossenem Betrieb, `best` der höchste
+ *   NPC-Umsatz eines Tages, `ereignisDecke` die Umsatz-Decke × EVENT_UMSATZ_MAX
+ *   (§3; beim Aufsteiger die des Endausbaus), `nachschuss` eingezahlte Summe,
+ *   `werbungAus` Tage, an denen die Werbung trotzdem an der Kasse scheiterte.
  */
-async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
+async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNISSE, wuerfel = null } = {}) {
   if (!['keiner', 'kapitalist', 'aufsteiger'].includes(ausbau)) throw new Error(`ausbau: ${ausbau}`);
   const b = company.branch(branchId);
-  const G = welt(`firma_${branchId}_${ausbau}`);
-  const U = `fx:firma_${branchId}_${ausbau}`;
+  const G = welt(`firma_${branchId}_${ausbau}_${ereignisse ? 'mit' : 'ohne'}`);
+  const U = `fx:firma_${branchId}_${ausbau}_${ereignisse ? 'mit' : 'ohne'}`;
   const rand = rng(4242);
+  // Der Würfel der Abrechnung: 0,5 trifft weder ein Ereignis (none 0…140 von 185+) noch
+  // einen Vorfall (Risiko höchstens 8 %/Tag). `wuerfel` ist für die Handprüfung.
+  const ereignisRand = ereignisse ? (wuerfel ?? rand) : () => 0.5;
+  /** Umsatz-Decke der NPC-Schichten × 1,15 (§3) für die aktuelle Stufe und Extras. */
+  const ereignisDeckeVon = (c) => {
+    const eff = company.effectiveOf(c, b);
+    const top = companyData.RANKS[companyData.RANKS.length - 1].factor;
+    return eff.slots * companyData.NPC_SHIFTS * Math.round(b.umsatz * top * eff.umsatzFactor) * companyData.EVENT_UMSATZ_MAX;
+  };
   const decke = (ausbau === 'keiner' ? company.ceilingOf(b) : company.fullCeilingOf(b)).net;
   const reserve = Math.round(b.price * companyData.WERBUNG_COST_SHARE);
   const gesamtAusbau = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
@@ -586,6 +617,14 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
   let stufe5Tag = null;
   let vollTag = null;
   let werbungLief = false;
+  let ereignisTage = 0;
+  let vorfaelle = 0;
+  let zuTage = 0;
+  let best = 0;
+  let nachschuss = 0;
+  let nachschussTage = 0;
+  let werbungAus = 0;
+  let ereignisDecke = ereignisDeckeVon(db.getCompany(cid));
   try {
     for (let d = 0; d < tage; d++) {
       // Ab Tag 30 wird jeder unter Schichtleiter befördert – auch später eingestellte.
@@ -594,21 +633,63 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
           for (let k = s.rank; k < top; k++) company.promote(G, U, s.id, +1, now);
         }
       }
+      // Nachschuss (nur mit Ereignissen, erst nachdem die erste Kampagne lief): Ereignisse und
+      // Schließungen drücken die Kasse unter die Werbekosten oder ins Minus. Der Inhaber zahlt
+      // ein, was fehlt – bis zu den Werbekosten, wenn heute eine Kampagne ansteht, sonst bis
+      // null (Löhne sind Verbindlichkeiten, unbezahlte NPCs kündigen) – und höchstens, was er
+      // hat (der Aufsteiger hat anfangs nichts). Ohne Ereignisse fehlt nie etwas.
+      {
+        const c0 = db.getCompany(cid);
+        const zuHeute = now < (c0.closed_until ?? 0);
+        const faellig = werbungLief && !zuHeute && c0.werbung_until <= now;
+        const soll = faellig ? reserve : 0;
+        const kann = Math.max(0, Math.floor((await unb.getBalance(G, U)).total));
+        const fehlt = Math.min(soll - c0.kasse, kann);
+        if (ereignisse && werbungLief && fehlt > 0) {
+          const ein = await company.deposit(G, U, fehlt, now);
+          if (!ein.ok) throw new Error(`Nachschuss ${b.id} an Tag ${d + 1} gescheitert: ${ein.reason}`);
+          nachschuss += fehlt; nachschussTage++;
+        }
+      }
+      // Tagesbeginn NACH dem Nachschuss: Ein- und Auszahlungen sind Umbuchungen, kein Gewinn.
       const vor = db.getCompany(cid).kasse;
       const wb = await company.advertise(G, U, now);
       // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
-      // Tag 1–3 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
+      // Tag 1–3 reicht sie nicht); geschlossen (`locked`) ist erlaubt; mit Ereignissen darf
+      // die Kasse auch später fehlen, wenn der Nachschuss nicht reichte (gezählt); jede andere
+      // Absage wäre ein Fehler, der laut sein soll.
       if (wb.ok) werbungLief = true;
-      if (!(wb.ok || wb.reason === 'running' || (wb.reason === 'kasse' && !werbungLief))) {
+      if (wb.reason === 'kasse' && werbungLief) werbungAus++;
+      if (!(wb.ok || wb.reason === 'running' || wb.reason === 'locked'
+        || (wb.reason === 'kasse' && (!werbungLief || ereignisse)))) {
         throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${wb.reason}`);
       }
       for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
         const r = await company.pitchIn(G, U, now + i * 60_000);
-        if (!r.ok) break;                 // Zeit alle oder Tageslimit
+        if (!r.ok) break;                 // Zeit alle, Tageslimit oder geschlossen
       }
-      company.settle(cid, now + DAY);
+      const s = company.settle(cid, now + DAY, ereignisRand);
+      const nachAbrechnung = db.getCompany(cid);
+      if (!nachAbrechnung || nachAbrechnung.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${nachAbrechnung?.closed_why})`);
+      ereignisTage += s.news.length;
+      if (s.incident) vorfaelle++;
+      if ((nachAbrechnung.closed_until ?? 0) >= now + DAY) zuTage++;
+      if (s.umsatz > best) best = s.umsatz;
+
+      // Ein offener Vorfall wird sofort entschieden – zufällige Option, nie verkaufen.
+      // Sein Ausgang (Kassenabzug, Schließung, Kündigung) zählt zum Gewinn dieses Tages.
+      if (ereignisse) {
+        const open = decisions.pending(G, U, now + DAY);
+        if (open?.platform === 'company') {
+          const opts = open.decision.options.filter((o) => !o.outcomes.some((x) => x.sell));
+          const o = opts[Math.min(opts.length - 1, Math.floor(rand() * opts.length))];
+          const ch = await decisions.choose(G, U, open.id, o.id, now + DAY + 1, rand);
+          if (!ch.ok) throw new Error(`Vorfall ${b.id} an Tag ${d + 1}: ${ch.reason}`);
+          if (!db.getCompany(cid) || db.getCompany(cid).status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} durch Vorfall geschlossen`);
+        }
+      }
+      besetzen(now + DAY);                // Kündigungen (Ereignis, Vorfall, unbezahlt) nachbesetzen
       const c = db.getCompany(cid);
-      if (!c || c.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${c?.closed_why})`);
       gewinn.push(c.kasse - vor);
 
       const frei = Math.floor(c.kasse - reserve);
@@ -616,7 +697,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
         const en = await company.withdraw(G, U, frei, now + DAY);
         if (!en.ok) throw new Error(`Entnahme ${b.id} an Tag ${d + 1} gescheitert: ${en.reason}`);
         entnommen += frei;
-        if (amortTage === null && entnommen > investition) amortTage = d + 1;
+        if (amortTage === null && entnommen - nachschuss > investition) amortTage = d + 1;
       }
 
       if (ausbau === 'aufsteiger') {
@@ -640,6 +721,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
         }
         besetzen(now + DAY);
         const cur = db.getCompany(cid);
+        ereignisDecke = Math.max(ereignisDecke, ereignisDeckeVon(cur));
         if (stufe5Tag === null && cur.stufe >= companyData.MAX_STUFE) stufe5Tag = d + 1;
         if (vollTag === null && cur.stufe >= companyData.MAX_STUFE
           && db.companyExtras(cid).length === b.extras.length) vollTag = d + 1;
@@ -649,11 +731,21 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
   } finally {
     unb.getBalance = altGetBalance;
   }
+  // §3: kein Tag über der Ereignis-Decke. Toleranz: die Abrechnung rundet round(x × 1,15)
+  // je Schicht, die Decke round(x) × 1,15 – Unterschied höchstens 0,8 je Schicht (nachgerechnet
+  // über alle Branchen, Stufen und Extras), also 1 je Schicht.
+  const schichten = company.effectiveOf(db.getCompany(cid), b).slots * companyData.NPC_SHIFTS;
+  if (best > ereignisDecke + schichten) {
+    throw new Error(`Firma ${b.id}: NPC-Umsatz ${de(best)} über der Ereignis-Decke ${de(ereignisDecke)}`);
+  }
 
-  // Stille Null abfangen: Entnahmen müssen im Konto unter „Entnahme" auftauchen.
+  // Stille Null abfangen: Entnahmen müssen im Konto unter „Entnahme" auftauchen, Nachschuss unter „Einzahlung".
   const gezaehlt = quellen[U]?.Entnahme ?? 0;
   if (Math.round(gezaehlt) !== Math.round(entnommen)) {
     throw new Error(`Firma ${b.id}: ${de(entnommen)} entnommen, aber ${de(gezaehlt)} im Konto gezählt`);
+  }
+  if (Math.round(-(quellen[U]?.Einzahlung ?? 0)) !== Math.round(nachschuss)) {
+    throw new Error(`Firma ${b.id}: ${de(nachschuss)} nachgeschossen, aber ${de(-(quellen[U]?.Einzahlung ?? 0))} im Konto gezählt`);
   }
   if (ausbau === 'aufsteiger') {
     // Zweite stille Null: Was der Aufsteiger gekauft hat, muss im Konto als „Ausbau" stehen.
@@ -668,6 +760,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner' } = {}) {
   return {
     median: median(gewinn), decke, amortTage, entnommen, stufe5Tag, vollTag,
     endeProTag: median(gewinn.slice(-30)),
+    ereignisTage, vorfaelle, zuTage, best, ereignisDecke, nachschuss, nachschussTage, werbungAus,
   };
 }
 
@@ -770,24 +863,60 @@ async function main() {
   console.log(`  nur Creator     ${anteile(a)}`);
   console.log(`  Musik+Creator   ${anteile(b)}`);
 
+  /*
+   * Firmen: je Branche ein Lauf MIT Ereignissen und Vorfällen (Standard) und einer
+   * OHNE (Würfel ≡ 0,5) – beide in einem Aufruf, damit die Differenz auf einer Zeile
+   * steht. `--ohne-ereignisse` lässt nur den zweiten laufen (wie vor 2b).
+   */
+  const ereignisZeile = (r) => `Ereignistage ${r.ereignisTage}, Vorfälle ${r.vorfaelle}, ${r.zuTage} Tage zu, ` +
+    `Nachschuss ${de(r.nachschuss)} an ${r.nachschussTage} Tagen, Werbung ${r.werbungAus}× an der Kasse gescheitert, ` +
+    `bester NPC-Umsatz ${de(r.best)} ` +
+    `(Ereignis-Decke ${de(r.ereignisDecke)})`;
+  const beide = async (id, opts) => ({
+    mit: OHNE_EREIGNISSE ? null : await firmenlauf(id, TAGE, { ...opts, ereignisse: true }),
+    ohne: await firmenlauf(id, TAGE, { ...opts, ereignisse: false }),
+  });
+  const amort = (r, was) => `${was} ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`;
+
   console.log('\n--- Firmen (nicht ausgebaut, Vollbetrieb) ---\n');
   for (const br of companyData.BRANCHES) {
-    const r = await firmenlauf(br.id, TAGE);
-    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}${de(r.median).padStart(9)}/Tag   ` +
-      `Decke ${de(r.decke)}   Amortisation ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`);
+    const { mit, ohne } = await beide(br.id, {});
+    const kopf = `  ${(br.emoji + ' ' + br.name).padEnd(16)}`;
+    if (mit) {
+      console.log(`${kopf}mit Ereignissen ${de(mit.median).padStart(9)}/Tag (Vorfälle ${mit.vorfaelle}, ${mit.zuTage} Tage zu) · ` +
+        `ohne ${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ` +
+        `${amort(mit, 'Amortisation mit')}, ${amort(ohne, 'ohne')}`);
+      console.log(`${' '.repeat(18)}${ereignisZeile(mit)}`);
+    } else {
+      console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation')}`);
+    }
   }
 
   console.log('\n--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---\n');
   for (const br of companyData.BRANCHES) {
-    const r = await firmenlauf(br.id, TAGE, { ausbau: 'kapitalist' });
-    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}${de(r.median).padStart(9)}/Tag   ` +
-      `Decke ${de(r.decke)}   Amortisation des Ausbaus ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`);
+    const { mit, ohne } = await beide(br.id, { ausbau: 'kapitalist' });
+    const kopf = `  ${(br.emoji + ' ' + br.name).padEnd(16)}`;
+    if (mit) {
+      console.log(`${kopf}mit Ereignissen ${de(mit.median).padStart(9)}/Tag (Vorfälle ${mit.vorfaelle}, ${mit.zuTage} Tage zu) · ` +
+        `ohne ${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ` +
+        `${amort(mit, 'Amortisation des Ausbaus mit')}, ${amort(ohne, 'ohne')}`);
+      console.log(`${' '.repeat(18)}${ereignisZeile(mit)}`);
+    } else {
+      console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation des Ausbaus')}`);
+    }
   }
   console.log('\n--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---\n');
   for (const br of companyData.BRANCHES) {
-    const r = await firmenlauf(br.id, TAGE, { ausbau: 'aufsteiger' });
-    console.log(`  ${(br.emoji + ' ' + br.name).padEnd(16)}Stufe 5 an Tag ${r.stufe5Tag ?? '–'} · voll an Tag ${r.vollTag ?? '–'} · ` +
-      `Ertrag am Ende ${de(r.endeProTag)}/Tag`);
+    const { mit, ohne } = await beide(br.id, { ausbau: 'aufsteiger' });
+    const kopf = `  ${(br.emoji + ' ' + br.name).padEnd(16)}`;
+    const weg = (r) => `Stufe 5 an Tag ${r.stufe5Tag ?? '–'} · voll an Tag ${r.vollTag ?? '–'} · Ertrag am Ende ${de(r.endeProTag)}/Tag`;
+    if (mit) {
+      console.log(`${kopf}mit Ereignissen: ${weg(mit)} (Vorfälle ${mit.vorfaelle}, ${mit.zuTage} Tage zu)`);
+      console.log(`${' '.repeat(18)}ohne:            ${weg(ohne)}`);
+      console.log(`${' '.repeat(18)}${ereignisZeile(mit)}`);
+    } else {
+      console.log(`${kopf}${weg(ohne)}`);
+    }
   }
 
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);

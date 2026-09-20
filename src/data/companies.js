@@ -148,6 +148,7 @@ const TIME_ANPACKEN = 2;
 const SHIFT_COOLDOWN_MIN = 60;      // Abklingzeit einer Spieler-Schicht
 const MAX_PITCH_PER_DAY = 4;        // „selbst anpacken" je Tag
 const MAX_SETTLE_DAYS = 30;         // ältere Tage verfallen (wie bei Musik)
+const EVENT_UMSATZ_MAX = 1.15;      // §3: kein Ereignis hebt den Tagesumsatz über Decke × 1,15
 
 module.exports = {
   BRANCHES, RANKS, NPC_NAMES,
@@ -155,4 +156,5 @@ module.exports = {
   WERBUNG_COST_SHARE, AUSLASTUNG_MIN, AUSLASTUNG_STAFF, AUSLASTUNG_STEP, PLAYER_BONUS,
   TIME_WERBUNG, TIME_ANPACKEN, SHIFT_COOLDOWN_MIN, MAX_PITCH_PER_DAY, MAX_SETTLE_DAYS,
   MAX_STUFE, CONFIRM_ABOVE, STUFE_FAKTOREN, STUFE_PREISFAKTOREN, EXTRA_UMSATZ, extraById,
+  EVENT_UMSATZ_MAX,
 };

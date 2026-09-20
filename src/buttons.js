@@ -236,6 +236,15 @@ async function settleMusic(guildId, userId) {
   return lines.length ? lines.join('\n') : null;
 }
 
+/** Verfallene Firmen-Vorfälle wirken beim Öffnen der Firma (§4) – wie settleMusic fürs Studio. */
+async function settleFirma(guildId, userId) {
+  const lines = [];
+  for (const gone of await require('./decisions').settle(guildId, userId).catch(() => [])) {
+    lines.push(`⚠️ **${gone.decision.emoji} ${gone.decision.title}** – du hast nicht reagiert.\n_${gone.outcome.text}_`);
+  }
+  return lines.length ? lines.join('\n') : null;
+}
+
 /**
  * Erinnerung an die Heimatwahl.
  *
@@ -308,6 +317,7 @@ async function shiftResult(interaction, result) {
     if (result.reason === 'no_time') {
       return { content: `😴 Der Tag hat nur ${result.max} Stunden – übrig sind **${result.left}**, eine Schicht braucht ${jobs.HOURS_PER_SHIFT}.` };
     }
+    if (result.reason === 'locked') return { content: `🔒 **${result.job.title}** ist geschlossen – noch **${require('./income').formatRemaining(result.remainingMs)}**.` };
     const texts = {
       unemployed: '❌ Du hast keine Anstellung. Schau ins Arbeitsamt.',
       requirements: `🔒 Du erfüllst die Voraussetzungen nicht mehr: ${result.missing?.join(', ')}`,
@@ -439,10 +449,13 @@ const buttons = {
     // derselbe Weg wie über den Knopf `musik` und den Befehl /musik.
     const studio = entryId === 'musik'
       ? await settleMusic(gid(interaction), uid(interaction)) : null;
+    // Die Firma rechnet verfallene Vorfälle ab (§4) – derselbe Weg wie beim Studio.
+    const firma = entryId === 'firma'
+      ? await settleFirma(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, studio, nudge].filter(Boolean).join('\n\n') || null;
+    const notice = [news, settled, studio, firma, nudge].filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1966,6 +1979,9 @@ Object.assign(buttons, {
     }
 
     await interaction.deferUpdate();
+    // §4 faule Abrechnung: ein abgelaufener Vorfall wirkt, wenn gehandelt wird –
+    // sonst stünde er nach der Frist noch in der Ansicht (wie bei der Musik).
+    await require('./decisions').settle(guildId, userId).catch(() => []);
     let note = null;
     if (aktion === 'werbung') {
       const r = await company.advertise(guildId, userId);
@@ -2054,10 +2070,7 @@ Object.assign(buttons, {
       if (arg !== 'ja') {
         // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
         const s = company.status(guildId, userId);
-        const investiert = s
-          ? s.stufen.filter((st) => st.owned).reduce((sum, st) => sum + st.price, 0)
-            + s.extras.filter((e) => e.owned).reduce((sum, e) => sum + e.price, 0)
-          : 0;
+        const investiert = s ? s.invested : 0;
         const extras = s ? s.extras.filter((e) => e.owned).length : 0;
         const ausbau = investiert > 0
           ? ` – bei Stufe ${s.stufe} und ${extras} Extra${extras === 1 ? '' : 's'} sind das ${money(symbol, investiert)} Investition`
@@ -2348,6 +2361,18 @@ Object.assign(buttons, {
         parts.push(`💿 ${e.published.release.name} draußen, ` +
           `${e.published.audience.toLocaleString('de-DE')} haben reingehört`);
       }
+      // Firmen-Wirkungen (applyCompany).
+      if (e.gone) parts.push('🏢 Die Firma gibt es nicht mehr – keine Wirkung.');
+      if (e.kasse) parts.push(`🏢 Kasse ${money(symbol, e.kasse)}`);
+      if (e.refund) parts.push(`📄 +${money(symbol, e.refund)} zurück`);
+      if (e.auslastung) parts.push(`📈 Auslastung ${e.auslastung > 0 ? '+' : ''}${Math.round(e.auslastung * 100)} %`);
+      if (e.quit?.length) parts.push(`👋 gekündigt: ${e.quit.join(', ')}`);
+      if (e.lock) parts.push(`🔒 ${e.lock} Tage geschlossen`);
+      if (e.umsatz && e.umsatz !== 1) parts.push(`📦 Umsatz ×${e.umsatz.toFixed(2).replace('.', ',')} für ${e.days} Tage`);
+      if (e.wages && e.wages !== 1) parts.push(`💶 Löhne ×${e.wages.toFixed(2).replace('.', ',')} für ${e.days} Tage`);
+      if (e.werbung) parts.push(`📣 ${e.werbung > 0 ? '+' : ''}${e.werbung} Werbetage`);
+      if (e.staffRank) parts.push(`🎓 ${e.staffRank.name} ist jetzt ${require('./company').rankOf(e.staffRank.rank).name}`);
+      if (e.sold) parts.push(e.sold.paid ? `💰 Verkauft für ${money(symbol, e.sold.payout)}` : `⚠️ Verkauf gebucht, Auszahlung von ${money(symbol, e.sold.payout)} fehlgeschlagen`);
 
       note = `${res.decision.emoji} **${res.option.label}**\n_${res.outcome.text}_` +
         (parts.length ? `\n\n${parts.join(' · ')}` : '\n\n_Ohne Folgen. Diesmal._');

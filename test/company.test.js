@@ -46,6 +46,11 @@ unb.withdrawFromBank = async (g, u, amount) => {
 
 /** Fester Würfel: liefert nacheinander die Werte, danach 0,5. */
 const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
+// Würfel für settle, der kein leichtes Ereignis bringt (0,5 × Gewichtssumme < 140) und keinen
+// Vorfall, solange riskFor(groesse, days) ≤ 0,5 ist – also bei Einzeltag-Abrechnungen oder
+// Stufe 0 bis 30 Tage (riskFor(0, 30) = 0,455; riskFor(2, 30) = 0,64 wäre schon ein Vorfall).
+// Handrechnungen ohne Ereignisse bleiben so exakt (test/companyEvents.test.js würfelt).
+const keinWurf = () => 0.5;
 const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
 let n = 0;
 const user = () => `u${++n}`;
@@ -140,7 +145,7 @@ const user = () => `u${++n}`;
       const umsatz = Math.round(b.umsatz * a);
       kasse += 2 * data.NPC_SHIFTS * (umsatz - b.lohn);
     }
-    const r = company.settle(f.company.id, t0 + 5 * DAY_MS);
+    const r = company.settle(f.company.id, t0 + 5 * DAY_MS, keinWurf);
     const c = db.getCompany(f.company.id);
     check('5 Tage abgerechnet', r.days === 5);
     check('Kasse = Handrechnung', c.kasse === kasse, `${de(c.kasse)} vs ${de(kasse)}`);
@@ -152,9 +157,9 @@ const user = () => `u${++n}`;
     check('voll -> 0,8, mit Werbung -> 1,0',
       Math.abs(company.dailyTarget(b, 2, false) - 0.8) < 1e-9 && company.dailyTarget(b, 2, true) === 1);
     // Über 20 Tage nähert sich die Auslastung dem Ziel.
-    company.settle(c.id, t0 + 25 * DAY_MS);
+    company.settle(c.id, t0 + 25 * DAY_MS, keinWurf);
     check('nach 25 Tagen über 0,79', db.getCompany(c.id).auslastung > 0.79, String(db.getCompany(c.id).auslastung));
-    check('älter als 30 Tage verfällt', company.settle(c.id, t0 + 100 * DAY_MS).days === data.MAX_SETTLE_DAYS);
+    check('älter als 30 Tage verfällt', company.settle(c.id, t0 + 100 * DAY_MS, keinWurf).days === data.MAX_SETTLE_DAYS);
   }
 
   console.log('--- Löhne sind Verbindlichkeiten: Minus, Kündigung, Insolvenz ---');
@@ -167,21 +172,21 @@ const user = () => `u${++n}`;
     const f = await company.found(G, U, 'kiosk', 'Minuskiosk', t0);
     company.hireNpc(G, U, t0, seq(0));
     for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
-    let r = company.settle(f.company.id, t0 + 1 * DAY_MS);
+    let r = company.settle(f.company.id, t0 + 1 * DAY_MS, keinWurf);
     let c = db.getCompany(f.company.id);
     check('Tag 1: Kasse −57 (Handrechnung)', c.kasse === -57, de(c.kasse));
     check('Minus-Uhr läuft', c.negative_since === t0 + 1 * DAY_MS);
     check('NPC gilt als unbezahlt', db.companyStaff(c.id).every((s) => s.unpaid_days === 1));
-    r = company.settle(c.id, t0 + 3 * DAY_MS);
+    r = company.settle(c.id, t0 + 3 * DAY_MS, keinWurf);
     check('nach 3 unbezahlten Tagen kündigt er', r.quit.length === 1 && db.companyStaff(c.id).length === 0,
       JSON.stringify(r.quit));
     check('Kasse −45 (Handrechnung)', db.getCompany(c.id).kasse === -45, de(db.getCompany(c.id).kasse));
     const minus = db.getCompany(c.id).kasse;
-    r = company.settle(c.id, t0 + 13 * DAY_MS);
+    r = company.settle(c.id, t0 + 13 * DAY_MS, keinWurf);
     c = db.getCompany(c.id);
     check('ohne Personal keine weiteren Löhne', c.kasse === minus, `${de(c.kasse)} vs ${de(minus)}`);
     check('Tag 13: noch offen', c.status === 'open' && r.insolvent === false);
-    r = company.settle(c.id, t0 + 15 * DAY_MS);
+    r = company.settle(c.id, t0 + 15 * DAY_MS, keinWurf);
     c = db.getCompany(c.id);
     check('Tag 15: insolvent', r.insolvent === true && c.status === 'closed' && c.closed_at > 0);
     check('ownCompany ist danach null', company.ownCompany(G, U) === null);
@@ -398,12 +403,16 @@ const user = () => `u${++n}`;
       JSON.stringify({ a: s.auslastung, target: s.target, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
 
     // Nach dem ersten Tick steht die Auslastung genau auf dem angekündigten Wert.
+    // Explizit ohne Ereignis abrechnen – status() würde sonst mit Math.random würfeln.
+    company.settle(s.company.id, t0 + DAY_MS + H, keinWurf);
     s = company.status(G, U, t0 + DAY_MS + H);
     check('Tag 1: Auslastung 44 % wie angekündigt, morgen ~55 %',
       Math.abs(s.auslastung - 0.44) < 1e-9 && Math.abs(s.auslastungTomorrow - 0.552) < 1e-9 && s.nextSettleMs === 23 * H,
       JSON.stringify({ a: s.auslastung, morgen: s.auslastungTomorrow, ms: s.nextSettleMs / H }));
 
     // Werbung läuft 3 Tage: Tag 3 zählt sie noch (>=), Tag 4 nicht mehr -> Ziel 0,8.
+    // Explizit ohne Ereignis abrechnen – status() würde sonst mit Math.random würfeln.
+    company.settle(s.company.id, t0 + 3 * DAY_MS + H, keinWurf);
     s = company.status(G, U, t0 + 3 * DAY_MS + H);
     check('Tag 3: Werbung abgelaufen, nächstes Ziel 80 %', s.target === 0.8 && s.werbungMs === 0,
       JSON.stringify({ target: s.target, werbungMs: s.werbungMs }));
@@ -436,7 +445,7 @@ const user = () => `u${++n}`;
           throw new Error(`${b.id}: Werbung an Tag ${d} abgelehnt: ${w.reason}`);
         }
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
-        company.settle(f.company.id, now + DAY_MS);
+        company.settle(f.company.id, now + DAY_MS, keinWurf);
         const tag = db.getCompany(f.company.id).kasse - vor;
         best = Math.max(best, tag); gewinn.push(tag);
         now += DAY_MS;
@@ -446,6 +455,37 @@ const user = () => `u${++n}`;
       console.log(`    ${b.emoji} ${b.name}: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
       check(`${b.name}: kein Tag über der Decke`, best <= decke, `${de(best)} > ${de(decke)}`);
       check(`${b.name}: die Firma verdient (keine stille Null)`, median > 0, de(median));
+    }
+  }
+
+  console.log('--- §3: mit Ereignissen kein Tag über der Ereignis-Decke ---');
+  {
+    const rng = (seed) => { let a = seed >>> 0; return () => { a = (a + 0x6d2b79f5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+    for (const id of ['kiosk', 'cafe', 'spedition']) {
+      const b = company.branch(id);
+      const U = user(); funds(U, 0, 50_000_000);
+      const f = await company.found(G, U, b.id, `Ev-${b.id}`, t0);
+      const rand = rng(7);
+      // Ereignis-Decke ist eine UMSATZ-Decke (Spec §3): NPC-Schichten je Tag höchstens
+      // slots × 3 × round(umsatz × 1,5) × 1,15. Lohnnachlässe heben den Nettogewinn – kein Umsatz.
+      const decke = b.slots * data.NPC_SHIFTS * Math.round(b.umsatz * 1.5) * data.EVENT_UMSATZ_MAX;
+      let best = -Infinity, ereignisse = 0;
+      let now = t0;
+      for (let d = 0; d < 365; d++) {
+        while (db.companyStaff(f.company.id).length < b.slots) company.hireNpc(G, U, now, rand);
+        for (const s of db.companyStaff(f.company.id)) if (s.rank < 2) db.saveStaff({ ...s, rank: 2 });
+        await company.advertise(G, U, now);
+        for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
+        const s = company.settle(f.company.id, now + DAY_MS, rand);
+        ereignisse += s.news.length;
+        // Ein Vorfall soll hier nicht entscheiden – er wird sofort verworfen (Task 3 testet ihn).
+        const open = db.openEvent(G, U);
+        if (open) db.resolveEvent(G, open.id, { status: 'done', choice: '', outcome: '', effect: '', at: now + DAY_MS });
+        best = Math.max(best, s.umsatz);            // Umsatz der NPC-Schichten dieses Tages
+        now += DAY_MS;
+      }
+      check(`${b.name}: mit Ereignissen kein Tag über der Umsatz-Decke × 1,15 (${ereignisse} Ereignisse)`, best <= decke + 0.5 * b.slots * data.NPC_SHIFTS, `${de(best)} > ${de(decke)}`);
+      check(`${b.name}: Ereignisse sind passiert (≈ 30 % der Tage)`, ereignisse > 60 && ereignisse < 160, String(ereignisse));
     }
   }
 
@@ -671,7 +711,7 @@ const user = () => `u${++n}`;
     company.hireNpc(G, Y, t0, seq(0));
     for (const st of db.companyStaff(g2.company.id)) db.saveStaff({ ...st, rank: 2 });
     db.addCompanyExtra(g2.company.id, 'kiosk-verlaengerte_oeffnung', t0);
-    company.settle(g2.company.id, t0 + 15 * DAY_MS);
+    company.settle(g2.company.id, t0 + 15 * DAY_MS, keinWurf);
     check('Insolvenz löscht die Extras',
       db.getCompany(g2.company.id).status === 'closed' && db.companyExtras(g2.company.id).length === 0,
       JSON.stringify({ status: db.getCompany(g2.company.id).status, extras: db.companyExtras(g2.company.id) }));
@@ -703,7 +743,7 @@ const user = () => `u${++n}`;
     // Ein Tag Abrechnung, Handrechnung mit Faktor 1,2 und 6 Aushilfen:
     // Ziel = 0,3 + 0,5 × 6/6 = 0,8 → a = 0,3 + 0,5 × 0,2 = 0,4;
     // Umsatz je Schicht = round(900 × 1 × 0,4 × 1,2) = 432; Lohn 180 → 6 × 3 × 252 = 4.536.
-    const r = company.settle(cid, t0 + DAY_MS);
+    const r = company.settle(cid, t0 + DAY_MS, keinWurf);
     check('settle rechnet mit dem Umsatzfaktor (Kasse 4.536)', db.getCompany(cid).kasse === 4_536, de(db.getCompany(cid).kasse));
     check('Auslastungsziel nutzt die neuen Plätze', Math.abs(company.dailyTarget(b, 6, false, 6) - 0.8) < 1e-9
       && Math.abs(company.dailyTarget(b, 5, false, 6) - (0.3 + 0.5 * 5 / 6)) < 1e-9);
@@ -770,7 +810,7 @@ const user = () => `u${++n}`;
         if (w.ok) werbungLief = true;
         if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) throw new Error(`${b.id} Werbung Tag ${d + 1}: ${w.reason}`);
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) { const p = await company.pitchIn(G, U, now + i * 60e3); if (!p.ok) break; }
-        company.settle(cid, now + DAY_MS);
+        company.settle(cid, now + DAY_MS, keinWurf);
         const tag = db.getCompany(cid).kasse - vor;
         best = Math.max(best, tag); gewinn.push(tag);
         now += DAY_MS;

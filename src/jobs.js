@@ -233,7 +233,7 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
       { factor: preview.factor, overtime });
     if (!shift.ok) {
       if (shift.reason === 'closed') { db.clearEmployment(guildId, userId); return { ok: false, reason: 'unemployed' }; }
-      return { ok: false, reason: shift.reason, job, lohn: shift.lohn, kasse: shift.kasse };
+      return { ok: false, reason: shift.reason, job, lohn: shift.lohn, kasse: shift.kasse, remainingMs: shift.remainingMs };
     }
     const time = creator.useTime(guildId, userId, HOURS_PER_SHIFT, now.getTime(), timeOpts);
     const perk = require('./perks').perksOf(guildId, userId);

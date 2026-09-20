@@ -191,6 +191,140 @@ function dailyTarget(b, staffCount, werbungActive, slots = b.slots) {
   return Math.min(1, ziel);
 }
 
+// ------------------------------------------------------------- Ereignisse
+
+const NEWS_MAX = 5;
+
+/** Firmengröße: Ausbaustufe plus gekaufte Extras (0 … 9). Treibt Häufigkeit und Härte. */
+function groesse(c, extraIds) {
+  return (c.stufe ?? 0) + extraIds.length;
+}
+/** Tageswahrscheinlichkeit eines Vorfalls: 2 % (Größe 0) … 8 % (Größe 9). */
+function riskPerDay(g) {
+  return 0.02 + (g / 9) * 0.06;
+}
+/** Wahrscheinlichkeit, dass in `days` Tagen mindestens ein Vorfall passiert. */
+function riskFor(g, days) {
+  return 1 - Math.pow(1 - riskPerDay(g), Math.max(0, days));
+}
+/** Verstärkung der Verluste: 1 (Größe 0) … 1,6 (Größe 9). */
+function severityFor(g) {
+  return 1 + (g / 9) * 0.6;
+}
+/** Was in Stufen und Extras steckt – so rechnet auch der Schließen-Dialog. */
+function investedOf(b, c, extraIds) {
+  return b.stufen.slice(0, c.stufe ?? 0).reduce((s, st) => s + st.price, 0)
+    + extraIds.reduce((s, id) => s + (data.extraById(id)?.price ?? 0), 0);
+}
+
+/**
+ * Wendet eine Wirkung (leichtes Ereignis oder Vorfall-Ausgang) auf eine Firma
+ * an – rein, ohne DB: liefert die fortgeschriebene Firmenzeile, die
+ * verbleibende Belegschaft, die gekündigten Zeilen und `done` mit den
+ * angewandten Zahlen. Verluste (kasse < 0, auslastung < 0, quit, lock,
+ * werbung < 0) werden mit `haerte` verstärkt, Gewinne nie; `refund` gibt nie
+ * mehr zurück, als dieselbe Wirkung abgezogen hat.
+ *
+ * `today`: der Tag `at` zählt schon als erster Tag (Abrechnung); bei
+ * Vorfällen (Echtzeit) beginnen die `days` mit dem nächsten Abrechnungstag.
+ */
+function applyEffect(c, staff, effect, { b, extraIds, at, today = false, haerte = 1, random = Math.random }) {
+  const decke = ceilingOf(b, c.stufe ?? 0, extraIds).net;
+  const days = effect.days ?? 1;
+  const until = at + (days - (today ? 1 : 0)) * DAY_MS;
+  const next = { ...c };
+  let rest = [...staff];
+  const quit = [];
+  const done = { kasse: 0, refund: 0, auslastung: 0, quit: [], lock: 0, umsatz: null, days: 0,
+    wages: null, werbung: 0, staffRank: null, sell: !!effect.sell };
+
+  if (effect.kasse) {
+    done.kasse = -Math.round(Math.abs(effect.kasse) * decke * haerte);
+    next.kasse += done.kasse;
+  }
+  if (effect.refund && done.kasse < 0) {
+    done.refund = Math.min(Math.round(effect.refund * decke), -done.kasse);
+    next.kasse += done.refund;
+  }
+  if (effect.auslastung) {
+    const delta = effect.auslastung < 0 ? effect.auslastung * haerte : effect.auslastung;
+    const a = Math.max(0, Math.min(1, next.auslastung + delta));
+    done.auslastung = a - next.auslastung;
+    next.auslastung = a;
+  }
+  if (effect.umsatz) {
+    // Boosts stapeln nicht (§3): zwei gute Nachrichten sind das Maximum beider,
+    // nie das Produkt. Ein Malus ersetzt, was gerade läuft.
+    const laeuft = next.umsatz_boost_until >= at ? next.umsatz_boost : 1;
+    if (effect.umsatz >= 1 && laeuft >= 1) {
+      next.umsatz_boost = Math.min(data.EVENT_UMSATZ_MAX, Math.max(laeuft, effect.umsatz));
+      next.umsatz_boost_until = Math.max(next.umsatz_boost_until, until);
+    } else {
+      next.umsatz_boost = Math.min(data.EVENT_UMSATZ_MAX, effect.umsatz);
+      next.umsatz_boost_until = until;
+    }
+    done.umsatz = next.umsatz_boost; done.days = days;
+  }
+  if (effect.wages !== undefined) {
+    next.wage_factor = effect.wages; next.wage_factor_until = until;
+    done.wages = effect.wages; done.days = days;
+  }
+  if (effect.werbung) {
+    const w = effect.werbung < 0 ? Math.round(effect.werbung * haerte) : effect.werbung;
+    next.werbung_until = w > 0
+      ? Math.max(next.werbung_until, at) + w * DAY_MS
+      : Math.max(0, next.werbung_until + w * DAY_MS);
+    done.werbung = w;
+  }
+  if (effect.lock) {
+    done.lock = Math.min(5, Math.round(effect.lock * haerte));
+    next.closed_until = Math.max(next.closed_until ?? 0, at) + done.lock * DAY_MS;
+  }
+  if (effect.quit) {
+    const n = Math.min(rest.filter((s) => s.kind === 'npc').length, Math.round(effect.quit * haerte));
+    const npcs = rest.filter((s) => s.kind === 'npc').sort((x, y) => y.shifts - x.shifts);
+    for (const s of npcs.slice(0, n)) { quit.push(s); done.quit.push(s.name); }
+    rest = rest.filter((s) => !quit.includes(s));
+  }
+  if (effect.staffRank) {
+    const npcs = rest.filter((s) => s.kind === 'npc');
+    if (npcs.length) {
+      const s = npcs[Math.min(npcs.length - 1, Math.floor(random() * npcs.length))];
+      const rank = Math.max(0, Math.min(data.RANKS.length - 1, s.rank + effect.staffRank));
+      if (rank !== s.rank) { s.rank = rank; done.staffRank = { name: s.name, rank }; }
+    }
+  }
+  return { company: next, staff: rest, quit, done };
+}
+
+/** Die Chronik einer Firmenzeile – leer, wenn das Feld fehlt oder kaputt ist. */
+function newsOf(c) {
+  try {
+    const list = typeof c.news === 'string' ? JSON.parse(c.news || '[]') : (c.news ?? []);
+    return Array.isArray(list) ? list : [];
+  } catch { return []; }
+}
+
+/**
+ * Eine Zeile in die Chronik (neueste zuerst, höchstens NEWS_MAX). `kasse` ist,
+ * was die Zeile die Kasse netto gekostet oder gebracht hat (0 = nur Zustand).
+ */
+function pushNews(c, at, text, kasse = 0) {
+  return [{ at, text, kasse }, ...newsOf(c)].slice(0, NEWS_MAX);
+}
+
+/** Würfelt ein leichtes Ereignis für einen Abrechnungstag. */
+function rollLightEvent(klasse, random = Math.random) {
+  const list = require('./data/companyEvents').candidates(klasse);
+  const total = list.reduce((s, c) => s + c.weight, 0);
+  let roll = random() * total;
+  for (const c of list) {
+    if (roll < c.weight) return c.event;
+    roll -= c.weight;
+  }
+  return require('./data/companyEvents').NO_EVENT;
+}
+
 /**
  * Schließt eine Firma – freiwillig oder insolvent. Personal weg, Anstellungen
  * der Spieler gelöst. Die Kasse wird hier NICHT gebucht (das macht `close`).
@@ -218,20 +352,23 @@ function lastClosed(guildId, userId, now = Date.now()) {
 
 /**
  * Faule Abrechnung (§4): rechnet volle Tage seit `paid_through` nach.
- * Je Tag: Auslastung bewegt sich aufs Ziel zu, NPCs arbeiten ihre Schichten
- * (Umsatz − Lohn in die Kasse, Löhne immer – Verbindlichkeiten), unbezahlte
- * NPCs kündigen nach NPC_QUIT_AFTER_UNPAID Tagen, und 14 Tage Minus sind die
- * Insolvenz. Synchron, ohne Buchung – nur Zustand.
+ * Je Tag: Auslastung bewegt sich aufs Ziel zu, ein leichtes Ereignis wird
+ * gewürfelt (wirkt sofort, landet in der Chronik), NPCs arbeiten ihre
+ * Schichten (Umsatz − Lohn in die Kasse, Löhne immer – Verbindlichkeiten,
+ * auch bei geschlossenem Betrieb), unbezahlte NPCs kündigen nach
+ * NPC_QUIT_AFTER_UNPAID Tagen, und 14 Tage Minus sind die Insolvenz.
+ * Synchron, ohne Buchung – nur Zustand. `random` ist der Würfel der Tests.
  */
-function settle(companyId, now = Date.now()) {
+function settle(companyId, now = Date.now(), random = Math.random) {
   const c = db.getCompany(companyId);
   if (!c || c.status !== 'open') return null;
   const b = branch(c.branch);
-  const eff = effectiveOf(c, b);
+  const extraIds = db.companyExtras(c.id);
+  const eff = effectiveOf(c, b, extraIds);
   const guildId = c.guild_id;
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
-    auslastung: c.auslastung, kasse: c.kasse };
+    auslastung: c.auslastung, kasse: c.kasse, news: [], incident: null };
   const total = Math.floor((now - c.paid_through) / DAY_MS);
   if (total <= 0) return out;
   const days = Math.min(total, data.MAX_SETTLE_DAYS);
@@ -239,7 +376,7 @@ function settle(companyId, now = Date.now()) {
   out.days = days;
 
   let staff = db.companyStaff(c.id);
-  let { kasse, auslastung, negative_since } = c;
+  let cur = { ...c };                         // die fortgeschriebene Firmenzeile
   let tag = c.paid_through + skipped * DAY_MS;
 
   for (let d = 0; d < days; d++) {
@@ -248,40 +385,63 @@ function settle(companyId, now = Date.now()) {
     // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
     //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
     //    genau zum Tick gekauft wurde.
-    const ziel = dailyTarget(b, staff.length, c.werbung_until >= tag, eff.slots);
-    auslastung += (ziel - auslastung) * data.AUSLASTUNG_STEP;
+    const ziel = dailyTarget(b, staff.length, cur.werbung_until >= tag, eff.slots);
+    cur.auslastung += (ziel - cur.auslastung) * data.AUSLASTUNG_STEP;
 
-    // 2. NPC-Schichten – Löhne sind Verbindlichkeiten, die Kasse darf ins Minus.
+    // 2. Ein leichtes Ereignis – nicht verstärkt, wirkt ab heute.
+    const ev = rollLightEvent(b.klasse, random);
+    if (ev.text) {
+      const r = applyEffect(cur, staff, ev, { b, extraIds, at: tag, today: true, haerte: 1, random });
+      cur = r.company; staff = r.staff;
+      for (const s of r.quit) { db.deleteStaff(s.id); out.quit.push(s.name); }
+      const text = ev.flavor?.[b.id] ?? ev.text;
+      const kasse = r.done.kasse + r.done.refund;
+      cur.news = pushNews(cur, tag, text, kasse);
+      out.news.push({ at: tag, text, kasse });
+    }
+
+    // 3. Faktoren des Tages und Schließung.
+    const fUmsatz = cur.umsatz_boost_until >= tag ? cur.umsatz_boost : 1;
+    const fLohn = cur.wage_factor_until >= tag ? cur.wage_factor : 1;
+    const zu = tag <= (cur.closed_until ?? 0);
+
+    // 4. NPC-Schichten – Löhne sind Verbindlichkeiten, auch bei geschlossenem Betrieb.
     for (const s of staff) {
       if (s.kind !== 'npc') continue;
       const f = rankOf(s.rank).factor;
-      const lohn = Math.round(b.lohn * f);
-      const umsatz = Math.round(b.umsatz * f * auslastung * eff.umsatzFactor);
-      kasse += data.NPC_SHIFTS * (umsatz - lohn);
+      const lohn = Math.round(b.lohn * f * fLohn);
+      const umsatz = zu ? 0 : Math.round(b.umsatz * f * cur.auslastung * eff.umsatzFactor * fUmsatz);
+      cur.kasse += data.NPC_SHIFTS * (umsatz - lohn);
       out.umsatz += data.NPC_SHIFTS * umsatz;
       out.loehne += data.NPC_SHIFTS * lohn;
-      s.shifts += data.NPC_SHIFTS;
+      if (!zu) s.shifts += data.NPC_SHIFTS;
     }
     // Unbezahlt heißt: Am Tagesende ist die Kasse im Minus – für alle gleich.
-    for (const s of staff) if (s.kind === 'npc') s.unpaid_days = kasse < 0 ? s.unpaid_days + 1 : 0;
+    for (const s of staff) if (s.kind === 'npc') s.unpaid_days = cur.kasse < 0 ? s.unpaid_days + 1 : 0;
     const quitting = staff.filter((s) => s.kind === 'npc' && s.unpaid_days >= data.NPC_QUIT_AFTER_UNPAID);
     for (const s of quitting) { db.deleteStaff(s.id); out.quit.push(s.name); }
     staff = staff.filter((s) => !quitting.includes(s));
 
-    // 3. Die Minus-Uhr.
-    if (kasse < 0 && !negative_since) negative_since = tag;
-    if (kasse >= 0) negative_since = 0;
-    if (negative_since && tag - negative_since >= data.INSOLVENCY_DAYS * DAY_MS) {
-      db.saveCompany({ ...c, kasse, auslastung, negative_since, paid_through: tag });
+    // 5. Die Minus-Uhr.
+    if (cur.kasse < 0 && !cur.negative_since) cur.negative_since = tag;
+    if (cur.kasse >= 0) cur.negative_since = 0;
+    if (cur.negative_since && tag - cur.negative_since >= data.INSOLVENCY_DAYS * DAY_MS) {
+      db.saveCompany({ ...cur, paid_through: tag });
       closeCompany(guildId, c.id, tag, 'insolvent');
-      out.insolvent = true; out.auslastung = auslastung; out.kasse = kasse;
+      out.insolvent = true; out.auslastung = cur.auslastung; out.kasse = cur.kasse;
       return out;
     }
   }
 
   for (const s of staff) db.saveStaff(s);
-  db.saveCompany({ ...c, kasse, auslastung, negative_since, paid_through: tag });
-  out.auslastung = auslastung; out.kasse = kasse;
+  db.saveCompany({ ...cur, paid_through: tag });
+  out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+
+  // Ein Vorfall je Abrechnung – über die nachgeholten Tage, nicht je Tag (§4).
+  // Gewürfelt mit `now`, nicht mit dem Abrechnungstag: die 24-h-Frist läuft ab jetzt.
+  out.incident = require('./decisions').roll(guildId, c.owner_id,
+    { groesse: groesse(cur, extraIds), days, npc: staff.filter((s) => s.kind === 'npc').length },
+    now, random, 'company');
   return out;
 }
 
@@ -351,6 +511,8 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
   const s = db.staffByUser(c.id, userId);
   if (!s) return { ok: false, reason: 'not_staff' };
+  // Geschlossener Betrieb (Vorfall): keine Schicht, kein Lohn – und keine Stunden verbraucht.
+  if (now < (c.closed_until ?? 0)) return { ok: false, reason: 'locked', remainingMs: c.closed_until - now };
   const b = branch(c.branch);
   const eff = effectiveOf(c, b);
   const f = rankOf(s.rank).factor;
@@ -372,11 +534,14 @@ function useTime(guildId, userId, cost, now) {
   return require('./creator').useTime(guildId, userId, cost, now);
 }
 
-/** Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent geworden). */
-function fresh(guildId, userId, now) {
+/**
+ * Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent
+ * geworden). `random` ist der Würfel der Abrechnung (Tests).
+ */
+function fresh(guildId, userId, now, random = Math.random) {
   const c = db.getOpenCompany(guildId, userId);
   if (!c) return null;
-  settle(c.id, now);
+  settle(c.id, now, random);
   const after = db.getCompany(c.id);
   if (!after || after.status !== 'open') return null;
   return { company: after, branch: branch(after.branch), staff: db.companyStaff(after.id) };
@@ -387,6 +552,8 @@ async function advertise(guildId, userId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
+  // Sperre vor Zeit und Kasse: eine abgelehnte Aktion kostet keine Stunden.
+  if (now < (c.closed_until ?? 0)) return { ok: false, reason: 'locked', remainingMs: c.closed_until - now };
   if (c.werbung_until > now) return { ok: false, reason: 'running', until: c.werbung_until };
   const cost = Math.round(b.price * data.WERBUNG_COST_SHARE);
   if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
@@ -403,6 +570,7 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   const ctx = fresh(guildId, userId, now);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
+  if (now < (c.closed_until ?? 0)) return { ok: false, reason: 'locked', remainingMs: c.closed_until - now };
   const day = dayKey(now);
   const done = c.pitch_day === day ? c.pitch_today : 0;
   if (done >= data.MAX_PITCH_PER_DAY) return { ok: false, reason: 'limit', done, max: data.MAX_PITCH_PER_DAY };
@@ -536,6 +704,32 @@ async function close(guildId, userId, now = Date.now()) {
   }
 }
 
+/**
+ * Verkauf im Übernahme-Vorfall: schließt mit Grund `sold` und zahlt
+ * Ausbau + Kasse (die Gründung nicht – so rechnet auch der Schließen-Dialog),
+ * nie mehr, als reingesteckt wurde (§3).
+ * Eine Buchung, ohne XP und Steuer (Umbuchung wie bei `close`).
+ * Ohne Abrechnung (`ownerContext`, nicht `fresh`): der Aufrufer steht
+ * mitten in einem Vorfall, die Firma ist schon abgerechnet.
+ */
+async function sell(guildId, userId, now = Date.now()) {
+  const ctx = ownerContext(guildId, userId);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const extraIds = db.companyExtras(c.id);
+  const payout = Math.max(0, Math.round(investedOf(b, c, extraIds) + c.kasse));
+  const closed = closeCompany(guildId, c.id, now, 'sold');
+  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
+  try {
+    const balance = await changeCash(guildId, userId, payout, `Verkauf: ${c.name}`,
+      { xp: false, tax: false, kind: 'company' });
+    return { ok: true, company: closed, payout, paid: true, balance };
+  } catch (err) {
+    console.warn(`Firma ${c.id}: Auszahlung von ${payout} beim Verkauf fehlgeschlagen – ${err.message}`);
+    return { ok: true, company: closed, payout, paid: false, error: err.message };
+  }
+}
+
 // ------------------------------------------------------------------ Anzeige
 
 /** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
@@ -549,9 +743,16 @@ function status(guildId, userId, now = Date.now()) {
   const ceilingNow = ceilingOf(b, c.stufe, extraIds);
   // Prognose: was die heutige NPC-Besetzung bei heutiger Auslastung am Tag
   // bringt – Spieler-Schichten (freiwillig, ungewiss) zählen hier nicht mit.
+  // Laufende Ereignis-Faktoren (Umsatz-Boost, Lohn-Faktor, Schließung) zählen
+  // hier mit – sonst zeigt die Prognose an geschlossenen oder verboosteten
+  // Tagen einen Wert, den die Abrechnung so nie bringt.
+  const fUmsatz = c.umsatz_boost_until >= now ? c.umsatz_boost : 1;
+  const fLohn = c.wage_factor_until >= now ? c.wage_factor : 1;
+  const closedNow = (c.closed_until ?? 0) >= now;
   const forecast = staff.filter((s) => s.kind === 'npc').reduce((sum, s) => {
     const f = rankOf(s.rank).factor;
-    return sum + data.NPC_SHIFTS * (Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor) - Math.round(b.lohn * f));
+    const umsatzTeil = closedNow ? 0 : Math.round(b.umsatz * f * c.auslastung * eff.umsatzFactor * fUmsatz);
+    return sum + data.NPC_SHIFTS * (umsatzTeil - Math.round(b.lohn * f * fLohn));
   }, 0);
   const minusDays = c.negative_since ? Math.floor((now - c.negative_since) / DAY_MS) : 0;
   // Die Auslastung bewegt sich nur bei der Abrechnung (§4) – die Ansicht zeigt
@@ -574,6 +775,14 @@ function status(guildId, userId, now = Date.now()) {
     stufen: b.stufen.map((st) => ({ ...st, owned: st.id <= c.stufe })),
     extras: b.extras.map((e) => ({ ...e, owned: extraIds.includes(e.id), locked: c.stufe < e.minStufe })),
     werbungCost: Math.round(b.price * data.WERBUNG_COST_SHARE),
+    // Ereignisse (Stück 2b): Chronik, Schließung, laufende Faktoren, Größe und Investition.
+    news: newsOf(c),
+    closedMs: Math.max(0, (c.closed_until ?? 0) - now),
+    groesse: groesse(c, extraIds), invested: investedOf(b, c, extraIds),
+    umsatzBoost: c.umsatz_boost_until >= now ? { factor: c.umsatz_boost, until: c.umsatz_boost_until } : null,
+    wageFactor: c.wage_factor_until >= now ? { factor: c.wage_factor, until: c.wage_factor_until } : null,
+    // Offener Vorfall (spät gebunden, nur diese Domäne – decisions kennt alle drei).
+    incident: (() => { const p = require('./decisions').pending(guildId, userId, now); return p?.platform === 'company' ? p : null; })(),
   };
 }
 
@@ -687,6 +896,7 @@ module.exports = {
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
-  advertise, pitchIn, withdraw, deposit, promote, bonus, close, status, fresh,
+  advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
   upgrade, buyExtra,
+  groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, newsOf, rollLightEvent, NEWS_MAX,
 };

@@ -1,0 +1,76 @@
+Messung Firmen mit Ereignissen (Stück 2b) – Auszug aus dem Lauf vom 2026-09-15,
+am 2026-09-20 zeilengleich reproduziert (fester Seed).
+Aufruf: DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365
+(die drei Firmen-Blöcke; Musik/Creator/Heists sind in ARCHITEKTUR §15 dokumentiert)
+
+--- Firmen (nicht ausgebaut, Vollbetrieb) ---
+
+  🏪 Kiosk        mit Ereignissen     2.536/Tag (Vorfälle 8, 9 Tage zu) · ohne     2.831/Tag   Decke 2.850   Amortisation mit 20 Tage, ohne 19 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 11.184 an 15 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.478 (Ereignis-Decke 2.588)
+  🌭 Imbiss       mit Ereignissen     3.279/Tag (Vorfälle 4, 5 Tage zu) · ohne     3.446/Tag   Decke 3.465   Amortisation mit 27 Tage, ohne 26 Tage
+                  Ereignistage 78, Vorfälle 4, 5 Tage zu, Nachschuss 7.310 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 3.564 (Ereignis-Decke 3.726)
+  🚗 Autowäsche   mit Ereignissen     2.855/Tag (Vorfälle 8, 9 Tage zu) · ohne     3.160/Tag   Decke 3.180   Amortisation mit 26 Tage, ohne 24 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 9.524 an 13 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.574 (Ereignis-Decke 2.691)
+  ☕ Café          mit Ereignissen    19.414/Tag (Vorfälle 4, 8 Tage zu) · ohne    21.529/Tag   Decke 21.600   Amortisation mit 13 Tage, ohne 14 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 41.174 an 8 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 23.280 (Ereignis-Decke 23.288)
+  🏋️ Fitnessstudiomit Ereignissen    12.673/Tag (Vorfälle 4, 8 Tage zu) · ohne    14.045/Tag   Decke 14.100   Amortisation mit 25 Tage, ohne 24 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 17.042 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 14.496 (Ereignis-Decke 14.490)
+  🔧 Werkstatt    mit Ereignissen    18.400/Tag (Vorfälle 4, 8 Tage zu) · ohne    20.552/Tag   Decke 20.640   Amortisation mit 23 Tage, ohne 23 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 42.199 an 8 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.764 (Ereignis-Decke 22.770)
+  🚚 Spedition    mit Ereignissen    71.160/Tag (Vorfälle 4, 8 Tage zu) · ohne    77.849/Tag   Decke 78.000   Amortisation mit 39 Tage, ohne 37 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 78.813 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 98.310 (Ereignis-Decke 98.325)
+  🏗️ Baufirma    mit Ereignissen    66.803/Tag (Vorfälle 4, 8 Tage zu) · ohne    74.865/Tag   Decke 75.000   Amortisation mit 67 Tage, ohne 61 Tage
+                  Ereignistage 103, Vorfälle 4, 8 Tage zu, Nachschuss 117.556 an 5 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 105.588 (Ereignis-Decke 105.570)
+  🍸 Club         mit Ereignissen    62.145/Tag (Vorfälle 4, 8 Tage zu) · ohne    68.749/Tag   Decke 68.940   Amortisation mit 35 Tage, ohne 35 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 16.068 an 3 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 74.520 (Ereignis-Decke 74.520)
+
+--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---
+
+  🏪 Kiosk        mit Ereignissen    15.256/Tag (Vorfälle 32, 20 Tage zu) · ohne    16.583/Tag   Decke 16.631   Amortisation des Ausbaus mit 88 Tage, ohne 77 Tage
+                  Ereignistage 75, Vorfälle 32, 20 Tage zu, Nachschuss 145.289 an 28 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.395 (Ereignis-Decke 17.147)
+  🌭 Imbiss       mit Ereignissen    18.907/Tag (Vorfälle 32, 12 Tage zu) · ohne    20.964/Tag   Decke 21.015   Amortisation des Ausbaus mit 108 Tage, ohne 96 Tage
+                  Ereignistage 75, Vorfälle 32, 12 Tage zu, Nachschuss 135.227 an 20 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.029 (Ereignis-Decke 23.039)
+  🚗 Autowäsche   mit Ereignissen    15.977/Tag (Vorfälle 32, 20 Tage zu) · ohne    17.773/Tag   Decke 17.837   Amortisation des Ausbaus mit 109 Tage, ohne 98 Tage
+                  Ereignistage 75, Vorfälle 32, 20 Tage zu, Nachschuss 141.817 an 28 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 17.055 (Ereignis-Decke 17.837)
+  ☕ Café          mit Ereignissen   126.958/Tag (Vorfälle 25, 12 Tage zu) · ohne   133.173/Tag   Decke 133.380   Amortisation des Ausbaus mit 61 Tage, ohne 51 Tage
+                  Ereignistage 96, Vorfälle 25, 12 Tage zu, Nachschuss 740.101 an 18 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 148.104 (Ereignis-Decke 148.129)
+  🏋️ Fitnessstudiomit Ereignissen    80.056/Tag (Vorfälle 25, 9 Tage zu) · ohne    87.693/Tag   Decke 87.855   Amortisation des Ausbaus mit 98 Tage, ohne 87 Tage
+                  Ereignistage 95, Vorfälle 25, 9 Tage zu, Nachschuss 537.031 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 96.000 (Ereignis-Decke 96.013)
+  🔧 Werkstatt    mit Ereignissen   123.787/Tag (Vorfälle 25, 9 Tage zu) · ohne   134.020/Tag   Decke 134.265   Amortisation des Ausbaus mit 88 Tage, ohne 77 Tage
+                  Ereignistage 95, Vorfälle 25, 9 Tage zu, Nachschuss 789.353 an 15 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 150.840 (Ereignis-Decke 150.869)
+  🚚 Spedition    mit Ereignissen   436.834/Tag (Vorfälle 24, 9 Tage zu) · ohne   486.664/Tag   Decke 487.095   Amortisation des Ausbaus mit 137 Tage, ohne 122 Tage
+                  Ereignistage 93, Vorfälle 24, 9 Tage zu, Nachschuss 2.918.697 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 573.210 (Ereignis-Decke 573.273)
+  🏗️ Baufirma    mit Ereignissen   501.780/Tag (Vorfälle 24, 9 Tage zu) · ohne   557.910/Tag   Decke 558.345   Amortisation des Ausbaus mit 178 Tage, ohne 158 Tage
+                  Ereignistage 94, Vorfälle 24, 9 Tage zu, Nachschuss 3.517.908 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 674.778 (Ereignis-Decke 674.813)
+  🍸 Club         mit Ereignissen   374.329/Tag (Vorfälle 24, 9 Tage zu) · ohne   414.397/Tag   Decke 414.900   Amortisation des Ausbaus mit 132 Tage, ohne 119 Tage
+                  Ereignistage 95, Vorfälle 24, 9 Tage zu, Nachschuss 2.392.475 an 12 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 460.782 (Ereignis-Decke 460.782)
+
+--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---
+
+  🏪 Kiosk        mit Ereignissen: Stufe 5 an Tag 141 · voll an Tag 141 · Ertrag am Ende 15.214/Tag (Vorfälle 28, 17 Tage zu)
+                  ohne:            Stufe 5 an Tag 136 · voll an Tag 136 · Ertrag am Ende 16.583/Tag
+                  Ereignistage 83, Vorfälle 28, 17 Tage zu, Nachschuss 132.378 an 23 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.290 (Ereignis-Decke 17.147)
+  🌭 Imbiss       mit Ereignissen: Stufe 5 an Tag 196 · voll an Tag 196 · Ertrag am Ende 18.938/Tag (Vorfälle 25, 9 Tage zu)
+                  ohne:            Stufe 5 an Tag 186 · voll an Tag 186 · Ertrag am Ende 20.964/Tag
+                  Ereignistage 80, Vorfälle 25, 9 Tage zu, Nachschuss 86.548 an 15 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.029 (Ereignis-Decke 23.039)
+  🚗 Autowäsche   mit Ereignissen: Stufe 5 an Tag 186 · voll an Tag 186 · Ertrag am Ende 15.933/Tag (Vorfälle 28, 17 Tage zu)
+                  ohne:            Stufe 5 an Tag 175 · voll an Tag 175 · Ertrag am Ende 17.773/Tag
+                  Ereignistage 84, Vorfälle 28, 17 Tage zu, Nachschuss 119.935 an 23 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.935 (Ereignis-Decke 17.837)
+  ☕ Café          mit Ereignissen: Stufe 5 an Tag 98 · voll an Tag 98 · Ertrag am Ende 126.344/Tag (Vorfälle 20, 9 Tage zu)
+                  ohne:            Stufe 5 an Tag 94 · voll an Tag 94 · Ertrag am Ende 133.173/Tag
+                  Ereignistage 99, Vorfälle 20, 9 Tage zu, Nachschuss 401.262 an 15 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 148.104 (Ereignis-Decke 148.129)
+  🏋️ Fitnessstudiomit Ereignissen: Stufe 5 an Tag 184 · voll an Tag 184 · Ertrag am Ende 87.693/Tag (Vorfälle 18, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 174 · voll an Tag 174 · Ertrag am Ende 87.693/Tag
+                  Ereignistage 94, Vorfälle 18, 6 Tage zu, Nachschuss 394.627 an 11 Tagen, Werbung 1× an der Kasse gescheitert, bester NPC-Umsatz 96.000 (Ereignis-Decke 96.013)
+  🔧 Werkstatt    mit Ereignissen: Stufe 5 an Tag 162 · voll an Tag 162 · Ertrag am Ende 129.144/Tag (Vorfälle 17, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 154 · voll an Tag 154 · Ertrag am Ende 134.020/Tag
+                  Ereignistage 97, Vorfälle 17, 6 Tage zu, Nachschuss 421.637 an 10 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 150.840 (Ereignis-Decke 150.869)
+  🚚 Spedition    mit Ereignissen: Stufe 5 an Tag 280 · voll an Tag 280 · Ertrag am Ende 486.663/Tag (Vorfälle 17, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 260 · voll an Tag 260 · Ertrag am Ende 486.664/Tag
+                  Ereignistage 100, Vorfälle 17, 6 Tage zu, Nachschuss 1.317.400 an 10 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 573.210 (Ereignis-Decke 573.273)
+  🏗️ Baufirma    mit Ereignissen: Stufe 5 an Tag – · voll an Tag – · Ertrag am Ende 353.900/Tag (Vorfälle 13, 2 Tage zu)
+                  ohne:            Stufe 5 an Tag – · voll an Tag – · Ertrag am Ende 459.178/Tag
+                  Ereignistage 100, Vorfälle 13, 2 Tage zu, Nachschuss 436.446 an 3 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 535.176 (Ereignis-Decke 559.562)
+  🍸 Club         mit Ereignissen: Stufe 5 an Tag 270 · voll an Tag 270 · Ertrag am Ende 414.396/Tag (Vorfälle 16, 3 Tage zu)
+                  ohne:            Stufe 5 an Tag 254 · voll an Tag 254 · Ertrag am Ende 414.397/Tag
+                  Ereignistage 94, Vorfälle 16, 3 Tage zu, Nachschuss 986.141 an 5 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 460.782 (Ereignis-Decke 460.782)

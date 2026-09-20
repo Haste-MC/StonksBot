@@ -122,7 +122,7 @@ const COMMANDS = [
   },
   {
     names: ['vorfall', 'vorfaelle', 'entscheidung', 'drama'],
-    info: 'Offene Entscheidung deines Kanals',
+    info: 'Offener Vorfall – Kanal, Musik oder Firma',
     run: async ({ guildId, userId }) =>
       ({ view: await ui.buildDecisionView({ guildId, userId }) }),
   },
@@ -483,6 +483,8 @@ function workProblem(res, prefix, symbol) {
       return require('../energy').blockText(res);
     case 'no_time':
       return `😴 Der Tag hat nur ${res.max} Stunden – übrig sind **${res.left}**.`;
+    case 'locked':
+      return `🔒 **${res.job?.title ?? 'Die Firma'}** ist geschlossen – noch **${income.formatRemaining(res.remainingMs)}**.`;
     default:
       return '❌ Das hat nicht geklappt.';
   }
