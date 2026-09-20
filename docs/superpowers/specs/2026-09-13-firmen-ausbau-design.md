@@ -324,3 +324,23 @@ rundet je Schicht auf 0,25 (höchstens +0,5 je Schicht). Die Prüfgrenze im Test
 ist deshalb `decke + 0,5 × (Plätze × NPC_SHIFTS + MAX_PITCH_PER_DAY)` statt
 eines pauschalen `decke + 1` – beim Kiosk (19 Schichten voll ausgebaut) sind
 das 4,75 über der Decke, exakt die Rundung und nichts sonst.
+
+## Nachtrag 2026-09-20: Stück 2b umgesetzt (siehe 2026-09-15-firmen-ereignisse-design.md)
+
+Ereignisse und Vorfälle liegen auf dem Ausbau auf, ohne ihn anzufassen: die
+Größe (Stufe + Extras, 0…9) treibt Häufigkeit (`riskPerDay` 2 … 8 %/Tag) und
+Härte (`severityFor` 1 … 1,6), Geldwirkungen sind Vielfache der aktuellen
+Tagesdecke (`ceilingOf(b, stufe, extraIds)`), und kein Ausgang zerstört Stufen
+oder Extras – die Übernahme zahlt `investiert + Kasse` mit derselben
+`investedOf`-Rechnung wie der Schließen-Dialog. Neu gemessen (365 Tage, mit
+gegen ohne Ereignisse im selben Lauf, `.superpowers/sdd/task-5-messung/`):
+voll ausgebaut Kiosk 15.256 statt 16.583, Café 126.958 statt 133.173,
+Spedition 436.834 statt 486.664, Baufirma 501.780 statt 557.910, Club 374.329
+statt 414.397 – 5–11 %, 24–32 Vorfälle im gemessenen Jahr; Amortisation des
+Gesamtausbaus mit Ereignissen 61 (Café) bis 178 (Baufirma) Tage statt 51 bis
+158. Die Zahlen ohne Ereignisse reproduzieren die Messung vom 2026-09-14
+exakt (gleicher Würfel; der Lauf vom 2026-09-20 reproduziert den vom
+2026-09-15 im Firmen-Teil Zeile für Zeile). Die Baufirma bleibt die Spitze; die Spedition
+(436.834) fällt mit Ereignissen unter Musik+Creator nach zwei Jahren
+(490.099). Aus eigener Kraft dauert der Vollausbau 4–20 Tage länger
+(Spedition 280 statt 260, Club 270 statt 254, Café 98 statt 94).
