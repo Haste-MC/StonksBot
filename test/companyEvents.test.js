@@ -126,6 +126,11 @@ function wirkungOk(e, label) {
     const decke = company.ceilingOf(b).net;
     // Stück 3a: net zieht jetzt den Wareneinsatz ab (2 × 3 + 4 = 10 Einheiten × 50) → 2.850 − 500 = 2.350.
     check('Decke Kiosk 2.350', decke === 2_350);
+    // Lager voll (70 Einheiten zu 50 = 3.500 aus der Kasse, vor jeder Messung): die
+    // Handrechnungen unten bleiben Umsatz − Löhne. 70 reichen für elf Tage à 6 Schichten;
+    // die drei gesperrten Tage verbrauchen nichts (Kasse-Deltas danach sind nur „> Löhne").
+    r = await company.buyStock(G, U, 'voll', t0);
+    check('Lager voll: 70 Einheiten für 3.500', r.ok && r.units === 70 && r.cost === 3_500, JSON.stringify(r));
     check('groesse 0, riskPerDay 2 %, severity 1', company.groesse(db.getCompany(cid), []) === 0
       && near(company.riskPerDay(0), 0.02) && company.severityFor(0) === 1);
     check('groesse 9: riskPerDay 8 %, severity 1,6, riskFor(9, 30) = 1 − 0,92^30',

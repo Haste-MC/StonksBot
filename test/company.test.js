@@ -139,11 +139,15 @@ const user = () => `u${++n}`;
     const b = company.branch('kiosk');
     // Handrechnung, 5 Tage, 2 Aushilfen (Faktor 1), Kiosk umsatz 250 / lohn 100:
     // Ziel = 0,3 + 0,5 × 2/2 = 0,8. Tag d: a += (0,8 − a) × 0,2, beginnend bei 0,3.
-    let a = data.AUSLASTUNG_MIN, kasse = 0;
+    // Ware (Stück 3a): ohne Lager kostet jede Schicht 63 ad hoc (50 × 1,25) – die
+    // Tage 1–2 sind damit rot; ein Polster von 50.000 hält die NPCs über 25 Tage bezahlt.
+    await company.deposit(G, U, 50_000, t0);
+    const adhoc = company.wareOf(G, b).adhoc;                // 63
+    let a = data.AUSLASTUNG_MIN, kasse = 50_000;
     for (let d = 0; d < 5; d++) {
       a += (0.8 - a) * data.AUSLASTUNG_STEP;
       const umsatz = Math.round(b.umsatz * a);
-      kasse += 2 * data.NPC_SHIFTS * (umsatz - b.lohn);
+      kasse += 2 * data.NPC_SHIFTS * (umsatz - b.lohn - adhoc);
     }
     const r = company.settle(f.company.id, t0 + 5 * DAY_MS, keinWurf);
     const c = db.getCompany(f.company.id);
@@ -164,23 +168,24 @@ const user = () => `u${++n}`;
 
   console.log('--- Löhne sind Verbindlichkeiten: Minus, Kündigung, Insolvenz ---');
   {
-    // Kiosk mit EINEM Schichtleiter (Ziel 0,3 + 0,5 × 1/2 = 0,55). Handrechnung:
-    // Tag 1: a = 0,35, Umsatz round(250 × 1,5 × 0,35) = 131 < Lohn 150 → 3 × −19 = −57.
-    // Tag 2: a = 0,39 → 146 → −12 (Kasse −69). Tag 3: a = 0,422 → 158 → +24 (Kasse −45),
-    // immer noch im Minus → dritter unbezahlter Tag → Kündigung.
+    // Kiosk mit EINEM Schichtleiter (Ziel 0,3 + 0,5 × 1/2 = 0,55), ohne Lager: jede
+    // Schicht kostet 63 Ware ad hoc (Stück 3a). Handrechnung:
+    // Tag 1: a = 0,35, Umsatz round(250 × 1,5 × 0,35) = 131, Lohn 150 → 3 × (131 − 150 − 63) = −246.
+    // Tag 2: a = 0,39 → 146 → 3 × −67 = −201 (Kasse −447). Tag 3: a = 0,422 → 158 → 3 × −55 = −165
+    // (Kasse −612), immer noch im Minus → dritter unbezahlter Tag → Kündigung.
     const U = user(); funds(U, 0, 100_000);
     const f = await company.found(G, U, 'kiosk', 'Minuskiosk', t0);
     company.hireNpc(G, U, t0, seq(0));
     for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
     let r = company.settle(f.company.id, t0 + 1 * DAY_MS, keinWurf);
     let c = db.getCompany(f.company.id);
-    check('Tag 1: Kasse −57 (Handrechnung)', c.kasse === -57, de(c.kasse));
+    check('Tag 1: Kasse −246 (Handrechnung)', c.kasse === -246, de(c.kasse));
     check('Minus-Uhr läuft', c.negative_since === t0 + 1 * DAY_MS);
     check('NPC gilt als unbezahlt', db.companyStaff(c.id).every((s) => s.unpaid_days === 1));
     r = company.settle(c.id, t0 + 3 * DAY_MS, keinWurf);
     check('nach 3 unbezahlten Tagen kündigt er', r.quit.length === 1 && db.companyStaff(c.id).length === 0,
       JSON.stringify(r.quit));
-    check('Kasse −45 (Handrechnung)', db.getCompany(c.id).kasse === -45, de(db.getCompany(c.id).kasse));
+    check('Kasse −612 (Handrechnung)', db.getCompany(c.id).kasse === -612, de(db.getCompany(c.id).kasse));
     const minus = db.getCompany(c.id).kasse;
     r = company.settle(c.id, t0 + 13 * DAY_MS, keinWurf);
     c = db.getCompany(c.id);
@@ -218,8 +223,11 @@ const user = () => `u${++n}`;
     bookings = [];
     r = await jobs.work(G, A, new Date(t0 + 1000));
     check('Kasse deckt den Lohn nicht -> keine Schicht', r.ok === false && r.reason === 'kasse' && bookings.length === 0, r.reason);
-    // Inhaber zahlt ein (Task 4 hat deposit noch nicht) -> Kasse direkt setzen.
-    db.saveCompany({ ...db.getCompany(cid), kasse: 10_000 });
+    // Kasse direkt setzen; davon kauft der Chef 10 Einheiten Ware (Café 180) für 1.800,
+    // damit die Schichten hier aus dem Lager laufen und die Handrechnung Umsatz − Lohn bleibt.
+    db.saveCompany({ ...db.getCompany(cid), kasse: 11_800 });
+    r = await company.buyStock(G, chef, 10, t0);
+    check('Chef kauft 10 Einheiten für 1.800 → Kasse 10.000', r.ok && r.cost === 1_800 && db.getCompany(cid).kasse === 10_000, JSON.stringify(r));
     r = await jobs.work(G, A, new Date(t0 + 2000), seq(0.5));
     const b = company.branch('cafe');
     check('Schicht gearbeitet', r.ok === true, r.reason);
@@ -231,6 +239,7 @@ const user = () => `u${++n}`;
     check('Level-Zuschlag belastet die Kasse nicht', r.amount >= r.base && db.getCompany(cid).kasse === 10_000 + 171);
     check('Schicht gezählt', db.staffByUser(cid, A).shifts === 1 && db.getEmployment(G, A).shifts === 1);
     check('Ergebnis nennt Firma und Umsatz', r.company?.id === cid && r.umsatz === 351 && r.promotion === null);
+    check('Schicht nahm eine Einheit aus dem Lager (10 → 9)', db.getCompany(cid).stock === 9 && db.getCompany(cid).stock_cost === 1_620);
     r = await jobs.work(G, A, new Date(t0 + 3000));
     check('Abklingzeit 60 min gilt', r.ok === false && r.reason === 'cooldown');
 
@@ -296,11 +305,12 @@ const user = () => `u${++n}`;
 
     // Anpacken: Umsatz als Schichtleiter, kein Lohn. Werbung eben hat schon Zeit und
     // Energie gekostet, darum wirkt hier schon der Energiefaktor (§Zeit und Energie).
+    // Ware (Stück 3a): kein Lager → die Einheit kostet 225 ad hoc (Café 180 × 1,25).
     const a = db.getCompany(cid).auslastung;
     r = await company.pitchIn(G, U, t0);
-    check('Anpacken bringt 900 × 1,5 × Auslastung × Faktor', r.ok
-      && r.umsatz === Math.round(b.umsatz * 1.5 * a * r.factor)
-      && db.getCompany(cid).kasse === 14_000 + r.umsatz, JSON.stringify(r));
+    check('Anpacken bringt 900 × 1,5 × Auslastung × Faktor, minus 225 Ware ad hoc', r.ok
+      && r.umsatz === Math.round(b.umsatz * 1.5 * a * r.factor) && r.ware.adhoc === true && r.ware.cost === 225
+      && db.getCompany(cid).kasse === 14_000 + r.umsatz - 225, JSON.stringify(r));
     check('… und kostet Zeit', creator.budget(G, U, t0).left === zeitVor - data.TIME_WERBUNG - data.TIME_ANPACKEN);
     for (let i = 0; i < 3; i++) await company.pitchIn(G, U, t0);
     check('höchstens 4 je Tag (oder Zeit alle)',
@@ -432,14 +442,17 @@ const user = () => `u${++n}`;
       const f = await company.found(G, U, b.id, `Voll-${b.id}`, t0);
       for (let i = 0; i < b.slots; i++) company.hireNpc(G, U, t0, seq(0.02 * i));
       for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
-      // net + ware statt net: die Abrechnung verbraucht noch keine Ware (Stück 3a
-      // legt nur den Preis fest, der Verbrauch kommt in Task 2) – die hier geprüfte
-      // Decke ist bis dahin die alte (Umsatz − Löhne).
-      const decke = company.ceilingOf(b).net + company.ceilingOf(b).ware;
+      // Die Decke ist Umsatz − Löhne − Wareneinsatz (Stück 3a). Täglich wird das
+      // Lager aufgefüllt (Kurs = Start in der Testwelt → Einkauf zum Einheitspreis);
+      // der Nachkauf eines Tages ist genau der Verbrauch des Vortags. In der Anlaufphase
+      // (Kasse leer, Werbung hat Vorrang) läuft die Ware ad hoc – teurer, also erst
+      // recht unter der Decke; ab Tag 30 wäre eine Absage ein Fehler, der laut sein soll.
+      const decke = company.ceilingOf(b).net;
       let best = -Infinity, gewinn = [];
       let now = t0, werbungLief = false;
       for (let d = 0; d < 365; d++) {
         const vor = db.getCompany(f.company.id).kasse;
+        // Werbung vor dem Einkauf: die Kampagne hat Vorrang, das Lager füllt sich aus dem Rest.
         const w = await company.advertise(G, U, now);
         // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
         // Tag 0–2 reicht sie nicht); jede spätere Absage wäre ein Fehler, der laut sein soll.
@@ -447,6 +460,8 @@ const user = () => `u${++n}`;
         if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
           throw new Error(`${b.id}: Werbung an Tag ${d} abgelehnt: ${w.reason}`);
         }
+        const k = await company.buyStock(G, U, 'voll', now);
+        if (!(k.ok || (k.reason === 'kasse' && d < 30))) throw new Error(`${b.id}: Einkauf an Tag ${d} abgelehnt: ${k.reason}`);
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
         company.settle(f.company.id, now + DAY_MS, keinWurf);
         const tag = db.getCompany(f.company.id).kasse - vor;
@@ -458,6 +473,44 @@ const user = () => `u${++n}`;
       console.log(`    ${b.emoji} ${b.name}: Median ${de(median)}/Tag · bester Tag ${de(best)} · Decke ${de(decke)}`);
       check(`${b.name}: kein Tag über der Decke`, best <= decke, `${de(best)} > ${de(decke)}`);
       check(`${b.name}: die Firma verdient (keine stille Null)`, median > 0, de(median));
+    }
+  }
+
+  console.log('--- §3: ohne Einkauf – ad hoc kostet ein Viertel mehr ---');
+  {
+    // Wer nie einkauft, zahlt jede Einheit ad hoc (× 1,25): der beste Tag liegt
+    // mindestens ein Viertel des Wareneinsatzes unter der Decke. Die Abrechnung
+    // rundet je Schicht (höchstens +0,5), daher der Zuschlag auf die NPC-Schichten.
+    for (const id of ['kiosk', 'cafe', 'spedition']) {
+      const b = company.branch(id);
+      const U = user(); funds(U, 0, 50_000_000);
+      const f = await company.found(G, U, b.id, `Adhoc-${b.id}`, t0);
+      for (let i = 0; i < b.slots; i++) company.hireNpc(G, U, t0, seq(0.02 * i));
+      for (const s of db.companyStaff(f.company.id)) db.saveStaff({ ...s, rank: 2 });
+      const decke = company.ceilingOf(b).net;
+      const einheiten = b.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY;
+      const grenze = decke - 0.25 * einheiten * company.wareUnit(b) + 0.5 * b.slots * data.NPC_SHIFTS;
+      let best = -Infinity, gewinn = [];
+      let now = t0, werbungLief = false;
+      for (let d = 0; d < 120; d++) {
+        const vor = db.getCompany(f.company.id).kasse;
+        const w = await company.advertise(G, U, now);
+        if (w.ok) werbungLief = true;
+        if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) {
+          throw new Error(`${b.id}: Werbung an Tag ${d} abgelehnt: ${w.reason}`);
+        }
+        for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) await company.pitchIn(G, U, now + i * 60e3);
+        const s = company.settle(f.company.id, now + DAY_MS, keinWurf);
+        if (db.getCompany(f.company.id).stock !== 0 || s.ware.adhoc !== s.ware.units) throw new Error(`${b.id}: Lager nicht leer an Tag ${d}`);
+        const tag = db.getCompany(f.company.id).kasse - vor;
+        best = Math.max(best, tag); gewinn.push(tag);
+        now += DAY_MS;
+      }
+      const sorted = [...gewinn].sort((a, c) => a - c);
+      const median = sorted[Math.floor(sorted.length / 2)];
+      console.log(`    ${b.emoji} ${b.name} ad hoc: Median ${de(median)}/Tag · bester Tag ${de(best)} · Grenze ${de(grenze)} · Decke ${de(decke)}`);
+      check(`${b.name} ohne Einkauf: bester Tag unter Decke − ¼ Wareneinsatz`, best <= grenze, `${de(best)} > ${de(grenze)}`);
+      check(`${b.name} ohne Einkauf: die Firma verdient (keine stille Null)`, median > 0, de(median));
     }
   }
 
@@ -747,9 +800,11 @@ const user = () => `u${++n}`;
 
     // Ein Tag Abrechnung, Handrechnung mit Faktor 1,2 und 6 Aushilfen:
     // Ziel = 0,3 + 0,5 × 6/6 = 0,8 → a = 0,3 + 0,5 × 0,2 = 0,4;
-    // Umsatz je Schicht = round(900 × 1 × 0,4 × 1,2) = 432; Lohn 180 → 6 × 3 × 252 = 4.536.
+    // Umsatz je Schicht = round(900 × 1 × 0,4 × 1,2) = 432; Lohn 180; Ware ohne Lager
+    // 225 ad hoc je Schicht (Café 180 × 1,25, Stück 3a) → 6 × 3 × (432 − 180 − 225) = 486.
     const r = company.settle(cid, t0 + DAY_MS, keinWurf);
-    check('settle rechnet mit dem Umsatzfaktor (Kasse 4.536)', db.getCompany(cid).kasse === 4_536, de(db.getCompany(cid).kasse));
+    check('settle rechnet mit dem Umsatzfaktor (Kasse 486)', db.getCompany(cid).kasse === 486 && r.ware.adhoc === 18 && r.ware.cost === 4_050,
+      de(db.getCompany(cid).kasse));
     check('Auslastungsziel nutzt die neuen Plätze', Math.abs(company.dailyTarget(b, 6, false, 6) - 0.8) < 1e-9
       && Math.abs(company.dailyTarget(b, 5, false, 6) - (0.3 + 0.5 * 5 / 6)) < 1e-9);
 
@@ -806,8 +861,9 @@ const user = () => `u${++n}`;
       }
       const cid = f.company.id;
       for (const s of db.companyStaff(cid)) db.saveStaff({ ...s, rank: 2 });
-      // net + ware, siehe §3-Kern-Test oben: kein Verbrauch vor Task 2.
-      const decke = company.fullCeilingOf(b).net + company.fullCeilingOf(b).ware;
+      // Wie im §3-Kern-Test: Werbung, dann täglich das Lager auffüllen (in der
+      // Anlaufphase läuft die Ware ad hoc); die Decke zieht den Wareneinsatz ab.
+      const decke = company.fullCeilingOf(b).net;
       let best = -Infinity, gewinn = [], werbungLief = false;
       let now = t0;
       for (let d = 0; d < 365; d++) {
@@ -815,6 +871,8 @@ const user = () => `u${++n}`;
         const w = await company.advertise(G, U, now);
         if (w.ok) werbungLief = true;
         if (!(w.ok || w.reason === 'running' || (w.reason === 'kasse' && !werbungLief))) throw new Error(`${b.id} Werbung Tag ${d + 1}: ${w.reason}`);
+        const k = await company.buyStock(G, U, 'voll', now);
+        if (!(k.ok || (k.reason === 'kasse' && d < 30))) throw new Error(`${b.id} Einkauf Tag ${d + 1}: ${k.reason}`);
         for (let i = 0; i < data.MAX_PITCH_PER_DAY; i++) { const p = await company.pitchIn(G, U, now + i * 60e3); if (!p.ok) break; }
         company.settle(cid, now + DAY_MS, keinWurf);
         const tag = db.getCompany(cid).kasse - vor;

@@ -135,6 +135,25 @@ function capacityOf(b, eff) {
   return (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY) * data.LAGER_TAGE;
 }
 
+/**
+ * Eine Einheit verbrauchen: aus dem Lager (Wert um den Ø-Preis senken) oder
+ * ad hoc zum Aufschlag von der Kasse – die darf dabei ins Minus wie bei Löhnen.
+ * Rein: liefert die fortgeschriebene Firmenzeile. Jede Schicht (NPC, Spieler,
+ * Anpacken) ruft das genau einmal; ein geschlossener Tag verbraucht nichts.
+ */
+function consumeOne(c, w) {
+  const next = { ...c };
+  if ((next.stock ?? 0) > 0) {
+    const avg = Math.round(next.stock_cost / next.stock);
+    next.stock -= 1;
+    // Die letzte Einheit nimmt den Restwert mit – kein Rundungsrest, nie negativ.
+    next.stock_cost = next.stock > 0 ? Math.max(0, next.stock_cost - avg) : 0;
+    return { company: next, cost: 0, adhoc: false };
+  }
+  next.kasse -= w.adhoc;
+  return { company: next, cost: w.adhoc, adhoc: true };
+}
+
 /** Name-Regeln: 2–32 Zeichen, keine Erwähnungen. */
 function cleanName(name) {
   const s = String(name ?? '').replace(/\s+/g, ' ').trim();
@@ -400,9 +419,11 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   const extraIds = db.companyExtras(c.id);
   const eff = effectiveOf(c, b, extraIds);
   const guildId = c.guild_id;
+  const w = wareOf(guildId, b);                // Tagespreis – gilt für alle nachgeholten Tage
 
   const out = { days: 0, umsatz: 0, loehne: 0, quit: [], insolvent: false,
-    auslastung: c.auslastung, kasse: c.kasse, news: [], incident: null };
+    auslastung: c.auslastung, kasse: c.kasse, news: [], incident: null,
+    ware: { units: 0, adhoc: 0, cost: 0 } };
   const total = Math.floor((now - c.paid_through) / DAY_MS);
   if (total <= 0) return out;
   const days = Math.min(total, data.MAX_SETTLE_DAYS);
@@ -440,11 +461,22 @@ function settle(companyId, now = Date.now(), random = Math.random) {
     const zu = tag <= (cur.closed_until ?? 0);
 
     // 4. NPC-Schichten – Löhne sind Verbindlichkeiten, auch bei geschlossenem Betrieb.
+    //    Jede Schicht verbraucht eine Einheit Ware (Lager, sonst ad hoc von der
+    //    Kasse) – vor der Umsatzbuchung, damit der Tag vollständig ist. Bei
+    //    geschlossenem Betrieb gibt es keine Schicht und keinen Verbrauch.
     for (const s of staff) {
       if (s.kind !== 'npc') continue;
       const f = rankOf(s.rank).factor;
       const lohn = Math.round(b.lohn * f * fLohn);
       const umsatz = zu ? 0 : Math.round(b.umsatz * f * cur.auslastung * eff.umsatzFactor * fUmsatz);
+      if (!zu) {
+        for (let k = 0; k < data.NPC_SHIFTS; k++) {
+          const v = consumeOne(cur, w);
+          cur = v.company;
+          out.ware.units++;
+          if (v.adhoc) { out.ware.adhoc++; out.ware.cost += v.cost; }
+        }
+      }
       cur.kasse += data.NPC_SHIFTS * (umsatz - lohn);
       out.umsatz += data.NPC_SHIFTS * umsatz;
       out.loehne += data.NPC_SHIFTS * lohn;
@@ -556,9 +588,12 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const umsatz = Math.round(b.umsatz * f * c.auslastung * data.PLAYER_BONUS * eff.umsatzFactor * factor);
   if (c.kasse < lohn) return { ok: false, reason: 'kasse', lohn, kasse: c.kasse };
 
-  db.saveCompany({ ...c, kasse: c.kasse - lohn + umsatz });
+  // Eine Schicht, eine Einheit Ware – aus dem Lager oder ad hoc von der Kasse.
+  const v = consumeOne(c, wareOf(guildId, b));
+  db.saveCompany({ ...v.company, kasse: v.company.kasse - lohn + umsatz });
   db.saveStaff({ ...s, shifts: s.shifts + 1 });
-  return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: c, branch: b, rank: rankOf(s.rank) };
+  return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: c, branch: b, rank: rankOf(s.rank),
+    ware: { adhoc: v.adhoc, cost: v.cost } };
 }
 
 // --------------------------------------------------------- Inhaber-Aktionen
@@ -613,8 +648,33 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   const eff = effectiveOf(c, b);
   // Müde packt man weniger an: Umsatz × Energiefaktor (nach der Buchung).
   const umsatz = Math.round(b.umsatz * rankOf(data.RANKS.length - 1).factor * c.auslastung * eff.umsatzFactor * time.factor);
-  db.saveCompany({ ...c, kasse: c.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
-  return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time, factor: time.factor };
+  // Die Zeit ist gebucht, die Schicht findet statt: eine Einheit Ware (Lager oder ad hoc).
+  const v = consumeOne(c, wareOf(guildId, b));
+  db.saveCompany({ ...v.company, kasse: v.company.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
+  return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time, factor: time.factor,
+    ware: { adhoc: v.adhoc, cost: v.cost } };
+}
+
+/**
+ * Lager füllen – aus der Kasse, zum Tagespreis. `units` ganze Zahl oder 'voll'.
+ * `async`, damit der Handler-Aufruf wie `deposit`/`withdraw` aussieht; es gibt
+ * kein `await` – gewollt: Kassenzustand, keine Buchung über `unb`.
+ */
+async function buyStock(guildId, userId, units, now = Date.now()) {
+  const ctx = fresh(guildId, userId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const eff = effectiveOf(c, b);
+  const capacity = capacityOf(b, eff);
+  const free = capacity - (c.stock ?? 0);
+  const n = units === 'voll' ? free : Math.floor(Number(units));
+  if (!Number.isFinite(n) || n <= 0) return { ok: false, reason: units === 'voll' && free <= 0 ? 'capacity' : 'units', free };
+  if (n > free) return { ok: false, reason: 'capacity', free };
+  const w = wareOf(guildId, b);
+  const cost = n * w.price;
+  if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
+  db.saveCompany({ ...c, kasse: c.kasse - cost, stock: (c.stock ?? 0) + n, stock_cost: (c.stock_cost ?? 0) + cost });
+  return { ok: true, units: n, price: w.price, cost, stock: (c.stock ?? 0) + n, capacity, kasse: c.kasse - cost };
 }
 
 /**
@@ -817,6 +877,18 @@ function status(guildId, userId, now = Date.now()) {
     wageFactor: c.wage_factor_until >= now ? { factor: c.wage_factor, until: c.wage_factor_until } : null,
     // Offener Vorfall (spät gebunden, nur diese Domäne – decisions kennt alle drei).
     incident: (() => { const p = require('./decisions').pending(guildId, userId, now); return p?.platform === 'company' ? p : null; })(),
+    // Waren (Stück 3a): Tagespreis, Lager, Einstand und Reichweite bei Vollbetrieb.
+    ware: (() => {
+      const w = wareOf(guildId, b);
+      const perDay = eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY;
+      const stock = c.stock ?? 0;
+      return {
+        ...w, stock, capacity: capacityOf(b, eff),
+        avgPaid: stock > 0 ? Math.round((c.stock_cost ?? 0) / stock) : 0,
+        value: c.stock_cost ?? 0, perDay,
+        daysLeft: Math.round((stock / perDay) * 10) / 10,
+      };
+    })(),
   };
 }
 
@@ -928,7 +1000,7 @@ module.exports = {
   MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
-  wareUnit, wareOf, capacityOf,
+  wareUnit, wareOf, capacityOf, consumeOne, buyStock,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
