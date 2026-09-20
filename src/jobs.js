@@ -246,7 +246,7 @@ async function work(guildId, userId, now = new Date(), random = Math.random) {
       ok: true, job, amount, base: shift.lohn, levelBonus: amount - shift.lohn, level: perk.level,
       rank: null, promotion: null, nextChance: 0, balance, broken: [],
       employment: updated, shiftsToday: updated.shifts_today, maxShifts,
-      company: shift.company, umsatz: shift.umsatz, companyRank: shift.rank,
+      company: shift.company, umsatz: shift.umsatz, companyRank: shift.rank, ware: shift.ware,
       overtime, overtimeBonus: shift.overtimeBonus, energy: time.energy, factor: time.factor,
     };
   }

@@ -72,6 +72,12 @@ const STRATEGIE = (process.argv.find((a) => a.startsWith('--strategie=')) ?? '')
 const STUNDEN = Number((process.argv.find((a) => a.startsWith('--stunden=')) ?? '').slice('--stunden='.length)) || 24;
 /** `--marathon`: gerade Tage bis zur Wand, ungerade Tage Pause – misst „Marathon + Ruhetag im Wechsel". */
 const MARATHON = process.argv.includes('--marathon');
+/**
+ * `--trace=<branche>:<keiner|kapitalist|aufsteiger>:<mit|ohne>`: die Tagesbuchungen dieses
+ * Firmenlaufs als JSON-Zeilen auf stderr (Handprüfung: Einkauf, Werbung, Anpacken, Umsatz,
+ * Löhne, Ware, Lager, Kasse).
+ */
+const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('--trace='.length) || null;
 const de = (n) => Math.round(n).toLocaleString('de-DE');
 
 // ------------------------------------------------------------------ Würfel
@@ -537,10 +543,39 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  * `ereignisse = false` (Schalter `--ohne-ereignisse`): Würfel ≡ 0,5, also
  * weder Ereignis noch Vorfall – der Lauf ist dann deterministisch wie vor 2b.
  *
+ * Waren (seit 1.35.0, Stück 3a): Jede Schicht verbraucht eine Einheit Ware –
+ * aus dem Lager oder ad hoc (+25 %) von der Kasse. Der simulierte Inhaber
+ * kauft morgens nach der Werbung täglich das Lager voll, solange der Tagespreis
+ * nicht über dem Startkurs liegt (`ratio ≤ 1`; die Messwelt hat keine
+ * Börsenticks, also gilt immer Kurs = Start und Einkauf zum Einheitspreis).
+ * Ein Einkauf über den Tagesverbrauch hinaus (erstes Füllen) lässt die
+ * Werbekosten in der Kasse. Reicht es nicht für „voll" (Anlaufzeit,
+ * Ereignis), kaufen die Schichten des Tages ad hoc – gezählt in `einkaufAus`
+ * und im ad-hoc-Anteil.
+ * Die abendliche Entnahme lässt neben der Werbung das Geld für den nächsten
+ * Einkauf in der Kasse (`Kapazität − Bestand` Einheiten zum Tagespreis) – am
+ * ersten Einkaufstag ein ganzes Lager, danach nur den Tagesverbrauch. Der
+ * Einkauf zählt zum Tagesgewinn (Kasse abends minus morgens), damit `median`
+ * den Wareneinsatz enthält wie die Decke (`ceilingOf(...).net`); der einmalige
+ * Aufbau des Lagers ist ein Ausreißer, den der Median nicht sieht.
+ * `wareProTag` = (Einkäufe − Lagerwert am Ende + ad hoc) / Tage, also der
+ * tatsächliche Verbrauch – die Erstausstattung (mit der Gründung bezahlt)
+ * zählt als erster Einkauf, `investition` enthält sie ebenfalls;
+ * `adhocAnteil` = ad-hoc-Einheiten / alle Einheiten
+ * (NPC-Schichten aus `settle` und Anpacken). Ohne Ereignisse muss der beste
+ * Tag unter der Decke bleiben – geprüft wird `bestNetto`, der Tag mit der
+ * Ware, die er verbraucht hat, zum Einheitspreis (das erste Füllen, die Lücke
+ * nach einem Ausbau oder ein übersprungener Einkauf verschieben Warenkosten
+ * zwischen den Tagen; `bestGewinn` ist der rohe beste Kassentag).
+ * `trace(tag)` (optional) bekommt je Tag die Buchungen für die Handprüfung.
+ *
  * @returns {{median:number, decke:number, amortTage:number|null, entnommen:number,
  *   stufe5Tag:number|null, vollTag:number|null, endeProTag:number,
  *   ereignisTage:number, vorfaelle:number, zuTage:number, best:number, ereignisDecke:number,
- *   nachschuss:number, nachschussTage:number, werbungAus:number}}
+ *   nachschuss:number, nachschussTage:number, werbungAus:number,
+ *   wareProTag:number, wareEinkauf:number, wareAdhoc:number, einheiten:number,
+ *   adhocEinheiten:number, adhocAnteil:number, bestGewinn:number, bestNetto:number, bestTag:object|null,
+ *   lagerEnde:number, einkaufAus:number}}
  *   `median` Tagesgewinn (Kassenstand nach Abrechnung minus Tagesbeginn),
  *   `decke` die Kern-Decke bzw. beim Ausbau die volle (`fullCeilingOf`),
  *   `ereignisTage` Tage mit Chronik-Zeile, `vorfaelle` gewürfelte Vorfälle,
@@ -549,7 +584,7 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  *   (§3; beim Aufsteiger die des Endausbaus), `nachschuss` eingezahlte Summe,
  *   `werbungAus` Tage, an denen die Werbung trotzdem an der Kasse scheiterte.
  */
-async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNISSE, wuerfel = null } = {}) {
+async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNISSE, wuerfel = null, trace = null } = {}) {
   if (!['keiner', 'kapitalist', 'aufsteiger'].includes(ausbau)) throw new Error(`ausbau: ${ausbau}`);
   const b = company.branch(branchId);
   const G = welt(`firma_${branchId}_${ausbau}_${ereignisse ? 'mit' : 'ohne'}`);
@@ -565,9 +600,10 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
     return eff.slots * companyData.NPC_SHIFTS * Math.round(b.umsatz * top * eff.umsatzFactor) * companyData.EVENT_UMSATZ_MAX;
   };
   const decke = (ausbau === 'keiner' ? company.ceilingOf(b) : company.fullCeilingOf(b)).net;
-  const reserve = Math.round(b.price * companyData.WERBUNG_COST_SHARE);
+  const reserveWerbung = Math.round(b.price * companyData.WERBUNG_COST_SHARE);
+  /** Was die Entnahme abends in der Kasse lässt: Werbung plus der nächste Einkauf (Stück 3a). */
+  let reserve = reserveWerbung;
   const gesamtAusbau = b.stufen.reduce((s, st) => s + st.price, 0) + b.extras.reduce((s, e) => s + e.price, 0);
-  const investition = b.price + (ausbau === 'kapitalist' ? gesamtAusbau : 0);
   const top = companyData.RANKS.length - 1;
 
   // Ab heute vorwärts, wie `karriere` (die Module schreiben echte Zeitstempel).
@@ -575,6 +611,9 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   const f = await company.found(G, U, b.id, `Mess-${b.name}`, now);
   if (!f.ok) throw new Error(`Gründung ${b.id} gescheitert: ${f.reason}`);
   const cid = f.company.id;
+  // Die Investition ist Gründung plus Erstausstattung (Nachtrag: das volle Kern-Lager wird
+  // mit der Gründung bezahlt), beim Kapitalisten dazu der ganze Ausbau.
+  const investition = b.price + f.starter.cost + (ausbau === 'kapitalist' ? gesamtAusbau : 0);
 
   /** NPCs nachstellen, bis alle Plätze der aktuellen Stufe besetzt sind. */
   const besetzen = (t) => {
@@ -624,6 +663,14 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   let nachschuss = 0;
   let nachschussTage = 0;
   let werbungAus = 0;
+  let wareEinkauf = f.starter.cost;    // Taler für Einkäufe ins Lager – die Erstausstattung ist der erste
+  let einkaufAus = 0;                  // Tage, an denen „voll" an der Kasse scheiterte
+  let wareAdhoc = 0;                   // Taler ad hoc (NPC-Schichten und Anpacken ohne Lager)
+  let einheiten = 0;                   // verbrauchte Einheiten insgesamt
+  let adhocEinheiten = 0;              // … davon ad hoc
+  let bestGewinn = -Infinity;          // bester Tag (Kasse abends minus morgens)
+  let bestNetto = -Infinity;           // bester Tag mit der verbrauchten Ware zum Einheitspreis (§3-Prüfwert)
+  let bestTag = null;                  // … und seine Buchungen (für die Handprüfung)
   let ereignisDecke = ereignisDeckeVon(db.getCompany(cid));
   try {
     for (let d = 0; d < tage; d++) {
@@ -642,7 +689,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
         const c0 = db.getCompany(cid);
         const zuHeute = now < (c0.closed_until ?? 0);
         const faellig = werbungLief && !zuHeute && c0.werbung_until <= now;
-        const soll = faellig ? reserve : 0;
+        const soll = faellig ? reserveWerbung : 0;
         const kann = Math.max(0, Math.floor((await unb.getBalance(G, U)).total));
         const fehlt = Math.min(soll - c0.kasse, kann);
         if (ereignisse && werbungLief && fehlt > 0) {
@@ -656,19 +703,52 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
       const wb = await company.advertise(G, U, now);
       // Bis zur ersten Kampagne füllt sich die Kasse erst (Auslastung startet bei 0,3 –
       // Tag 1–3 reicht sie nicht); geschlossen (`locked`) ist erlaubt; mit Ereignissen darf
-      // die Kasse auch später fehlen, wenn der Nachschuss nicht reichte (gezählt); jede andere
-      // Absage wäre ein Fehler, der laut sein soll.
+      // die Kasse auch später fehlen, wenn der Nachschuss nicht reichte (gezählt). In der
+      // Anlaufphase (Tag < 30) darf sie auch ohne Ereignisse fehlen: Die Erstausstattung
+      // (Nachtrag) lässt die erste Kampagne früher zünden (Baufirma Tag 6 bei Auslastung 0,6),
+      // als der Drei-Tage-Takt sich selbst trägt – an Tag 12 fehlen 2.000 von 90.000 (gezählt).
+      // Jede andere Absage wäre ein Fehler, der laut sein soll.
       if (wb.ok) werbungLief = true;
       if (wb.reason === 'kasse' && werbungLief) werbungAus++;
       if (!(wb.ok || wb.reason === 'running' || wb.reason === 'locked'
-        || (wb.reason === 'kasse' && (!werbungLief || ereignisse)))) {
+        || (wb.reason === 'kasse' && (!werbungLief || ereignisse || d < 30)))) {
         throw new Error(`Werbung ${b.id} an Tag ${d + 1} abgelehnt: ${wb.reason}`);
       }
+      // Einkauf (Stück 3a), nach der Werbung: täglich das Lager voll, solange der Tagespreis
+      // nicht über dem Start liegt – am ersten Tag mit Geld ein ganzes Lager, danach den Verbrauch
+      // von gestern. Den Tagesverbrauch hat die Entnahme gestern in der Kasse gelassen; ein
+      // größerer Einkauf (erstes Füllen, Lücke nach ad hoc) muss die Werbekosten in der Kasse
+      // lassen, sonst fehlt in zwei Tagen die Kampagne (Baufirma: Lager 95.200, Werbung 90.000,
+      // Tagesgewinn 61.400). Reicht es nicht, kaufen die Schichten heute ad hoc (gezählt).
+      let kauf = { units: 0, cost: 0 };
+      {
+        const st = company.status(G, U, now);
+        const fehlt = st.ware.capacity - st.ware.stock;
+        if (st.ware.ratio <= 1 && fehlt > 0) {
+          const behalten = fehlt > st.ware.perDay ? reserveWerbung : 0;
+          if (st.kasse - fehlt * st.ware.price >= behalten) {
+            const k = await company.buyStock(G, U, 'voll', now);
+            if (!k.ok) throw new Error(`Einkauf ${b.id} an Tag ${d + 1} abgelehnt: ${k.reason}`);
+            wareEinkauf += k.cost; kauf = { units: k.units, cost: k.cost };
+          } else {
+            einkaufAus++;
+          }
+        }
+      }
+      let anpacken = 0;
+      let anpackenAdhocCost = 0;
       for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
         const r = await company.pitchIn(G, U, now + i * 60_000);
         if (!r.ok) break;                 // Zeit alle, Tageslimit oder geschlossen
+        anpacken++;
+        einheiten++;
+        if (r.ware.adhoc) { adhocEinheiten++; wareAdhoc += r.ware.cost; anpackenAdhocCost += r.ware.cost; }
       }
+      const vorAbrechnung = db.getCompany(cid).kasse;
       const s = company.settle(cid, now + DAY, ereignisRand);
+      einheiten += s.ware.units;
+      adhocEinheiten += s.ware.adhoc;
+      wareAdhoc += s.ware.cost;
       const nachAbrechnung = db.getCompany(cid);
       if (!nachAbrechnung || nachAbrechnung.status !== 'open') throw new Error(`Firma ${b.id} an Tag ${d + 1} geschlossen (${nachAbrechnung?.closed_why})`);
       ereignisTage += s.news.length;
@@ -691,7 +771,28 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
       besetzen(now + DAY);                // Kündigungen (Ereignis, Vorfall, unbezahlt) nachbesetzen
       const c = db.getCompany(cid);
       gewinn.push(c.kasse - vor);
+      // §3-Prüfwert: der Tag mit der Ware, die er verbraucht hat, zum Einheitspreis – statt mit
+      // dem, was er zufällig eingekauft hat (das erste Füllen, die Lücke nach einem Ausbau oder
+      // ein übersprungener Einkauf verschieben Warenkosten zwischen den Tagen).
+      const netto = c.kasse - vor + kauf.cost - (anpacken + s.ware.units) * company.wareUnit(b) + s.ware.cost + anpackenAdhocCost;
+      if (netto > bestNetto) {
+        bestNetto = netto;
+        bestTag = { tag: d + 1, vor, kauf, werbung: wb.ok ? wb.cost : 0, anpacken, umsatz: s.umsatz, loehne: s.loehne,
+          ware: s.ware, kasse: c.kasse, stock: c.stock ?? 0, netto };
+      }
+      if (c.kasse - vor > bestGewinn) bestGewinn = c.kasse - vor;
+      if (trace) {
+        trace({ tag: d + 1, vor, kauf, werbung: wb.ok ? wb.cost : 0, anpacken,
+          vorAbrechnung, umsatz: s.umsatz, loehne: s.loehne, ware: s.ware, news: s.news.length,
+          kasse: c.kasse, stock: c.stock ?? 0, stockCost: c.stock_cost ?? 0 });
+      }
 
+      // Die Entnahme lässt Werbung und den nächsten Einkauf in der Kasse (Stück 3a).
+      {
+        const w = company.wareOf(G, b);
+        const frei = company.capacityOf(b, company.effectiveOf(c, b)) - (c.stock ?? 0);
+        reserve = reserveWerbung + (w.ratio <= 1 ? frei * w.price : 0);
+      }
       const frei = Math.floor(c.kasse - reserve);
       if (frei > 0) {
         const en = await company.withdraw(G, U, frei, now + DAY);
@@ -738,6 +839,11 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
   if (best > ereignisDecke + schichten) {
     throw new Error(`Firma ${b.id}: NPC-Umsatz ${de(best)} über der Ereignis-Decke ${de(ereignisDecke)}`);
   }
+  // §3 mit Waren: Ohne Ereignisse liegt kein Tag über der Decke, wenn man ihm die verbrauchte
+  // Ware zum Einheitspreis anrechnet (`bestNetto`). Toleranz wie oben: Rundung je Schicht.
+  if (!ereignisse && bestNetto > decke + schichten + companyData.MAX_PITCH_PER_DAY) {
+    throw new Error(`Firma ${b.id}: Tagesgewinn ${de(bestNetto)} über der Decke ${de(decke)}: ${JSON.stringify(bestTag)}`);
+  }
 
   // Stille Null abfangen: Entnahmen müssen im Konto unter „Entnahme" auftauchen, Nachschuss unter „Einzahlung".
   const gezaehlt = quellen[U]?.Entnahme ?? 0;
@@ -757,10 +863,13 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
       throw new Error(`Aufsteiger ${b.id}: Ausbau ${de(soll)} gekauft, aber ${de(ausgegeben)} im Konto gezählt`);
     }
   }
+  const lagerEnde = db.getCompany(cid).stock_cost ?? 0;
   return {
     median: median(gewinn), decke, amortTage, entnommen, stufe5Tag, vollTag,
     endeProTag: median(gewinn.slice(-30)),
     ereignisTage, vorfaelle, zuTage, best, ereignisDecke, nachschuss, nachschussTage, werbungAus,
+    wareProTag: (wareEinkauf - lagerEnde + wareAdhoc) / tage, wareEinkauf, wareAdhoc, lagerEnde,
+    einheiten, adhocEinheiten, adhocAnteil: einheiten ? adhocEinheiten / einheiten : 0, bestGewinn, bestNetto, bestTag, einkaufAus,
   };
 }
 
@@ -872,11 +981,20 @@ async function main() {
     `Nachschuss ${de(r.nachschuss)} an ${r.nachschussTage} Tagen, Werbung ${r.werbungAus}× an der Kasse gescheitert, ` +
     `bester NPC-Umsatz ${de(r.best)} ` +
     `(Ereignis-Decke ${de(r.ereignisDecke)})`;
+  const spur = (id, opts, ereignisse) => (TRACE === `${id}:${opts.ausbau ?? 'keiner'}:${ereignisse ? 'mit' : 'ohne'}`
+    ? (t) => console.error(JSON.stringify(t)) : null);
   const beide = async (id, opts) => ({
-    mit: OHNE_EREIGNISSE ? null : await firmenlauf(id, TAGE, { ...opts, ereignisse: true }),
-    ohne: await firmenlauf(id, TAGE, { ...opts, ereignisse: false }),
+    mit: OHNE_EREIGNISSE ? null : await firmenlauf(id, TAGE, { ...opts, ereignisse: true, trace: spur(id, opts, true) }),
+    ohne: await firmenlauf(id, TAGE, { ...opts, ereignisse: false, trace: spur(id, opts, false) }),
   });
   const amort = (r, was) => `${was} ${r.amortTage === null ? `nicht in ${TAGE}` : r.amortTage} Tage`;
+  /** Waren (Stück 3a): Wareneinsatz je Tag und Anteil ad hoc, mit und ohne Ereignisse; Kurs = Start. */
+  const wareZeile = (mit, ohne) => {
+    const w = (r) => `Ware Ø ${de(Math.round(r.wareProTag))}/Tag, ad hoc ${(r.adhocAnteil * 100).toFixed(1).replace('.', ',')} % ` +
+      `(${de(r.adhocEinheiten)} von ${de(r.einheiten)} Einheiten)`;
+    return (mit ? `mit Ereignissen: ${w(mit)}, Einkauf ${mit.einkaufAus}× an der Kasse gescheitert · ohne: ${w(ohne)}` : w(ohne)) +
+      ` · bester Tag ohne ${de(ohne.bestNetto)} (Decke ${de(ohne.decke)}, Ware zum Verbrauch gerechnet)`;
+  };
 
   console.log('\n--- Firmen (nicht ausgebaut, Vollbetrieb) ---\n');
   for (const br of companyData.BRANCHES) {
@@ -890,6 +1008,7 @@ async function main() {
     } else {
       console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation')}`);
     }
+    console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
   }
 
   console.log('\n--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---\n');
@@ -904,6 +1023,7 @@ async function main() {
     } else {
       console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation des Ausbaus')}`);
     }
+    console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
   }
   console.log('\n--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---\n');
   for (const br of companyData.BRANCHES) {
@@ -917,6 +1037,7 @@ async function main() {
     } else {
       console.log(`${kopf}${weg(ohne)}`);
     }
+    console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
   }
 
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);

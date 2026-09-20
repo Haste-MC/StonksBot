@@ -486,7 +486,8 @@ Spedition 77.849; voll ausgebaut Baufirma 557.910, Spedition 486.664, Café
 aus Plätzen und Schichten, nicht aus der Zeit des Inhabers; die Bremse für
 Firmen ist das Geld (50–75 Mio Ausbau, 51–158 Tage Amortisation).
 
-**Ereignisse (seit 1.34.0, Stück 2b):** Die Abrechnung würfelt je Tag ein
+**Ereignisse (seit 1.34.0, Stück 2b; alle Zahlen in diesem Absatz Stand vor
+1.35.0, ohne Wareneinsatz – die neuen stehen im Absatz „Waren“ darunter):** Die Abrechnung würfelt je Tag ein
 leichtes Ereignis (`data/companyEvents.js`, `none` mit Gewicht 140 gegen 9 × 5
 bei kleinen und 12 × 5 bei mittleren/großen Firmen – also 24 % bzw. 30 % der
 Tage) und je Abrechnung einen Vorfall (`decisions.roll(…, 'company')`,
@@ -556,6 +557,118 @@ weitgehend umgehen – wer die Belegschaft entlässt und am nächsten Tag neu
 einstellt, zahlt weder den Lohnfaktor noch die Löhne der Schließung, nur das
 Auslastungsziel sinkt für die Zeit. Ein Balance-Punkt für später
 (Einstellsperre nach Entlassung oder Rang-Anlauf), kein Fehler in 2b.
+
+**Waren (seit 1.35.0, Stück 3a):** Jede Schicht (NPC, Spieler, Anpacken)
+verbraucht eine Einheit Ware; jede Branche hat eine (`b.ware`: Kiosk
+Handelsware von LAGR, Baufirma Beton & Stahl von BETO …) und der Lieferant
+ist eine Aktie der Börse. Der Einheitspreis bei Kurs = Start ist ein
+Fünftel des Schichtumsatzes (`WARE_SHARE` 0,2: Kiosk 50, Café 180,
+Spedition 380, Baufirma 340, Club 480), der Tagespreis skaliert mit dem
+Kursverhältnis zum Startkurs, geklemmt auf 0,5 … 2,0 (`WARE_KURS_MIN/MAX`) –
+ein Kurssturz macht Ware billig, nie umsonst, eine Blase teuer, nie
+unbezahlbar; er wird **einmal je Abrechnung** gelesen und gilt für alle
+nachgeholten Tage. Wer kein Lager hat, kauft ad hoc zum Aufschlag von 25 %
+(`AD_HOC_MARKUP`), von der Kasse, die dabei wie bei Löhnen ins Minus darf.
+Das Lager fasst sieben Vollbetriebs-Tage (`LAGER_TAGE` × (Plätze × 3 + 4)),
+wird aus der Kasse zum Tagespreis gefüllt (`buyStock`, Menge oder „voll") und
+beim Schließen oder Verkauf zum Einstand (`stock_cost`) ausgezahlt. Jede
+Gründung bringt ein volles Kern-Lager mit (**Erstausstattung**, Nachtrag der
+Spec: `company.starterOf` = Kapazität × Einheitspreis – Kiosk 3.500, Café
+23.940, Baufirma 95.200), in derselben Buchung wie der Gründungspreis; sie
+liegt als `stock_cost` im Lager und kommt beim Schließen zum Einstand zurück,
+nie mehr. Ohne sie war der Anlauf ein Tod auf Raten: leeres Lager, ad hoc
++25 %, bei Auslastung 0,3–0,4 tagelang rote Schichten, NPC-Kündigung nach drei
+unbezahlten Tagen, Insolvenz an Tag 15 – für einen Inhaber, der gründet,
+einstellt und wartet. Firmen aus der Zeit davor (`stock_seeded 0`) füllt die
+erste Abrechnung nach dem Update einmal ohne Einstand auf (Chronik-Zeile;
+`stock_cost` bleibt, was wirklich gekauft wurde – das Schließen zahlt
+Geschenktes nicht aus). Der Hedge
+ist die Börse selbst: Wer die Aktie des Lieferanten hält, gewinnt am Kurs, was
+ihn die Ware mehr kostet. Die Decke (`ceilingOf(...).net`) zieht die Ware
+zum Startkurs ab (`Units × wareUnit`, Units = Plätze × 3 + 4). Die
+Geldwirkungen der Ereignisse (`kasse`, `refund` in `applyEffect`) sind
+Vielfache dieses niedrigeren `net` – gewollt: Die Härte bleibt relativ zum
+Gewinn (Kiosk `kuehlung` −1.175 statt −1.425). Grenzen um die Decke: bester
+Fall Kurs 0,5 und volles Lager = Decke + ½ × Units × wareUnit, schlechtester
+Fall Kurs 2,0 und alles ad hoc = Decke − 1,5 × Units × wareUnit; weil `settle`
+den Preis einmal je Abrechnung liest, kann ein 30-Tage-Nachholen komplett zum
+Verhältnis 0,5 laufen – mehr als die Klemmung gibt es aber auch dann nicht.
+Der Ausbau
+hebt den Umsatz, nicht den Warenpreis – deshalb kostet die Ware im Kern
+15–18 % der Decke, voll ausgebaut 5–6 %:
+
+| Branche | Kern vor 1.35.0 → neu | Vollausbau vor 1.35.0 → neu |
+|---|---|---|
+| Kiosk | 2.850 → 2.350 | 16.631 → 15.681 |
+| Imbiss | 3.465 → 2.841 | 21.015 → 19.815 |
+| Autowäsche | 3.180 → 2.660 | 17.837 → 16.849 |
+| Café | 21.600 → 18.180 | 133.380 → 126.180 |
+| Fitnessstudio | 14.100 → 11.860 | 87.855 → 83.095 |
+| Werkstatt | 20.640 → 17.120 | 134.265 → 126.785 |
+| Spedition | 78.000 → 65.080 | 487.095 → 460.495 |
+| Baufirma | 75.000 → 61.400 | 558.345 → 530.465 |
+| Club | 68.940 → 58.380 | 414.900 → 392.820 |
+
+(Handrechnung Spedition Kern: 96.900 − 18.900 − 34 × 380 = 65.080.) Die
+Rangfolge bleibt (Baufirma > Spedition > Club, alle Kern-Decken unter
+Musik+Creator); der Ereignis-Deckel (Umsatz × 1,15) ist unberührt, Waren
+sind Kosten, kein Umsatz. Gemessen (365 Tage, fester Würfel, `DATA_DIR=.testdata
+node scripts/messung-geldquellen.js 10 365`, Firmen-Blöcke in
+`docs/messungen/2026-09-20-firmen-waren.txt`; die Messwelt hat keine
+Börsenticks, also Kurs = Start und Einkauf zum Einheitspreis – Kurs-Effekte
+sind hier nicht gemessen; die Mediane stammen aus der Messung VOR der
+Erstausstattung – die ändert nur den Anlauf (weniger ad hoc, das erste Lager
+ist schon da), nicht Decken oder stationäre Mediane, und wird mit der
+nächsten Messung aufgefrischt): Der simulierte Inhaber kauft täglich nach der
+Werbung das Lager voll (am ersten Tag mit genug Kasse ein ganzes, danach den
+Verbrauch von gestern; die Entnahme lässt Werbung plus nächsten Einkauf in der
+Kasse; ein Einkauf über den Tagesverbrauch hinaus lässt die Werbekosten
+stehen – sonst fehlt der Baufirma mit 90.000 je Kampagne bei 61.400 Tagesgewinn
+zwei Tage später die Werbung). Ohne Ereignisse liegt der Median in jeder
+Branche genau um `Units × wareUnit` unter dem Wert vor 1.35.0 (Kiosk 2.331 =
+2.831 − 10 × 50, Spedition 64.929 = 77.849 − 34 × 380, Baufirma voll 530.030 =
+557.910 − 82 × 340) und der beste Tag – mit der verbrauchten Ware zum
+Einheitspreis gerechnet – unter der Decke (Kiosk 2.331 ≤ 2.350, Spedition
+voll 460.064 ≤ 460.495; roh kann ein Tag darüber liegen, wenn der Einkauf
+auf einen anderen Tag fiel, etwa nach einem Ausbau des Aufsteigers).
+**Mit** Ereignissen im Kern: Kiosk 2.037 (vor 1.35.0 2.536), Imbiss
+2.629 (3.279), Autowäsche 2.338 (2.855), Café 15.956 (19.414), Fitnessstudio
+10.382 (12.673), Werkstatt 14.797 (18.400), Spedition 58.238 (71.160),
+Baufirma 55.830 (66.803), Club 51.605 (62.145) – 16–20 % weniger; voll
+ausgebaut Kiosk 14.321 (15.256), Imbiss 17.707 (18.907), Autowäsche 14.989
+(15.977), Café 119.758 (126.958), Fitnessstudio 75.296 (80.056), Werkstatt
+116.307 (123.787), Spedition 412.039 (436.834), Baufirma 471.973 (501.780),
+Club 352.144 (374.329) – 6 % weniger. Wareneinsatz je Tag (Einkäufe minus
+Lagerwert am Ende plus ad hoc, mit Ereignissen): Kern Kiosk 490, Café 3.341,
+Spedition 12.743, Baufirma 13.681; voll Kiosk 897, Café 6.960, Spedition
+25.955, Baufirma 27.249, Club 21.518 – an einem vollen Tag sind es genau
+`Units × wareUnit` (Kiosk voll 19 × 50 = 950, Spedition voll 70 × 380 =
+26.600), geschlossene Tage verbrauchen nichts und drücken den Schnitt; ohne
+Ereignisse liegt die Spedition voll bei 26.655 = (25.340 × 380 + 210 × 475)
+/ 365, die 210 ad-hoc-Einheiten sind die Anlaufzeit. Der Anteil ad hoc liegt
+bei 2,5–5,1 % im Kern und 0,8–1,4 % voll ausgebaut – die Tage, bis die Kasse
+das erste Lager bezahlt, und Tage nach Kassenabzügen; Ausreißer ist die
+Baufirma im Kern mit 12,9 % (ohne Ereignisse 9,3 %): Werbung 90.000 je
+Kampagne gegen 61.400 Tagesgewinn – ohne Ereignisse sind es 1.360
+Einheiten ad hoc bei 40 Einheiten Tagesverbrauch, also 34 Tage bis zum
+ersten vollen Lager (95.200, Füllung um Tag 35); mit Ereignissen scheitert
+der Einkauf 56× im ganzen Jahr, nicht nur beim Anlauf (dort wächst ad hoc
+auf 1.833 Einheiten, höchstens rund 46 Tage), sondern auch später, wenn
+Kassenabzüge (Werbung, Vorfälle) das Lagergeld erneut auffressen. Die
+Rangfolge bleibt: Baufirma 471.973 vor Spedition 412.039 (16 % unter
+Musik+Creator nach zwei Jahren, 490.099) und Club 352.144. Amortisation
+des Vollausbaus mit Ereignissen 64 (Café) bis 188 (Baufirma) Tage statt 61
+bis 178; aus eigener Kraft dauert der Vollausbau 14–20 % länger (Kiosk 168
+statt 141, Café 113 statt 98, Fitnessstudio 210 statt 184, Spedition 332
+statt 280, Club 323 statt 270 Tage), die Baufirma schafft ihn wie vor
+1.35.0 nicht im Jahr. Handprüfung eines Kiosk-Tages (`--trace=kiosk:keiner:ohne`, Tag 34,
+volles Lager, keine Werbung): morgens 1.750 in der Kasse, Einkauf 10 × 50 =
+500, Anpacken 4×, vor der Abrechnung 2.729, Umsatz 2.250 − Löhne 900 →
+abends 4.079, keine Ware von der Kasse (6 Einheiten aus dem Lager, 0 ad
+hoc), Tagesgewinn 2.329 (Decke 2.350; das dritte und vierte Anpacken sind
+müder, wie oben). Das erste Lager kostet an Tag 13 einmalig 70 × 50 = 3.500;
+davor kaufen alle Schichten ad hoc (6 × 63 = 378 je Tag für die
+NPC-Schichten, dazu je Anpacken 63).
 
 ### Eine Bremse, nicht zwei
 

@@ -1012,6 +1012,12 @@ const KLASSEN = [
   { id: 'gross', label: 'Groß', emoji: '🚚', blurb: 'nur mit voller Mannschaft rentabel – ausgebaut die Spitze' },
 ];
 
+/** Abweichung des Tagespreises vom Normalpreis: „+9 %", „−12 %", bei Kurs = Start „±0 %". */
+function kursAbweichung(ratio) {
+  const pct = Math.round((ratio - 1) * 100);
+  return `${pct > 0 ? '+' : pct < 0 ? '' : '±'}${pct} %`;
+}
+
 /** Ohne Firma: die neun Branchen zur Wahl, je Klasse eine Seite. */
 async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   const company = require('./company');
@@ -1039,9 +1045,14 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   for (const b of branches) {
     const kern = company.ceilingOf(b);
     const voll = company.fullCeilingOf(b);
+    // Gründung plus Erstausstattung (volles Lager zum Einheitspreis) – eine Buchung,
+    // deshalb steht die Summe im Titel und die Aufteilung darunter.
+    const starter = company.starterOf(b);
     embed.addFields({
-      name: `${b.emoji} ${b.name} – ${money(symbol, b.price)}`,
-      value: `_${b.blurb}_\n**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
+      name: `${b.emoji} ${b.name} – ${money(symbol, b.price + starter.cost)}`,
+      value: `_${b.blurb}_\nGründung **${money(symbol, b.price)}** + Erstausstattung **${money(symbol, starter.cost)}** `
+        + `(${starter.units} ${b.ware.emoji} ${b.ware.name}, volles Lager)\n`
+        + `**${b.slots}** Plätze · Umsatz **${money(symbol, b.umsatz)}** / Lohn `
         + `**${money(symbol, b.lohn)}** je Schicht\nDecke ~**${money(symbol, kern.net)}** am Tag, `
         + `ausgebaut bis ~**${money(symbol, voll.net)}** (${voll.slots} Plätze)`,
     });
@@ -1090,6 +1101,14 @@ async function buildFirmaView({ guildId, userId }) {
         inline: true,
       },
     );
+  // Waren (Stück 3a): Bestand, Tagespreis am Kurs des Lieferanten, Einstand und Reichweite.
+  embed.addFields({
+    name: '📦 Waren',
+    value: `${s.ware.emoji} ${s.ware.name} · Lager **${s.ware.stock}/${s.ware.capacity}** · heute **${money(symbol, s.ware.price)}**`
+      + ` (${s.ware.asset.symbol} ${kursAbweichung(s.ware.ratio)})`
+      + (s.ware.stock > 0 ? ` · Ø bezahlt ${money(symbol, s.ware.avgPaid)} · reicht ~${String(s.ware.daysLeft).replace('.', ',')} Tage`
+        : `\n⚠️ _leer – Schichten kaufen ad hoc (${money(symbol, s.ware.adhoc)}, +25 %)_`),
+  });
 
   // Die Minus-Uhr läuft, bis eine Abrechnung mit positiver Kasse sie stoppt – auch
   // wenn die Kasse tagsüber (Anpacken, Spieler-Schicht) schon wieder über 0 steht.
@@ -1175,8 +1194,9 @@ async function buildFirmaView({ guildId, userId }) {
         .setLabel('Personal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
       new ButtonBuilder().setCustomId(`firma|ausbau|0|${userId}`)
         .setLabel('Ausbau').setEmoji('🏗️').setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
-        .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+      // Schließen wohnt im Ausbau (Fluxer: höchstens 8 Reaktionen je Ansicht).
+      new ButtonBuilder().setCustomId(`firma|lager|0|${userId}`)
+        .setLabel('Lager').setEmoji('🏬').setStyle(ButtonStyle.Primary),
       s.incident
         ? new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)
         : homeButton(userId)),
@@ -1286,6 +1306,8 @@ async function buildFirmaAusbauView({ guildId, userId }) {
         new ButtonBuilder().setCustomId(`firma|ausbauen|${s.nextStufe?.id ?? 0}|${userId}`)
           .setLabel(s.nextStufe ? `Ausbauen: ${s.nextStufe.name}`.slice(0, 40) : 'Voll ausgebaut')
           .setEmoji('⬆️').setStyle(ButtonStyle.Success).setDisabled(!s.nextStufe),
+        new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
+          .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
         new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
           .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
         homeButton(userId)),
@@ -3079,6 +3101,42 @@ async function buildMarketView({ guildId, userId, page = 1, kind = null }) {
   return { embeds: [embed], components: rows };
 }
 
+/** Das Lager: Ware, Lieferant, Preis, Bestand – und der Einkauf. */
+async function buildFirmaLagerView({ guildId, userId }) {
+  const company = require('./company');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const w = s.ware;
+  const q = require('./wallstreet').quote(guildId, w.asset.symbol);
+  const trend = q ? `${q.dayChange >= 0 ? '📈' : '📉'} ${q.dayChange >= 0 ? '+' : ''}${(q.dayChange * 100).toFixed(1).replace('.', ',')} % heute` : '';
+  const free = w.capacity - w.stock;
+  const embed = new EmbedBuilder()
+    .setTitle(`🏬 Lager – ${s.company.name}`)
+    .setColor(0x8e6e53)
+    .setDescription(`${w.emoji} **${w.name}** – jede Schicht verbraucht eine Einheit.\n`
+      + `Lieferant: ${w.asset.emoji} **${w.asset.name}** (${w.asset.symbol}) · Kurs ${money(symbol, w.kurs)} ${trend}\n`
+      + `Tagespreis **${money(symbol, w.price)}** je Einheit (Normalpreis ${money(symbol, w.unit)}: ${kursAbweichung(w.ratio)}) · ohne Lager ad hoc ${money(symbol, w.adhoc)}\n`
+      + `_Aktie **${w.asset.symbol}** halten sichert gegen teure Ware ab._`)
+    .addFields(
+      { name: 'Bestand', value: `**${w.stock}/${w.capacity}** Einheiten · ${w.stock > 0 ? `reicht ~${String(w.daysLeft).replace('.', ',')} Tage` : 'leer'}`, inline: true },
+      { name: 'Ø bezahlt', value: w.stock > 0 ? money(symbol, w.avgPaid) : '–', inline: true },
+      { name: 'Lagerwert', value: money(symbol, w.value), inline: true },
+      { name: '💰 Kasse', value: money(symbol, s.kasse), inline: true },
+      { name: 'Voll machen kostet', value: money(symbol, free * w.price), inline: true },
+    );
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`firma|einkaufen|0|${userId}`).setLabel('Einkaufen').setEmoji('🛒')
+        .setStyle(ButtonStyle.Primary).setDisabled(free <= 0 || s.kasse < w.price),
+      new ButtonBuilder().setCustomId(`firma|lagervoll|0|${userId}`).setLabel(`Voll machen (${free})`).setEmoji('📦')
+        .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || s.kasse < free * w.price),
+      new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
 /**
  * Ein einzelner Wert mit allen Kauf- und Verkaufswegen.
  *
@@ -3122,6 +3180,12 @@ async function buildAssetView({ guildId, userId, symbol: sym, page = 1 }) {
       { name: 'Dein Geld', value: money(symbol, balance.total), inline: true },
       { name: 'Davon kaufbar', value: `${affordable.toLocaleString('de-DE')} Stück`, inline: true },
     );
+
+  // Lieferant (Stück 3a): welche Branchen ihre Ware zu diesem Kurs kaufen.
+  const beliefert = require('./data/companies').BRANCHES.filter((b) => b.ware?.supplier === a.symbol);
+  if (beliefert.length) {
+    embed.addFields({ name: '🏭 Lieferant für', value: beliefert.map((b) => `${b.emoji} ${b.name}`).join(' · ') });
+  }
 
   if (holding?.shares > 0) {
     const value = holding.shares * a.price;
@@ -4561,7 +4625,7 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView,
+  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView,
   buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,

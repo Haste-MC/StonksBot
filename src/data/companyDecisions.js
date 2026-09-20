@@ -13,7 +13,7 @@
  *   refund      Vielfaches der Tagesdecke zurück – nur nach einem kasse-Abzug
  *               derselben Option, nie mehr als abgezogen
  *   lock        Betrieb geschlossen für N Tage (Löhne laufen)
- *   sell        Übernahme: Firma schließt, Auszahlung = investiert + Kasse
+ *   sell        Übernahme: Firma schließt, Auszahlung = investiert plus Kasse und Lager (Einstand)
  *
  * Verluste werden mit der Härte der Größe verstärkt (× 1 … 1,6), × 1,6 bei
  * Schweigen. Kein Ausgang zerstört Ausbau – die Schließung ist das Härteste.
@@ -96,7 +96,7 @@ const COMPANY_DECISIONS = [
   {
     id: 'uebernahme', emoji: '🏦', title: 'Ein Investor will den Laden',
     minGroesse: 3,
-    text: 'Ein Angebot auf dem Tisch: deinen ganzen Ausbau plus die Kasse. Sofort.',
+    text: 'Ein Angebot auf dem Tisch: deinen ganzen Ausbau plus Kasse und Lager. Sofort.',
     options: [
       { id: 'verkaufen', label: 'Verkaufen', emoji: '💰',
         outcomes: [

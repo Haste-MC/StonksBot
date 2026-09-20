@@ -30,8 +30,10 @@
  * Gründung × 1,5 · 3 · 6 · 9 · 14; Extras je 2× Gründung, drei à +0,15 Umsatz,
  * eines +2 Plätze (klein +1); minStufe 3 auf dem dritten Umsatz-Extra, 2 auf dem
  * Platz-Extra. Löhne skalieren NICHT mit – die Marge wächst mit der Größe.
- * Spedition voll: 22 Plätze, Faktor 2,65 → 487.095/Tag (company.fullCeilingOf).
- * Ausnahme Baufirma: eigene Faktoren 1,3…2,5 (siehe dort), voll 558.345/Tag.
+ * Spedition voll: 22 Plätze, Faktor 2,65 → 460.495/Tag (company.fullCeilingOf,
+ * seit 1.35.0 netto nach Wareneinsatz zum Startkurs; vorher 487.095).
+ * Ausnahme Baufirma: eigene Faktoren 1,3…2,5 (siehe dort), voll 530.465/Tag
+ * (vorher 558.345).
  */
 const MAX_STUFE = 5;
 const CONFIRM_ABOVE = 5_000_000;          // ab hier fragt der Ausbau-Knopf nach
@@ -74,33 +76,40 @@ const BRANCHES = [
   { id: 'kiosk', klasse: 'klein', name: 'Kiosk', emoji: '🏪', price: 25_000, slots: 2, umsatz: 250, lohn: 100,
     blurb: 'Zeitungen, Zigaretten, kalte Getränke. Läuft fast allein – aber eben nur fast.',
     stufen: leiter(25_000, ['Kühlregal', 'Lotto-Terminal', 'Zweite Kasse', 'Backshop', 'Paketstation'], [3, 3, 4, 4, 4]),
-    extras: extrasFor('kiosk', 25_000, [E('Zeitungsregal', '📰'), E('Kaffeeautomat', '☕'), E('Bargeld-Service', '💶'), E('Verlängerte Öffnung', '🌙')], 1) },
+    extras: extrasFor('kiosk', 25_000, [E('Zeitungsregal', '📰'), E('Kaffeeautomat', '☕'), E('Bargeld-Service', '💶'), E('Verlängerte Öffnung', '🌙')], 1),
+    ware: { name: 'Handelsware', emoji: '📦', supplier: 'LAGR' } },
   { id: 'imbiss', klasse: 'klein', name: 'Imbiss', emoji: '🌭', price: 40_000, slots: 3, umsatz: 240, lohn: 90,
     blurb: 'Pommes, Wurst, Stammkunden. Viele billige Schichten – und Werbung, die man riecht.',
     stufen: leiter(40_000, ['Zweiter Grill', 'Sitzplätze', 'Lieferdienst', 'Zweite Theke', 'Foodtruck'], [4, 4, 5, 6, 6]),
-    extras: extrasFor('imbiss', 40_000, [E('Eiswürfelmaschine', '🧊'), E('Fritteuse XL', '🍟'), E('Currywurst-Franchise', '🌭'), E('Nachtschicht', '🌙')], 1) },
+    extras: extrasFor('imbiss', 40_000, [E('Eiswürfelmaschine', '🧊'), E('Fritteuse XL', '🍟'), E('Currywurst-Franchise', '🌭'), E('Nachtschicht', '🌙')], 1),
+    ware: { name: 'Lebensmittel', emoji: '🥫', supplier: 'DÖNR' } },
   { id: 'autowaesche', klasse: 'klein', name: 'Autowäsche', emoji: '🚗', price: 35_000, slots: 2, umsatz: 260, lohn: 80,
     blurb: 'Kaum Personal, dafür Anlagen – hier steckt das Geld im Ausbau, nicht in Leuten.',
     stufen: leiter(35_000, ['Zweite Box', 'Staubsaugerplätze', 'Waschstraße', 'Innenreinigung', 'Zweite Waschstraße'], [3, 3, 4, 4, 4]),
-    extras: extrasFor('autowaesche', 35_000, [E('Wachsprogramm', '✨'), E('Felgenreiniger', '🛞'), E('Kartenzahlung', '💳'), E('Sonntagsöffnung', '📅')], 1) },
+    extras: extrasFor('autowaesche', 35_000, [E('Wachsprogramm', '✨'), E('Felgenreiniger', '🛞'), E('Kartenzahlung', '💳'), E('Sonntagsöffnung', '📅')], 1),
+    ware: { name: 'Reiniger', emoji: '🧴', supplier: 'LACK' } },
   // ------------------------------------------------------------ mittel
   { id: 'cafe', klasse: 'mittel', name: 'Café', emoji: '☕', price: 120_000, slots: 5, umsatz: 900, lohn: 180,
     blurb: 'Braucht Leute hinter der Theke und jemanden, der sich kümmert. Dann läuft es.',
     stufen: leiter(120_000, ['Terrasse', 'Siebträger-Maschine', 'Frühstückskarte', 'Abendbetrieb', 'Rösterei'], [6, 7, 8, 9, 10]),
-    extras: extrasFor('cafe', 120_000, [E('Kuchenvitrine', '🍰'), E('Kaffeebohnen-Verkauf', '🫘'), E('Catering', '🚐'), E('Zweite Schicht', '🌙')], 2) },
+    extras: extrasFor('cafe', 120_000, [E('Kuchenvitrine', '🍰'), E('Kaffeebohnen-Verkauf', '🫘'), E('Catering', '🚐'), E('Zweite Schicht', '🌙')], 2),
+    ware: { name: 'Kaffee & Gebäck', emoji: '☕', supplier: 'DÖNR' } },
   { id: 'fitness', klasse: 'mittel', name: 'Fitnessstudio', emoji: '🏋️', price: 150_000, slots: 4, umsatz: 700, lohn: 150,
     blurb: 'Wenig Lohn, viel Gerät. Der Umsatz hängt daran, was an der Wand steht – am Ausbau.',
     stufen: leiter(150_000, ['Freihantelbereich', 'Kursraum', 'Sauna', 'Cardio-Fläche', '24-Stunden-Betrieb'], [5, 6, 6, 7, 8]),
-    extras: extrasFor('fitness', 150_000, [E('Proteinbar', '🥤'), E('Personal Training', '🧑‍🏫'), E('Firmenverträge', '📄'), E('Frühöffnung', '🌅')], 2) },
+    extras: extrasFor('fitness', 150_000, [E('Proteinbar', '🥤'), E('Personal Training', '🧑‍🏫'), E('Firmenverträge', '📄'), E('Frühöffnung', '🌅')], 2),
+    ware: { name: 'Geräte & Zubehör', emoji: '🏋️', supplier: 'GABR' } },
   { id: 'werkstatt', klasse: 'mittel', name: 'Werkstatt', emoji: '🔧', price: 200_000, slots: 4, umsatz: 1_100, lohn: 320,
     blurb: 'Teure Fachkräfte, hoher Umsatz je Schicht. Wer gute Leute hält, verdient hier gut.',
     stufen: leiter(200_000, ['Zweite Hebebühne', 'Diagnosegerät', 'Reifenlager', 'Lackierkabine', 'Dritte Hebebühne'], [5, 6, 6, 7, 8]),
-    extras: extrasFor('werkstatt', 200_000, [E('Reifenservice', '🛞'), E('TÜV-Prüfstelle', '📋'), E('Oldtimer-Restauration', '🏎️'), E('Samstagsschicht', '📅')], 2) },
+    extras: extrasFor('werkstatt', 200_000, [E('Reifenservice', '🛞'), E('TÜV-Prüfstelle', '📋'), E('Oldtimer-Restauration', '🏎️'), E('Samstagsschicht', '📅')], 2),
+    ware: { name: 'Ersatzteile', emoji: '⚙️', supplier: 'HAST' } },
   // -------------------------------------------------------------- groß
   { id: 'spedition', klasse: 'gross', name: 'Spedition', emoji: '🚚', price: 1_200_000, slots: 10, umsatz: 1_900, lohn: 420,
     blurb: 'Lkw, Fahrer, Disposition. Hohe Löhne, hohe Marge – rentabel nur mit voller Mannschaft.',
     stufen: leiter(1_200_000, ['3 Lkw', 'Depot', 'Eigene Werkstatt', 'Flotte 15', 'Flotte 20'], [12, 14, 16, 18, 20]),
-    extras: extrasFor('spedition', 1_200_000, [E('Telematik', '📡'), E('Tankkarten-Vertrag', '⛽'), E('Gefahrgut-Lizenz', '☣️'), E('Nachtschicht', '🌙')], 2) },
+    extras: extrasFor('spedition', 1_200_000, [E('Telematik', '📡'), E('Tankkarten-Vertrag', '⛽'), E('Gefahrgut-Lizenz', '☣️'), E('Nachtschicht', '🌙')], 2),
+    ware: { name: 'Reifen & Teile', emoji: '🛞', supplier: 'SCHR' } },
   { id: 'baufirma', klasse: 'gross', name: 'Baufirma', emoji: '🏗️', price: 1_800_000, slots: 12, umsatz: 1_700, lohn: 500,
     blurb: 'Kolonnen, Kran, Bauhof. Die höchsten Löhne im Spiel – und nur mit voller Mannschaft ein Geschäft.',
     // Eigene Faktoren (Schritt 0,3 statt 0,25): Mit den Standardfaktoren amortisierte sich
@@ -108,11 +117,13 @@ const BRANCHES = [
     // hohen Löhne fressen die Marge. Gemessen mit 2,5: siehe ARCHITEKTUR.md §15.
     // Beschluss 2026-09-13: eigene Faktoren – die Baufirma ist die Spitze (siehe ARCHITEKTUR §15).
     stufen: leiter(1_800_000, ['Zweite Kolonne', 'Kran', 'Bauhof', 'Dritte Kolonne', 'Fertigteilwerk'], [14, 17, 19, 22, 24], [1.3, 1.6, 1.9, 2.2, 2.5]),
-    extras: extrasFor('baufirma', 1_800_000, [E('Eigener Bagger', '🚜'), E('Gerüstbau', '🪜'), E('Sanierungslizenz', '📜'), E('Zweite Schicht', '🌙')], 2) },
+    extras: extrasFor('baufirma', 1_800_000, [E('Eigener Bagger', '🚜'), E('Gerüstbau', '🪜'), E('Sanierungslizenz', '📜'), E('Zweite Schicht', '🌙')], 2),
+    ware: { name: 'Beton & Stahl', emoji: '🧱', supplier: 'BETO' } },
   { id: 'club', klasse: 'gross', name: 'Club', emoji: '🍸', price: 1_000_000, slots: 6, umsatz: 2_400, lohn: 380,
     blurb: 'Wenige Plätze, teurer Ausbau, und der Name muss in der Stadt sein. Werbung ist hier alles.',
     stufen: leiter(1_000_000, ['Zweite Bar', 'Soundanlage', 'Lounge', 'Zweiter Floor', 'Dachterrasse'], [7, 8, 9, 11, 12]),
-    extras: extrasFor('club', 1_000_000, [E('VIP-Bereich', '👑'), E('Gastro-Lizenz', '🍽️'), E('Booking-Agentur', '🎧'), E('Afterhour', '🌙')], 2) },
+    extras: extrasFor('club', 1_000_000, [E('VIP-Bereich', '👑'), E('Gastro-Lizenz', '🍽️'), E('Booking-Agentur', '🎧'), E('Afterhour', '🌙')], 2),
+    ware: { name: 'Acts & Getränke', emoji: '🎤', supplier: 'ENTE' } },
 ];
 
 const extraIndex = new Map(BRANCHES.flatMap((b) => b.extras.map((e) => [e.id, e])));
@@ -150,6 +161,14 @@ const MAX_PITCH_PER_DAY = 4;        // „selbst anpacken" je Tag
 const MAX_SETTLE_DAYS = 30;         // ältere Tage verfallen (wie bei Musik)
 const EVENT_UMSATZ_MAX = 1.15;      // §3: kein Ereignis hebt den Tagesumsatz über Decke × 1,15
 
+// Waren (Stück 3a): jede Schicht verbraucht eine Einheit, der Preis hängt am
+// Kurs des Lieferanten an der Börse (data/wallstreet.js).
+const WARE_SHARE = 0.2;          // Anteil des Schichtumsatzes bei Kurs = Start
+const WARE_KURS_MIN = 0.5;       // Klemmung des Kursverhältnisses …
+const WARE_KURS_MAX = 2.0;       // … nach oben
+const AD_HOC_MARKUP = 1.25;      // ohne Lager kostet die Einheit ein Viertel mehr
+const LAGER_TAGE = 7;            // Kapazität in Vollbetriebs-Tagen
+
 module.exports = {
   BRANCHES, RANKS, NPC_NAMES,
   NPC_SHIFTS, INSOLVENCY_DAYS, NPC_QUIT_AFTER_UNPAID, WERBUNG_DAYS, WERBUNG_BOOST,
@@ -157,4 +176,5 @@ module.exports = {
   TIME_WERBUNG, TIME_ANPACKEN, SHIFT_COOLDOWN_MIN, MAX_PITCH_PER_DAY, MAX_SETTLE_DAYS,
   MAX_STUFE, CONFIRM_ABOVE, STUFE_FAKTOREN, STUFE_PREISFAKTOREN, EXTRA_UMSATZ, extraById,
   EVENT_UMSATZ_MAX,
+  WARE_SHARE, WARE_KURS_MIN, WARE_KURS_MAX, AD_HOC_MARKUP, LAGER_TAGE,
 };
