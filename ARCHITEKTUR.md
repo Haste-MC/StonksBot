@@ -576,7 +576,7 @@ ist die Börse selbst: Wer die Aktie des Lieferanten hält, gewinnt am Kurs, was
 ihn die Ware mehr kostet. Die Decke (`ceilingOf(...).net`) zieht die Ware
 zum Startkurs ab (`Units × wareUnit`, Units = Plätze × 3 + 4). Der Ausbau
 hebt den Umsatz, nicht den Warenpreis – deshalb kostet die Ware im Kern
-16–18 % der Decke, voll ausgebaut 5–6 %:
+15–18 % der Decke, voll ausgebaut 5–6 %:
 
 | Branche | Kern vor 1.35.0 → neu | Vollausbau vor 1.35.0 → neu |
 |---|---|---|
@@ -624,17 +624,22 @@ Spedition 12.743, Baufirma 13.681; voll Kiosk 897, Café 6.960, Spedition
 26.600), geschlossene Tage verbrauchen nichts und drücken den Schnitt; ohne
 Ereignisse liegt die Spedition voll bei 26.655 = (25.340 × 380 + 210 × 475)
 / 365, die 210 ad-hoc-Einheiten sind die Anlaufzeit. Der Anteil ad hoc liegt
-bei 2,5–5 % im Kern und 0,8–1,4 % voll ausgebaut – die Tage, bis die Kasse
+bei 2,5–5,1 % im Kern und 0,8–1,4 % voll ausgebaut – die Tage, bis die Kasse
 das erste Lager bezahlt, und Tage nach Kassenabzügen; Ausreißer ist die
 Baufirma im Kern mit 12,9 % (ohne Ereignisse 9,3 %): Werbung 90.000 je
-Kampagne gegen 61.400 Tagesgewinn, das erste Lager (95.200) ist erst nach
-rund 56 Tagen bezahlt. Die Rangfolge bleibt: Baufirma 471.973 vor Spedition
-412.039 (16 % unter Musik+Creator nach zwei Jahren, 490.099) und Club
-352.144. Amortisation des Vollausbaus mit Ereignissen 64 (Café) bis 188
-(Baufirma) Tage statt 61 bis 178; aus eigener Kraft dauert der Vollausbau
-15–20 % länger (Kiosk 168 statt 141, Café 113 statt 98, Spedition 332 statt
-280, Club 323 statt 270 Tage), die Baufirma schafft ihn wie vor 1.35.0 nicht
-im Jahr. Handprüfung eines Kiosk-Tages (`--trace=kiosk:keiner:ohne`, Tag 34,
+Kampagne gegen 61.400 Tagesgewinn – ohne Ereignisse sind es 1.360
+Einheiten ad hoc bei 40 Einheiten Tagesverbrauch, also 34 Tage bis zum
+ersten vollen Lager (95.200, Füllung um Tag 35); mit Ereignissen scheitert
+der Einkauf 56× im ganzen Jahr, nicht nur beim Anlauf (dort wächst ad hoc
+auf 1.833 Einheiten, höchstens rund 46 Tage), sondern auch später, wenn
+Kassenabzüge (Werbung, Vorfälle) das Lagergeld erneut auffressen. Die
+Rangfolge bleibt: Baufirma 471.973 vor Spedition 412.039 (16 % unter
+Musik+Creator nach zwei Jahren, 490.099) und Club 352.144. Amortisation
+des Vollausbaus mit Ereignissen 64 (Café) bis 188 (Baufirma) Tage statt 61
+bis 178; aus eigener Kraft dauert der Vollausbau 14–20 % länger (Kiosk 168
+statt 141, Café 113 statt 98, Fitnessstudio 210 statt 184, Spedition 332
+statt 280, Club 323 statt 270 Tage), die Baufirma schafft ihn wie vor
+1.35.0 nicht im Jahr. Handprüfung eines Kiosk-Tages (`--trace=kiosk:keiner:ohne`, Tag 34,
 volles Lager, keine Werbung): morgens 1.750 in der Kasse, Einkauf 10 × 50 =
 500, Anpacken 4×, vor der Abrechnung 2.729, Umsatz 2.250 − Löhne 900 →
 abends 4.079, keine Ware von der Kasse (6 Einheiten aus dem Lager, 0 ad

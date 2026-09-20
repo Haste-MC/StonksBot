@@ -729,12 +729,13 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
         }
       }
       let anpacken = 0;
+      let anpackenAdhocCost = 0;
       for (let i = 0; i < companyData.MAX_PITCH_PER_DAY; i++) {
         const r = await company.pitchIn(G, U, now + i * 60_000);
         if (!r.ok) break;                 // Zeit alle, Tageslimit oder geschlossen
         anpacken++;
         einheiten++;
-        if (r.ware.adhoc) { adhocEinheiten++; wareAdhoc += r.ware.cost; }
+        if (r.ware.adhoc) { adhocEinheiten++; wareAdhoc += r.ware.cost; anpackenAdhocCost += r.ware.cost; }
       }
       const vorAbrechnung = db.getCompany(cid).kasse;
       const s = company.settle(cid, now + DAY, ereignisRand);
@@ -766,7 +767,7 @@ async function firmenlauf(branchId, tage, { ausbau = 'keiner', ereignisse = !OHN
       // §3-Prüfwert: der Tag mit der Ware, die er verbraucht hat, zum Einheitspreis – statt mit
       // dem, was er zufällig eingekauft hat (das erste Füllen, die Lücke nach einem Ausbau oder
       // ein übersprungener Einkauf verschieben Warenkosten zwischen den Tagen).
-      const netto = c.kasse - vor + kauf.cost - (anpacken + s.ware.units) * company.wareUnit(b) + s.ware.cost;
+      const netto = c.kasse - vor + kauf.cost - (anpacken + s.ware.units) * company.wareUnit(b) + s.ware.cost + anpackenAdhocCost;
       if (netto > bestNetto) {
         bestNetto = netto;
         bestTag = { tag: d + 1, vor, kauf, werbung: wb.ok ? wb.cost : 0, anpacken, umsatz: s.umsatz, loehne: s.loehne,
