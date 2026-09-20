@@ -263,8 +263,10 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
  *
  * Erst abrechnen (`fresh`), dann wirken: zwischen Wurf und Entscheidung
  * liegen bis zu 24 h, und ein Abrechnungstag darin gehört nicht mehr unter
- * „7 Tage" oder „3 Tage zu". Ein zweiter Vorfall kann dabei nicht fallen –
- * MIN_GAP_MS (36 h) ist länger als die Frist.
+ * „7 Tage" oder „3 Tage zu". Bei rechtzeitiger Entscheidung kann dabei kein
+ * zweiter Vorfall fallen – MIN_GAP_MS (36 h) ist länger als die Frist. Beim
+ * Verfall nach ≥ 36 h Abwesenheit darf die nachgeholte Abrechnung einen
+ * neuen würfeln; der alte Ausgang wirkt trotzdem auf die abgerechnete Firma.
  */
 async function applyCompany(guildId, userId, row, effect, now, ignored, random) {
   const company = require('./company');

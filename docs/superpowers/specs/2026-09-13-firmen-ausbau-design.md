@@ -333,7 +333,7 @@ Härte (`severityFor` 1 … 1,6), Geldwirkungen sind Vielfache der aktuellen
 Tagesdecke (`ceilingOf(b, stufe, extraIds)`), und kein Ausgang zerstört Stufen
 oder Extras – die Übernahme zahlt `investiert + Kasse` mit derselben
 `investedOf`-Rechnung wie der Schließen-Dialog. Neu gemessen (365 Tage, mit
-gegen ohne Ereignisse im selben Lauf, `.superpowers/sdd/task-5-messung/`):
+gegen ohne Ereignisse im selben Lauf, `docs/messungen/2026-09-20-firmen-ereignisse.txt`):
 voll ausgebaut Kiosk 15.256 statt 16.583, Café 126.958 statt 133.173,
 Spedition 436.834 statt 486.664, Baufirma 501.780 statt 557.910, Club 374.329
 statt 414.397 – 5–11 %, 24–32 Vorfälle im gemessenen Jahr; Amortisation des
