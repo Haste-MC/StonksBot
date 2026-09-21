@@ -1138,11 +1138,31 @@ async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
   if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
   const n = Math.floor(Number(shares));
   if (!(n > 0) || n > o.shares) return { ok: false, reason: 'shares', max: o.shares };
+  // Zweite Absicherung (billig) gegen Drift zwischen Angebot und tatsächlichem Bestand:
+  // reicht, was der Verkäufer wirklich hält, gerade noch für n Anteile dieses Kaufs?
+  if (o.seller_id === c.owner_id) {
+    if (sharesOf(c.id).owner - n < data.OWNER_MIN) return { ok: false, reason: 'shares', max: o.shares };
+  } else {
+    const h = db.getCompanyShare(c.id, o.seller_id);
+    if ((h?.shares ?? 0) < n) return { ok: false, reason: 'shares', max: o.shares };
+  }
   const cost = n * o.price;
   const fee = Math.round(cost * data.SHARE_FEE);
   const rest = o.shares - n;
   db.updateShareOffer(o.id, rest);                 // reserviert – synchron, vor dem ersten await
-  const restore = () => db.updateShareOffer(o.id, o.shares);
+  // Rücknahme RELATIV zur aktuellen Zeile, nicht zum bei Eintritt gelesenen `o.shares`:
+  // ein zweiter, zwischenzeitlich abgeschlossener Kauf hat den Rest schon weiter
+  // verkleinert – absolut zurückschreiben würde dessen Reservierung mitkassieren
+  // (Angebot überverkauft, 1000-Anteile-Invariante bricht).
+  const restore = () => {
+    const cur = db.getShareOffer(o.id);
+    if (cur) { db.updateShareOffer(o.id, cur.shares + n); return; }
+    // Zeile zwischenzeitlich komplett verkauft und gelöscht (die andere Buchung lief
+    // durch, Rest 0) – Wiederherstellen unter derselben id geht nicht mehr, also für
+    // den Verkäufer neu anlegen und die neue id protokollieren.
+    const again = db.insertShareOffer({ guildId, companyId: c.id, sellerId: o.seller_id, shares: n, price: o.price, now });
+    console.warn(`Anteile: Angebot ${o.id} war beim Rückbuchen weg, neu angelegt als ${again.id} (${n} Anteile, Verkäufer ${o.seller_id})`);
+  };
   const paid = await pay(guildId, userId, cost + fee, `Anteile: ${c.name}`);
   if (!paid.ok) {
     restore();

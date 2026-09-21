@@ -102,6 +102,48 @@ const DAY_MS = 24 * 60 * 60 * 1000;
       && db.getShareOffer(o2.id).shares === 190 && db.getCompanyShare(cid, neu) === null && konten.get(neu) === 100_000,
       JSON.stringify({ rr, bookings }));
   }
+  {
+    // Zwei Käufe überlappen, der erste scheitert: A reserviert zuerst (10), dann B (20)
+    // bevor A's Zahlung (verzögert, kein Geld) scheitert. Die Rücknahme von A muss
+    // relativ zur dann schon von B verkleinerten Zeile erfolgen (§7 Fix) – sonst
+    // kassiert sie B's Reservierung mit und das Angebot ist überverkauft.
+    // Eigene, frisch gegründete Firma unter neuem Inhaber – O hat schon eine offene
+    // Firma (`cid`), deren Halter-Verteilung für die folgenden Tests (Ausschüttung,
+    // Konten-Summe, …) unangetastet bleiben muss.
+    const owner3 = 'owner3';
+    konten.set(owner3, 20_000_000);
+    const rr0 = await company.found(G, owner3, 'cafe', 'Ueberlapp', t0 + 4 * H);
+    check('dritte Firma für den Überlapp-Test gegründet', rr0.ok, JSON.stringify(rr0));
+    const cid3 = rr0.company.id;
+    db.setCompanyStufe(cid3, 2);
+    const listed = company.listShares(G, owner3, cid3, 190, 2_000, t0 + 4 * H);
+    check('190 Anteile à 2.000 angeboten', listed.ok, JSON.stringify(listed));
+    const ra = 'race-a', rb = 'race-b';
+    konten.set(ra, 0); konten.set(rb, 5_000_000);
+    const o2 = listed.offer;
+    const start = o2.shares;
+    const echtBalance = unb.getBalance;
+    unb.getBalance = async (g, u) => {
+      if (u === ra) {
+        await new Promise((res) => setTimeout(res, 30));
+        return { cash: 0, bank: 0, total: 0 };
+      }
+      return echtBalance(g, u);
+    };
+    bookings = [];
+    const [rrA, rrB] = await Promise.all([
+      company.buyShares(G, ra, o2.id, 10, t0 + 4 * H),
+      company.buyShares(G, rb, o2.id, 20, t0 + 4 * H),
+    ]);
+    unb.getBalance = echtBalance;
+    check('A scheitert an funds, B kauft 20 erfolgreich', rrA.reason === 'funds' && rrB.ok === true && rrB.shares === 20,
+      JSON.stringify({ rrA, rrB }));
+    check(`Angebot danach ${start} − 20 = ${start - 20}, B hat 20 Anteile, A keine Zeile`,
+      db.getShareOffer(o2.id).shares === start - 20
+      && db.getCompanyShare(cid3, rb)?.shares === 20
+      && db.getCompanyShare(cid3, ra) === null,
+      JSON.stringify({ offer: db.getShareOffer(o2.id), rb: db.getCompanyShare(cid3, rb), ra: db.getCompanyShare(cid3, ra) }));
+  }
 
   console.log('--- Ausschüttung ---');
   await company.deposit(G, O, 100_000, t0 + 3 * H);

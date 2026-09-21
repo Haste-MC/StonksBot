@@ -232,7 +232,6 @@ Test schlägt mit einem echten 404 fehl.
   keine einzelne Buchung gibt; erst Käufer −, dann Verkäufer +, scheitert die
   zweite, wird die erste zurückgenommen (Rücknahme wie bei `pay` nicht
   garantiert – dann fehlt Geld, nie entsteht welches; wird protokolliert).
-  Im Zwischenzustand fehlt Geld, nie entsteht welches.
 
 ## 10. Bilder & Lizenzen
 
