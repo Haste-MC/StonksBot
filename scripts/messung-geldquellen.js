@@ -575,8 +575,12 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  * `handelslauf` zwei Firmen in EINER Welt im Wechsel laufen lassen kann –
  * `firmenlauf` ist nur noch die Schleife darum, mit denselben Buchungen wie
  * vorher (die Firmen-Abschnitte des Laufs sind Zeile für Zeile gleich
- * geblieben, geprüft gegen docs/messungen/2026-09-20-firmen-waren.txt).
- * `kaufen(now, status)` ersetzt den NPC-Einkauf (der Käufer im Handelslauf
+ * geblieben – geprüft per Diff gegen einen Lauf des Codes VOR dem Umbau, mit
+ * derselben TAGE-Zahl, siehe .superpowers/sdd/task-3-report.md; NICHT gegen
+ * die committete docs/messungen/2026-09-20-firmen-waren.txt, die vor den
+ * Erstausstattungs-Commits 50a4650/0ca5a97 liegt und darum nicht als
+ * Baseline taugt).
+ * `kaufen(now, d, st)` ersetzt den NPC-Einkauf (der Käufer im Handelslauf
  * kauft zuerst beim Spediteur); der §3-Prüfwert rechnet die verbrauchte Ware
  * seitdem zum Preis des heutigen Einkaufs (ohne Handel ist das der
  * Einheitspreis, also dieselbe Zahl wie vorher) – so zählt die Ersparnis je
@@ -702,7 +706,9 @@ async function betrieb(branchId, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNI
   let bestTag = null;                  // … und seine Buchungen (für die Handprüfung)
   let ereignisDecke = ereignisDeckeVon(db.getCompany(cid));
   // Handel (Stück 3b): Käuferseite (bezogen, Ersparnis) und Spediteurseite (geliefert, Spanne).
-  const handel = { einheiten: 0, ersparnis: 0, bestErsparnis: 0, bestErsparnisEinheiten: 0,
+  // Eine Firma hat je Lauf nur eine Rolle (Verkäufer ODER Käufer) – `tage`/`decke` zählen
+  // also nie beide Seiten derselben Firma zugleich.
+  const handel = { einheiten: 0, ersparnis: 0, bestErsparnis: 0, bestErsparnisEinheiten: 0, bestErsparnisTag: 0,
     geliefert: 0, spanne: 0, bestSpanne: 0, bestSpanneEinheiten: 0, tage: 0, zu: 0 };
   // Was der Morgen dem Abend hinterlässt.
   let tag = null;
@@ -771,7 +777,9 @@ async function betrieb(branchId, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNI
           gekauftNpc += kauf.units - kauf.handel;
           if (kauf.handel > 0) {
             handel.einheiten += kauf.handel; handel.ersparnis += kauf.ersparnis; handel.tage++;
-            if (kauf.ersparnis > handel.bestErsparnis) { handel.bestErsparnis = kauf.ersparnis; handel.bestErsparnisEinheiten = kauf.handel; }
+            if (kauf.ersparnis > handel.bestErsparnis) {
+              handel.bestErsparnis = kauf.ersparnis; handel.bestErsparnisEinheiten = kauf.handel; handel.bestErsparnisTag = d;
+            }
           }
           if (kauf.zu) handel.zu++;
         } else {
@@ -909,6 +917,9 @@ async function betrieb(branchId, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNI
     handel.geliefert = c.trade_units ?? 0;
     handel.decke = handel.geliefert > 0 ? eff.slots * companyData.HANDEL_KAPAZITAET * maxSpanne
       : handel.einheiten > 0 ? Math.round(companyData.HANDEL_RABATT * (schichten + companyData.MAX_PITCH_PER_DAY) * unit) : 0;
+    // Tagesverbrauch des Käufers (wie `st.ware.perDay` in `morgen`) – Referenz, um einen
+    // Nachkauf über mehrere Tage vom normalen Tagesgeschäft zu unterscheiden (s. u.).
+    handel.perDay = schichten + companyData.MAX_PITCH_PER_DAY;
     handel.anteil = handel.einheiten + gekauftNpc + adhocEinheiten > 0
       ? handel.einheiten / (handel.einheiten + gekauftNpc + adhocEinheiten) : 0;
     handel.gekauftNpc = gekauftNpc;
@@ -1253,7 +1264,9 @@ async function main() {
       console.log(`${' '.repeat(18)}${was}: Ersparnis Ø ${de(h.ersparnis / TAGE)}/Tag (Σ ${de(h.ersparnis)}), ` +
         `vom Spediteur ${de(h.einheiten)} von ${de(h.einheiten + h.gekauftNpc + r.kaeufer.adhocEinheiten)} Einheiten ` +
         `(${(h.anteil * 100).toFixed(1).replace('.', ',')} %; NPC ${de(h.gekauftNpc)}, ad hoc ${de(r.kaeufer.adhocEinheiten)}; ohne Erstausstattung), ` +
-        `Spediteur ${h.zu}× zu, größte Tagesersparnis ${de(h.bestErsparnis)} für ${de(h.bestErsparnisEinheiten)} Einheiten (Nachkauf nach Lücke; Handels-Decke Käufer ${de(h.decke)} je Tag Verbrauch)` +
+        `Spediteur ${h.zu}× zu, größte Tagesersparnis ${de(h.bestErsparnis)} für ${de(h.bestErsparnisEinheiten)} Einheiten an Tag ${h.bestErsparnisTag + 1}` +
+        (h.bestErsparnisEinheiten > h.perDay ? ` (über dem Tagesverbrauch ${h.perDay} – Nachkauf nach einer Lücke)` : '') +
+        ` (Handels-Decke Käufer ${de(h.decke)} je Tag Verbrauch)` +
         (was === 'ohne' ? ` · bester Tag ${de(r.kaeufer.bestNetto)} (Decke ${de(r.kaeufer.decke)} + Handels-Decke ${de(h.decke)}, Ware zum Verbrauch gerechnet)` : ''));
     }
   }

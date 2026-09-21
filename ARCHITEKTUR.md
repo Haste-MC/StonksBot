@@ -616,10 +616,13 @@ sind Kosten, kein Umsatz. Gemessen (365 Tage, fester Würfel, `DATA_DIR=.testdat
 node scripts/messung-geldquellen.js 10 365`, Firmen-Blöcke in
 `docs/messungen/2026-09-20-firmen-waren.txt`; die Messwelt hat keine
 Börsenticks, also Kurs = Start und Einkauf zum Einheitspreis – Kurs-Effekte
-sind hier nicht gemessen; die Mediane stammen aus der Messung VOR der
-Erstausstattung – die ändert nur den Anlauf (weniger ad hoc, das erste Lager
-ist schon da), nicht Decken oder stationäre Mediane, und wird mit der
-nächsten Messung aufgefrischt): Der simulierte Inhaber kauft täglich nach der
+sind hier nicht gemessen; die Kern-Mediane **mit** Ereignissen sind mit
+`docs/messungen/2026-09-21-firmen-handel.txt` aufgefrischt (die 20.09-Datei
+zeigt noch den Stand vor der Erstausstattung – Commits 50a4650/0ca5a97 –, die
+den Anlauf ändert, weniger ad hoc, das erste Lager ist schon da; bei fünf der
+neun Branchen verschiebt das auch den stationären Median, s. u.); Decken,
+„ohne"-Mediane und die Vollausbau-Zahlen unten sind davon unberührt): Der
+simulierte Inhaber kauft täglich nach der
 Werbung das Lager voll (am ersten Tag mit genug Kasse ein ganzes, danach den
 Verbrauch von gestern; die Entnahme lässt Werbung plus nächsten Einkauf in der
 Kasse; ein Einkauf über den Tagesverbrauch hinaus lässt die Werbekosten
@@ -631,10 +634,11 @@ Branche genau um `Units × wareUnit` unter dem Wert vor 1.35.0 (Kiosk 2.331 =
 Einheitspreis gerechnet – unter der Decke (Kiosk 2.331 ≤ 2.350, Spedition
 voll 460.064 ≤ 460.495; roh kann ein Tag darüber liegen, wenn der Einkauf
 auf einen anderen Tag fiel, etwa nach einem Ausbau des Aufsteigers).
-**Mit** Ereignissen im Kern: Kiosk 2.037 (vor 1.35.0 2.536), Imbiss
-2.629 (3.279), Autowäsche 2.338 (2.855), Café 15.956 (19.414), Fitnessstudio
-10.382 (12.673), Werkstatt 14.797 (18.400), Spedition 58.238 (71.160),
-Baufirma 55.830 (66.803), Club 51.605 (62.145) – 16–20 % weniger; voll
+**Mit** Ereignissen im Kern (Stand 21.09., nach der Erstausstattung): Kiosk
+2.003 (vor 1.35.0 2.536), Imbiss 2.660 (3.279), Autowäsche 2.300 (2.855), Café
+15.956 (19.414), Fitnessstudio 10.382 (12.673), Werkstatt 14.797 (18.400),
+Spedition 58.238 (71.160), Baufirma 52.915 (66.803), Club 51.585 (62.145) –
+16–20 % weniger; voll
 ausgebaut Kiosk 14.321 (15.256), Imbiss 17.707 (18.907), Autowäsche 14.989
 (15.977), Café 119.758 (126.958), Fitnessstudio 75.296 (80.056), Werkstatt
 116.307 (123.787), Spedition 412.039 (436.834), Baufirma 471.973 (501.780),
@@ -721,10 +725,13 @@ um weniger als die 680 eines Handelstages), Käufer 53.595 statt 52.915
 (+680), Spanne Ø 600/Tag (Σ 218.841), Ø 35 Einheiten/Tag (Σ 12.873, 90,7 %
 der Käufer-Ware). Beste Tage ohne Ereignisse, Ware zum Verbrauch gerechnet:
 Spediteur 65.609 ≤ 65.080 + 9.600, Käufer 61.945 ≤ 62.760; größte Tagesspanne
-3.400 ≤ 9.600 – das sind 200 Einheiten (die ganze Tageskapazität) an einem
+3.400 ≤ 9.600 – das sind 200 Einheiten (die ganze Tageskapazität; 200 Einheiten
+decken fünf Verbrauchstage der Baufirma bei 40 Einheiten/Tag) an einem
 Nachkauf nach einer Lücke, je Einheit weiter 17: Die Ersparnis hängt an der
-gekauften Einheit, nicht am Tag, deshalb rechnet der Prüfwert die Ware zum
-Verbrauch. Handprüfung Tag 36 ohne Ereignisse (`--trace=handel:baufirma:ohne`
+gekauften Einheit, nicht am Tag – ein solcher Nachkauf übersteigt darum die
+Käufer-Decke von 1.360 je Verbrauchstag, ohne dass der Prüfwert (Ware zum
+Verbrauch gerechnet, statt zum Einkaufstag) darüberliegt. Handprüfung Tag 36
+ohne Ereignisse (`--trace=handel:baufirma:ohne`
 bzw. `handel:spedition:ohne`): Käufer morgens 103.600, Einkauf 40 × 323 =
 12.920 statt 13.600, vor der Abrechnung 100.739 (ohne Handel 100.059), abends
 165.503 statt 164.823; Spediteur morgens 72.920, Werbung 60.000, eigener
@@ -732,10 +739,10 @@ Einkauf 34 × 380, Spanne +680, vor der Abrechnung 11.754 statt 11.074, abends
 78.324 statt 77.644. Die Messung hat eine Lücke: Beide Firmen würfeln mit
 demselben Seed und sind deshalb an denselben Tagen geschlossen – der Fall
 „Spediteur zu, Käufer weicht auf den NPC aus" (`reason 'trader'`) kommt im
-Lauf nicht vor (0×), ist aber getestet (`test/companyTrade.test.js`). Der
-Kern-Median der Baufirma mit Ereignissen liegt in diesem Lauf bei 52.915
-statt der oben genannten 55.830 – die 3a-Zahlen stammen aus der Messung vor
-der Erstausstattung, wie dort vermerkt; die Decken sind unverändert.
+Lauf nicht vor (0×), ist aber getestet (`test/companyTrade.test.js`). Die
+Kern-Mediane mit Ereignissen sind oben im 3a-Absatz bereits auf diesen Lauf
+aufgefrischt (fünf der neun Branchen verschoben, u. a. Baufirma 52.915 statt
+55.830 in der Datei vom 20.09.); die Decken sind unverändert.
 
 ### Eine Bremse, nicht zwei
 
