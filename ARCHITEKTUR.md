@@ -28,6 +28,8 @@ Das ist die wichtigste Trennung im ganzen Projekt:
 
 Es gibt **keine** lokale Bilanz. Willst du wissen, wie viel jemand hat, fragst
 du die API. Willst du jemandem Geld geben/nehmen, rufst du `changeCash` auf.
+Firmenkassen sind lokaler Zustand; der Handel (§15, 3b) bewegt Geld
+Kasse → Kasse ohne `changeCash`.
 
 ## 3. Die goldene Regel: kein Gelddrucker
 
@@ -683,7 +685,9 @@ des Tagespreises zwischen **90 und 100 %** (`setOffer`, je Branche oder
 `alle`, `aus` schaltet ab; `company_offers`) – der Preis hängt damit am Kurs,
 95 % bleiben 95 %, wenn BETO steigt. Kapazität **20 Einheiten je Platz und
 Tag** (`HANDEL_KAPAZITAET`: Kern 10 × 20 = 200, Vollausbau 22 × 20 = 440;
-`trade_day`/`trade_today` wie `pitch_day`), kein Zwischenlager, keine Zeit,
+`trade_day`/`trade_today` wie `pitch_day` – der Tag ist der Kalendertag, kein
+rollierendes 24-Stunden-Fenster, daher lassen sich rund um Mitternacht
+höchstens zwei Tageskapazitäten verkaufen), kein Zwischenlager, keine Zeit,
 keine Verträge. Der Kauf (`buyFromTrader`, `units` oder „voll" = min aus
 Wunsch, freien Lagerplätzen, Restkapazität) läuft **Kasse → Kasse, synchron,
 ohne Buchung nach außen**: Käufer `kasse −= n × price`, Lager und Einstand

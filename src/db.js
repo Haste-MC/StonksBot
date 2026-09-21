@@ -601,11 +601,14 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS company_offers (
     company_id INTEGER NOT NULL,
     branch     TEXT    NOT NULL,
-    share      INTEGER NOT NULL,
+    share      INTEGER NOT NULL CHECK (share BETWEEN 90 AND 100),
     active     INTEGER NOT NULL DEFAULT 1,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (company_id, branch)
   );
+  -- Der CHECK gilt nur für neu angelegte Tabellen (CREATE TABLE IF NOT EXISTS
+  -- ändert eine bestehende dev-Tabelle nicht) – die Anwendung prüft die Spanne
+  -- ohnehin in setOffer.
 `);
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_extras (

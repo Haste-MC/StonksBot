@@ -2797,6 +2797,7 @@ const modals = {
         ? `🚚 **${r.units}** Einheiten von **${r.trader.name}** für ${money(symbol, r.cost)} (${money(symbol, r.price)} je Einheit statt ${money(symbol, s.ware.price)}).`
         : { trader: '🚚 Der Spediteur liefert gerade nicht.',
             capacity: '📦 Es passt nichts mehr rein – oder der Spediteur hat für heute geliefert.',
+            units: '❌ Menge? Eine ganze Zahl über 0 oder „voll".',
             kasse: `💸 Dafür fehlen ${money(symbol, (r.cost ?? 0) - (r.kasse ?? 0))} in der Kasse.`,
             self: '❌ Das eigene Angebot kannst du nicht kaufen.' }[r.reason] ?? '❌ Das ging nicht.';
       await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));

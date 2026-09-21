@@ -962,7 +962,9 @@ async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now =
   const free = capacityOf(b, effectiveOf(c, b)) - (c.stock ?? 0);
   const cap = tradeCapacity(t, tb, now);
   const want = units === 'voll' ? Infinity : Math.floor(Number(units));
-  if (!(want > 0)) return { ok: false, reason: 'capacity', free, left: cap.left };
+  // Menge unbrauchbar (Garbage-Input wie 'x' oder <= 0) ist ein anderer Fehler als
+  // „passt gerade nicht mehr rein" – die Ansicht soll das unterscheiden können.
+  if (!(want > 0)) return { ok: false, reason: 'units', free, left: cap.left };
   const n = Math.min(want, free, cap.left);
   if (n <= 0) return { ok: false, reason: 'capacity', free, left: cap.left };
   const q = tradeQuote(wareOf(guildId, b).price, offer.share);
@@ -974,8 +976,10 @@ async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now =
   const trader = { ...t, kasse: t.kasse + spread, trade_day: dayKey(now), trade_today: cap.today + n,
     trade_units: (t.trade_units ?? 0) + n, trade_profit: (t.trade_profit ?? 0) + spread };
   trader.news = pushNews(trader, now, `🚚 ${n} ${b.ware.name} an ${c.name} geliefert: +${spread.toLocaleString('de-DE')} Spanne`, spread);
-  db.saveCompany(buyer);
-  db.saveCompany(trader);
+  db.transaction(() => {
+    db.saveCompany(buyer);
+    db.saveCompany(trader);
+  });
   return { ok: true, units: n, price: q.price, wholesale: q.wholesale, cost, spread,
     trader: { id: t.id, name: t.name }, stock: buyer.stock, kasse: buyer.kasse };
 }

@@ -274,6 +274,30 @@ function view(buttons) {
     const waren = spediBetrieb.embeds[0].data.fields.find((f) => f.name === '📦 Waren');
     check('Betriebsansicht der Spedition enthält „🚚 Handel:"', waren?.value.includes('🚚 Handel:'), waren?.value);
 
+    // Eine Spedition ist selbst auch Kunde ihrer eigenen Branche „spedition" – beliefert
+    // sie eine ANDERE Spedition, zeigt ihre Lager-Ansicht sowohl den eigenen „Handel"-Knopf
+    // als auch „Bei Spediteur kaufen" und braucht dafür zwei Zeilen (ARCHITEKTUR §15,
+    // Kommentar in buildFirmaLagerView: „sonst wären es sechs Knöpfe in einer").
+    const FT2 = 'fr_spedi2';
+    r = await company.found(FG, FT2, 'spedition', 'Turbo-Spedition', now);
+    check('zweite Spedition gegründet', r.ok, JSON.stringify(r));
+    await company.deposit(FG, FT2, 500_000, now);
+    company.setOffer(FG, FT2, 'spedition', 95, now);
+
+    const spediLager2 = await ui.buildFirmaLagerView({ guildId: FG, userId: FT });
+    const s2Fields = spediLager2.embeds[0].data.fields.map((f) => f.name);
+    check('Spediteur-Lager (beliefert von anderer Spedition) zeigt „🚚 Spediteure"',
+      s2Fields.includes('🚚 Spediteure'), s2Fields.join(', '));
+    check('Spediteur-Lager (beliefert): zwei Zeilen', spediLager2.components.length === 2,
+      String(spediLager2.components.length));
+    for (const row of spediLager2.components) {
+      check('Spediteur-Lager (beliefert): höchstens fünf Knöpfe je Zeile', row.components.length <= 5,
+        String(row.components.length));
+    }
+    check('Spediteur-Lager (beliefert) hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(spediLager2).overflow === undefined, String(render.mapReactions(spediLager2).overflow));
+
+    await company.close(FG, FT2, now);
     await company.close(FG, FT, now);
     await company.close(FG, FK, now);
   }
