@@ -464,6 +464,45 @@ db.clearMarket(G);
   check('nur einer gleichzeitig', market.startTicker(G, { intervalMs: 60000 }) === false);
   check('lässt sich stoppen', market.stopTicker() === true && !market.tickerRunning());
 
+  console.log('--- Nachfrage-Drift ---');
+  {
+    check('Konstanten', market.DEMAND_REF === 200 && Math.abs(market.DEMAND_CAP - 0.00002) < 1e-12 && market.DEMAND_CAP === market.DRIFT_CAP / 2);
+    check('Lieferanten-Symbole aus den Branchen', market.SUPPLIER_SYMBOLS.has('BETO') && market.SUPPLIER_SYMBOLS.has('DÖNR') && !market.SUPPLIER_SYMBOLS.has('BANK'));
+
+    // step: extraDrift wirkt multiplikativ und exakt (gleicher Würfel). Hoher
+    // Startkurs, damit die Rundung auf ganze Zahlen je Takt nicht ins Gewicht
+    // fällt (bei 5.000 wäre das Rundungsrauschen der Ratio ~1 %, hier ~1e-5).
+    const rngA = mulberry32(11), rngB = mulberry32(11);
+    let a = 5_000_000, b = 5_000_000;
+    for (let t = 0; t < 48 * 365; t++) {
+      a = market.step(a, 0.005, rngA, 0, 0, 0, 0);
+      b = market.step(b, 0.005, rngB, 0, 0, 0, market.DEMAND_CAP);
+    }
+    check('365 Tage volle Nachfrage: Faktor e^0,3504 ≈ 1,42 (Rundung je Takt ±0,01 %)',
+      Math.abs(b / a / Math.exp(market.DEMAND_CAP * 48 * 365) - 1) < 1e-4, `${(b / a).toFixed(5)} vs ${Math.exp(0.3504).toFixed(5)}`);
+
+    // EMA-Handrechnung: 7 Tage je 140 Einheiten → 140 × (1 − (6/7)^7) = 92,41.
+    // (Ein Tag sind 48 Takte à TICK_MS, nicht 24.)
+    const GD = `DEMAND_T${Date.now()}`;
+    const tag = (d) => new Date(new Date(t0).setHours(6, 0, 0, 0)).getTime() + d * 48 * H;
+    for (let d = 0; d < 7; d++) market.recordDemand(GD, 'BETO', 140, tag(d));
+    let dm = market.demandOf(GD, 'BETO', tag(7));
+    check('EMA nach 7 Tagen 140/Tag = 92,41', Math.abs(dm.ema - 140 * (1 - Math.pow(6 / 7, 7))) < 1e-6, String(dm.ema));
+    check('emaNow ohne heutige Käufe = ema × 6/7', Math.abs(dm.emaNow - dm.ema * 6 / 7) < 1e-9);
+    check('extra = CAP × min(1, emaNow/200)', Math.abs(dm.extra - market.DEMAND_CAP * Math.min(1, dm.emaNow / 200)) < 1e-15);
+    // Heute zählt mit 1/7: 400 gäben nur 79,2 + 57,1 = 136 < 200 – erst ab 846
+    // Einheiten am Tag liegt emaNow über der Referenz. Daher 1000.
+    market.recordDemand(GD, 'BETO', 1000, tag(7));
+    dm = market.demandOf(GD, 'BETO', tag(7));
+    check('1000 heute: emaNow 222 über 200 → extra = CAP (gedeckelt)', dm.extra === market.DEMAND_CAP && dm.today === 1000, JSON.stringify(dm));
+    // Tag 7 → Tag 45 sind 38 Tage: (92,41 × 6/7 + 1000/7) × (6/7)^37 = 0,74 < 1.
+    check('38 Tage Pause: EMA klingt ab, nie negativ', market.demandOf(GD, 'BETO', tag(45)).ema < 1 && market.demandOf(GD, 'BETO', tag(45)).extra >= 0,
+      String(market.demandOf(GD, 'BETO', tag(45)).ema));
+    check('Aktie ohne Lieferantenrolle: extra 0', market.recordDemand(GD, 'BANK', 500, tag(7)) && market.demandOf(GD, 'BANK', tag(7)).extra === 0);
+    check('quote nennt die Nachfrage', typeof market.quote(GD, 'BETO', tag(7)).demand?.perDay === 'number');
+    db.clearMarket(GD);
+  }
+
   db.clearMarket(G);
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);

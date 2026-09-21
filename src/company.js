@@ -130,6 +130,17 @@ function wareOf(guildId, b) {
   };
 }
 
+/**
+ * Einen Wareneinkauf bei der Börse melden (Stück 3c, Nachfrage-Drift): jede
+ * gekaufte Einheit – Erstausstattung, Lagerkauf, ad hoc, Großhandel – hebt die
+ * Nachfrage der Lieferanten-Aktie der **kaufenden** Branche. Spät gebunden,
+ * damit company.js die Börse nicht beim Laden zieht. Synchron und billig.
+ */
+function noteDemand(guildId, b, units, now) {
+  if (!(units > 0)) return null;
+  return require('./wallstreet').recordDemand(guildId, b.ware.supplier, units, now);
+}
+
 /** Lagerkapazität: eine Woche Vollbetrieb (NPC-Schichten + Anpacken). */
 function capacityOf(b, eff) {
   return (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY) * data.LAGER_TAGE;
@@ -213,6 +224,7 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
     }
     const newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
       { kind: 'company' });
+    noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
     return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
   } catch (err) {
     db.deleteCompany(row.id);
@@ -526,6 +538,7 @@ function settle(companyId, now = Date.now(), random = Math.random) {
       db.saveCompany({ ...cur, paid_through: tag });
       closeCompany(guildId, c.id, tag, 'insolvent');
       out.insolvent = true; out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+      noteDemand(guildId, b, out.ware.adhoc, now);   // bis hierhin ad hoc gekauft
       return out;
     }
   }
@@ -533,6 +546,9 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   for (const s of staff) db.saveStaff(s);
   db.saveCompany({ ...cur, paid_through: tag });
   out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+  // Ad-hoc-Einheiten des Laufs sind Käufe: einmal gesammelt melden, mit `now`
+  // (nachgeholte Tage zählen auf heute – die Börse rechnet je Lauf ohnehin grob).
+  noteDemand(guildId, b, out.ware.adhoc, now);
 
   // Ein Vorfall je Abrechnung – über die nachgeholten Tage, nicht je Tag (§4).
   // Gewürfelt mit `now`, nicht mit dem Abrechnungstag: die 24-h-Frist läuft ab jetzt.
@@ -624,6 +640,7 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const after = { ...v.company, kasse: v.company.kasse - lohn + umsatz };
   db.saveCompany(after);
   db.saveStaff({ ...s, shifts: s.shifts + 1 });
+  if (v.adhoc) noteDemand(guildId, b, 1, now);
   return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: after, branch: b, rank: rankOf(s.rank),
     ware: { adhoc: v.adhoc, cost: v.cost } };
 }
@@ -683,6 +700,7 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   // Die Zeit ist gebucht, die Schicht findet statt: eine Einheit Ware (Lager oder ad hoc).
   const v = consumeOne(c, wareOf(guildId, b));
   db.saveCompany({ ...v.company, kasse: v.company.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
+  if (v.adhoc) noteDemand(guildId, b, 1, now);
   return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time, factor: time.factor,
     ware: { adhoc: v.adhoc, cost: v.cost } };
 }
@@ -706,6 +724,7 @@ async function buyStock(guildId, userId, units, now = Date.now()) {
   const cost = n * w.price;
   if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
   db.saveCompany({ ...c, kasse: c.kasse - cost, stock: (c.stock ?? 0) + n, stock_cost: (c.stock_cost ?? 0) + cost });
+  noteDemand(guildId, b, n, now);
   return { ok: true, units: n, price: w.price, cost, stock: (c.stock ?? 0) + n, capacity, kasse: c.kasse - cost };
 }
 
@@ -980,6 +999,9 @@ async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now =
     db.saveCompany(buyer);
     db.saveCompany(trader);
   });
+  // Die Ware kommt (gedanklich) vom Lieferanten der Käufer-Branche – der
+  // Spediteur reicht nur durch; seine eigene Aktie (SCHR) bleibt unberührt.
+  noteDemand(guildId, b, n, now);
   return { ok: true, units: n, price: q.price, wholesale: q.wholesale, cost, spread,
     trader: { id: t.id, name: t.name }, stock: buyer.stock, kasse: buyer.kasse };
 }

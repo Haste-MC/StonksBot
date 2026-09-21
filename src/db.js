@@ -416,6 +416,9 @@ db.exec(`
     price     INTEGER NOT NULL,
     tick      INTEGER NOT NULL,        -- bis hierhin simuliert
     listed_at INTEGER NOT NULL,
+    demand_day    TEXT    NOT NULL DEFAULT '',
+    demand_today  INTEGER NOT NULL DEFAULT 0,
+    demand_ema    REAL    NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, symbol)
   );
 `);
@@ -428,12 +431,23 @@ db.exec(`
  *
  * Nur in diesem Fenster ist der Kurs vorhersagbar – der Rest der Zeit bleibt
  * er ein Zufallslauf. Genau das begrenzt, wie viel sich daraus holen lässt.
+ *
+ * Nachfrage der Spielerfirmen (Firmen Stück 3c, siehe wallstreet.js):
+ *
+ *   demand_day    Kalendertag (JJJJ-MM-TT), zu dem `demand_today` gehört
+ *   demand_today  heute gekaufte Einheiten (nur Lieferanten-Aktien)
+ *   demand_ema    geglätteter Tagesdurchschnitt bis zum Vortag (7 Tage)
+ *
+ * Ältere Datenbanken bekommen die Spalten hier nachgerüstet.
  */
 const priceColumns = new Set(
   db.prepare('PRAGMA table_info(market_prices)').all().map((c) => c.name));
 for (const [column, definition] of [
   ['recover_to', 'REAL NOT NULL DEFAULT 0'],
   ['recover_until', 'INTEGER NOT NULL DEFAULT 0'],
+  ['demand_day', "TEXT NOT NULL DEFAULT ''"],
+  ['demand_today', 'INTEGER NOT NULL DEFAULT 0'],
+  ['demand_ema', 'REAL NOT NULL DEFAULT 0'],
 ]) {
   if (!priceColumns.has(column)) {
     db.exec(`ALTER TABLE market_prices ADD COLUMN ${column} ${definition}`);
@@ -1734,6 +1748,9 @@ const stmt = {
        recover_to = excluded.recover_to, recover_until = excluded.recover_until`),
   relist: db.prepare(
     `UPDATE market_prices SET price = ?, tick = ?, listed_at = ?
+     WHERE guild_id = ? AND symbol = ?`),
+  setDemand: db.prepare(
+    `UPDATE market_prices SET demand_day = ?, demand_today = ?, demand_ema = ?
      WHERE guild_id = ? AND symbol = ?`),
   addHistory: db.prepare(
     `INSERT INTO market_history (guild_id, symbol, tick, price) VALUES (?, ?, ?, ?)
@@ -3741,6 +3758,11 @@ function setPrice(guildId, symbol, price, tick, listedAt = Date.now(), recover =
     Math.max(0, recover?.to ?? 0), Math.max(0, recover?.until ?? 0));
 }
 
+/** Nachfrage-Stand eines Wertes (Tag, heutige Einheiten, EMA) – Zeile muss existieren. */
+function setDemand(guildId, symbol, day, today, ema) {
+  stmt.setDemand.run(day, Math.max(0, Math.round(today)), Math.max(0, ema), guildId, symbol);
+}
+
 /** Neuemission nach einer Insolvenz: Kurs und Startzeitpunkt zurücksetzen. */
 function relistAsset(guildId, symbol, price, tick, when = Date.now()) {
   stmt.relist.run(Math.max(1, Math.round(price)), tick, when, guildId, symbol);
@@ -4061,7 +4083,7 @@ module.exports = {
   treasuryCountries, treasuryCountry, countryPopulation,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,
-  getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,
+  getPrice, allPrices, setPrice, setDemand, relistAsset, addHistory, history, purgeHistory,
   getHolding, holdingsOf, holdersOf, setHolding,
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,

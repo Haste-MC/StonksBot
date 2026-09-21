@@ -3259,6 +3259,14 @@ async function buildAssetView({ guildId, userId, symbol: sym, page = 1 }) {
   const beliefert = require('./data/companies').BRANCHES.filter((b) => b.ware?.supplier === a.symbol);
   if (beliefert.length) {
     embed.addFields({ name: '🏭 Lieferant für', value: beliefert.map((b) => `${b.emoji} ${b.name}`).join(' · ') });
+    // Nachfrage (Stück 3c): Wareneinkäufe der Firmen heben die Drift – gedeckelt.
+    const d = a.demand ?? { emaNow: 0, perDay: 0 };
+    embed.addFields({
+      name: '🏭 Nachfrage',
+      value: d.emaNow > 0
+        ? `Ø **${Math.round(d.emaNow)} Einheiten/Tag** (7 Tage) · Drift +${(d.perDay * 100).toFixed(2).replace('.', ',')} %/Tag`
+        : 'keine',
+    });
   }
 
   if (holding?.shares > 0) {
