@@ -179,6 +179,16 @@ const HANDEL_SHARE_MIN = 90;     // Anteil am NPC-Preis, den der Spediteur verla
 const HANDEL_SHARE_MAX = 100;    // … 90 % (Spanne 0) bis 100 % (NPC-Preis)
 const HANDEL_KAPAZITAET = 20;    // Einheiten je Platz und Tag
 
+// Firmenanteile (Stück 3c): jede Firma hat 1000 Anteile, der Inhaber behält
+// mindestens 510 (die Mehrheit – die Firma bleibt seine). Börsengang erst ab
+// Stufe 2 (eine Firma mit Substanz). Der Kauf ist ein Transfer Spieler →
+// Spieler; die Gebühr ist die einzige Senke des Handels. Entnahme und
+// Auszahlung (Schließen/Verkauf) werden nach Anteilen geteilt.
+const SHARES_TOTAL = 1000;
+const OWNER_MIN = 510;
+const IPO_MIN_STUFE = 2;
+const SHARE_FEE = 0.01;          // 1 % des Kaufpreises, zahlt der Käufer
+
 module.exports = {
   BRANCHES, RANKS, NPC_NAMES,
   NPC_SHIFTS, INSOLVENCY_DAYS, NPC_QUIT_AFTER_UNPAID, WERBUNG_DAYS, WERBUNG_BOOST,
@@ -188,4 +198,5 @@ module.exports = {
   EVENT_UMSATZ_MAX,
   WARE_SHARE, WARE_KURS_MIN, WARE_KURS_MAX, AD_HOC_MARKUP, LAGER_TAGE,
   HANDEL_RABATT, HANDEL_SHARE_MIN, HANDEL_SHARE_MAX, HANDEL_KAPAZITAET,
+  SHARES_TOTAL, OWNER_MIN, IPO_MIN_STUFE, SHARE_FEE,
 };

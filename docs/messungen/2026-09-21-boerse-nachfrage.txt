@@ -1,0 +1,42 @@
+Messung Nachfrage-Drift (Stück 3c: Börse aktiv) – Auszug aus dem Lauf vom 2026-09-21.
+Aufruf: rm -rf .testdata && DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365
+(Abschnitt „Nachfrage-Drift"; derselbe Abschnitt allein: `… --nur=nachfrage`, ~25 s, Ausgabe
+Zeile für Zeile identisch – die Seeds sind fest, die Welten getrennt. Der vollständige Lauf
+liegt in .superpowers/sdd/task-4-messung/mess-3c-voll.txt; die Firmen- und Handel-Blöcke
+sind zahlengleich mit docs/messungen/2026-09-21-firmen-handel.txt – Kurs = Start in den
+Firmenwelten, dort läuft kein Börsentakt, die Nachfrage-Zählung ändert am Ertrag nichts.)
+
+Aufbau: je Seed drei Börsenwelten mit demselben Würfel (rng(seed) neu je Welt), 365 Tage à
+48 Takte über `wallstreet.advance`; in Welt 40 und 200 wird vor jedem Tages-`advance`
+`recordDemand(G, 'BETO', units, now)` gerufen. Σ extra = Σ Tage `demandOf().extra × 48`.
+
+Handrechnung (Einzelfall, vor dem Lesen der Messung):
+  Deckel: DEMAND_CAP = DRIFT_CAP/2 = 0,00002 je Takt; 48 × 365 = 17.520 Takte
+          → 0,00002 × 17.520 = 0,3504; e^0,3504 = 1,4196 (+42,0 %). 40/Tag: 0,2 × 0,3504 = 0,0701 → 1,0726.
+  EMA:    Tag 1 emaNow = 0 × 6/7 + 200/7 = 28,57 → extra = 0,00002 × 28,57/200 = 2,857e-6  ✔ (Zeile „Anlauf")
+          Tag 7 = 200 × (1 − (6/7)^7) = 200 × 0,6601 = 132,0 ✔; Tag 15 = 200 × (1 − (6/7)^15) = 180,2 ✔ (90 %)
+  Anlauf: fehlende Drift = Σ_d (6/7)^d × Tagesdrift = 6 Tage × 0,00096 = 0,00576 → Σ extra = 0,3504 − 0,0058 = 0,3446 ✔
+  Identität: ln(p200/p0) = Σ extra bis auf Rundung; Rundungs-σ je Welt und Takt = 1/(√12 × Kurs),
+          Differenz zweier Welten über 17.520 Takte bei Kurs ~1.250: √(2 × 17.520/12)/1.250 ≈ 0,043 ✔ (Seed 1: 0,0498 mit Tageskursen)
+--- Nachfrage-Drift (Stück 3c: BETO, 365 Tage, drei Welten, ein Würfel) ---
+
+  Deckel DEMAND_CAP 0,00002 je Takt (= DRIFT_CAP 0,00004 / 2), volle Wirkung ab DEMAND_REF 200 Einheiten/Tag, EMA 7 Tage; 48 Takte/Tag, 365 Tage = 17.520 Takte; BETO Start 1.750, σ 0,005 je Takt; 10 Seeds, je Seed derselbe Würfel in den drei Welten 0 / 40 / 200 Einheiten am Tag.
+  Geschlossene Form (Nachfrage vom ersten Takt an voll wirksam): 200/Tag e^(0,00002 × 48 × 365) = e^0,3504 = 1,4196 (42,0 %) · 40/Tag e^0,0701 = 1,0726 (7,3 %).
+  Anlauf der EMA (emaNow Einheiten/Tag → extra je Takt): 40/Tag Tag 1: 5,7 → 5,71e-7, Tag 7: 26,4 → 2,64e-6, Tag 15: 36,0 → 3,60e-6, Tag 30: 39,6 → 3,96e-6 · 200/Tag Tag 1: 28,6 → 2,86e-6, Tag 7: 132,0 → 1,32e-5, Tag 15: 180,2 → 1,80e-5, Tag 30: 198,0 → 1,98e-5.
+  Σ extra 40/Tag: 0,0689 über 17.520 Takte → e^Σ = 1,0714 (geschlossene Form 1,0726, Anlauf-Lücke 0,0012 = 6,0 Tage Drift).
+  Σ extra 200/Tag: 0,3446 über 17.520 Takte → e^Σ = 1,4115 (geschlossene Form 1,4196, Anlauf-Lücke 0,0058 = 6,0 Tage Drift).
+
+  Je Seed (Endkurse p0 · p40 · p200; Verhältnis, ln, Abweichung von Σ extra in Rundungs-σ):
+  Seed 20260921:  1.102 ·  1.171 ·  1.477   p40/p0 1,0626 (ln 0,0607, −0,0082 = 0,2 σ, σ 0,0530) · p200/p0 1,3403 (ln 0,2929, −0,0518 = 1,0 σ, σ 0,0498)   Kurs Ø 1.207 (564 … 2.188), Ereignisse BETO 5
+  Seed 20260922:  9.090 ·  9.802 · 12.485   p40/p0 1,0783 (ln 0,0754, +0,0065 = 0,3 σ, σ 0,0242) · p200/p0 1,3735 (ln 0,3174, −0,0273 = 1,2 σ, σ 0,0233)   Kurs Ø 3.291 (1.276 … 9.430), Ereignisse BETO 2
+  Seed 20260923:  3.487 ·  3.792 ·  4.765   p40/p0 1,0875 (ln 0,0839, +0,0149 = 0,5 σ, σ 0,0294) · p200/p0 1,3665 (ln 0,3123, −0,0324 = 1,1 σ, σ 0,0283)   Kurs Ø 2.070 (1.074 … 4.120), Ereignisse BETO 1
+  Seed 20260924:    465 ·    552 ·    741   p40/p0 1,1871 (ln 0,1715, +0,1026 = 1,3 σ, σ 0,0792) · p200/p0 1,5935 (ln 0,4660, +0,1213 = 1,7 σ, σ 0,0735)   Kurs Ø 904 (383 … 2.528), Ereignisse BETO 5
+  Seed 20260925:  1.710 ·  1.802 ·  2.423   p40/p0 1,0538 (ln 0,0524, −0,0165 = 0,6 σ, σ 0,0259) · p200/p0 1,4170 (ln 0,3485, +0,0039 = 0,2 σ, σ 0,0244)   Kurs Ø 2.159 (1.447 … 3.250), Ereignisse BETO 3
+  Seed 20260926:  1.211 ·  1.367 ·  1.685   p40/p0 1,1288 (ln 0,1212, +0,0522 = 1,4 σ, σ 0,0379) · p200/p0 1,3914 (ln 0,3303, −0,0143 = 0,4 σ, σ 0,0355)   Kurs Ø 1.653 (781 … 2.788), Ereignisse BETO 6
+  Seed 20260927:    578 ·    610 ·    766   p40/p0 1,0554 (ln 0,0539, −0,0150 = 0,2 σ, σ 0,0771) · p200/p0 1,3253 (ln 0,2816, −0,0630 = 0,9 σ, σ 0,0719)   Kurs Ø 812 (380 … 1.754), Ereignisse BETO 4
+  Seed 20260928:  1.054 ·  1.171 ·  1.534   p40/p0 1,1110 (ln 0,1053, +0,0363 = 0,7 σ, σ 0,0558) · p200/p0 1,4554 (ln 0,3753, +0,0306 = 0,6 σ, σ 0,0530)   Kurs Ø 1.078 (575 … 1.927), Ereignisse BETO 5
+  Seed 20260929:  2.438 ·  2.606 ·  3.320   p40/p0 1,0689 (ln 0,0666, −0,0023 = 0,1 σ, σ 0,0316) · p200/p0 1,3618 (ln 0,3088, −0,0359 = 1,2 σ, σ 0,0303)   Kurs Ø 1.765 (1.083 … 2.452), Ereignisse BETO 8
+  Seed 20260930:    747 ·    755 ·  1.056   p40/p0 1,0107 (ln 0,0107, −0,0583 = 0,9 σ, σ 0,0644) · p200/p0 1,4137 (ln 0,3462, +0,0015 = 0,0 σ, σ 0,0581)   Kurs Ø 1.040 (464 … 1.805), Ereignisse BETO 1
+  p40/p0 über 10 Seeds: Median 1,0736, Mittel 1,0844, 1,0107 … 1,1871; Mittel der Abweichung ln − Σ extra = +0,0112 bei erwarteter Rundungs-σ des Mittels 0,0164 (0,7 σ) → Erwartung e^Σ = 1,0714, geschlossene Form 1,0726.
+  p200/p0 über 10 Seeds: Median 1,3824, Mittel 1,4038, 1,3253 … 1,5935; Mittel der Abweichung ln − Σ extra = −0,0067 bei erwarteter Rundungs-σ des Mittels 0,0153 (0,4 σ) → Erwartung e^Σ = 1,4115, geschlossene Form 1,4196.
+

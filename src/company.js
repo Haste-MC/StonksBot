@@ -130,6 +130,17 @@ function wareOf(guildId, b) {
   };
 }
 
+/**
+ * Einen Wareneinkauf bei der Börse melden (Stück 3c, Nachfrage-Drift): jede
+ * gekaufte Einheit – Erstausstattung, Lagerkauf, ad hoc, Großhandel – hebt die
+ * Nachfrage der Lieferanten-Aktie der **kaufenden** Branche. Spät gebunden,
+ * damit company.js die Börse nicht beim Laden zieht. Synchron und billig.
+ */
+function noteDemand(guildId, b, units, now) {
+  if (!(units > 0)) return null;
+  return require('./wallstreet').recordDemand(guildId, b.ware.supplier, units, now);
+}
+
 /** Lagerkapazität: eine Woche Vollbetrieb (NPC-Schichten + Anpacken). */
 function capacityOf(b, eff) {
   return (eff.slots * data.NPC_SHIFTS + data.MAX_PITCH_PER_DAY) * data.LAGER_TAGE;
@@ -207,17 +218,21 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
     return { ok: false, reason: 'already' };
   }
 
+  let newBalance;
   try {
     if (balance.cash < total) {
       await unb.withdrawFromBank(guildId, userId, total - balance.cash, `Gründung: ${clean}`);
     }
-    const newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
+    newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
       { kind: 'company' });
-    return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
   } catch (err) {
     db.deleteCompany(row.id);
     return { ok: false, reason: 'payment', error: err.message };
   }
+  // Erst nach der Buchung, außerhalb des try: ein Fehler in der Nachfrage-Messung
+  // darf eine bezahlte Firma nie wieder löschen.
+  noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
+  return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
 }
 
 // ----------------------------------------------------------------- Personal
@@ -409,6 +424,7 @@ function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   db.deleteStaffOfCompany(c.id);
   db.deleteExtrasOfCompany(c.id);
   db.deleteOffersOfCompany(c.id);
+  db.deleteShareOffersOfCompany(c.id);      // Anteile bleiben (Auszahlung wird geteilt), Angebote nicht
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
   return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
 }
@@ -526,6 +542,7 @@ function settle(companyId, now = Date.now(), random = Math.random) {
       db.saveCompany({ ...cur, paid_through: tag });
       closeCompany(guildId, c.id, tag, 'insolvent');
       out.insolvent = true; out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+      noteDemand(guildId, b, out.ware.adhoc, now);   // bis hierhin ad hoc gekauft
       return out;
     }
   }
@@ -533,6 +550,9 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   for (const s of staff) db.saveStaff(s);
   db.saveCompany({ ...cur, paid_through: tag });
   out.auslastung = cur.auslastung; out.kasse = cur.kasse;
+  // Ad-hoc-Einheiten des Laufs sind Käufe: einmal gesammelt melden, mit `now`
+  // (nachgeholte Tage zählen auf heute – die Börse rechnet je Lauf ohnehin grob).
+  noteDemand(guildId, b, out.ware.adhoc, now);
 
   // Ein Vorfall je Abrechnung – über die nachgeholten Tage, nicht je Tag (§4).
   // Gewürfelt mit `now`, nicht mit dem Abrechnungstag: die 24-h-Frist läuft ab jetzt.
@@ -624,6 +644,7 @@ function workShift(guildId, userId, companyId, now = Date.now(), random = Math.r
   const after = { ...v.company, kasse: v.company.kasse - lohn + umsatz };
   db.saveCompany(after);
   db.saveStaff({ ...s, shifts: s.shifts + 1 });
+  if (v.adhoc) noteDemand(guildId, b, 1, now);
   return { ok: true, lohn, umsatz, overtimeBonus: lohn - plain, company: after, branch: b, rank: rankOf(s.rank),
     ware: { adhoc: v.adhoc, cost: v.cost } };
 }
@@ -683,6 +704,7 @@ async function pitchIn(guildId, userId, now = Date.now()) {
   // Die Zeit ist gebucht, die Schicht findet statt: eine Einheit Ware (Lager oder ad hoc).
   const v = consumeOne(c, wareOf(guildId, b));
   db.saveCompany({ ...v.company, kasse: v.company.kasse + umsatz, pitch_day: day, pitch_today: done + 1 });
+  if (v.adhoc) noteDemand(guildId, b, 1, now);
   return { ok: true, umsatz, done: done + 1, max: data.MAX_PITCH_PER_DAY, time, factor: time.factor,
     ware: { adhoc: v.adhoc, cost: v.cost } };
 }
@@ -706,6 +728,7 @@ async function buyStock(guildId, userId, units, now = Date.now()) {
   const cost = n * w.price;
   if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
   db.saveCompany({ ...c, kasse: c.kasse - cost, stock: (c.stock ?? 0) + n, stock_cost: (c.stock_cost ?? 0) + cost });
+  noteDemand(guildId, b, n, now);
   return { ok: true, units: n, price: w.price, cost, stock: (c.stock ?? 0) + n, capacity, kasse: c.kasse - cost };
 }
 
@@ -724,15 +747,22 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
   const value = Math.floor(Number(amount) || 0);
   if (value <= 0) return { ok: false, reason: 'amount' };
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
-  db.saveCompany({ ...c, kasse: c.kasse - value });
+  // Anteile (Stück 3c): der Split ist rein (keine Schreibung) – die Halter
+  // bekommen ihren Teil (`pending`) erst gutgeschrieben, wenn die Buchung des
+  // Inhaberteils geglückt ist; scheitert sie, gibt es nichts zurückzunehmen,
+  // weil noch nichts geschrieben wurde – nur die Kasse muss zurück.
+  const split = splitPayout(c.id, value);
+  db.saveCompany({ ...c, kasse: c.kasse - value, last_payout: value });
   try {
-    const balance = await changeCash(guildId, userId, value, `Entnahme: ${c.name}`,
+    const balance = await changeCash(guildId, userId, split.owner, `Entnahme: ${c.name}`,
       { xp: false, tax: false, kind: 'company' });
-    return { ok: true, amount: value, balance, kasse: c.kasse - value };
+    creditParts(c.id, split.parts);
+    const shared = value - split.owner;
+    return { ok: true, amount: value, paid: split.owner, shared, balance, kasse: c.kasse - value };
   } catch (err) {
     // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
     const current = db.getCompany(c.id);
-    db.saveCompany({ ...current, kasse: current.kasse + value });
+    db.saveCompany({ ...current, kasse: current.kasse + value, last_payout: c.last_payout ?? 0 });
     return { ok: false, reason: 'payment', error: err.message };
   }
 }
@@ -821,14 +851,17 @@ async function close(guildId, userId, now = Date.now()) {
   const c = ctx.company;
   const payout = Math.max(0, Math.round(c.kasse + (c.stock_cost ?? 0)));
   const closed = closeCompany(guildId, c.id, now, 'closed');
-  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
+  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, shared: 0, balance: null };
+  // Anteile (Stück 3c): die Halter bekommen ihren Teil synchron (`pending`) – die Firma
+  // ist schon zu, ihr Anteil steht fest; nur der Inhaberteil hängt an der Buchung.
+  const d = distribute(closed, payout);
   try {
-    const balance = await changeCash(guildId, userId, payout, `Auflösung: ${c.name}`,
+    const balance = await changeCash(guildId, userId, d.owner, `Auflösung: ${c.name}`,
       { xp: false, tax: false, kind: 'company' });
-    return { ok: true, company: closed, payout, paid: true, balance };
+    return { ok: true, company: closed, payout, paid: d.owner, shared: d.shared, balance };
   } catch (err) {
-    console.warn(`Firma ${c.id}: Auszahlung von ${payout} bei Auflösung fehlgeschlagen – ${err.message}`);
-    return { ok: true, company: closed, payout, paid: false, error: err.message };
+    console.warn(`Firma ${c.id}: Auszahlung von ${d.owner} bei Auflösung fehlgeschlagen – ${err.message}`);
+    return { ok: true, company: closed, payout, paid: false, shared: d.shared, error: err.message };
   }
 }
 
@@ -847,14 +880,15 @@ async function sell(guildId, userId, now = Date.now()) {
   const extraIds = db.companyExtras(c.id);
   const payout = Math.max(0, Math.round(investedOf(b, c, extraIds) + c.kasse + (c.stock_cost ?? 0)));
   const closed = closeCompany(guildId, c.id, now, 'sold');
-  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, balance: null };
+  if (payout <= 0) return { ok: true, company: closed, payout, paid: true, shared: 0, balance: null };
+  const d = distribute(closed, payout);              // Anteile (Stück 3c): wie bei `close`
   try {
-    const balance = await changeCash(guildId, userId, payout, `Verkauf: ${c.name}`,
+    const balance = await changeCash(guildId, userId, d.owner, `Verkauf: ${c.name}`,
       { xp: false, tax: false, kind: 'company' });
-    return { ok: true, company: closed, payout, paid: true, balance };
+    return { ok: true, company: closed, payout, paid: d.owner, shared: d.shared, balance };
   } catch (err) {
-    console.warn(`Firma ${c.id}: Auszahlung von ${payout} beim Verkauf fehlgeschlagen – ${err.message}`);
-    return { ok: true, company: closed, payout, paid: false, error: err.message };
+    console.warn(`Firma ${c.id}: Auszahlung von ${d.owner} beim Verkauf fehlgeschlagen – ${err.message}`);
+    return { ok: true, company: closed, payout, paid: false, shared: d.shared, error: err.message };
   }
 }
 
@@ -980,8 +1014,205 @@ async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now =
     db.saveCompany(buyer);
     db.saveCompany(trader);
   });
+  // Die Ware kommt (gedanklich) vom Lieferanten der Käufer-Branche – der
+  // Spediteur reicht nur durch; seine eigene Aktie (SCHR) bleibt unberührt.
+  noteDemand(guildId, b, n, now);
   return { ok: true, units: n, price: q.price, wholesale: q.wholesale, cost, spread,
     trader: { id: t.id, name: t.name }, stock: buyer.stock, kasse: buyer.kasse };
+}
+
+// --------------------------------------------------------------- Anteile
+//
+// Jede Firma hat SHARES_TOTAL Anteile; der Inhaber hält, was niemand sonst
+// hält (er hat keine eigene Zeile). Ab Stufe IPO_MIN_STUFE darf er bis auf
+// OWNER_MIN abgeben; Halter dürfen weiterverkaufen. Ein Kauf ist ein Transfer
+// Spieler → Spieler mit Gebühr (die einzige Senke des Handels, §3). Entnahme
+// und Auszahlung (Schließen/Verkauf) werden nach Anteilen geteilt: Halter
+// bekommen ihren Teil als `pending` gutgeschrieben und holen ihn gesammelt ab
+// (eine Buchung je Abholung – nicht eine je Halter und Entnahme).
+
+/** Anzeigename eines Spielers für die Chronik – spät gebunden, ohne Discord. */
+function nameOf(userId) { return require('./identity').nameOf(userId) ?? 'Spieler'; }
+
+/** Aufteilung einer Auszahlung: Halter bekommen floor(value × Anteile/1000), der Inhaber den Rest. */
+function splitPayout(companyId, value) {
+  const parts = db.companyShareHolders(companyId).filter((h) => h.shares > 0)
+    .map((h) => ({ user_id: h.user_id, amount: Math.floor(value * h.shares / data.SHARES_TOTAL) }));
+  return { owner: value - parts.reduce((s, p) => s + p.amount, 0), parts };
+}
+
+/** Schreibt die Halter-Teile eines (schon berechneten) Splits gut – reine Buchhaltung, keine Bank. */
+function creditParts(companyId, parts) {
+  for (const p of parts) {
+    const h = db.getCompanyShare(companyId, p.user_id);
+    db.setCompanyShare(companyId, p.user_id, { ...h, pending: (h?.pending ?? 0) + p.amount });
+  }
+}
+
+/** Berechnet den Split und schreibt die Halter-Anteile sofort gut (synchron). */
+function distribute(c, value) {
+  const split = splitPayout(c.id, value);
+  creditParts(c.id, split.parts);
+  return { ...split, shared: value - split.owner };
+}
+
+/** Verteilung der Anteile: Gesamtzahl, Inhaberanteil, Halter mit > 0 Anteilen. */
+function sharesOf(companyId) {
+  const holders = db.companyShareHolders(companyId).filter((h) => h.shares > 0);
+  const held = holders.reduce((s, h) => s + h.shares, 0);
+  return { total: data.SHARES_TOTAL, owner: data.SHARES_TOTAL - held, holders };
+}
+
+/**
+ * Anteile zum Verkauf stellen. Inhaber: nur die eigene, offene Firma, ab
+ * Stufe IPO_MIN_STUFE, und nie unter OWNER_MIN (offene Angebote zählen als
+ * schon abgegeben). Halter: höchstens die eigenen Anteile abzüglich offener
+ * Angebote. Synchron, keine Buchung.
+ */
+function listShares(guildId, userId, companyId, shares, price, now = Date.now()) {
+  const c = db.getCompany(Number(companyId));
+  if (!c || c.status !== 'open' || c.guild_id !== guildId) return { ok: false, reason: 'no_company' };
+  const n = Math.floor(Number(shares)), p = Math.floor(Number(price));
+  if (!(n > 0)) return { ok: false, reason: 'shares' };
+  if (!(p > 0)) return { ok: false, reason: 'price' };
+  const offen = db.shareOffersOf(guildId, c.id).filter((o) => o.seller_id === String(userId)).reduce((s, o) => s + o.shares, 0);
+  if (c.owner_id === String(userId)) {
+    if ((c.stufe ?? 0) < data.IPO_MIN_STUFE) return { ok: false, reason: 'stufe', stufe: c.stufe ?? 0, min: data.IPO_MIN_STUFE };
+    const free = sharesOf(c.id).owner - offen - data.OWNER_MIN;
+    if (n > free) return { ok: false, reason: 'owner_min', free: Math.max(0, free) };
+  } else {
+    const h = db.getCompanyShare(c.id, userId);
+    const free = Math.max(0, (h?.shares ?? 0) - offen);
+    if (n > free) return { ok: false, reason: 'shares', free };
+  }
+  const offer = db.insertShareOffer({ guildId, companyId: c.id, sellerId: String(userId), shares: n, price: p, now });
+  return { ok: true, offer };
+}
+
+/** Eigenes Angebot zurückziehen. */
+function cancelShareOffer(guildId, userId, offerId) {
+  const o = db.getShareOffer(Number(offerId));
+  if (!o || o.guild_id !== guildId || o.seller_id !== String(userId)) return { ok: false, reason: 'offer' };
+  db.deleteShareOffer(o.id);
+  return { ok: true };
+}
+
+/**
+ * Offene Angebote eines Servers (oder einer Firma), billigstes zuerst – mit
+ * Firmenkopf, Buchwert je Anteil (Ausbau + Kasse + Lager, ohne Gründung: so
+ * rechnet auch der Schließen-Dialog) und letzter Ausschüttung je Anteil.
+ */
+function shareOffers(guildId, companyId = null) {
+  return db.shareOffersOf(guildId, companyId).map((o) => {
+    if (o.shares <= 0) return null;                // gerade komplett reserviert (buyShares, §7)
+    const c = db.getCompany(o.company_id);
+    if (!c) return null;
+    const b = branch(c.branch);
+    const book = Math.round((investedOf(b, c, db.companyExtras(c.id)) + c.kasse + (c.stock_cost ?? 0)) / data.SHARES_TOTAL);
+    return {
+      id: o.id,
+      company: { id: c.id, name: c.name, branch: b.id, branchName: b.name, emoji: b.emoji, stufe: c.stufe ?? 0 },
+      seller_id: o.seller_id, shares: o.shares, price: o.price, book,
+      lastPayout: Math.round((c.last_payout ?? 0) / data.SHARES_TOTAL),
+    };
+  }).filter(Boolean).sort((x, y) => x.price - y.price || x.id - y.id);
+}
+
+/**
+ * Anteilskauf: ein Transfer Spieler → Spieler mit Gebühr (Senke). Erst nehmen,
+ * dann buchen (§7): Das Angebot wird SYNCHRON vor dem ersten `await` um `n`
+ * verkleinert – ein zweiter Klick sieht den Rest (oder 0) und bekommt `shares`.
+ * Zwei Buchungen sind unvermeidlich (zwei Konten): Scheitert die erste (Käufer),
+ * wächst das Angebot zurück; scheitert die zweite (Verkäufer), geht das Geld an
+ * den Käufer zurück und das Angebot wächst zurück (Muster `pay`). Gelöscht wird
+ * ein leeres Angebot erst, wenn beide Buchungen durch sind. Halter-Zeilen werden
+ * erst danach geschrieben. Kauft der Inhaber zurück, bekommt er keine eigene
+ * Halter-Zeile – sein impliziter Anteil (`sharesOf().owner`) wächst schon
+ * dadurch, dass die Halter-Summe sinkt. Im Ergebnis ist `shares` immer `n`.
+ */
+async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
+  const o = db.getShareOffer(Number(offerId));
+  if (!o || o.guild_id !== guildId) return { ok: false, reason: 'offer' };
+  if (o.seller_id === String(userId)) return { ok: false, reason: 'self' };
+  const c = db.getCompany(o.company_id);
+  if (!c || c.status !== 'open') return { ok: false, reason: 'closed' };
+  const n = Math.floor(Number(shares));
+  if (!(n > 0) || n > o.shares) return { ok: false, reason: 'shares', max: o.shares };
+  // Zweite Absicherung (billig) gegen Drift zwischen Angebot und tatsächlichem Bestand:
+  // reicht, was der Verkäufer wirklich hält, gerade noch für n Anteile dieses Kaufs?
+  if (o.seller_id === c.owner_id) {
+    if (sharesOf(c.id).owner - n < data.OWNER_MIN) return { ok: false, reason: 'shares', max: o.shares };
+  } else {
+    const h = db.getCompanyShare(c.id, o.seller_id);
+    if ((h?.shares ?? 0) < n) return { ok: false, reason: 'shares', max: o.shares };
+  }
+  const cost = n * o.price;
+  const fee = Math.round(cost * data.SHARE_FEE);
+  const rest = o.shares - n;
+  db.updateShareOffer(o.id, rest);                 // reserviert – synchron, vor dem ersten await
+  // Rücknahme RELATIV zur aktuellen Zeile, nicht zum bei Eintritt gelesenen `o.shares`:
+  // ein zweiter, zwischenzeitlich abgeschlossener Kauf hat den Rest schon weiter
+  // verkleinert – absolut zurückschreiben würde dessen Reservierung mitkassieren
+  // (Angebot überverkauft, 1000-Anteile-Invariante bricht).
+  const restore = () => {
+    const cur = db.getShareOffer(o.id);
+    if (cur) { db.updateShareOffer(o.id, cur.shares + n); return; }
+    // Zeile zwischenzeitlich komplett verkauft und gelöscht (die andere Buchung lief
+    // durch, Rest 0) – Wiederherstellen unter derselben id geht nicht mehr, also für
+    // den Verkäufer neu anlegen und die neue id protokollieren.
+    const again = db.insertShareOffer({ guildId, companyId: c.id, sellerId: o.seller_id, shares: n, price: o.price, now });
+    console.warn(`Anteile: Angebot ${o.id} war beim Rückbuchen weg, neu angelegt als ${again.id} (${n} Anteile, Verkäufer ${o.seller_id})`);
+  };
+  const paid = await pay(guildId, userId, cost + fee, `Anteile: ${c.name}`);
+  if (!paid.ok) {
+    restore();
+    return { ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error };
+  }
+  try {
+    await changeCash(guildId, o.seller_id, cost, `Anteilsverkauf: ${c.name}`, { xp: false, tax: false, kind: 'company' });
+  } catch (err) {
+    restore();
+    await changeCash(guildId, userId, cost + fee, 'Anteilskauf abgebrochen', { xp: false, tax: false, kind: 'company' })
+      .catch((e) => console.warn(`Anteile: Rücknahme fehlgeschlagen (${userId}, ${cost + fee}) – ${e.message}`));
+    return { ok: false, reason: 'payment', error: err.message };
+  }
+  if (rest <= 0) db.deleteShareOffer(o.id);
+  const seller = db.getCompanyShare(c.id, o.seller_id);
+  if (seller && seller.shares > 0) {
+    // Einstand anteilig mitgeben – der Rest bleibt beim Verkäufer.
+    const costOut = Math.round(seller.cost * n / seller.shares);
+    db.setCompanyShare(c.id, o.seller_id, { ...seller, shares: seller.shares - n, cost: seller.cost - costOut });
+  }
+  if (String(userId) !== c.owner_id) {
+    // Kauft irgendjemand außer dem Inhaber, bekommt er/sie eine Halter-Zeile.
+    // Kauft der Inhaber selbst zurück, bleibt er ohne Zeile (siehe Kommentar oben).
+    const buyer = db.getCompanyShare(c.id, userId) ?? { shares: 0, cost: 0, pending: 0, received: 0 };
+    db.setCompanyShare(c.id, userId, { ...buyer, shares: buyer.shares + n, cost: buyer.cost + cost });
+  }
+  const cur = db.getCompany(c.id);
+  db.saveCompany({ ...cur, news: pushNews(cur, now, `📈 ${n} Anteile gingen von ${nameOf(o.seller_id)} an ${nameOf(userId)} für ${cost.toLocaleString('de-DE')}`, 0) });
+  return { ok: true, shares: n, price: o.price, cost, fee, seller: o.seller_id, company: { id: c.id, name: c.name } };
+}
+
+/**
+ * Ausstehende Ausschüttungen abholen – alle Firmen des Servers in EINER
+ * Buchung. Erst nehmen (§7), dann buchen; scheitert die Buchung, geht es zurück.
+ */
+async function claimDividends(guildId, userId) {
+  const rows = db.pendingOf(guildId, userId);
+  const amount = rows.reduce((s, r) => s + r.pending, 0);
+  if (amount <= 0) return { ok: true, amount: 0, parts: [] };
+  db.clearPending(guildId, userId);
+  try {
+    const balance = await changeCash(guildId, userId, amount, 'Ausschüttung Firmenanteile', { xp: false, tax: false, kind: 'company' });
+    return { ok: true, amount, parts: rows.map((r) => ({ company: r.name, companyId: r.company_id, amount: r.pending })), balance };
+  } catch (err) {
+    for (const r of rows) {
+      const h = db.getCompanyShare(r.company_id, userId);
+      if (h) db.setCompanyShare(r.company_id, userId, { ...h, pending: h.pending + r.pending, received: h.received - r.pending });
+    }
+    return { ok: false, reason: 'payment', error: err.message };
+  }
 }
 
 // ------------------------------------------------------------------ Anzeige
@@ -1062,6 +1293,8 @@ function status(guildId, userId, now = Date.now()) {
       ? { ...tradeCapacity(c, b, now), units: c.trade_units ?? 0, profit: c.trade_profit ?? 0, offers: offersOf(guildId, c.id) }
       : null,
     angebote: offersFor(guildId, b.id, now, c.id),
+    // Anteile (Stück 3c): Verteilung (Inhaber und Halter).
+    anteile: sharesOf(c.id),
   };
 }
 
@@ -1179,5 +1412,6 @@ module.exports = {
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
   upgrade, buyExtra,
+  splitPayout, sharesOf, listShares, cancelShareOffer, shareOffers, buyShares, claimDividends,
   groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, newsOf, rollLightEvent, NEWS_MAX,
 };

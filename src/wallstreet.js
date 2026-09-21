@@ -102,6 +102,20 @@ const DRIFT_SHARE = 1;
 const DRIFT_CAP = 0.00004;
 
 /**
+ * ===================== NACHFRAGE =====================
+ * Wareneinkäufe der Spielerfirmen (Firmen Stück 3c) heben die Drift der
+ * Lieferanten-Aktie – gedeckelt auf die Hälfte der normalen Drift und nie
+ * negativ. Die Grenze ist damit ausgerechnet: höchstens
+ * e^(0,00002 × 48 × 365) = +42 % im Jahr auf eine voll nachgefragte Aktie
+ * (ARCHITEKTUR §15). Gezählt wird je Kalendertag; ein 7-Tage-EMA glättet.
+ */
+const DEMAND_REF = 200;          // Einheiten je Tag für die volle Wirkung
+const DEMAND_CAP = DRIFT_CAP / 2;
+const DEMAND_EMA_DAYS = 7;
+// data/companies ist reine Daten (kein require zurück) – kein Ladezyklus.
+const SUPPLIER_SYMBOLS = new Set(require('./data/companies').BRANCHES.map((b) => b.ware.supplier));
+
+/**
  * ===================== NACHBEBEN =====================
  * Selten kippt ein Kurs weg (oder schießt hoch) – und holt danach einen Teil
  * davon zurück. Das ist die einzige Stelle, an der der Kurs vorhersagbar ist,
@@ -150,6 +164,8 @@ function gauss(random = Math.random) {
  *
  * `shock` ist der bereits gewürfelte Ruck des Gesamtmarktes (log-Rendite),
  * `shockSigma` dessen Streuung – beides fließt in die Martingal-Korrektur ein.
+ * `extraDrift` ist die Nachfrage-Drift je Takt (0 … DEMAND_CAP), additiv zur
+ * normalen Drift – wirkt über viele Takte multiplikativ (e^(Σ extraDrift)).
  * Der Abzug σ²/2 über BEIDE Anteile sorgt dafür, dass gilt:
  *
  *     E[nextPrice] === price
@@ -157,12 +173,13 @@ function gauss(random = Math.random) {
  * Ohne diesen Abzug hätte jeder Wert eine eingebaute Aufwärtsdrift – ein
  * Gelddrucker, der mit der Schwankung wächst (ARCHITEKTUR §3).
  */
-function step(price, sigma, random = Math.random, shock = 0, shockSigma = 0, recoverTo = 0) {
-  if (!sigma && !shock && !recoverTo) return price;
+function step(price, sigma, random = Math.random, shock = 0, shockSigma = 0, recoverTo = 0, extraDrift = 0) {
+  if (!sigma && !shock && !recoverTo && !extraDrift) return price;
   const variance = sigma * sigma + shockSigma * shockSigma;
 
-  // Drift: gleicht das Ausbluten des Medians zum großen Teil aus, gedeckelt.
-  const drift = Math.min(DRIFT_CAP, (variance / 2) * DRIFT_SHARE);
+  // Drift: gleicht das Ausbluten des Medians zum großen Teil aus, gedeckelt –
+  // plus die Nachfrage-Drift der Spielerfirmen (`extraDrift`, siehe demandOf).
+  const drift = Math.min(DRIFT_CAP, (variance / 2) * DRIFT_SHARE) + extraDrift;
 
   // Nachbeben: zieht in Richtung Erholungsziel – nur solange das Fenster läuft.
   const pull = recoverTo > 0
@@ -247,6 +264,63 @@ function list(guildId, asset, tick, now = Date.now()) {
   return db.getPrice(guildId, asset.symbol);
 }
 
+// ----------------------------------------------------------- Nachfrage
+
+/** Kalendertag (lokal) als JJJJ-MM-TT – wie `dayKey` in company.js. */
+function dayOf(now) {
+  const d = new Date(now);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * EMA bis zum Tag `day` nachziehen: Der gespeicherte Tag geht mit seinen
+ * Einheiten in den EMA ein, jeder übersprungene Tag zählt mit 0 (als Potenz,
+ * kein Deckel – nach langer Pause klingt die Nachfrage vollständig ab).
+ * Rein: schreibt nichts.
+ */
+function rollDemand(row, day) {
+  const today = row.demand_today ?? 0;
+  let ema = row.demand_ema ?? 0;
+  if (!row.demand_day || row.demand_day === day) return { today, ema, rolled: false };
+  const from = new Date(row.demand_day + 'T06:00:00'), to = new Date(day + 'T06:00:00');
+  const days = Math.max(1, Math.round((to - from) / 86_400_000));
+  const keep = 1 - 1 / DEMAND_EMA_DAYS;
+  ema = ema * keep + today / DEMAND_EMA_DAYS;
+  ema *= Math.pow(keep, days - 1);
+  return { today: 0, ema, rolled: true };
+}
+
+/**
+ * Einen Wareneinkauf der Spielerfirmen verbuchen (synchron, billig – läuft
+ * auch innerhalb von `settle`). Legt den Kurs-Datensatz bei Bedarf an.
+ * @returns {{today:number, ema:number}|null} null bei unbekanntem Wert oder Menge ≤ 0.
+ */
+function recordDemand(guildId, symbol, units, now = Date.now()) {
+  const asset = data.find(symbol);
+  if (!asset || !(units > 0)) return null;
+  const row = db.getPrice(guildId, asset.symbol) ?? list(guildId, asset, tickOf(now), now);
+  const day = dayOf(now);
+  const cur = rollDemand(row, day);
+  const today = cur.today + Math.round(units);
+  db.setDemand(guildId, asset.symbol, day, today, cur.ema);
+  return { today, ema: cur.ema };
+}
+
+/**
+ * Nachfrage-Stand eines Wertes: `today` (heute gekauft), `ema` (bis gestern),
+ * `emaNow` (EMA mit dem heutigen Stand), `extra` (Drift je Takt, 0 … DEMAND_CAP,
+ * nur für Lieferanten-Aktien) und `perDay` (= extra × 48, als Anteil).
+ */
+function demandOf(guildId, symbol, now = Date.now()) {
+  const asset = data.find(symbol);
+  const row = asset && db.getPrice(guildId, asset.symbol);
+  if (!row) return { today: 0, ema: 0, emaNow: 0, extra: 0, perDay: 0 };
+  const cur = rollDemand(row, dayOf(now));
+  const emaNow = cur.ema * (1 - 1 / DEMAND_EMA_DAYS) + cur.today / DEMAND_EMA_DAYS;
+  const extra = SUPPLIER_SYMBOLS.has(asset.symbol) ? DEMAND_CAP * Math.min(1, emaNow / DEMAND_REF) : 0;
+  return { today: cur.today, ema: cur.ema, emaNow, extra, perDay: extra * 48 };
+}
+
 // ---------------------------------------------------------- Simulation
 
 /**
@@ -326,6 +400,10 @@ function simulate(guildId, from, target, now, random) {
     return [a.symbol, { to: row.recover_to ?? 0, until: row.recover_until ?? 0 }];
   }));
   let vol = db.getMarketState(guildId)?.vol ?? 1;
+  // Nachfrage-Drift je Wert – einmal je Lauf mit `now` bestimmt: Nachgeholte
+  // Takte bekommen die heutige Nachfrage, nicht die ihres Tages (bewusst grob;
+  // der Deckel je Takt bleibt so oder so).
+  const extras = new Map(singles.map((a) => [a.symbol, demandOf(guildId, a.symbol, now).extra]));
 
   for (let t = from + 1; t <= target; t++) {
     vol = nextVol(vol, random);
@@ -344,7 +422,7 @@ function simulate(guildId, from, target, now, random) {
 
       let next = step(
         before, asset.sigma * vol, random,
-        shocks[asset.kind] ?? 0, shockSigma[asset.kind] ?? 0, active);
+        shocks[asset.kind] ?? 0, shockSigma[asset.kind] ?? 0, active, extras.get(asset.symbol));
 
       // Kippt hier gerade etwas weg? Dann überschreibt das den normalen Schritt.
       const event = active > 0 ? null : rollEvent(next, t, random);
@@ -440,6 +518,7 @@ async function bankrupt(guildId, asset, price, tick, now = Date.now()) {
   db.addNews(guildId, asset.symbol, tick,
     data.BANKRUPTCY[Math.floor(Math.random() * data.BANKRUPTCY.length)]
       .replace('{name}', asset.name), -1, now);
+  // Der Nachfrage-Stand (EMA) überlebt die Insolvenz absichtlich: Die Firmen kaufen weiter.
   db.relistAsset(guildId, asset.symbol, asset.start, tick, now);
   db.addHistory(guildId, asset.symbol, tick, asset.start);
   db.addNews(guildId, asset.symbol, tick,
@@ -488,6 +567,7 @@ function quote(guildId, symbol, now = Date.now()) {
     history: hist.map((h) => h.price),
     dayChange: first > 0 ? (row.price - first) / first : 0,
     kindLabel: data.KIND_LABEL[asset.kind] ?? asset.kind,
+    demand: demandOf(guildId, asset.symbol, now),
   };
 }
 
@@ -725,6 +805,7 @@ module.exports = {
   NEWS_THRESHOLD, MAX_SHARES, MARKET_SIGMA, CRYPTO_SIGMA, VOL_RANGE,
   DRIFT_SHARE, DRIFT_CAP, EVENT_CHANCE, EVENT_SIZE, RECOVER_SHARE, RECOVER_TICKS,
   RECOVER_PULL, rollEvent,
+  DEMAND_REF, DEMAND_CAP, DEMAND_EMA_DAYS, SUPPLIER_SYMBOLS, recordDemand, demandOf,
   gauss, step, nextVol, tickOf, basketOf, fundPrice, basketMean, list, advance,
   simulate, makeHeadline, bankrupt,
   feeFor, feeForUser, quote, board, portfolio, sharesFor, buy, sell,

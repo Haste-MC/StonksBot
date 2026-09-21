@@ -302,6 +302,164 @@ function view(buttons) {
     await company.close(FG, FK, now);
   }
 
+  console.log('--- Nachfrage-Drift (Spec 3c A: Darstellung) ---');
+  {
+    const ui = require('../src/ui');
+    const wallstreet = require('../src/wallstreet');
+    // Frischer Server: noch keine Firma hat Beton gekauft – „keine".
+    const NG = `FRN_T${Date.now()}`;
+    const now = Date.now();
+    const vor = await ui.buildAssetView({ guildId: NG, userId: U, symbol: 'BETO' });
+    const nachfrageVor = vor.embeds[0].data.fields.find((f) => f.name === '🏭 Nachfrage');
+    check('BETO ohne Einkäufe: Nachfrage „keine"', nachfrageVor?.value === 'keine', nachfrageVor?.value);
+    wallstreet.recordDemand(NG, 'BETO', 140, now);
+    const nach = await ui.buildAssetView({ guildId: NG, userId: U, symbol: 'BETO' });
+    const nachfrage = nach.embeds[0].data.fields.find((f) => f.name === '🏭 Nachfrage')?.value ?? '';
+    // 140 Einheiten heute, EMA über 7 Tage: 140 / 7 = 20 Einheiten/Tag.
+    check('BETO nach 140 Einheiten: Ø 20 Einheiten/Tag und Drift je Tag',
+      /Ø \*\*20 Einheiten\/Tag\*\* \(7 Tage\) · Drift \+\d+,\d{2} %\/Tag/.test(nachfrage), nachfrage);
+    check('Drift ist positiv', !/Drift \+0,00 %/.test(nachfrage), nachfrage);
+  }
+
+  console.log('--- Firmenanteile (Spec 3c C: Darstellung) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const FG = `FR3C_T${Date.now()}`;
+    const FO = 'fr_inhaber';
+    const FA = 'fr_anleger';
+    const now = Date.now();
+    let r = await company.found(FG, FO, 'baufirma', 'Bau AG', now);
+    check('Baufirma gegründet', r.ok, JSON.stringify(r));
+    const cid = r.company.id;
+    await company.deposit(FG, FO, 200_000, now);
+
+    // Ausbau-Ansicht: 9 Knöpfe (4 + Anteile in Zeile 1, 4 Extras) – die Fluxer-Grenze genau.
+    // Stufe 0: die Extras sind noch gesperrt – erst die Stufe setzen, damit alle 9 zählen.
+    db.setCompanyStufe(cid, 4);
+    const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FO });
+    const aIds = a.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    const aAktiv = a.components.flatMap((row) => row.components).filter((b) => !b.data.disabled);
+    check('Ausbau Zeile 1 enthält Anteile', a.components[0].components.some((b) => b.data.custom_id === `firma|anteile|0|${FO}`), aIds.join(' '));
+    check('Ausbau: 9 Knöpfe, alle aktiv', aIds.length === 9 && aAktiv.length === 9, `${aIds.length} / ${aAktiv.length} aktiv`);
+    for (const row of a.components) check('Ausbau: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Ausbau mit 9 Knöpfen hält das Fluxer-Limit genau (kein Überlauf)',
+      render.mapReactions(a).overflow === undefined && render.mapReactions(a).length === render.MAX_REACTIONS,
+      `${render.mapReactions(a).length} / overflow ${render.mapReactions(a).overflow}`);
+
+    // Anteile-Ansicht unter Stufe 2: Hinweis, Anbieten gesperrt.
+    db.setCompanyStufe(cid, 1);
+    const v1 = await ui.buildFirmaAnteileView({ guildId: FG, userId: FO });
+    check('Anteile (Stufe 1): Hinweis „Noch kein Börsengang"', v1.embeds[0].data.fields.some((f) => f.name.includes('Noch kein Börsengang')),
+      v1.embeds[0].data.fields.map((f) => f.name).join(', '));
+    check('Anteile (Stufe 1): Anbieten gesperrt', v1.components[0].components[0].data.disabled === true);
+
+    // Stufe 2 mit einem Angebot: Verteilung, Angebot, Zurückziehen aktiv mit der Angebots-ID.
+    db.setCompanyStufe(cid, 2);
+    r = company.listShares(FG, FO, cid, 100, 2_500, now);
+    check('100 Anteile à 2.500 angeboten', r.ok, JSON.stringify(r));
+    const offerId = r.offer.id;
+    const v2 = await ui.buildFirmaAnteileView({ guildId: FG, userId: FO });
+    const v2Fields = Object.fromEntries(v2.embeds[0].data.fields.map((f) => [f.name, f.value]));
+    check('Anteile: Titel beginnt mit 📊', v2.embeds[0].data.title.startsWith('📊'), v2.embeds[0].data.title);
+    check('Anteile: Verteilung „Du 1000 – alle Anteile bei dir"', v2Fields['🥧 Verteilung']?.includes('**1000**'), v2Fields['🥧 Verteilung']);
+    check('Anteile: Buchwert je Anteil ist eine Zahl', /\d/.test(v2Fields['📒 Buchwert je Anteil'] ?? ''), v2Fields['📒 Buchwert je Anteil']);
+    check('Anteile: Anbieten nennt 390 freie (490 − 100 im Angebot)', v2Fields['📤 Anbieten']?.includes('**390**') && v2Fields['📤 Anbieten'].includes('100 schon'), v2Fields['📤 Anbieten']);
+    check('Anteile: Angebot #id · 100 Anteile à 2.500 von dir',
+      v2Fields['🏷️ Offene Angebote (1)']?.includes(`#${offerId}`) && v2Fields['🏷️ Offene Angebote (1)'].includes('**100**') && v2Fields['🏷️ Offene Angebote (1)'].includes('2.500') && v2Fields['🏷️ Offene Angebote (1)'].includes('von dir'),
+      v2Fields['🏷️ Offene Angebote (1)']);
+    const v2Ids = v2.components[0].components.map((b) => b.data.custom_id);
+    check('Anteile: Knöpfe Anbieten · Zurückziehen(#id) · Firma · Home',
+      v2Ids.join(' ') === `firma|anteilanbieten|0|${FO} firma|anteilweg|${offerId}|${FO} menu|firma|1|${FO} home|${FO}`, v2Ids.join(' '));
+    check('Anteile: Zurückziehen aktiv', v2.components[0].components[1].data.disabled !== true);
+    check('Anteile-Ansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v2).overflow === undefined, String(render.mapReactions(v2).overflow));
+    console.log('    ' + v2.embeds[0].data.title);
+    for (const f of v2.embeds[0].data.fields) console.log(`    [${f.name}] ${f.value.replace(/\n/g, ' | ')}`);
+
+    // Markt-Liste mit 2 Angeboten: Zeile nennt #id, Firma, Branche, Stufe, Firma-Nr, Anteile, Preis, Buchwert, Ausschüttung.
+    r = company.listShares(FG, FO, cid, 40, 5_000, now);
+    const offer2 = r.offer.id;
+    const m = await ui.buildAnteileMarktView({ guildId: FG, userId: FA, page: 1 });
+    const mDesc = m.embeds[0].data.description;
+    check('Markt: Titel 🏢 Firmenanteile', m.embeds[0].data.title === '🏢 Firmenanteile', m.embeds[0].data.title);
+    check('Markt: beide Angebote, billigstes zuerst', mDesc.indexOf(`#${offerId} `) < mDesc.indexOf(`#${offer2} `) && mDesc.includes('**100** Anteile à **'), mDesc);
+    check('Markt: Zeile nennt 🏗️ Bau AG (Baufirma, Stufe 2, Firma-Nr), Buchwert und letzte Ausschüttung',
+      mDesc.includes(`🏗️ **Bau AG** (Baufirma, Stufe 2, Firma-Nr ${cid})`) && !mDesc.includes('undefined') && mDesc.includes('Buchwert') && mDesc.includes('letzte Ausschüttung') && mDesc.includes('/Anteil'), mDesc);
+    const mIds = m.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('Markt: Knöpfe Kaufen · Meine Anteile · Börse · Home, keine Seitenknöpfe bei einer Seite',
+      mIds.join(' ') === `wanteilkauf|${FA} wmeine|${FA} wkind|all|${FA} home|${FA}`, mIds.join(' '));
+    check('Markt: Kaufen aktiv', m.components[0].components[0].data.disabled !== true);
+    check('Markt-Liste hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(m).overflow === undefined, String(render.mapReactions(m).overflow));
+    for (const zeile of mDesc.split('\n')) console.log('    ' + zeile);
+
+    // Leere Liste: Kaufen gesperrt.
+    const leer = await ui.buildAnteileMarktView({ guildId: `LEER_${FG}`, userId: FA, page: 1 });
+    check('Markt leer: Kaufen gesperrt, Hinweis', leer.components[0].components[0].data.disabled === true && leer.embeds[0].data.description.includes('Niemand'));
+
+    // Sechs Angebote → zwei Seiten → zweite Zeile mit ◀ ▶.
+    for (let i = 0; i < 4; i++) company.listShares(FG, FO, cid, 10, 6_000 + i, now);
+    const m2 = await ui.buildAnteileMarktView({ guildId: FG, userId: FA, page: 2 });
+    check('Markt (2 Seiten): zweite Zeile mit Zurück/Weiter', m2.components.length === 2
+      && m2.components[1].components[0].data.custom_id === `wanteile|1|${FA}` && m2.components[1].components[2].data.disabled === true,
+      m2.components.map((row) => row.components.map((b) => b.data.custom_id).join(' ')).join(' / '));
+    for (const row of m2.components) check('Markt (2 Seiten): höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Markt (2 Seiten): Seite 2 zeigt ein Angebot', (m2.embeds[0].data.description.match(/^#\d+ /gm) ?? []).length === 1, m2.embeds[0].data.description);
+    check('Markt (2 Seiten) hält das Fluxer-Limit', render.mapReactions(m2).overflow === undefined, String(render.mapReactions(m2).overflow));
+
+    // Börse-Nav: Firmenanteile in der Filterzeile, Depot in der Navigation – jede Zeile ≤ 5.
+    const boerse = await ui.buildMarketView({ guildId: FG, userId: FA, page: 1 });
+    const bIds = boerse.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('Börse-Nav enthält wanteile|1 und wdepot', bIds.includes(`wanteile|1|${FA}`) && bIds.includes(`wdepot|${FA}`), bIds.join(' '));
+    for (const row of boerse.components) check('Börse: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Börse: höchstens fünf Zeilen', boerse.components.length <= 5, String(boerse.components.length));
+
+    // Meine Anteile ohne Beteiligung: Abholen und Verkaufen gesperrt.
+    const leer2 = await ui.buildMeineAnteileView({ guildId: FG, userId: FA });
+    check('Meine Anteile (leer): Abholen und Verkaufen gesperrt',
+      leer2.components[0].components[0].data.disabled === true && leer2.components[0].components[1].data.disabled === true);
+
+    // Anleger kauft 100, Inhaber entnimmt → pending > 0 → Abholen aktiv.
+    r = await company.buyShares(FG, FA, offerId, 100, now);
+    check('Anleger kauft 100 Anteile', r.ok && r.shares === 100 && r.fee === 2_500, JSON.stringify(r));
+    r = await company.withdraw(FG, FO, 50_000, now);
+    check('Entnahme 50.000: 45.000 für den Inhaber, 5.000 an Anteilseigner', r.ok && r.paid === 45_000 && r.shared === 5_000, JSON.stringify(r));
+    const mine = await ui.buildMeineAnteileView({ guildId: FG, userId: FA });
+    const mineDesc = mine.embeds[0].data.description;
+    check('Meine Anteile: Firma-Nr, 100 Anteile (10 %), bezahlt 250.000, ausstehend 5.000, erhalten 0',
+      mineDesc.includes(`Firma-Nr ${cid}`) && mineDesc.includes('**100** Anteile (10 %)') && mineDesc.includes('bezahlt') && mineDesc.includes('250.000')
+      && mineDesc.includes('ausstehend **') && mineDesc.includes('5.000') && mineDesc.includes('erhalten'), mineDesc);
+    const mineBtn = mine.components[0].components;
+    check('Meine Anteile: Knöpfe Abholen · Verkaufen · Zurückziehen · Firmenanteile · Home',
+      mineBtn.map((b) => b.data.custom_id).join(' ') === `wanteilabholen|${FA} wanteilverkauf|${FA} wanteilweg|0|${FA} wanteile|1|${FA} home|${FA}`,
+      mineBtn.map((b) => b.data.custom_id).join(' '));
+    check('Meine Anteile: Abholen aktiv (pending 5.000) und nennt den Betrag', mineBtn[0].data.disabled !== true && mineBtn[0].data.label.includes('5.000'), mineBtn[0].data.label);
+    check('Meine Anteile: Verkaufen aktiv, Zurückziehen gesperrt (kein Angebot)', mineBtn[1].data.disabled !== true && mineBtn[2].data.disabled === true);
+    check('Meine Anteile hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(mine).overflow === undefined, String(render.mapReactions(mine).overflow));
+    for (const zeile of mineDesc.split('\n')) console.log('    ' + zeile);
+
+    // Betriebsansicht: Fußzeile nennt die Halter.
+    const betrieb = await ui.buildFirmaView({ guildId: FG, userId: FO });
+    check('Betriebsansicht: Fußzeile „· 100 Anteile bei 1 Spieler"', betrieb.embeds[0].data.footer.text.includes('· 100 Anteile bei 1 Spieler'), betrieb.embeds[0].data.footer.text);
+    check('Betriebsansicht hält das Fluxer-Limit', render.mapReactions(betrieb).overflow === undefined);
+    // Anteile-Ansicht des Inhabers nach dem Kauf: Verteilung und Halterliste.
+    const v3 = await ui.buildFirmaAnteileView({ guildId: FG, userId: FO });
+    const v3Fields = Object.fromEntries(v3.embeds[0].data.fields.map((f) => [f.name, f.value]));
+    check('Anteile: Verteilung „Du 900 · 1 Anteilseigner 100"', v3Fields['🥧 Verteilung'] === 'Du **900** · 1 Anteilseigner **100**', v3Fields['🥧 Verteilung']);
+    check('Anteile: letzte Ausschüttung 50 je Anteil', v3Fields['💰 Letzte Ausschüttung']?.includes('50 je Anteil'), v3Fields['💰 Letzte Ausschüttung']);
+    check('Anteile: Halterliste mit 100 Anteilen (10 %) und 5.000 ausstehend',
+      v3Fields['👥 Anteilseigner (1)']?.includes('**100** Anteile (10 %)') && v3Fields['👥 Anteilseigner (1)'].includes('5.000 ausstehend'), v3Fields['👥 Anteilseigner (1)']);
+
+    // Anleger bietet weiter → Zurückziehen in „Meine Anteile" aktiv, mit der ID.
+    r = company.listShares(FG, FA, cid, 30, 3_000, now);
+    check('Anleger bietet 30 weiter', r.ok, JSON.stringify(r));
+    const mine2 = await ui.buildMeineAnteileView({ guildId: FG, userId: FA });
+    check('Meine Anteile: Zurückziehen aktiv mit Angebots-ID', mine2.components[0].components[2].data.custom_id === `wanteilweg|${r.offer.id}|${FA}`
+      && mine2.components[0].components[2].data.disabled !== true, mine2.components[0].components[2].data.custom_id);
+    check('Meine Anteile: Feld „Deine Angebote"', mine2.embeds[0].data.fields.some((f) => f.name.startsWith('🏷️ Deine Angebote')));
+
+    await company.close(FG, FO, now);
+  }
+
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');
   const msgId = `MSG_${Date.now()}`;
   render.remember(msgId, U, many.mapping);

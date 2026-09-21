@@ -314,6 +314,30 @@ const de = (n) => Math.round(n).toLocaleString('de-DE');
       r.ok && r.payout === 20_000 && buchung?.amount === 20_000 && buchung.opts.xp === false, JSON.stringify({ r, buchung }));
   }
 
+  console.log('--- Nachfrage wird gezählt (NPC, ad hoc, Großhandel) ---');
+  {
+    const market = require('../src/wallstreet');
+    const G = `DEM_T${Date.now()}`;
+    const U = 'n1', T = 'n2';
+    konten.set(U, 5_000_000); konten.set(T, 5_000_000);
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    let r = await company.found(G, U, 'baufirma', 'Bau AG', t0);
+    const bid = r.company.id;
+    check('Gründung zählt die Erstausstattung (280) bei BETO', market.demandOf(G, 'BETO', t0).today === 280, String(market.demandOf(G, 'BETO', t0).today));
+    db.saveCompany({ ...db.getCompany(bid), stock: 0, stock_cost: 0 });
+    await company.deposit(G, U, 200_000, t0);
+    r = await company.buyStock(G, U, 10, t0);
+    check('NPC-Kauf 10 → 290', r.ok && market.demandOf(G, 'BETO', t0).today === 290);
+    db.saveCompany({ ...db.getCompany(bid), stock: 0, stock_cost: 0 });
+    r = await company.pitchIn(G, U, t0 + 3600e3);
+    check('ad hoc beim Anpacken → 291', r.ok && r.ware.adhoc && market.demandOf(G, 'BETO', t0).today === 291);
+    r = await company.found(G, T, 'spedition', 'Speedy', t0);
+    company.setOffer(G, T, 'baufirma', 95, t0);
+    r = await company.buyFromTrader(G, U, r.company.id, 5, t0 + 7200e3);
+    check('Großhandel 5 → 296 (beim Lieferanten des Käufers)', r.ok && market.demandOf(G, 'BETO', t0).today === 296, JSON.stringify(r));
+    check('SCHR (Spedition) unberührt', market.demandOf(G, 'SCHR', t0).today === 238);   // Erstausstattung der Spedition: 34 × 7
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

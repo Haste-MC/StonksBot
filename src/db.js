@@ -416,6 +416,9 @@ db.exec(`
     price     INTEGER NOT NULL,
     tick      INTEGER NOT NULL,        -- bis hierhin simuliert
     listed_at INTEGER NOT NULL,
+    demand_day    TEXT    NOT NULL DEFAULT '',
+    demand_today  INTEGER NOT NULL DEFAULT 0,
+    demand_ema    REAL    NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, symbol)
   );
 `);
@@ -428,12 +431,23 @@ db.exec(`
  *
  * Nur in diesem Fenster ist der Kurs vorhersagbar – der Rest der Zeit bleibt
  * er ein Zufallslauf. Genau das begrenzt, wie viel sich daraus holen lässt.
+ *
+ * Nachfrage der Spielerfirmen (Firmen Stück 3c, siehe wallstreet.js):
+ *
+ *   demand_day    Kalendertag (JJJJ-MM-TT), zu dem `demand_today` gehört
+ *   demand_today  heute gekaufte Einheiten (nur Lieferanten-Aktien)
+ *   demand_ema    geglätteter Tagesdurchschnitt bis zum Vortag (7 Tage)
+ *
+ * Ältere Datenbanken bekommen die Spalten hier nachgerüstet.
  */
 const priceColumns = new Set(
   db.prepare('PRAGMA table_info(market_prices)').all().map((c) => c.name));
 for (const [column, definition] of [
   ['recover_to', 'REAL NOT NULL DEFAULT 0'],
   ['recover_until', 'INTEGER NOT NULL DEFAULT 0'],
+  ['demand_day', "TEXT NOT NULL DEFAULT ''"],
+  ['demand_today', 'INTEGER NOT NULL DEFAULT 0'],
+  ['demand_ema', 'REAL NOT NULL DEFAULT 0'],
 ]) {
   if (!priceColumns.has(column)) {
     db.exec(`ALTER TABLE market_prices ADD COLUMN ${column} ${definition}`);
@@ -555,7 +569,8 @@ db.exec(`
     trade_day          TEXT    NOT NULL DEFAULT '',  -- Handel (Stück 3b): Tag der Tageszählung …
     trade_today        INTEGER NOT NULL DEFAULT 0,   -- … gelieferte Einheiten an diesem Tag
     trade_units        INTEGER NOT NULL DEFAULT 0,   -- gelieferte Einheiten gesamt
-    trade_profit       INTEGER NOT NULL DEFAULT 0    -- verdiente Spanne gesamt
+    trade_profit       INTEGER NOT NULL DEFAULT 0,   -- verdiente Spanne gesamt
+    last_payout        INTEGER NOT NULL DEFAULT 0    -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
     ON companies (guild_id, owner_id) WHERE status = 'open';
@@ -591,6 +606,8 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     ['trade_today', 'INTEGER NOT NULL DEFAULT 0'],
     ['trade_units', 'INTEGER NOT NULL DEFAULT 0'],
     ['trade_profit', 'INTEGER NOT NULL DEFAULT 0'],
+    // Anteile (Stück 3c): letzte Ausschüttung (Entnahme/Auszahlung) je 1000 Anteile.
+    ['last_payout', 'INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
@@ -609,6 +626,31 @@ db.exec(`
   -- Der CHECK gilt nur für neu angelegte Tabellen (CREATE TABLE IF NOT EXISTS
   -- ändert eine bestehende dev-Tabelle nicht) – die Anwendung prüft die Spanne
   -- ohnehin in setOffer.
+`);
+// Firmenanteile (Stück 3c): Halter je Firma (der Inhaber hat keine Zeile – ihm
+// gehört, was nicht gehalten wird) und offene Verkaufsangebote. `pending` ist
+// die noch nicht abgeholte Ausschüttung, `received` die Summe der abgeholten;
+// `cost` der Einstand der gehaltenen Anteile.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_shares (
+    company_id INTEGER NOT NULL,
+    user_id    TEXT    NOT NULL,
+    shares     INTEGER NOT NULL DEFAULT 0,
+    cost       INTEGER NOT NULL DEFAULT 0,
+    pending    INTEGER NOT NULL DEFAULT 0,
+    received   INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (company_id, user_id)
+  );
+  CREATE TABLE IF NOT EXISTS company_share_offers (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    guild_id   TEXT    NOT NULL,
+    company_id INTEGER NOT NULL,
+    seller_id  TEXT    NOT NULL,
+    shares     INTEGER NOT NULL,
+    price      INTEGER NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_company_share_offers_guild ON company_share_offers (guild_id, company_id);
 `);
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_extras (
@@ -1735,6 +1777,9 @@ const stmt = {
   relist: db.prepare(
     `UPDATE market_prices SET price = ?, tick = ?, listed_at = ?
      WHERE guild_id = ? AND symbol = ?`),
+  setDemand: db.prepare(
+    `UPDATE market_prices SET demand_day = ?, demand_today = ?, demand_ema = ?
+     WHERE guild_id = ? AND symbol = ?`),
   addHistory: db.prepare(
     `INSERT INTO market_history (guild_id, symbol, tick, price) VALUES (?, ?, ?, ?)
      ON CONFLICT (guild_id, symbol, tick) DO UPDATE SET price = excluded.price`),
@@ -1808,7 +1853,7 @@ const stmt = {
        status = ?, closed_at = ?, closed_why = ?,
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
        wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?,
-       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?
+       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -1849,6 +1894,42 @@ const stmt = {
        FROM company_offers o JOIN companies c ON c.id = o.company_id
       WHERE c.guild_id = ? AND o.branch = ? AND o.active = 1 AND c.status = 'open'`),
   deleteOffersOfCompany: db.prepare('DELETE FROM company_offers WHERE company_id = ?'),
+  // Anteile (Stück 3c)
+  getCompanyShare: db.prepare('SELECT * FROM company_shares WHERE company_id = ? AND user_id = ?'),
+  companyShareHolders: db.prepare('SELECT * FROM company_shares WHERE company_id = ? ORDER BY user_id'),
+  setCompanyShare: db.prepare(
+    `INSERT INTO company_shares (company_id, user_id, shares, cost, pending, received) VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(company_id, user_id) DO UPDATE SET
+       shares = excluded.shares, cost = excluded.cost, pending = excluded.pending, received = excluded.received`),
+  insertShareOffer: db.prepare(
+    `INSERT INTO company_share_offers (guild_id, company_id, seller_id, shares, price, created_at)
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING *`),
+  getShareOffer: db.prepare('SELECT * FROM company_share_offers WHERE id = ?'),
+  updateShareOffer: db.prepare('UPDATE company_share_offers SET shares = ? WHERE id = ?'),
+  deleteShareOffer: db.prepare('DELETE FROM company_share_offers WHERE id = ?'),
+  shareOffersOfGuild: db.prepare('SELECT * FROM company_share_offers WHERE guild_id = ? ORDER BY price, id'),
+  shareOffersOfCompany: db.prepare('SELECT * FROM company_share_offers WHERE guild_id = ? AND company_id = ? ORDER BY price, id'),
+  deleteShareOffersOfCompany: db.prepare('DELETE FROM company_share_offers WHERE company_id = ?'),
+  deleteSharesOfCompany: db.prepare('DELETE FROM company_shares WHERE company_id = ?'),
+  // Ausstehende Ausschüttungen eines Spielers auf einem Server – auch aus geschlossenen
+  // Firmen (die Schließungs-Auszahlung wird erst danach abgeholt).
+  pendingOf: db.prepare(
+    `SELECT s.company_id, s.user_id, s.shares, s.cost, s.pending, s.received, c.name, c.status
+       FROM company_shares s JOIN companies c ON c.id = s.company_id
+      WHERE c.guild_id = ? AND s.user_id = ? AND s.pending > 0
+      ORDER BY s.company_id`),
+  clearPending: db.prepare(
+    `UPDATE company_shares SET received = received + pending, pending = 0
+      WHERE user_id = ? AND pending > 0
+        AND company_id IN (SELECT id FROM companies WHERE guild_id = ?)`),
+  // Alle Beteiligungen eines Spielers auf einem Server (für „Meine Anteile"): auch
+  // Zeilen mit 0 Anteilen, solange noch eine Ausschüttung aussteht.
+  companySharesOf: db.prepare(
+    `SELECT s.company_id, s.user_id, s.shares, s.cost, s.pending, s.received,
+            c.name, c.branch, c.status, c.stufe
+       FROM company_shares s JOIN companies c ON c.id = s.company_id
+      WHERE c.guild_id = ? AND s.user_id = ? AND (s.shares > 0 OR s.pending > 0)
+      ORDER BY s.company_id`),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -3741,6 +3822,11 @@ function setPrice(guildId, symbol, price, tick, listedAt = Date.now(), recover =
     Math.max(0, recover?.to ?? 0), Math.max(0, recover?.until ?? 0));
 }
 
+/** Nachfrage-Stand eines Wertes (Tag, heutige Einheiten, EMA) – Zeile muss existieren. */
+function setDemand(guildId, symbol, day, today, ema) {
+  stmt.setDemand.run(day, Math.max(0, Math.round(today)), Math.max(0, ema), guildId, symbol);
+}
+
 /** Neuemission nach einer Insolvenz: Kurs und Startzeitpunkt zurücksetzen. */
 function relistAsset(guildId, symbol, price, tick, when = Date.now()) {
   stmt.relist.run(Math.max(1, Math.round(price)), tick, when, guildId, symbol);
@@ -3875,6 +3961,7 @@ function saveCompany(c) {
     c.wage_factor ?? 1, c.wage_factor_until ?? 0,
     c.stock ?? 0, c.stock_cost ?? 0, c.stock_seeded ? 1 : 0,
     c.trade_day ?? '', c.trade_today ?? 0, c.trade_units ?? 0, c.trade_profit ?? 0,
+    Math.round(c.last_payout ?? 0),
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */
@@ -3887,6 +3974,8 @@ function clearCompanies(guildId) {
     stmt.deleteStaffOfCompany.run(c.id);
     stmt.deleteExtrasOfCompany.run(c.id);
     stmt.deleteOffersOfCompany.run(c.id);
+    stmt.deleteShareOffersOfCompany.run(c.id);
+    stmt.deleteSharesOfCompany.run(c.id);
   }
   stmt.clearCompanies.run(guildId);
 }
@@ -3934,6 +4023,38 @@ function offersOfCompany(companyId) { return stmt.offersOfCompany.all(Number(com
 /** Aktive Angebote offener Spediteure für eine Branche, samt Firmenzeile (`id` = Spediteur). */
 function activeOffersFor(guildId, branch) { return stmt.activeOffersFor.all(guildId, String(branch)); }
 function deleteOffersOfCompany(companyId) { stmt.deleteOffersOfCompany.run(Number(companyId)); }
+
+// --- Firmenanteile (Stück 3c) --- (`getShare`/`setShare` heißen die Heist-Anteile, `holdersOf` die Börse)
+/** Halter-Zeile eines Spielers bei einer Firma, oder null (der Inhaber hat keine). */
+function getCompanyShare(companyId, userId) {
+  return stmt.getCompanyShare.get(Number(companyId), String(userId)) ?? null;
+}
+/** Alle Halter-Zeilen einer Firma – auch mit 0 Anteilen (ausstehende Ausschüttung nach Verkauf). */
+function companyShareHolders(companyId) { return stmt.companyShareHolders.all(Number(companyId)); }
+/** Schreibt die Halter-Zeile in EINER Anweisung (Upsert). */
+function setCompanyShare(companyId, userId, { shares = 0, cost = 0, pending = 0, received = 0 } = {}) {
+  stmt.setCompanyShare.run(Number(companyId), String(userId),
+    Math.round(shares), Math.round(cost), Math.round(pending), Math.round(received));
+}
+function insertShareOffer({ guildId, companyId, sellerId, shares, price, now = Date.now() }) {
+  return stmt.insertShareOffer.get(guildId, Number(companyId), String(sellerId), Math.round(shares), Math.round(price), now);
+}
+function getShareOffer(id) { return stmt.getShareOffer.get(Number(id)) ?? null; }
+function updateShareOffer(id, shares) { stmt.updateShareOffer.run(Math.round(shares), Number(id)); }
+function deleteShareOffer(id) { stmt.deleteShareOffer.run(Number(id)); }
+/** Offene Angebote eines Servers, wahlweise nur einer Firma – billigstes zuerst. */
+function shareOffersOf(guildId, companyId = null) {
+  return companyId == null
+    ? stmt.shareOffersOfGuild.all(guildId)
+    : stmt.shareOffersOfCompany.all(guildId, Number(companyId));
+}
+function deleteShareOffersOfCompany(companyId) { stmt.deleteShareOffersOfCompany.run(Number(companyId)); }
+/** Zeilen mit ausstehender Ausschüttung eines Spielers auf einem Server (mit Firmenname). */
+function pendingOf(guildId, userId) { return stmt.pendingOf.all(guildId, String(userId)); }
+/** Beteiligungen eines Spielers auf einem Server, mit Firmenkopf (Name, Branche, Status). */
+function companySharesOf(guildId, userId) { return stmt.companySharesOf.all(guildId, String(userId)); }
+/** Verschiebt alle ausstehenden Ausschüttungen des Spielers auf dem Server nach `received`. */
+function clearPending(guildId, userId) { return stmt.clearPending.run(String(userId), guildId).changes; }
 
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
@@ -4061,7 +4182,7 @@ module.exports = {
   treasuryCountries, treasuryCountry, countryPopulation,
   treasuryLog, clearTreasury, TREASURY_LOG_KEEP,
   getMarketState, setMarketState,
-  getPrice, allPrices, setPrice, relistAsset, addHistory, history, purgeHistory,
+  getPrice, allPrices, setPrice, setDemand, relistAsset, addHistory, history, purgeHistory,
   getHolding, holdingsOf, holdersOf, setHolding,
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
@@ -4071,6 +4192,8 @@ module.exports = {
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,
   upsertOffer, offersOfCompany, activeOffersFor, deleteOffersOfCompany,
+  getCompanyShare, companyShareHolders, setCompanyShare, insertShareOffer, getShareOffer, updateShareOffer, deleteShareOffer,
+  shareOffersOf, deleteShareOffersOfCompany, pendingOf, clearPending, companySharesOf,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,
