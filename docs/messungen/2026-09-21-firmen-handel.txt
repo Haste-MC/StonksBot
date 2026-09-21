@@ -1,0 +1,74 @@
+Messung Handel (Stück 3b: die Spedition als Großhändler) – Auszug aus dem Lauf vom 2026-09-21.
+Aufruf: rm -rf .testdata && DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365
+(Handel-Block, die beiden Referenzzeilen aus „Firmen (nicht ausgebaut, Vollbetrieb)" und – zur
+Nachprüfbarkeit angehängt – der vollständige neunzeilige Kern-Abschnitt „mit"/„ohne" desselben
+Laufs, siehe unten). Die Firmen-Blöcke dieses Laufs sind Zeile für Zeile gleich mit einem Lauf
+des Codes vor dem Umbau von `firmenlauf` in `betrieb` (Beweis: .superpowers/sdd/task-3-report.md).
+Gegenüber der committeten Datei vom 20.09. haben sich seit der Erstausstattung (Commits
+50a4650/0ca5a97, geänderter Anlauf – weniger ad hoc, das erste Lager ist schon da) fünf
+Kern-Mediane mit Ereignissen verschoben: Kiosk 2.003 statt 2.037, Imbiss 2.660 statt 2.629,
+Autowäsche 2.300 statt 2.338, Baufirma 52.915 statt 55.830, Club 51.585 statt 51.605; alle
+anderen Kern- und Vollausbau-Mediane sind unverändert.
+Kurs = Start in der Messwelt (keine Börsenticks): Baufirma-Ware 340, Angebot 95 % = 323,
+Großhandel 306, Spanne 17 je Einheit; Tagesverbrauch der Baufirma Kern 40 Einheiten.
+Handrechnung Tag 36 ohne Ereignisse (`--trace=handel:baufirma:ohne` / `handel:spedition:ohne`,
+Auszug in .superpowers/sdd/task-3-messung/trace-handel-ohne-60.txt):
+  Käufer:    morgens 103.600, Einkauf 40 × 323 = 12.920 (NPC wäre 40 × 340 = 13.600), Anpacken 4×,
+             vor der Abrechnung 100.739 (Referenz ohne Handel 100.059, +680), Umsatz 91.764 − Löhne 27.000
+             → abends 165.503 (Referenz 164.823, +680).
+  Spediteur: morgens 72.920, Werbung 60.000, eigener Einkauf 34 × 380 = 12.920, Anpacken 4×, Spanne +680,
+             vor der Abrechnung 11.754 (Referenz 11.074, +680), Umsatz 85.470 − Löhne 18.900
+             → abends 78.324 (Referenz 77.644, +680).
+
+--- Referenz aus „Firmen (nicht ausgebaut, Vollbetrieb)" (derselbe Lauf) ---
+
+  🚚 Spedition    mit Ereignissen    58.238/Tag (Vorfälle 4, 8 Tage zu) · ohne    64.929/Tag   Decke 65.080   Amortisation mit 56 Tage, ohne 50 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 62.826 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 98.310 (Ereignis-Decke 98.325)
+                  mit Ereignissen: Ware Ø 12.584/Tag, ad hoc 0,0 % (0 von 12.087 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 12.920/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 64.929 (Decke 65.080, Ware zum Verbrauch gerechnet)
+  🏗️ Baufirma    mit Ereignissen    52.915/Tag (Vorfälle 4, 8 Tage zu) · ohne    61.265/Tag   Decke 61.400   Amortisation mit 101 Tage, ohne 92 Tage
+                  Ereignistage 103, Vorfälle 4, 8 Tage zu, Nachschuss 153.059 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 105.588 (Ereignis-Decke 105.570)
+                  mit Ereignissen: Ware Ø 13.514/Tag, ad hoc 7,8 % (1.116 von 14.229 Einheiten), Einkauf 49× an der Kasse gescheitert · ohne: Ware Ø 13.833/Tag, ad hoc 6,8 % (1.000 von 14.600 Einheiten) · bester Tag ohne 61.265 (Decke 61.400, Ware zum Verbrauch gerechnet)
+
+--- Handel (Spedition liefert Baufirma) ---
+
+  Spedition Kern (10 Plätze, Kapazität 200/Tag) bietet alle Waren zu 95 % (Baufirma-Ware 340 → 323, Großhandel 306, Spanne 17 je Einheit); die Baufirma Kern kauft täglich zuerst dort, den Rest beim NPC.
+  🚚 Spediteur    mit Handel    58.770/Tag · ohne (Referenz)    58.238/Tag · Differenz +532 (mit Ereignissen)
+                  mit Handel    65.609/Tag · ohne (Referenz)    64.929/Tag · Differenz +680 (ohne Ereignisse)
+                  mit Ereignissen: Spanne Ø 600/Tag (Σ 218.841 an 307 Handelstagen), geliefert Ø 35 Einheiten/Tag (Σ 12.873), größte Tagesspanne 3.400 für 200 Einheiten (Handels-Decke Spediteur 9.600)
+                  ohne: Spanne Ø 628/Tag (Σ 229.160 an 333 Handelstagen), geliefert Ø 37 Einheiten/Tag (Σ 13.480), größte Tagesspanne 3.400 für 200 Einheiten (Handels-Decke Spediteur 9.600) · bester Tag 65.609 (Decke 65.080 + Handels-Decke 9.600, Ware zum Verbrauch gerechnet)
+  🏗️ Käufer       mit Handel    53.595/Tag · ohne (Referenz)    52.915/Tag · Differenz +680 (mit Ereignissen)
+                  mit Handel    61.945/Tag · ohne (Referenz)    61.265/Tag · Differenz +680 (ohne Ereignisse)
+                  mit Ereignissen: Ersparnis Ø 600/Tag (Σ 218.841), vom Spediteur 12.873 von 14.189 Einheiten (90,7 %; NPC 200, ad hoc 1.116; ohne Erstausstattung), Spediteur 0× zu, größte Tagesersparnis 3.400 für 200 Einheiten (Nachkauf nach Lücke; Handels-Decke Käufer 1.360 je Tag Verbrauch)
+                  ohne: Ersparnis Ø 628/Tag (Σ 229.160), vom Spediteur 13.480 von 14.560 Einheiten (92,6 %; NPC 80, ad hoc 1.000; ohne Erstausstattung), Spediteur 0× zu, größte Tagesersparnis 3.400 für 200 Einheiten (Nachkauf nach Lücke; Handels-Decke Käufer 1.360 je Tag Verbrauch) · bester Tag 61.945 (Decke 61.400 + Handels-Decke 1.360, Ware zum Verbrauch gerechnet)
+
+--- Anhang: Kern-Abschnitt (mit/ohne) desselben Laufs, aus mess-3b.txt Zeilen 62-90 ---
+
+--- Firmen (nicht ausgebaut, Vollbetrieb) ---
+
+  🏪 Kiosk        mit Ereignissen     2.003/Tag (Vorfälle 8, 9 Tage zu) · ohne     2.331/Tag   Decke 2.350   Amortisation mit 31 Tage, ohne 28 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 7.720 an 11 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.478 (Ereignis-Decke 2.588)
+                  mit Ereignissen: Ware Ø 486/Tag, ad hoc 0,3 % (10 von 3.544 Einheiten), Einkauf 26× an der Kasse gescheitert · ohne: Ware Ø 500/Tag, ad hoc 0,3 % (10 von 3.650 Einheiten) · bester Tag ohne 2.331 (Decke 2.350, Ware zum Verbrauch gerechnet)
+  🌭 Imbiss       mit Ereignissen     2.660/Tag (Vorfälle 4, 5 Tage zu) · ohne     2.822/Tag   Decke 2.841   Amortisation mit 38 Tage, ohne 37 Tage
+                  Ereignistage 78, Vorfälle 4, 5 Tage zu, Nachschuss 5.750 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 3.564 (Ereignis-Decke 3.726)
+                  mit Ereignissen: Ware Ø 616/Tag, ad hoc 1,1 % (52 von 4.672 Einheiten), Einkauf 18× an der Kasse gescheitert · ohne: Ware Ø 624/Tag, ad hoc 0,3 % (13 von 4.745 Einheiten) · bester Tag ohne 2.822 (Decke 2.841, Ware zum Verbrauch gerechnet)
+  🚗 Autowäsche   mit Ereignissen     2.300/Tag (Vorfälle 8, 9 Tage zu) · ohne     2.640/Tag   Decke 2.660   Amortisation mit 35 Tage, ohne 33 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 6.438 an 10 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.574 (Ereignis-Decke 2.691)
+                  mit Ereignissen: Ware Ø 505/Tag, ad hoc 0,3 % (10 von 3.544 Einheiten), Einkauf 16× an der Kasse gescheitert · ohne: Ware Ø 520/Tag, ad hoc 0,0 % (0 von 3.650 Einheiten) · bester Tag ohne 2.640 (Decke 2.660, Ware zum Verbrauch gerechnet)
+  ☕ Café          mit Ereignissen    15.956/Tag (Vorfälle 4, 8 Tage zu) · ohne    18.109/Tag   Decke 18.180   Amortisation mit 20 Tage, ohne 20 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 30.914 an 8 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 23.280 (Ereignis-Decke 23.288)
+                  mit Ereignissen: Ware Ø 3.320/Tag, ad hoc 0,0 % (0 von 6.732 Einheiten), Einkauf 7× an der Kasse gescheitert · ohne: Ware Ø 3.420/Tag, ad hoc 0,0 % (0 von 6.935 Einheiten) · bester Tag ohne 18.109 (Decke 18.180, Ware zum Verbrauch gerechnet)
+  🏋️ Fitnessstudiomit Ereignissen    10.382/Tag (Vorfälle 4, 8 Tage zu) · ohne    11.805/Tag   Decke 11.860   Amortisation mit 35 Tage, ohne 34 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 5.321 an 4 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 14.496 (Ereignis-Decke 14.490)
+                  mit Ereignissen: Ware Ø 2.171/Tag, ad hoc 0,0 % (0 von 5.661 Einheiten), Einkauf 7× an der Kasse gescheitert · ohne: Ware Ø 2.240/Tag, ad hoc 0,0 % (0 von 5.840 Einheiten) · bester Tag ohne 11.805 (Decke 11.860, Ware zum Verbrauch gerechnet)
+  🔧 Werkstatt    mit Ereignissen    14.797/Tag (Vorfälle 4, 8 Tage zu) · ohne    17.032/Tag   Decke 17.120   Amortisation mit 33 Tage, ohne 33 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 31.639 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.764 (Ereignis-Decke 22.770)
+                  mit Ereignissen: Ware Ø 3.415/Tag, ad hoc 0,3 % (16 von 5.661 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 3.522/Tag, ad hoc 0,3 % (16 von 5.840 Einheiten) · bester Tag ohne 17.032 (Decke 17.120, Ware zum Verbrauch gerechnet)
+  🚚 Spedition    mit Ereignissen    58.238/Tag (Vorfälle 4, 8 Tage zu) · ohne    64.929/Tag   Decke 65.080   Amortisation mit 56 Tage, ohne 50 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 62.826 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 98.310 (Ereignis-Decke 98.325)
+                  mit Ereignissen: Ware Ø 12.584/Tag, ad hoc 0,0 % (0 von 12.087 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 12.920/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 64.929 (Decke 65.080, Ware zum Verbrauch gerechnet)
+  🏗️ Baufirma    mit Ereignissen    52.915/Tag (Vorfälle 4, 8 Tage zu) · ohne    61.265/Tag   Decke 61.400   Amortisation mit 101 Tage, ohne 92 Tage
+                  Ereignistage 103, Vorfälle 4, 8 Tage zu, Nachschuss 153.059 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 105.588 (Ereignis-Decke 105.570)
+                  mit Ereignissen: Ware Ø 13.514/Tag, ad hoc 7,8 % (1.116 von 14.229 Einheiten), Einkauf 49× an der Kasse gescheitert · ohne: Ware Ø 13.833/Tag, ad hoc 6,8 % (1.000 von 14.600 Einheiten) · bester Tag ohne 61.265 (Decke 61.400, Ware zum Verbrauch gerechnet)
+  🍸 Club         mit Ereignissen    51.585/Tag (Vorfälle 4, 8 Tage zu) · ohne    58.189/Tag   Decke 58.380   Amortisation mit 49 Tage, ohne 45 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 33.644 an 3 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 74.520 (Ereignis-Decke 74.520)
+                  mit Ereignissen: Ware Ø 10.261/Tag, ad hoc 0,0 % (0 von 7.803 Einheiten), Einkauf 13× an der Kasse gescheitert · ohne: Ware Ø 10.560/Tag, ad hoc 0,0 % (0 von 8.030 Einheiten) · bester Tag ohne 58.189 (Decke 58.380, Ware zum Verbrauch gerechnet)

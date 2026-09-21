@@ -28,6 +28,8 @@ Das ist die wichtigste Trennung im ganzen Projekt:
 
 Es gibt **keine** lokale Bilanz. Willst du wissen, wie viel jemand hat, fragst
 du die API. Willst du jemandem Geld geben/nehmen, rufst du `changeCash` auf.
+Firmenkassen sind lokaler Zustand; der Handel (§15, 3b) bewegt Geld
+Kasse → Kasse ohne `changeCash`.
 
 ## 3. Die goldene Regel: kein Gelddrucker
 
@@ -616,10 +618,13 @@ sind Kosten, kein Umsatz. Gemessen (365 Tage, fester Würfel, `DATA_DIR=.testdat
 node scripts/messung-geldquellen.js 10 365`, Firmen-Blöcke in
 `docs/messungen/2026-09-20-firmen-waren.txt`; die Messwelt hat keine
 Börsenticks, also Kurs = Start und Einkauf zum Einheitspreis – Kurs-Effekte
-sind hier nicht gemessen; die Mediane stammen aus der Messung VOR der
-Erstausstattung – die ändert nur den Anlauf (weniger ad hoc, das erste Lager
-ist schon da), nicht Decken oder stationäre Mediane, und wird mit der
-nächsten Messung aufgefrischt): Der simulierte Inhaber kauft täglich nach der
+sind hier nicht gemessen; die Kern-Mediane **mit** Ereignissen sind mit
+`docs/messungen/2026-09-21-firmen-handel.txt` aufgefrischt (die 20.09-Datei
+zeigt noch den Stand vor der Erstausstattung – Commits 50a4650/0ca5a97 –, die
+den Anlauf ändert, weniger ad hoc, das erste Lager ist schon da; bei fünf der
+neun Branchen verschiebt das auch den stationären Median, s. u.); Decken,
+„ohne"-Mediane und die Vollausbau-Zahlen unten sind davon unberührt): Der
+simulierte Inhaber kauft täglich nach der
 Werbung das Lager voll (am ersten Tag mit genug Kasse ein ganzes, danach den
 Verbrauch von gestern; die Entnahme lässt Werbung plus nächsten Einkauf in der
 Kasse; ein Einkauf über den Tagesverbrauch hinaus lässt die Werbekosten
@@ -631,10 +636,11 @@ Branche genau um `Units × wareUnit` unter dem Wert vor 1.35.0 (Kiosk 2.331 =
 Einheitspreis gerechnet – unter der Decke (Kiosk 2.331 ≤ 2.350, Spedition
 voll 460.064 ≤ 460.495; roh kann ein Tag darüber liegen, wenn der Einkauf
 auf einen anderen Tag fiel, etwa nach einem Ausbau des Aufsteigers).
-**Mit** Ereignissen im Kern: Kiosk 2.037 (vor 1.35.0 2.536), Imbiss
-2.629 (3.279), Autowäsche 2.338 (2.855), Café 15.956 (19.414), Fitnessstudio
-10.382 (12.673), Werkstatt 14.797 (18.400), Spedition 58.238 (71.160),
-Baufirma 55.830 (66.803), Club 51.605 (62.145) – 16–20 % weniger; voll
+**Mit** Ereignissen im Kern (Stand 21.09., nach der Erstausstattung): Kiosk
+2.003 (vor 1.35.0 2.536), Imbiss 2.660 (3.279), Autowäsche 2.300 (2.855), Café
+15.956 (19.414), Fitnessstudio 10.382 (12.673), Werkstatt 14.797 (18.400),
+Spedition 58.238 (71.160), Baufirma 52.915 (66.803), Club 51.585 (62.145) –
+16–20 % weniger; voll
 ausgebaut Kiosk 14.321 (15.256), Imbiss 17.707 (18.907), Autowäsche 14.989
 (15.977), Café 119.758 (126.958), Fitnessstudio 75.296 (80.056), Werkstatt
 116.307 (123.787), Spedition 412.039 (436.834), Baufirma 471.973 (501.780),
@@ -669,6 +675,78 @@ hoc), Tagesgewinn 2.329 (Decke 2.350; das dritte und vierte Anpacken sind
 müder, wie oben). Das erste Lager kostet an Tag 13 einmalig 70 × 50 = 3.500;
 davor kaufen alle Schichten ad hoc (6 × 63 = 378 je Tag für die
 NPC-Schichten, dazu je Anpacken 63).
+
+**Handel (seit 1.36.0, Stück 3b):** Die Spedition ist der Großhändler
+(`handel: true` in `data/companies.js`, nur sie). Sie kann jede der neun
+Waren an andere Spielerfirmen liefern: Sie kauft im Moment der Lieferung beim
+NPC-Markt zum Großhandelspreis, 10 % unter dem Tagespreis (`HANDEL_RABATT`
+0,1: `round(npcPrice × 0,9)`), und verkauft zu einem selbst gesetzten Anteil
+des Tagespreises zwischen **90 und 100 %** (`setOffer`, je Branche oder
+`alle`, `aus` schaltet ab; `company_offers`) – der Preis hängt damit am Kurs,
+95 % bleiben 95 %, wenn BETO steigt. Kapazität **20 Einheiten je Platz und
+Tag** (`HANDEL_KAPAZITAET`: Kern 10 × 20 = 200, Vollausbau 22 × 20 = 440;
+`trade_day`/`trade_today` wie `pitch_day` – der Tag ist der Kalendertag, kein
+rollierendes 24-Stunden-Fenster, daher lassen sich rund um Mitternacht
+höchstens zwei Tageskapazitäten verkaufen), kein Zwischenlager, keine Zeit,
+keine Verträge. Der Kauf (`buyFromTrader`, `units` oder „voll" = min aus
+Wunsch, freien Lagerplätzen, Restkapazität) läuft **Kasse → Kasse, synchron,
+ohne Buchung nach außen**: Käufer `kasse −= n × price`, Lager und Einstand
+wie bei `buyStock`; Spediteur `kasse += n × (price − wholesale)`, nur die
+Spanne – den Großhandelspreis hat er im selben Moment an den NPC
+weitergereicht (`trade_units`, `trade_profit` zählen mit). Die Spanne ist
+nie negativ (bei 90 % runden beide auf dieselbe Zahl; `tradeQuote` klemmt
+zusätzlich) – ein Spediteur kann sich nicht in den Ruin liefern. **Handels-
+Decken (§3):** Der einzige neue Geldeffekt ist, dass bis zu 10 % der
+Warenkosten des Käufers nicht vernichtet werden, sondern beim Spediteur
+landen. *Käufer:* Decke + `0,1 × Units × wareUnit` – Kiosk Kern +50, Baufirma
+Kern 61.400 + 1.360 = 62.760, Baufirma voll +2.788 je Tag Verbrauch. *Spediteur:*
+Kapazität × größte Spanne je Einheit = `Plätze × 20 × 48` (48 = 0,1 × 480,
+die Club-Ware ist die teuerste; bei 95 % sind es für die Baufirma-Ware
+17 = 323 − 306): Kern 10 × 20 × 48 = **9.600**, Vollausbau 22 × 20 × 48 =
+**21.120** je Tag (Stufe 5 „Flotte 20" + Extra „Nachtschicht" = 22 Plätze;
+die 3b-Spec schrieb 19.200 mit 20 Plätzen – Rechenfehler, siehe Nachtrag in
+der 3a-Spec) – weniger als ein Sechstel der Spedition-Decke im Kern (65.080)
+und ein Zwanzigstel voll (460.495). Gemessen (`handelslauf` im Messskript,
+365 Tage, fester Würfel, `DATA_DIR=.testdata node
+scripts/messung-geldquellen.js 10 365`, Auszug in
+`docs/messungen/2026-09-21-firmen-handel.txt`): eine Spedition (Kern) mit
+Angebot `alle 95` und eine Baufirma (Kern) in derselben Welt, die täglich
+zuerst beim Spediteur kauft („voll", höchstens 200) und den Rest beim NPC;
+beide mit demselben Tagesablauf und je demselben Würfel wie ihr
+Einzellauf, also identische Ereignisse – die Differenz ist reiner Handel
+(`firmenlauf` läuft seit 3b über dasselbe `betrieb`-Objekt; die Firmen-Blöcke
+der Messung sind Zeile für Zeile unverändert). Bei Kurs = Start kostet die
+Baufirma-Ware 340, das Angebot 323, Großhandel 306, Spanne 17 je Einheit; die
+Baufirma verbraucht 40 je Tag. Ergebnis ohne Ereignisse: Spediteur
+**65.609 statt 64.929 (+680)**, Käufer **61.945 statt 61.265 (+680)** – genau
+40 × 17, an 333 von 365 Tagen geliefert (Σ 13.480 Einheiten, Σ 229.160 Spanne,
+Ø 628/Tag; 92,6 % der Ware des Käufers kommt vom Spediteur, der Rest ist der
+ad-hoc-Anlauf der Baufirma, siehe oben). Mit Ereignissen: Spediteur 58.770
+statt 58.238 (+532 im Median: an 307 von 365 Tagen wird geliefert – an
+geschlossenen Tagen des Käufers und an Tagen, an denen seine Kasse den
+Einkauf nicht hergibt, gibt es keine Spanne, und das verschiebt den Median
+um weniger als die 680 eines Handelstages), Käufer 53.595 statt 52.915
+(+680), Spanne Ø 600/Tag (Σ 218.841), Ø 35 Einheiten/Tag (Σ 12.873, 90,7 %
+der Käufer-Ware). Beste Tage ohne Ereignisse, Ware zum Verbrauch gerechnet:
+Spediteur 65.609 ≤ 65.080 + 9.600, Käufer 61.945 ≤ 62.760; größte Tagesspanne
+3.400 ≤ 9.600 – das sind 200 Einheiten (die ganze Tageskapazität; 200 Einheiten
+decken fünf Verbrauchstage der Baufirma bei 40 Einheiten/Tag) an einem
+Nachkauf nach einer Lücke, je Einheit weiter 17: Die Ersparnis hängt an der
+gekauften Einheit, nicht am Tag – ein solcher Nachkauf übersteigt darum die
+Käufer-Decke von 1.360 je Verbrauchstag, ohne dass der Prüfwert (Ware zum
+Verbrauch gerechnet, statt zum Einkaufstag) darüberliegt. Handprüfung Tag 36
+ohne Ereignisse (`--trace=handel:baufirma:ohne`
+bzw. `handel:spedition:ohne`): Käufer morgens 103.600, Einkauf 40 × 323 =
+12.920 statt 13.600, vor der Abrechnung 100.739 (ohne Handel 100.059), abends
+165.503 statt 164.823; Spediteur morgens 72.920, Werbung 60.000, eigener
+Einkauf 34 × 380, Spanne +680, vor der Abrechnung 11.754 statt 11.074, abends
+78.324 statt 77.644. Die Messung hat eine Lücke: Beide Firmen würfeln mit
+demselben Seed und sind deshalb an denselben Tagen geschlossen – der Fall
+„Spediteur zu, Käufer weicht auf den NPC aus" (`reason 'trader'`) kommt im
+Lauf nicht vor (0×), ist aber getestet (`test/companyTrade.test.js`). Die
+Kern-Mediane mit Ereignissen sind oben im 3a-Absatz bereits auf diesen Lauf
+aufgefrischt (fünf der neun Branchen verschoben, u. a. Baufirma 52.915 statt
+55.830 in der Datei vom 20.09.); die Decken sind unverändert.
 
 ### Eine Bremse, nicht zwei
 

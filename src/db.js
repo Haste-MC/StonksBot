@@ -551,7 +551,11 @@ db.exec(`
     wage_factor_until  INTEGER NOT NULL DEFAULT 0,
     stock              INTEGER NOT NULL DEFAULT 0,   -- Lager: Einheiten (Stück 3a)
     stock_cost         INTEGER NOT NULL DEFAULT 0,   -- … und was sie gekostet haben
-    stock_seeded       INTEGER NOT NULL DEFAULT 0    -- 1 = Lager einmal befüllt (Erstausstattung / Nachrüstung)
+    stock_seeded       INTEGER NOT NULL DEFAULT 0,   -- 1 = Lager einmal befüllt (Erstausstattung / Nachrüstung)
+    trade_day          TEXT    NOT NULL DEFAULT '',  -- Handel (Stück 3b): Tag der Tageszählung …
+    trade_today        INTEGER NOT NULL DEFAULT 0,   -- … gelieferte Einheiten an diesem Tag
+    trade_units        INTEGER NOT NULL DEFAULT 0,   -- gelieferte Einheiten gesamt
+    trade_profit       INTEGER NOT NULL DEFAULT 0    -- verdiente Spanne gesamt
   );
   CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
     ON companies (guild_id, owner_id) WHERE status = 'open';
@@ -582,10 +586,30 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     // 0 = Firma aus der Zeit vor der Erstausstattung: `settle` füllt das Lager einmal ohne
     // Einstand auf und setzt 1; neue Gründungen kommen mit 1 und vollem Lager zur Welt.
     ['stock_seeded', 'INTEGER NOT NULL DEFAULT 0'],
+    // Handel (Stück 3b): Tageszählung und Lebenswerte des Spediteurs.
+    ['trade_day', "TEXT NOT NULL DEFAULT ''"],
+    ['trade_today', 'INTEGER NOT NULL DEFAULT 0'],
+    ['trade_units', 'INTEGER NOT NULL DEFAULT 0'],
+    ['trade_profit', 'INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
 }
+// Handel (Stück 3b): Angebote eines Spediteurs – je Branche ein Anteil am
+// NPC-Preis und ein Schalter. Fehlt die Zeile, bietet er die Ware nicht an.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS company_offers (
+    company_id INTEGER NOT NULL,
+    branch     TEXT    NOT NULL,
+    share      INTEGER NOT NULL CHECK (share BETWEEN 90 AND 100),
+    active     INTEGER NOT NULL DEFAULT 1,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (company_id, branch)
+  );
+  -- Der CHECK gilt nur für neu angelegte Tabellen (CREATE TABLE IF NOT EXISTS
+  -- ändert eine bestehende dev-Tabelle nicht) – die Anwendung prüft die Spanne
+  -- ohnehin in setOffer.
+`);
 db.exec(`
   CREATE TABLE IF NOT EXISTS company_extras (
     company_id INTEGER NOT NULL,
@@ -1783,7 +1807,8 @@ const stmt = {
        negative_since = ?, werbung_until = ?, pitch_day = ?, pitch_today = ?,
        status = ?, closed_at = ?, closed_why = ?,
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
-       wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?
+       wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?,
+       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -1812,6 +1837,18 @@ const stmt = {
   addCompanyExtra: db.prepare('INSERT INTO company_extras (company_id, extra_id, bought_at) VALUES (?, ?, ?)'),
   deleteCompanyExtra: db.prepare('DELETE FROM company_extras WHERE company_id = ? AND extra_id = ?'),
   deleteExtrasOfCompany: db.prepare('DELETE FROM company_extras WHERE company_id = ?'),
+  upsertOffer: db.prepare(
+    `INSERT INTO company_offers (company_id, branch, share, active, updated_at) VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(company_id, branch) DO UPDATE SET
+       share = excluded.share, active = excluded.active, updated_at = excluded.updated_at`),
+  offersOfCompany: db.prepare('SELECT * FROM company_offers WHERE company_id = ?'),
+  // Aktive Angebote offener Spediteure für eine Branche – die Firmenzeile kommt mit,
+  // damit der Aufrufer Schließung und Kapazität ohne zweite Abfrage prüfen kann.
+  activeOffersFor: db.prepare(
+    `SELECT o.company_id, o.share, o.active, o.updated_at, c.*
+       FROM company_offers o JOIN companies c ON c.id = o.company_id
+      WHERE c.guild_id = ? AND o.branch = ? AND o.active = 1 AND c.status = 'open'`),
+  deleteOffersOfCompany: db.prepare('DELETE FROM company_offers WHERE company_id = ?'),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -3837,6 +3874,7 @@ function saveCompany(c) {
     c.closed_until ?? 0, c.umsatz_boost ?? 1, c.umsatz_boost_until ?? 0,
     c.wage_factor ?? 1, c.wage_factor_until ?? 0,
     c.stock ?? 0, c.stock_cost ?? 0, c.stock_seeded ? 1 : 0,
+    c.trade_day ?? '', c.trade_today ?? 0, c.trade_units ?? 0, c.trade_profit ?? 0,
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */
@@ -3848,6 +3886,7 @@ function clearCompanies(guildId) {
   for (const c of stmt.openCompanies.all(guildId)) {
     stmt.deleteStaffOfCompany.run(c.id);
     stmt.deleteExtrasOfCompany.run(c.id);
+    stmt.deleteOffersOfCompany.run(c.id);
   }
   stmt.clearCompanies.run(guildId);
 }
@@ -3887,6 +3926,14 @@ function addCompanyExtra(companyId, extraId, now = Date.now()) {
 }
 function deleteCompanyExtra(companyId, extraId) { stmt.deleteCompanyExtra.run(Number(companyId), String(extraId)); }
 function deleteExtrasOfCompany(companyId) { stmt.deleteExtrasOfCompany.run(Number(companyId)); }
+/** Angebot eines Spediteurs setzen (Stück 3b): Anteil und Schalter je Branche. */
+function upsertOffer(companyId, branch, share, active, now = Date.now()) {
+  stmt.upsertOffer.run(Number(companyId), String(branch), Math.round(share), active ? 1 : 0, now);
+}
+function offersOfCompany(companyId) { return stmt.offersOfCompany.all(Number(companyId)); }
+/** Aktive Angebote offener Spediteure für eine Branche, samt Firmenzeile (`id` = Spediteur). */
+function activeOffersFor(guildId, branch) { return stmt.activeOffersFor.all(guildId, String(branch)); }
+function deleteOffersOfCompany(companyId) { stmt.deleteOffersOfCompany.run(Number(companyId)); }
 
 function getLink(platform, userId) {
   return stmt.getLink.get(platform, String(userId)) ?? null;
@@ -4023,6 +4070,7 @@ module.exports = {
   deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,
+  upsertOffer, offersOfCompany, activeOffersFor, deleteOffersOfCompany,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,

@@ -408,6 +408,7 @@ function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   db.saveCompany({ ...c, status: 'closed', closed_at: now, closed_why: why });
   db.deleteStaffOfCompany(c.id);
   db.deleteExtrasOfCompany(c.id);
+  db.deleteOffersOfCompany(c.id);
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
   return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
 }
@@ -857,6 +858,132 @@ async function sell(guildId, userId, now = Date.now()) {
   }
 }
 
+// ------------------------------------------------------------------ Handel
+//
+// Stück 3b: Die Spedition ist der Großhändler. Sie bietet je Branche die Ware
+// zu einem Anteil des NPC-Tagespreises an (90–100 %), kauft selbst zum
+// Großhandelspreis (NPC-Preis minus HANDEL_RABATT) und behält die Differenz.
+// Kasse zu Kasse, synchron, ohne Buchung nach außen – kein Faucet: der Käufer
+// zahlt höchstens den NPC-Preis, der Spediteur verdient höchstens den Rabatt.
+// Der Spediteur braucht weder Lager noch Zeit, nur Tageskapazität
+// (Plätze × HANDEL_KAPAZITAET Einheiten je Tag).
+
+/** Preis, Großhandelspreis und Spanne je Einheit – rein. */
+function tradeQuote(npcPrice, share) {
+  const price = Math.round(npcPrice * share / 100);
+  const wholesale = Math.round(npcPrice * (1 - data.HANDEL_RABATT));
+  // Bei 90 % runden beide dieselbe Zahl – die Spanne ist nie negativ (der Test
+  // prüft 1–2.000 × 90–100). Die Klemmung hält das, falls sich die Konstanten je
+  // auseinanderbewegen: der Spediteur legt beim Liefern nie drauf (§3).
+  return { price, wholesale, spread: Math.max(0, price - wholesale) };
+}
+const isTrader = (b) => !!b?.handel;
+
+/** Wie viele Einheiten der Spediteur heute noch liefern kann. */
+function tradeCapacity(c, b, now) {
+  const eff = effectiveOf(c, b);
+  const capacity = eff.slots * data.HANDEL_KAPAZITAET;
+  const today = c.trade_day === dayKey(now) ? (c.trade_today ?? 0) : 0;
+  return { capacity, today, left: Math.max(0, capacity - today) };
+}
+
+/** Die Angebote eines Spediteurs – alle neun Branchen in Katalogreihenfolge. */
+function offersOf(guildId, companyId) {
+  const rows = new Map(db.offersOfCompany(companyId).map((o) => [o.branch, o]));
+  return data.BRANCHES.map((b) => {
+    const o = rows.get(b.id);
+    return { branch: b.id, ware: b.ware, share: o?.share ?? data.HANDEL_SHARE_MAX, active: !!o?.active };
+  });
+}
+
+/**
+ * Angebot setzen: Anteil 90–100 für eine Branche oder 'alle', oder 'aus'
+ * (der Anteil bleibt gespeichert, nur der Schalter kippt). Ohne Abrechnung
+ * (`ownerContext`): ein Preisschild kostet weder Zeit noch Geld.
+ */
+function setOffer(guildId, userId, branchId, share, now = Date.now()) {
+  const ctx = ownerContext(guildId, userId);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  if (!isTrader(ctx.branch)) return { ok: false, reason: 'not_trader' };
+  const targets = branchId === 'alle' ? data.BRANCHES.map((b) => b.id) : [String(branchId)];
+  if (!targets.every((id) => branch(id))) return { ok: false, reason: 'branch' };
+  const aus = share === 'aus';
+  const n = Math.floor(Number(share));
+  if (!aus && (!Number.isFinite(n) || n < data.HANDEL_SHARE_MIN || n > data.HANDEL_SHARE_MAX)) return { ok: false, reason: 'share' };
+  const cur = new Map(db.offersOfCompany(ctx.company.id).map((o) => [o.branch, o]));
+  for (const id of targets) {
+    db.upsertOffer(ctx.company.id, id, aus ? (cur.get(id)?.share ?? data.HANDEL_SHARE_MAX) : n, aus ? 0 : 1, now);
+  }
+  return { ok: true, offers: offersOf(guildId, ctx.company.id) };
+}
+
+/**
+ * Aktive Angebote offener, nicht geschlossener Spediteure mit Restkapazität für
+ * die Ware einer Branche – billigster zuerst, bei Gleichstand nach Name.
+ * `exceptId` blendet die eigene Firma aus (eine Spedition kauft nicht bei sich).
+ */
+function offersFor(guildId, buyerBranchId, now = Date.now(), exceptId = null) {
+  const b = branch(buyerBranchId);
+  if (!b) return [];
+  const npc = wareOf(guildId, b).price;
+  return db.activeOffersFor(guildId, b.id)
+    .filter((c) => c.id !== Number(exceptId) && !(c.closed_until > now) && isTrader(branch(c.branch)))
+    .map((c) => ({ company: { id: c.id, name: c.name }, share: c.share, ...tradeQuote(npc, c.share),
+      left: tradeCapacity(c, branch(c.branch), now).left }))
+    .filter((o) => o.left > 0)
+    .sort((x, y) => x.price - y.price || x.company.name.localeCompare(y.company.name, 'de'));
+}
+
+/**
+ * Kauf beim Spediteur: Kasse → Kasse, synchron, ohne Buchung nach außen. Der
+ * Käufer zahlt `units × price` aus der Kasse ins Lager (Einstand wie bei
+ * `buyStock`); der Spediteur bekommt nur die Spanne – den Großhandelspreis
+ * hat er im selben Moment an den NPC-Lieferanten weitergereicht. `units`
+ * ganze Zahl oder 'voll' (so viel wie Lager und Tageskapazität hergeben).
+ * `async` wie `buyStock`: kein `await`, gewollt.
+ */
+async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now = Date.now()) {
+  const ctx = fresh(guildId, buyerUserId, now);
+  if (!ctx) return { ok: false, reason: 'no_company' };
+  const { company: c, branch: b } = ctx;
+  const traderId = Number(traderCompanyId);
+  if (c.id === traderId) return { ok: false, reason: 'self' };
+  // Günstige Prüfungen zuerst (kein anderer Server, existiert, ist Spediteur, hat ein
+  // aktives Angebot) – erst danach lohnt sich die Tagesabrechnung des Spediteurs.
+  let t = db.getCompany(traderId);
+  const tb = t ? branch(t.branch) : null;
+  const offer = t && db.offersOfCompany(traderId).find((o) => o.branch === b.id && o.active);
+  if (!t || t.guild_id !== guildId || t.status !== 'open' || !isTrader(tb) || !offer) return { ok: false, reason: 'trader' };
+  // Der Spediteur wird vor dem Lesen abgerechnet – seine Kasse soll den Tag
+  // schon kennen, bevor die Spanne dazukommt (§4: faule Abrechnung, hier angestoßen).
+  settle(traderId, now);
+  t = db.getCompany(traderId);
+  if (!t || t.status !== 'open' || t.closed_until > now) return { ok: false, reason: 'trader' };
+  const free = capacityOf(b, effectiveOf(c, b)) - (c.stock ?? 0);
+  const cap = tradeCapacity(t, tb, now);
+  const want = units === 'voll' ? Infinity : Math.floor(Number(units));
+  // Menge unbrauchbar (Garbage-Input wie 'x' oder <= 0) ist ein anderer Fehler als
+  // „passt gerade nicht mehr rein" – die Ansicht soll das unterscheiden können.
+  if (!(want > 0)) return { ok: false, reason: 'units', free, left: cap.left };
+  const n = Math.min(want, free, cap.left);
+  if (n <= 0) return { ok: false, reason: 'capacity', free, left: cap.left };
+  const q = tradeQuote(wareOf(guildId, b).price, offer.share);
+  const cost = n * q.price;
+  if (c.kasse < cost) return { ok: false, reason: 'kasse', cost, kasse: c.kasse };
+  const spread = n * q.spread;
+  const buyer = { ...c, kasse: c.kasse - cost, stock: (c.stock ?? 0) + n, stock_cost: (c.stock_cost ?? 0) + cost };
+  buyer.news = pushNews(buyer, now, `🚚 ${n} ${b.ware.name} von ${t.name} für ${cost.toLocaleString('de-DE')}`, -cost);
+  const trader = { ...t, kasse: t.kasse + spread, trade_day: dayKey(now), trade_today: cap.today + n,
+    trade_units: (t.trade_units ?? 0) + n, trade_profit: (t.trade_profit ?? 0) + spread };
+  trader.news = pushNews(trader, now, `🚚 ${n} ${b.ware.name} an ${c.name} geliefert: +${spread.toLocaleString('de-DE')} Spanne`, spread);
+  db.transaction(() => {
+    db.saveCompany(buyer);
+    db.saveCompany(trader);
+  });
+  return { ok: true, units: n, price: q.price, wholesale: q.wholesale, cost, spread,
+    trader: { id: t.id, name: t.name }, stock: buyer.stock, kasse: buyer.kasse };
+}
+
 // ------------------------------------------------------------------ Anzeige
 
 /** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
@@ -929,6 +1056,12 @@ function status(guildId, userId, now = Date.now()) {
         daysLeft: Math.round((stock / perDay) * 10) / 10,
       };
     })(),
+    // Handel (Stück 3b): der Spediteur sieht Tageskapazität, Lebenswerte und seine
+    // Angebote; jede Firma sieht, wer ihr ihre Ware billiger als der NPC liefert.
+    handel: isTrader(b)
+      ? { ...tradeCapacity(c, b, now), units: c.trade_units ?? 0, profit: c.trade_profit ?? 0, offers: offersOf(guildId, c.id) }
+      : null,
+    angebote: offersFor(guildId, b.id, now, c.id),
   };
 }
 
@@ -1041,6 +1174,7 @@ module.exports = {
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   wareUnit, wareOf, capacityOf, starterOf, consumeOne, buyStock,
+  tradeQuote, isTrader, tradeCapacity, offersOf, setOffer, offersFor, buyFromTrader,
   dailyTarget, closeCompany, lastClosed, settle,
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,

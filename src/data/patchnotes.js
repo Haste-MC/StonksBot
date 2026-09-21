@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.36.0',
+    date: '2026-09-21',
+    title: '🚚 Firmen: Die Spedition liefert',
+    lines: [
+      '🚚 **Die Spedition ist Großhändler.** Sie kann die Ware jeder Branche an andere Spielerfirmen liefern – Beton & Stahl an die Baufirma, Kaffee & Gebäck ans Café. Sie kauft im Moment der Lieferung beim NPC-Markt mit 10 % Großhandelsrabatt; kein Zwischenlager, keine Verträge.',
+      '🏷️ **Angebote 90–100 % des Tagespreises.** Neue Ansicht „Handel" in der Lager-Ansicht der Spedition: je Ware einen Anteil setzen (z. B. `baufirma 95`, `alle 97`, `kiosk aus`). Der Preis hängt am Kurs – 95 % bleiben 95 %, wenn der Lieferant an der Börse steigt.',
+      '📦 **Kapazität 20 Einheiten je Platz und Tag** (Kern 200, Vollausbau 440), Tageszähler in der Handel- und Betriebsansicht („🚚 Handel: heute 60/200 · gesamt 4.120 Einheiten, +52.300 Spanne").',
+      '🛒 **Käufer sehen die Angebote im Lager** – bis zu drei Spediteure mit Preis und Restkapazität – und kaufen dort mit „Bei Spediteur kaufen" (Menge oder „voll"; genommen wird das günstigste Angebot mit Kapazität). Bezahlt wird Kasse → Kasse, der Einstand landet im Lager wie beim NPC-Einkauf; beide Chroniken bekommen eine Zeile.',
+      '💰 **Die Spanne bleibt beim Spediteur** – gemessen, nicht geschätzt: Eine Kern-Spedition mit Angebot 95 % liefert einer Kern-Baufirma 40 Einheiten am Tag (323 statt 340 je Einheit) und verdient dabei 680 am Tag – über ein Jahr mit Ereignissen im Schnitt 600/Tag (Σ 218.841 an 307 Liefertagen); die Baufirma spart dieselben 680 am Tag. Mehr als 10 % der Warenkosten des Käufers können nie beim Spediteur landen; ein Spediteur nimmt am Tag höchstens 9.600 (voll ausgebaut 21.120) an Spanne ein.',
+    ],
+  },
+  {
     version: '1.35.0',
     date: '2026-09-20',
     title: '📦 Firmen: Waren und Lieferanten',

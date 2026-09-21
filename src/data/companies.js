@@ -109,7 +109,9 @@ const BRANCHES = [
     blurb: 'Lkw, Fahrer, Disposition. Hohe Löhne, hohe Marge – rentabel nur mit voller Mannschaft.',
     stufen: leiter(1_200_000, ['3 Lkw', 'Depot', 'Eigene Werkstatt', 'Flotte 15', 'Flotte 20'], [12, 14, 16, 18, 20]),
     extras: extrasFor('spedition', 1_200_000, [E('Telematik', '📡'), E('Tankkarten-Vertrag', '⛽'), E('Gefahrgut-Lizenz', '☣️'), E('Nachtschicht', '🌙')], 2),
-    ware: { name: 'Reifen & Teile', emoji: '🛞', supplier: 'SCHR' } },
+    ware: { name: 'Reifen & Teile', emoji: '🛞', supplier: 'SCHR' },
+    // Stück 3b: die Spedition ist der Großhändler – sie liefert jede Ware an andere Firmen.
+    handel: true },
   { id: 'baufirma', klasse: 'gross', name: 'Baufirma', emoji: '🏗️', price: 1_800_000, slots: 12, umsatz: 1_700, lohn: 500,
     blurb: 'Kolonnen, Kran, Bauhof. Die höchsten Löhne im Spiel – und nur mit voller Mannschaft ein Geschäft.',
     // Eigene Faktoren (Schritt 0,3 statt 0,25): Mit den Standardfaktoren amortisierte sich
@@ -169,6 +171,14 @@ const WARE_KURS_MAX = 2.0;       // … nach oben
 const AD_HOC_MARKUP = 1.25;      // ohne Lager kostet die Einheit ein Viertel mehr
 const LAGER_TAGE = 7;            // Kapazität in Vollbetriebs-Tagen
 
+// Handel (Stück 3b): Branchen mit `handel: true` (die Spedition) bieten jede Ware
+// an – der Spediteur kauft zum Großhandelspreis (NPC-Preis minus Rabatt) und
+// verkauft zu einem Anteil des NPC-Preises; die Differenz ist seine Spanne.
+const HANDEL_RABATT = 0.10;      // Großhandel: 10 % unter dem NPC-Tagespreis
+const HANDEL_SHARE_MIN = 90;     // Anteil am NPC-Preis, den der Spediteur verlangen darf …
+const HANDEL_SHARE_MAX = 100;    // … 90 % (Spanne 0) bis 100 % (NPC-Preis)
+const HANDEL_KAPAZITAET = 20;    // Einheiten je Platz und Tag
+
 module.exports = {
   BRANCHES, RANKS, NPC_NAMES,
   NPC_SHIFTS, INSOLVENCY_DAYS, NPC_QUIT_AFTER_UNPAID, WERBUNG_DAYS, WERBUNG_BOOST,
@@ -177,4 +187,5 @@ module.exports = {
   MAX_STUFE, CONFIRM_ABOVE, STUFE_FAKTOREN, STUFE_PREISFAKTOREN, EXTRA_UMSATZ, extraById,
   EVENT_UMSATZ_MAX,
   WARE_SHARE, WARE_KURS_MIN, WARE_KURS_MAX, AD_HOC_MARKUP, LAGER_TAGE,
+  HANDEL_RABATT, HANDEL_SHARE_MIN, HANDEL_SHARE_MAX, HANDEL_KAPAZITAET,
 };
