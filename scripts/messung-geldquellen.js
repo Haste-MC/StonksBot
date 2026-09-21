@@ -30,6 +30,7 @@
  * Aufruf:  node scripts/messung-geldquellen.js [läufe] [tage] [--stunden=N] [--marathon]
  *          node scripts/messung-geldquellen.js 30 730
  *          node scripts/messung-geldquellen.js 10 365 --stunden=8
+ *          node scripts/messung-geldquellen.js 10 365 --nur=nachfrage
  *
  * Kein Netz: die Geldschnittstelle wird ersetzt und mitgeschrieben.
  */
@@ -79,6 +80,8 @@ const MARATHON = process.argv.includes('--marathon');
  * eine Seite des Handelslaufs (Stück 3b: `kauf.handel/preis/ersparnis`, `spanne`).
  */
 const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('--trace='.length) || null;
+/** `--nur=nachfrage`: nur den Abschnitt „Nachfrage-Drift" (Stück 3c) fahren – er ist billig, der Rest braucht Minuten. */
+const NUR = (process.argv.find((a) => a.startsWith('--nur=')) ?? '').slice('--nur='.length) || null;
 const de = (n) => Math.round(n).toLocaleString('de-DE');
 
 // ------------------------------------------------------------------ Würfel
@@ -1057,6 +1060,117 @@ async function handelslauf(tage, { ereignisse = !OHNE_EREIGNISSE, trace = {} } =
  * ausrechenbar. Beute geteilt durch die Crew, Strafe trägt jeder voll,
  * Wartezeit ist das Maximum aus Sperre und Knast (sie laufen parallel).
  */
+/**
+ * Nachfrage-Drift (Stück 3c): Drei Welten, derselbe Würfel, `tage` Tage Börse je 48 Takte
+ * am Tag – in Welt 0 wird für BETO nichts nachgefragt, in Welt 40 täglich 40 Einheiten
+ * (eine Kern-Baufirma), in Welt 200 täglich 200 (`DEMAND_REF`, volle Wirkung). Das
+ * Ganze `laeufe`-mal mit verschiedenen Seeds; Σ extra ist in jedem Lauf gleich (die
+ * Nachfrage ist deterministisch), nur der Kursweg wechselt.
+ *
+ * Weil `step` multiplikativ ist und die Nachfrage nur als additive Drift je Takt
+ * eingeht, gilt bei gleichem Würfel exakt (bis auf die Rundung auf ganze Kurse):
+ *
+ *     ln(p_n / p_0) = Σ extra über alle Takte
+ *
+ * Σ extra wird mitgezählt (`demandOf().extra` × simulierte Takte je Tag) und gegen die
+ * geschlossene Form e^(DEMAND_CAP × 48 × 365) gestellt. Die EMA (7 Tage) läuft an: Am
+ * ersten Tag wirkt nur 1/7 der Nachfrage, nach 15 Tagen 90 % – deshalb liegt Σ extra
+ * um sechs Tage Drift unter dem geschlossenen Wert.
+ *
+ * Rundungsrauschen: Jeder Takt rundet auf ganze Einheiten – relativer Fehler
+ * gleichverteilt in ±0,5/Kurs, Varianz 1/(12 × Kurs²) je Takt und Welt; die Differenz
+ * ln(p_n/p_0) zweier Welten sammelt beide als Irrfahrt: σ² = Σ_Takte 1/12 × (1/p_n² +
+ * 1/p_0²), hier mit dem Tageskurs gerechnet. Bei Kurs 1.750 sind das ~3 % über 17.520
+ * Takte; fällt der Kurs, mehr. Erst das Mittel über die Seeds macht die Identität
+ * scharf: Erwartung 0 ± σ/√Läufe.
+ */
+async function nachfragelauf(laeufe, tage) {
+  const wallstreet = require('../src/wallstreet');
+  const SYMBOL = 'BETO';
+  const { start: startkurs, sigma: sigmaBeto } = require('../src/data/wallstreet').find(SYMBOL);
+  const TAKTE = DAY / wallstreet.TICK_MS;                   // 48
+  const start = new Date(); start.setHours(12, 0, 0, 0);    // Mittag: ±1 h Sommerzeit ändert das Datum nicht
+  const t0 = start.getTime();
+  const cap = wallstreet.DEMAND_CAP, ref = wallstreet.DEMAND_REF;
+  const f4 = (n) => n.toFixed(4).replace('.', ',');
+  const pz = (n) => ((n - 1) * 100).toFixed(1).replace('.', ',') + ' %';
+  const vz = (n) => (n >= 0 ? '+' : '−') + f4(Math.abs(n));
+  const geschlossen = (u) => Math.exp(cap * Math.min(1, u / ref) * TAKTE * tage);
+
+  /** Eine Welt: `units` je Tag, Würfel `seed` → Endkurs, Σ extra, Tageskurse. */
+  const welt3c = async (units, seed) => {
+    const G = welt(`nachfrage_${units}_${seed}`);
+    const rand = rng(seed);
+    await wallstreet.advance(G, t0, rand);                  // erster Aufruf: merkt nur den Takt
+    let sumExtra = 0, takte = 0, ereignisse = 0;
+    const kurse = [], marken = [];
+    for (let tag = 1; tag <= tage; tag++) {
+      const now = t0 + tag * DAY;
+      if (units > 0) wallstreet.recordDemand(G, SYMBOL, units, now);
+      const d = wallstreet.demandOf(G, SYMBOL, now);
+      const r = await wallstreet.advance(G, now, rand);
+      if (r.simulated !== TAKTE) throw new Error(`Tag ${tag}: ${r.simulated} Takte statt ${TAKTE}`);
+      sumExtra += d.extra * r.simulated;
+      takte += r.simulated;
+      ereignisse += r.news.filter((n) => n.symbol === SYMBOL && n.event).length;
+      kurse.push(db.getPrice(G, SYMBOL).price);
+      if (tag === 1 || tag === 7 || tag === 15 || tag === 30) marken.push({ tag, emaNow: d.emaNow, extra: d.extra });
+    }
+    return { units, seed, end: kurse[kurse.length - 1], sumExtra, takte, ereignisse, kurse, marken,
+      kursMittel: kurse.reduce((s, p) => s + p, 0) / kurse.length, kursMin: Math.min(...kurse), kursMax: Math.max(...kurse) };
+  };
+  /** Rundungs-σ der Differenz ln(p_a/p_b) aus den Tageskursen beider Welten. */
+  const rundung = (a, b) => Math.sqrt(a.kurse.reduce((s, p, i) => s + (TAKTE / 12) * (1 / (p * p) + 1 / (b.kurse[i] ** 2)), 0));
+
+  console.log(`  Deckel DEMAND_CAP ${String(cap).replace('.', ',')} je Takt (= DRIFT_CAP ${String(wallstreet.DRIFT_CAP).replace('.', ',')} / 2), ` +
+    `volle Wirkung ab DEMAND_REF ${ref} Einheiten/Tag, EMA ${wallstreet.DEMAND_EMA_DAYS} Tage; ` +
+    `${TAKTE} Takte/Tag, ${tage} Tage = ${de(TAKTE * tage)} Takte; BETO Start ${de(startkurs)}, σ ${String(sigmaBeto).replace('.', ',')} je Takt; ` +
+    `${laeufe} Seeds, je Seed derselbe Würfel in den drei Welten 0 / 40 / 200 Einheiten am Tag.`);
+  console.log(`  Geschlossene Form (Nachfrage vom ersten Takt an voll wirksam): ` +
+    `200/Tag e^(${String(cap).replace('.', ',')} × ${TAKTE} × ${tage}) = e^${f4(cap * TAKTE * tage)} = ${f4(geschlossen(200))} (${pz(geschlossen(200))}) · ` +
+    `40/Tag e^${f4(cap * 0.2 * TAKTE * tage)} = ${f4(geschlossen(40))} (${pz(geschlossen(40))}).`);
+
+  const ergebnisse = [];                                    // je Seed { p0, p40, p200 }
+  for (let i = 0; i < laeufe; i++) {
+    const seed = 20260921 + i;
+    const p0 = await welt3c(0, seed), p40 = await welt3c(40, seed), p200 = await welt3c(200, seed);
+    ergebnisse.push({ seed, p0, p40, p200 });
+  }
+  const erster = ergebnisse[0];
+  const anlauf = (w) => w.marken.map((m) => `Tag ${m.tag}: ${m.emaNow.toFixed(1).replace('.', ',')} → ${m.extra.toExponential(2).replace('.', ',')}`).join(', ');
+  console.log(`  Anlauf der EMA (emaNow Einheiten/Tag → extra je Takt): 40/Tag ${anlauf(erster.p40)} · 200/Tag ${anlauf(erster.p200)}.`);
+  for (const w of [erster.p40, erster.p200]) {
+    const luecke = cap * Math.min(1, w.units / ref) * TAKTE * tage - w.sumExtra;
+    console.log(`  Σ extra ${w.units}/Tag: ${f4(w.sumExtra)} über ${de(w.takte)} Takte → e^Σ = ${f4(Math.exp(w.sumExtra))} ` +
+      `(geschlossene Form ${f4(geschlossen(w.units))}, Anlauf-Lücke ${f4(luecke)} = ${(luecke / (cap * Math.min(1, w.units / ref) * TAKTE)).toFixed(1).replace('.', ',')} Tage Drift).`);
+  }
+
+  console.log(`
+  Je Seed (Endkurse p0 · p40 · p200; Verhältnis, ln, Abweichung von Σ extra in Rundungs-σ):`);
+  const abw = { 40: [], 200: [] }, sig = { 40: [], 200: [] };
+  for (const e of ergebnisse) {
+    const teil = (w) => {
+      const ratio = w.end / e.p0.end, ln = Math.log(ratio), s = rundung(w, e.p0), d = ln - w.sumExtra;
+      abw[w.units].push(d); sig[w.units].push(s);
+      return `p${w.units}/p0 ${f4(ratio)} (ln ${f4(ln)}, ${vz(d)} = ${(Math.abs(d) / s).toFixed(1).replace('.', ',')} σ, σ ${f4(s)})`;
+    };
+    console.log(`  Seed ${e.seed}: ${de(e.p0.end).padStart(6)} · ${de(e.p40.end).padStart(6)} · ${de(e.p200.end).padStart(6)}   ` +
+      `${teil(e.p40)} · ${teil(e.p200)}   Kurs Ø ${de(e.p0.kursMittel)} (${de(e.p0.kursMin)} … ${de(e.p0.kursMax)}), Ereignisse BETO ${e.p0.ereignisse}`);
+  }
+  const mittel = (xs) => xs.reduce((s, x) => s + x, 0) / xs.length;
+  const median = (xs) => quantil(xs, 0.5);
+  for (const u of [40, 200]) {
+    const ratios = ergebnisse.map((e) => e[`p${u}`].end / e.p0.end);
+    const sumExtra = erster[`p${u}`].sumExtra;
+    // σ des Mittels: √(Σ σ_i²)/n – die Seeds sind unabhängig.
+    const sigMittel = Math.sqrt(sig[u].reduce((s, x) => s + x * x, 0)) / sig[u].length;
+    console.log(`  p${u}/p0 über ${laeufe} Seeds: Median ${f4(median(ratios))}, Mittel ${f4(mittel(ratios))}, ` +
+      `${f4(Math.min(...ratios))} … ${f4(Math.max(...ratios))}; ` +
+      `Mittel der Abweichung ln − Σ extra = ${vz(mittel(abw[u]))} bei erwarteter Rundungs-σ des Mittels ${f4(sigMittel)} ` +
+      `(${(Math.abs(mittel(abw[u])) / sigMittel).toFixed(1).replace('.', ',')} σ) → Erwartung e^Σ = ${f4(Math.exp(sumExtra))}, geschlossene Form ${f4(geschlossen(u))}.`);
+  }
+}
+
 function heists() {
   const gear = heistData.GEAR_TIERS ?? heistData.TIERS ?? [];
   const top = gear[gear.length - 1] ?? { risk: 0 };
@@ -1122,6 +1236,13 @@ async function main() {
   }
   const LAEUFE = Number(process.argv[2] || 30);
   const TAGE = Number(process.argv[3] || 730);
+
+  if (NUR === 'nachfrage') {
+    console.log(`\n--- Nachfrage-Drift (Stück 3c: BETO, ${TAGE} Tage, drei Welten, ein Würfel) ---\n`);
+    await nachfragelauf(LAEUFE, TAGE);
+    console.log();
+    return;
+  }
 
   console.log(`\n=== Messung: ${LAEUFE} Läufe à ${TAGE} Tage, fester Würfel${STRATEGIE ? ' (Strategie festgelegt)' : ''}` +
     `, Deckel ${STUNDEN} h/Tag${MARATHON ? ', Marathon im Wechsel' : ''} ===\n`);
@@ -1270,6 +1391,14 @@ async function main() {
         (was === 'ohne' ? ` · bester Tag ${de(r.kaeufer.bestNetto)} (Decke ${de(r.kaeufer.decke)} + Handels-Decke ${de(h.decke)}, Ware zum Verbrauch gerechnet)` : ''));
     }
   }
+
+  /*
+   * Nachfrage-Drift (Stück 3c): Wareneinkäufe heben die Lieferanten-Aktie – gedeckelt.
+   * Drei Börsenwelten mit demselben Würfel, 0 / 40 / 200 Einheiten BETO am Tag; die
+   * Endkurse müssen sich um genau e^(Σ extra) unterscheiden (bis auf Rundung je Takt).
+   */
+  console.log(`\n--- Nachfrage-Drift (Stück 3c: BETO, ${TAGE} Tage, drei Welten, ein Würfel) ---\n`);
+  await nachfragelauf(LAEUFE, TAGE);
 
   console.log(`\n--- Heists, Erwartungswert je Crew-Mitglied ---\n`);
   for (const h of heists()) {

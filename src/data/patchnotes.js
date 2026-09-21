@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.37.0',
+    date: '2026-09-21',
+    title: '📈 Börse: Nachfrage und Firmenanteile',
+    lines: [
+      '🏭 **Die Börse merkt, was die Firmen kaufen.** Jeder Wareneinkauf einer Spielerfirma – im Lager, ad hoc oder beim Spediteur – zählt als Nachfrage bei der Lieferanten-Aktie (Beton & Stahl → BETO). Viel Nachfrage über die letzten sieben Tage hebt den Kurs leicht: höchstens die halbe normale Drift, bei 200 Einheiten am Tag voll, nie nach unten. Ohne Nachfrage bleibt alles wie bisher. Die Aktien-Ansicht zeigt es: „🏭 Nachfrage: Ø 40 Einheiten/Tag · Drift +0,02 %/Tag".',
+      '📏 **Gemessen, nicht geschätzt:** Volle Nachfrage über ein Jahr hebt eine Aktie um höchstens 42 % (e^(0,00002 × 48 × 365) = 1,42); eine einzelne Kern-Baufirma mit 40 Einheiten am Tag bringt ihrem Lieferanten rund 7 % im Jahr – und zahlt am Jahresende dieselben 7 % mehr für ihre Ware.',
+      '🏢 **Firmenanteile.** Ab Stufe 2 kann ein Inhaber bis zu 49 % seiner Firma als Anteile anbieten (1.000 Anteile je Firma, er behält mindestens 510): neue Ansicht „Anteile" in der Ausbau-Ansicht mit Verteilung, Buchwert je Anteil und letzter Ausschüttung; „Anteile anbieten" mit Anzahl und Preis, „Angebot zurückziehen".',
+      '🛒 **Kaufen an der Börse unter „Firmenanteile".** Alle Angebote des Servers mit Firma, Stufe, Preis, Buchwert und letzter Ausschüttung je Anteil; kaufen mit Nummer und Anzahl. Der Kaufpreis geht an den Verkäufer, 1 % Gebühr zahlt der Käufer. Anteile lassen sich weiterverkaufen.',
+      '💸 **Ausschüttung bei jeder Entnahme und beim Schließen oder Verkaufen** – anteilig, aus dem, was der Inhaber aus der Kasse nimmt; kein Kurs, keine Dividende aus dem Nichts. Unter „Meine Anteile" (Börse → Firmenanteile) stehen Anteile, bezahlt, ausstehend und erhalten; „Ausschüttung abholen" holt alles in einer Buchung. Die Betriebsansicht zeigt „240 Anteile bei 3 Spielern".',
+    ],
+  },
+  {
     version: '1.36.0',
     date: '2026-09-21',
     title: '🚚 Firmen: Die Spedition liefert',

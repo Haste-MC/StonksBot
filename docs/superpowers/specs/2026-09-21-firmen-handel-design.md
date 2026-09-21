@@ -121,3 +121,13 @@ Handel läuft über Kapazität (Plätze), nicht über Schichten.
   Tageswechsel setzt `trade_today` zurück, `offersFor` sortiert und ohne
   geschlossene, Handels-Decke Handrechnung.
 - Docs: §15 Handel (Decken, gemessen), Patchnotes 1.36.0, Addendum in 3a-Spec.
+
+## Nachtrag 2026-09-21: 3c umgesetzt (siehe 2026-09-21-firmen-boerse-design.md)
+
+Stück 3c („Börse aktiv": Nachfrage-Drift der Lieferanten-Aktien und
+Firmenanteile) ist umgesetzt – Version 1.37.0, Spec
+`2026-09-21-firmen-boerse-design.md`, Messung
+`docs/messungen/2026-09-21-boerse-nachfrage.txt`, ARCHITEKTUR §15 „Börse
+aktiv". Der Handel aus 3b zählt dabei je gelieferter Einheit einmal als
+Nachfrage beim Lieferanten (der Spediteur kauft beim NPC-Markt); Angebote
+und Spanne sind unverändert.

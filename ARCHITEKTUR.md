@@ -223,6 +223,11 @@ Test schlägt mit einem echten 404 fehl.
   Transaktion reservieren, dann buchen; schlägt die Buchung fehl, den lokalen
   Schritt zurückrollen (`purchase.js`, `property.js`). Umgekehrt wäre eine
   fehlgeschlagene Rückerstattung über die API nicht garantiert.
+- **Eine Ausnahme:** Anteilskauf (`company.buyShares`, §15 „Börse aktiv"):
+  zwei Buchungen mit Rücknahme – ein Transfer zwischen Spielern, für den es
+  keine einzelne Buchung gibt; erst Käufer −, dann Verkäufer +, scheitert die
+  zweite, wird die erste zurückgenommen. Im Zwischenzustand fehlt Geld, nie
+  entsteht welches.
 
 ## 10. Bilder & Lizenzen
 
@@ -747,6 +752,79 @@ Lauf nicht vor (0×), ist aber getestet (`test/companyTrade.test.js`). Die
 Kern-Mediane mit Ereignissen sind oben im 3a-Absatz bereits auf diesen Lauf
 aufgefrischt (fünf der neun Branchen verschoben, u. a. Baufirma 52.915 statt
 55.830 in der Datei vom 20.09.); die Decken sind unverändert.
+
+**Börse aktiv (seit 1.37.0, Stück 3c):** Zwei Verbindungen zwischen Firmen
+und Börse, beide ohne neue Geldquelle. *(A) Nachfrage-Drift.* Jeder
+Wareneinkauf einer Spielerfirma (`buyStock`, ad hoc in `consumeOne`,
+Großhandel in `buyFromTrader` – je Einheit einmal, beim Lieferanten der
+Käufer-Branche) zählt per `wallstreet.recordDemand` auf `demand_today` der
+Lieferanten-Aktie; ein 7-Tage-EMA (`demand_ema`, rollt am Kalendertag,
+übersprungene Tage mit 0) glättet. `simulate` addiert je Takt `extra =
+DEMAND_CAP × min(1, emaNow / DEMAND_REF)` zur Drift (`step(…, extraDrift)`),
+`DEMAND_CAP` 0,00002 = `DRIFT_CAP` / 2, `DEMAND_REF` 200 Einheiten/Tag, nur
+für Aktien mit Lieferantenrolle, nie negativ – ohne Nachfrage bleibt alles
+wie bisher. Die Aktien-Ansicht zeigt „🏭 Nachfrage: Ø 38 Einheiten/Tag
+(7 Tage) · Drift +0,02 %/Tag". **Grenze (§3):** Der zusätzliche passive
+Zufluss auf eine voll nachgefragte Aktie ist höchstens `e^(0,00002 × 48 ×
+365)` = e^0,3504 = **1,4196, also +42 %/Jahr** – die Hälfte der bestehenden
+Drift-Decke (0,00004 → e^0,7008 = +101 %/Jahr) und klein gegen die
+Schwankung (BETO σ 0,005 je Takt → allein das eigene Rauschen 0,66 im Jahr).
+Eine einzelne Kern-Baufirma (40 Einheiten/Tag) bringt `40/200 × 0,3504` =
+e^0,0701 = **+7,3 %/Jahr**. Gemessen (`nachfragelauf` im Messskript,
+`DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365`, Auszug in
+`docs/messungen/2026-09-21-boerse-nachfrage.txt`): drei Börsenwelten je
+Seed mit demselben Würfel, 365 Tage à 48 Takte, täglich `recordDemand` 0 /
+40 / 200 Einheiten BETO vor dem `advance` des Tages. Weil `step`
+multiplikativ ist, gilt bei gleichem Würfel `ln(p_n/p_0) = Σ extra` exakt
+bis auf die Rundung auf ganze Kurse. Σ extra ist deterministisch: 0,0689
+(40) und 0,3446 (200) – sechs Tage Drift unter der geschlossenen Form, weil
+die EMA anläuft (Tag 1: emaNow 200/7 = 28,6; Tag 7: 200 × (1 − (6/7)^7) =
+132,0; Tag 15: 180,2 = 90 %; Σ (6/7)^d = 6 fehlende Tage) → Erwartung e^Σ
+= **1,0714** bzw. **1,4115**. Seed 20260921: Endkurse **1.102 · 1.171 ·
+1.477**, p40/p0 = **1,0626**, p200/p0 = **1,3403** (ln 0,2929, −0,0518
+gegen Σ extra = 1,0 σ Rundung: jeder Takt rundet auf ganze Einheiten,
+Varianz 1/(12 × Kurs²) je Takt und Welt, über 17.520 Takte bei Kurs Ø
+1.207 … 1.359 ist σ ≈ 0,05). Über 10 Seeds: p40/p0 Median 1,0736 (1,0107 …
+1,1871), p200/p0 Median 1,3824 (1,3253 … 1,5935); das Mittel der Abweichung
+ln − Σ extra ist +0,0112 (40) und −0,0067 (200) bei erwarteter Rundungs-σ
+des Mittels 0,0164 bzw. 0,0153 – 0,7 σ und 0,4 σ, die Identität hält. Ohne
+Nachfrage ist der Lauf mit dem alten Code identisch (extra 0, derselbe
+Würfel). **Pumpen lohnt nicht:** Ein Inhaber, der die Aktie seines
+Lieferanten hält, hebt sie mit der eigenen Nachfrage um höchstens die
++7,3 %/Jahr einer Kern-Baufirma (für den vollen Deckel bräuchte es fünf
+Baufirmen) – und der Tagespreis seiner Ware hängt am Kursverhältnis (3a):
+Am Jahresende zahlt er dieselben 7,3 % auf jede Einheit, über das Jahr im
+Mittel die Hälfte auf 40 × 340 × 365 = 4,96 Mio. Warenkosten (≈ 181.000);
+der Kursgewinn ist 7,3 % der Position. Erst eine BETO-Position über
+2,5 Mio. holt das herein – und dieselben 7,3 % bekommt jeder andere Halter,
+ohne eine Firma zu führen; der Zufluss ist gedeckelt, nicht an den Halter
+gebunden. *(C) Firmenanteile.* Je Firma `SHARES_TOTAL` 1.000 Anteile, der
+Inhaber hält, was niemand sonst hält (keine eigene Zeile), mindestens
+`OWNER_MIN` 510; Angebote ab Stufe `IPO_MIN_STUFE` 2 (`listShares`,
+`company_share_offers`), Kauf an der Börse unter „Firmenanteile"
+(`buyShares`): **Käufer −(n × Preis + Gebühr), Verkäufer +n × Preis** –
+Gebühr `SHARE_FEE` 1 %, gerundet, die einzige Senke; ein Transfer zwischen
+Spielern, deshalb die einzige Ausnahme von §9 (zwei Buchungen: erst `pay`
+beim Käufer mit Bank, dann Gutschrift beim Verkäufer, scheitert die, geht
+die erste zurück – zwischen den Buchungen fehlt Geld, es entsteht keins; ein
+inzwischen verkleinertes Angebot wird nach dem Kauf für den Rest
+zurückgebucht, die Gebühr darauf bleibt Senke). **Kein Kurs:** Anteile
+werden nicht simuliert, nicht an den Markt verkauft, ihr Wert ist die
+Ausschüttung. Ausgeschüttet wird nur, was ohnehin die Kasse verlässt:
+`withdraw` teilt den Betrag `floor(value × shares / 1000)` je Halter auf
+`pending`, der Inhaber bekommt den Rest in der einen Buchung wie bisher;
+`close`/`sell` teilen die ganze Auszahlung (Kasse + Lager, beim Verkauf +
+Ausbau) ebenso. `claimDividends` holt alle `pending` eines Spielers in
+**einer** Buchung. Halter-Zeilen überleben das Schließen (`pending` bleibt
+abholbar), Angebote nicht. **§3:** Nichts entsteht – Käufe sind Transfers
+minus Gebühr, Ausschüttungen kommen aus der Kasse (Einzahlung, Umsatz) statt
+an den Inhaber an die Halter; ein Inhaber kann nicht mehr ausschütten, als
+er entnimmt. Die Kette im Test (`test/companyShares.test.js`, „§3: Summe
+aller Buchungen": Gründung, zwei Verkäufe des Inhabers, Einzahlung, Entnahme
+10.000, Weiterverkauf, Schließen, Abholen) endet bei Konten-Summe
+**29.859.159 = 30.000.000 Start − 120.000 Gründungspreis − 3.750 Gebühren
+(2.000 + 1.000 + 750) − 17.091 noch nicht abgeholt** – Konto für Konto von
+Hand nachgerechnet (O 20.142.818, A 4.875.000, B 4.841.341).
 
 ### Eine Bremse, nicht zwei
 
