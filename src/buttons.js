@@ -20,7 +20,7 @@ const {
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
-  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, ID, homeButton,
+  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -1997,6 +1997,21 @@ Object.assign(buttons, {
           .setStyle(TextInputStyle.Short).setRequired(true)));
       return interaction.showModal(modal);
     }
+    if (aktion === 'handelkauf') {
+      const modal = new ModalBuilder().setCustomId(`fware|handel|${userId}`).setTitle('Beim Spediteur kaufen');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('amount').setLabel('Menge (oder „voll")')
+          .setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
+    if (aktion === 'handelsetzen') {
+      const modal = new ModalBuilder().setCustomId(`fhandel|setzen|${userId}`).setTitle('Angebot setzen');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('text').setLabel('Branche oder „alle", dann Prozent oder „aus"')
+          .setPlaceholder('z. B. „baufirma 95" oder „alle 97"')
+          .setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
 
     await interaction.deferUpdate();
     // §4 faule Abrechnung: ein abgelaufener Vorfall wirkt, wenn gehandelt wird –
@@ -2093,6 +2108,15 @@ Object.assign(buttons, {
       const r = await company.buyStock(guildId, userId, 'voll');
       note = wareNote(symbol, r);
       await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+      if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    } else if (aktion === 'handel') {
+      return interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
+    } else if (aktion === 'handelaus') {
+      const r = company.setOffer(guildId, userId, 'alle', 'aus');
+      note = r.ok ? '🚫 Alle Angebote sind aus.' : { no_company: '🏢 Du hast keine Firma.',
+        not_trader: '❌ Nur Speditionen handeln.' }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     } else if (aktion === 'schliessen') {
@@ -2757,9 +2781,58 @@ const modals = {
     const symbol = await getSymbol(guildId);
     const raw = String(interaction.fields.getTextInputValue('amount') ?? '').trim().toLowerCase();
     const units = raw === 'voll' ? 'voll' : Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
+
+    if (modus === 'handel') {
+      // Kauf beim Spediteur (Stück 3b): das Modal kennt keinen Anbieter – es nimmt
+      // immer das günstigste Angebot, wie es die Lager-Ansicht auch zeigt.
+      const s = company.status(guildId, userId);
+      if (!s) {
+        await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+        await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      const angebot = s.angebote[0];
+      const r = angebot ? await company.buyFromTrader(guildId, userId, angebot.company.id, units) : { ok: false, reason: 'trader' };
+      const note = r.ok
+        ? `🚚 **${r.units}** Einheiten von **${r.trader.name}** für ${money(symbol, r.cost)} (${money(symbol, r.price)} je Einheit statt ${money(symbol, s.ware.price)}).`
+        : { trader: '🚚 Der Spediteur liefert gerade nicht.',
+            capacity: '📦 Es passt nichts mehr rein – oder der Spediteur hat für heute geliefert.',
+            kasse: `💸 Dafür fehlen ${money(symbol, (r.cost ?? 0) - (r.kasse ?? 0))} in der Kasse.`,
+            self: '❌ Das eigene Angebot kannst du nicht kaufen.' }[r.reason] ?? '❌ Das ging nicht.';
+      await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    }
+
     const r = modus === 'kaufen' ? await company.buyStock(guildId, userId, units) : { ok: false, reason: 'units' };
     await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
     await interaction.followUp({ content: wareNote(symbol, r), flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Angebot der Spedition gesetzt (Stück 3b): „<branche|alle> <prozent|aus>". */
+  async fhandel(interaction, [aktion]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    if (aktion !== 'setzen') return;
+    const raw = String(interaction.fields.getTextInputValue('text') ?? '').trim().toLowerCase();
+    const m = raw.match(/^(\S+)\s+(\d+|aus)$/i);
+    let note;
+    if (!m) {
+      note = '❌ Branche unbekannt – z. B. „baufirma 95" oder „alle 97".';
+    } else {
+      const [, branchWort, prozentWort] = m;
+      const share = prozentWort === 'aus' ? 'aus' : Number(prozentWort);
+      const r = company.setOffer(guildId, userId, branchWort, share);
+      note = r.ok
+        ? (share === 'aus' ? `🚫 **${branchWort}** ist aus.` : `🏷️ **${branchWort}**: **${share} %**.`)
+        : { no_company: '🏢 Du hast keine Firma.', not_trader: '❌ Nur Speditionen handeln.',
+            branch: '❌ Branche unbekannt – z. B. „baufirma 95" oder „alle 97".',
+            share: '❌ Prozent zwischen 90 und 100, oder „aus".' }[r.reason] ?? '❌ Das ging nicht.';
+    }
+    await interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Prämie eingegeben. */

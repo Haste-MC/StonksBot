@@ -948,13 +948,17 @@ async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now =
   const { company: c, branch: b } = ctx;
   const traderId = Number(traderCompanyId);
   if (c.id === traderId) return { ok: false, reason: 'self' };
+  // Günstige Prüfungen zuerst (kein anderer Server, existiert, ist Spediteur, hat ein
+  // aktives Angebot) – erst danach lohnt sich die Tagesabrechnung des Spediteurs.
+  let t = db.getCompany(traderId);
+  const tb = t ? branch(t.branch) : null;
+  const offer = t && db.offersOfCompany(traderId).find((o) => o.branch === b.id && o.active);
+  if (!t || t.guild_id !== guildId || t.status !== 'open' || !isTrader(tb) || !offer) return { ok: false, reason: 'trader' };
   // Der Spediteur wird vor dem Lesen abgerechnet – seine Kasse soll den Tag
   // schon kennen, bevor die Spanne dazukommt (§4: faule Abrechnung, hier angestoßen).
   settle(traderId, now);
-  const t = db.getCompany(traderId);
-  const tb = t ? branch(t.branch) : null;
-  const offer = t && db.offersOfCompany(t.id).find((o) => o.branch === b.id && o.active);
-  if (!t || t.status !== 'open' || !isTrader(tb) || !offer || t.closed_until > now) return { ok: false, reason: 'trader' };
+  t = db.getCompany(traderId);
+  if (!t || t.status !== 'open' || t.closed_until > now) return { ok: false, reason: 'trader' };
   const free = capacityOf(b, effectiveOf(c, b)) - (c.stock ?? 0);
   const cap = tradeCapacity(t, tb, now);
   const want = units === 'voll' ? Infinity : Math.floor(Number(units));

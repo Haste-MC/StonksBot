@@ -225,6 +225,59 @@ function view(buttons) {
     await company.close(FG, FU, now);
   }
 
+  console.log('--- Handel: Spedition als Großhändler (Spec 3b: Darstellung) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const FG = `FR3B_T${Date.now()}`;
+    const FT = 'fr_spedi';
+    const FK = 'fr_kiosk';
+    const now = Date.now();
+    let r = await company.found(FG, FT, 'spedition', 'Blitz-Spedition', now);
+    check('Spedition gegründet', r.ok, JSON.stringify(r));
+    const tid = r.company.id;
+    r = await company.found(FG, FK, 'kiosk', 'Eckladen', now);
+    check('Kiosk gegründet', r.ok, JSON.stringify(r));
+    const kid = r.company.id;
+    await company.deposit(FG, FT, 500_000, now);
+    await company.deposit(FG, FK, 500_000, now);
+    company.setOffer(FG, FT, 'alle', 95, now);
+    // Lager des Käufers muss Platz haben, damit „Bei Spediteur kaufen" aktiv ist.
+    db.saveCompany({ ...db.getCompany(kid), stock: 0, stock_cost: 0, kasse: 500_000 });
+
+    const kaeuferLager = await ui.buildFirmaLagerView({ guildId: FG, userId: FK });
+    const kFields = kaeuferLager.embeds[0].data.fields.map((f) => f.name);
+    check('Käufer-Lager zeigt 🚚 Spediteure', kFields.includes('🚚 Spediteure'), kFields.join(', '));
+    const kIds = kaeuferLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('Käufer-Lager hat den Kauf-Knopf', kIds.includes(`firma|handelkauf|0|${FK}`), kIds.join(' '));
+    const kaufBtn = kaeuferLager.components.flatMap((row) => row.components).find((b) => b.data.custom_id === `firma|handelkauf|0|${FK}`);
+    check('Kauf-Knopf ist aktiv (Lager frei, Kasse reicht)', kaufBtn.data.disabled !== true);
+    check('Käufer-Lager hält das Fluxer-Limit', render.mapReactions(kaeuferLager).overflow === undefined,
+      String(render.mapReactions(kaeuferLager).overflow));
+
+    const spediLager = await ui.buildFirmaLagerView({ guildId: FG, userId: FT });
+    const sIds = spediLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('Spediteur-Lager zeigt „Handel"', sIds.includes(`firma|handel|0|${FT}`), sIds.join(' '));
+    check('Spediteur-Lager hält das Fluxer-Limit', render.mapReactions(spediLager).overflow === undefined,
+      String(render.mapReactions(spediLager).overflow));
+
+    const handel = await ui.buildFirmaHandelView({ guildId: FG, userId: FT });
+    check('Handel-Ansicht: Titel beginnt mit 🚚', handel.embeds[0].data.title.startsWith('🚚'), handel.embeds[0].data.title);
+    const hButtons = handel.components.flatMap((row) => row.components);
+    check('Handel-Ansicht: fünf Knöpfe', handel.components.length === 1 && hButtons.length === 5, String(hButtons.length));
+    check('Handel-Ansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(handel).overflow === undefined,
+      String(render.mapReactions(handel).overflow));
+    console.log('    ' + handel.embeds[0].data.title);
+    for (const zeile of handel.embeds[0].data.description.split('\n')) console.log('    ' + zeile);
+
+    const spediBetrieb = await ui.buildFirmaView({ guildId: FG, userId: FT });
+    const waren = spediBetrieb.embeds[0].data.fields.find((f) => f.name === '📦 Waren');
+    check('Betriebsansicht der Spedition enthält „🚚 Handel:"', waren?.value.includes('🚚 Handel:'), waren?.value);
+
+    await company.close(FG, FT, now);
+    await company.close(FG, FK, now);
+  }
+
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');
   const msgId = `MSG_${Date.now()}`;
   render.remember(msgId, U, many.mapping);

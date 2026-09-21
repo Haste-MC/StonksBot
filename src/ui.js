@@ -1107,7 +1107,9 @@ async function buildFirmaView({ guildId, userId }) {
     value: `${s.ware.emoji} ${s.ware.name} · Lager **${s.ware.stock}/${s.ware.capacity}** · heute **${money(symbol, s.ware.price)}**`
       + ` (${s.ware.asset.symbol} ${kursAbweichung(s.ware.ratio)})`
       + (s.ware.stock > 0 ? ` · Ø bezahlt ${money(symbol, s.ware.avgPaid)} · reicht ~${String(s.ware.daysLeft).replace('.', ',')} Tage`
-        : `\n⚠️ _leer – Schichten kaufen ad hoc (${money(symbol, s.ware.adhoc)}, +25 %)_`),
+        : `\n⚠️ _leer – Schichten kaufen ad hoc (${money(symbol, s.ware.adhoc)}, +25 %)_`)
+      // Handel (Stück 3b): die Spedition ist der Großhändler – eine Zeile mit Tageskapazität und Lebenswerten.
+      + (s.handel ? `\n🚚 Handel: heute ${s.handel.today}/${s.handel.capacity} · gesamt ${s.handel.units} Einheiten, +${money(symbol, s.handel.profit)} Spanne` : ''),
   });
 
   // Die Minus-Uhr läuft, bis eine Abrechnung mit positiver Kasse sie stoppt – auch
@@ -3125,13 +3127,85 @@ async function buildFirmaLagerView({ guildId, userId }) {
       { name: '💰 Kasse', value: money(symbol, s.kasse), inline: true },
       { name: 'Voll machen kostet', value: money(symbol, free * w.price), inline: true },
     );
+
+  // Handel (Stück 3b): andere Spediteure können die eigene Ware billiger als der
+  // NPC liefern – bis zu drei Angebote, billigstes zuerst (kommt schon sortiert).
+  if (s.angebote.length) {
+    embed.addFields({
+      name: '🚚 Spediteure',
+      value: s.angebote.slice(0, 3).map((o) =>
+        `**${o.company.name}** ${money(symbol, o.price)} statt ${money(symbol, w.price)} (${o.share} %) · heute noch ${o.left} Einheiten`)
+        .join('\n'),
+    });
+  }
+
+  const bestAngebot = s.angebote[0];
+  const handelkaufButton = () => new ButtonBuilder()
+    .setCustomId(`firma|handelkauf|0|${userId}`).setLabel('Bei Spediteur kaufen').setEmoji('🚚')
+    .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || !bestAngebot || s.kasse < bestAngebot.price);
+
+  const row1 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`firma|einkaufen|0|${userId}`).setLabel('Einkaufen').setEmoji('🛒')
+      .setStyle(ButtonStyle.Primary).setDisabled(free <= 0 || s.kasse < w.price),
+    new ButtonBuilder().setCustomId(`firma|lagervoll|0|${userId}`).setLabel(`Voll machen (${free})`).setEmoji('📦')
+      .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || s.kasse < free * w.price));
+  if (s.handel) {
+    // Ein Spediteur kauft seine eigene Ware nur beim NPC – „Handel" führt zu den
+    // eigenen Angeboten. Beliefert ihn ein anderer Spediteur, kommt der Kaufknopf
+    // in eine zweite Zeile (sonst wären es sechs Knöpfe in einer).
+    row1.addComponents(
+      new ButtonBuilder().setCustomId(`firma|handel|0|${userId}`).setLabel('Handel').setEmoji('🚚')
+        .setStyle(ButtonStyle.Primary));
+  } else if (s.angebote.length) {
+    row1.addComponents(handelkaufButton());
+  }
+  row1.addComponents(
+    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+    homeButton(userId));
+
+  const rows = [row1];
+  if (s.handel && s.angebote.length) {
+    rows.push(new ActionRowBuilder().addComponents(handelkaufButton()));
+  }
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Handel-Ansicht der Spedition (Stück 3b): eigene Angebote je Branche setzen,
+ * Tageskapazität und bisherige Spanne. Neun Branchen als eigene Felder wären zu
+ * viel – die Angebote stehen als Tabelle im Beschreibungstext.
+ */
+async function buildFirmaHandelView({ guildId, userId }) {
+  const company = require('./company');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  if (!s.handel) return buildFirmaView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const h = s.handel;
+  const data = require('./data/companies');
+
+  const tabelle = h.offers.map((o) => {
+    const b = company.branch(o.branch);
+    return `${o.ware.emoji} ${o.ware.name} (${b.name}) · ${o.share} % · ${o.active ? 'an' : 'aus'}`;
+  }).join('\n');
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🚚 Handel – ${s.company.name}`)
+    .setColor(0x8e6e53)
+    .setDescription(
+      `Großhandel: du kaufst zum NPC-Tagespreis minus ${Math.round(data.HANDEL_RABATT * 100)} % und verkaufst zu 90–100 % davon weiter – die Differenz ist deine Spanne.\n`
+      + `Kapazität heute: **${h.today}/${h.capacity}** Einheiten.\n\n${tabelle}`)
+    .addFields({ name: 'Bisher', value: `${h.units.toLocaleString('de-DE')} Einheiten · Spanne ${money(symbol, h.profit)}` });
+
   return {
     embeds: [embed],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`firma|einkaufen|0|${userId}`).setLabel('Einkaufen').setEmoji('🛒')
-        .setStyle(ButtonStyle.Primary).setDisabled(free <= 0 || s.kasse < w.price),
-      new ButtonBuilder().setCustomId(`firma|lagervoll|0|${userId}`).setLabel(`Voll machen (${free})`).setEmoji('📦')
-        .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || s.kasse < free * w.price),
+      new ButtonBuilder().setCustomId(`firma|handelsetzen|0|${userId}`).setLabel('Angebot setzen').setEmoji('🏷️')
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`firma|handelaus|0|${userId}`).setLabel('Alles aus').setEmoji('🚫')
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`firma|lager|0|${userId}`).setLabel('Lager').setEmoji('🏬')
+        .setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
       homeButton(userId))],
   };
@@ -4625,7 +4699,7 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView,
+  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView,
   buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,

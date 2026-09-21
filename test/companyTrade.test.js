@@ -116,6 +116,15 @@ const keinWurf = () => 0.5;
     r = await company.buyFromTrader(G, 'niemand', tid, 5, t0 + H);
     check('ohne Firma → no_company', r.ok === false && r.reason === 'no_company');
 
+    // Spediteur eines anderen Servers darf nicht beliefern (Firmen-ID ist nicht serverweit eindeutig).
+    const G2 = `HANDEL_T2_${Date.now()}`;
+    konten.set('t_g2', 5_000_000);
+    const rg2 = await company.found(G2, 't_g2', 'spedition', 'Fremd-Spedition', t0);
+    company.setOffer(G2, 't_g2', 'alle', 95, t0);
+    r = await company.buyFromTrader(G, K, rg2.company.id, 5, t0 + H);
+    check('Spediteur eines anderen Servers → trader', r.ok === false && r.reason === 'trader', JSON.stringify(r));
+    await company.close(G2, 't_g2', t0);
+
     // Baufirma: 'voll' begrenzt durch die Tageskapazität (Spediteur hat noch 180).
     db.saveCompany({ ...db.getCompany(bid), stock: 0, stock_cost: 0, kasse: 1_000_000 });
     const bVor = db.getCompany(bid).kasse;
