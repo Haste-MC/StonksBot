@@ -84,6 +84,24 @@ const DAY_MS = 24 * 60 * 60 * 1000;
     const rr = await company.buyShares(G, arm, o2.id, 10, t0 + 2 * H);
     check('ohne Geld: funds, keine Buchung, Angebot unverändert', rr.reason === 'funds' && bookings.length === 0 && db.getShareOffer(o2.id).shares === 190, JSON.stringify(rr));
   }
+  {
+    // Zweite Buchung (Verkäufer) scheitert: Käufer bekommt cost+fee zurück, Angebot
+    // wächst auf die alte Größe, keine Halter-Zeile (§7, Muster `pay`).
+    const neu = 'c1';
+    konten.set(neu, 100_000);
+    const o2 = company.shareOffers(G, cid)[0];         // das 190er-Angebot à 2.000
+    const echt = unb.changeCash;
+    unb.changeCash = async (g, u, ...rest) => { if (u === o2.seller_id) throw new Error('Bank down'); return echt(g, u, ...rest); };
+    bookings = [];
+    const rr = await company.buyShares(G, neu, o2.id, 10, t0 + 2 * H);
+    unb.changeCash = echt;
+    // 10 × 2.000 = 20.000 + 1 % Gebühr 200 = 20.200 abgebucht und wieder gutgeschrieben.
+    check('Verkäufer-Buchung scheitert: payment, −20.200/+20.200, Angebot 190, keine Halter-Zeile',
+      rr.ok === false && rr.reason === 'payment'
+      && bookings.length === 2 && bookings[0].user === neu && bookings[0].amount === -20_200 && bookings[1].user === neu && bookings[1].amount === 20_200
+      && db.getShareOffer(o2.id).shares === 190 && db.getCompanyShare(cid, neu) === null && konten.get(neu) === 100_000,
+      JSON.stringify({ rr, bookings }));
+  }
 
   console.log('--- Ausschüttung ---');
   await company.deposit(G, O, 100_000, t0 + 3 * H);

@@ -60,6 +60,10 @@ Durchläufe zeigt, dass die Bilanz nicht positiv kippt (siehe
 [`wallstreet.js`](src/wallstreet.js) hat seit dem Umbau zwei kleine Zuflüsse:
 eine **gedeckelte Aufwärtsdrift** (sie gleicht aus, dass der Median eines
 Zufallslaufs mit σ²·t/2 absackt) und **Nachbeben** nach seltenen Kursstürzen.
+Seit 1.37.0 kommt ein dritter, nachfragegetriebener dazu: Wareneinkäufe der
+Spielerfirmen heben die Lieferanten-Aktie, gedeckelt auf `DEMAND_CAP`
+(höchstens +42 %/Jahr, je Kern-Baufirma +7,3 %/Jahr) – siehe §15 „Börse
+aktiv".
 
 Der Grund: Als reines Martingal war die Börse rechnerisch fair, aber nur 39 %
 aller Käufe gingen mit Gewinn raus – der Mittelwert wurde von seltenen
@@ -226,8 +230,9 @@ Test schlägt mit einem echten 404 fehl.
 - **Eine Ausnahme:** Anteilskauf (`company.buyShares`, §15 „Börse aktiv"):
   zwei Buchungen mit Rücknahme – ein Transfer zwischen Spielern, für den es
   keine einzelne Buchung gibt; erst Käufer −, dann Verkäufer +, scheitert die
-  zweite, wird die erste zurückgenommen. Im Zwischenzustand fehlt Geld, nie
-  entsteht welches.
+  zweite, wird die erste zurückgenommen (Rücknahme wie bei `pay` nicht
+  garantiert – dann fehlt Geld, nie entsteht welches; wird protokolliert).
+  Im Zwischenzustand fehlt Geld, nie entsteht welches.
 
 ## 10. Bilder & Lizenzen
 
@@ -766,9 +771,14 @@ für Aktien mit Lieferantenrolle, nie negativ – ohne Nachfrage bleibt alles
 wie bisher. Die Aktien-Ansicht zeigt „🏭 Nachfrage: Ø 38 Einheiten/Tag
 (7 Tage) · Drift +0,02 %/Tag". **Grenze (§3):** Der zusätzliche passive
 Zufluss auf eine voll nachgefragte Aktie ist höchstens `e^(0,00002 × 48 ×
-365)` = e^0,3504 = **1,4196, also +42 %/Jahr** – die Hälfte der bestehenden
-Drift-Decke (0,00004 → e^0,7008 = +101 %/Jahr) und klein gegen die
-Schwankung (BETO σ 0,005 je Takt → allein das eigene Rauschen 0,66 im Jahr).
+365)` = e^0,3504 = **1,4196, also +42 %/Jahr**. Ehrlicher Vergleich: Die
+Decke ist die Hälfte von `DRIFT_CAP`, aber BETO schöpft `DRIFT_CAP` gar
+nicht aus – seine eigene Drift ist `variance/2` = (0,005² + 0,004²)/2 ≈
+0,0000205 je Takt (σ 0,005, Marktschock 0,004 bei vol 1), also ≈ +43 %/Jahr.
+Volle Nachfrage legt 0,00002 obendrauf: Für BETO **verdoppelt** sich der
+passive Zufluss damit in etwa (0,0000205 → 0,0000405 je Takt, ≈ +43 %/Jahr →
+≈ +103 %/Jahr, e^0,71). Klein bleibt er nur gegen die Schwankung (BETO σ
+0,005 je Takt → allein das eigene Rauschen 0,66 im Jahr).
 Eine einzelne Kern-Baufirma (40 Einheiten/Tag) bringt `40/200 × 0,3504` =
 e^0,0701 = **+7,3 %/Jahr**. Gemessen (`nachfragelauf` im Messskript,
 `DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365`, Auszug in
@@ -776,7 +786,10 @@ e^0,0701 = **+7,3 %/Jahr**. Gemessen (`nachfragelauf` im Messskript,
 Seed mit demselben Würfel, 365 Tage à 48 Takte, täglich `recordDemand` 0 /
 40 / 200 Einheiten BETO vor dem `advance` des Tages. Weil `step`
 multiplikativ ist, gilt bei gleichem Würfel `ln(p_n/p_0) = Σ extra` exakt
-bis auf die Rundung auf ganze Kurse. Σ extra ist deterministisch: 0,0689
+bis auf die Rundung auf ganze Kurse – und bis auf den Nachbeben-Zug:
+`RECOVER_PULL × ln(recoverTo/price)` zieht innerhalb eines 96-Takte-Fensters
+auch die dort angesammelte Extra-Drift zurück zum Erholungsziel (≈ −0,003 je
+Ereignis, ≈ −0,015/Jahr bei 5 Ereignissen – unter der Rundungs-σ von 0,05). Σ extra ist deterministisch: 0,0689
 (40) und 0,3446 (200) – sechs Tage Drift unter der geschlossenen Form, weil
 die EMA anläuft (Tag 1: emaNow 200/7 = 28,6; Tag 7: 200 × (1 − (6/7)^7) =
 132,0; Tag 15: 180,2 = 90 %; Σ (6/7)^d = 6 fehlende Tage) → Erwartung e^Σ
@@ -789,16 +802,18 @@ Varianz 1/(12 × Kurs²) je Takt und Welt, über 17.520 Takte bei Kurs Ø
 ln − Σ extra ist +0,0112 (40) und −0,0067 (200) bei erwarteter Rundungs-σ
 des Mittels 0,0164 bzw. 0,0153 – 0,7 σ und 0,4 σ, die Identität hält. Ohne
 Nachfrage ist der Lauf mit dem alten Code identisch (extra 0, derselbe
-Würfel). **Pumpen lohnt nicht:** Ein Inhaber, der die Aktie seines
-Lieferanten hält, hebt sie mit der eigenen Nachfrage um höchstens die
-+7,3 %/Jahr einer Kern-Baufirma (für den vollen Deckel bräuchte es fünf
-Baufirmen) – und der Tagespreis seiner Ware hängt am Kursverhältnis (3a):
-Am Jahresende zahlt er dieselben 7,3 % auf jede Einheit, über das Jahr im
-Mittel die Hälfte auf 40 × 340 × 365 = 4,96 Mio. Warenkosten (≈ 181.000);
-der Kursgewinn ist 7,3 % der Position. Erst eine BETO-Position über
-2,5 Mio. holt das herein – und dieselben 7,3 % bekommt jeder andere Halter,
-ohne eine Firma zu führen; der Zufluss ist gedeckelt, nicht an den Halter
-gebunden. *(C) Firmenanteile.* Je Firma `SHARES_TOTAL` 1.000 Anteile, der
+Würfel). **Pumpen – gedeckelt, nicht unmöglich:** Ein Inhaber, der die
+Aktie seines Lieferanten hält, hebt sie mit der eigenen Nachfrage um
+höchstens die +7,3 %/Jahr einer Kern-Baufirma (40 Einheiten/Tag; für den
+vollen Deckel bräuchte es fünf Baufirmen) – und der Tagespreis seiner Ware
+hängt am Kursverhältnis (3a): Am Jahresende zahlt er dieselben 7,3 % auf
+jede Einheit, über das Jahr näherungsweise die Hälfte (linearer Anlauf) auf
+40 × 340 × 365 = 4,96 Mio. Warenkosten (≈ 181.000); der Kursgewinn ist
+7,3 % der Position. Ab einer BETO-Position von ≈ 2,5 Mio. ist Pumpen also
+netto positiv – und dieselben 7,3 % bekommt jeder andere Halter, ohne eine
+Firma zu führen. Das ist der **dritte Zufluss** der Börse (§3): begrenzt
+auf +7,3 %/Jahr je Kern-Baufirma und `DEMAND_CAP` insgesamt, nicht an den
+Halter gebunden, hier dokumentiert. *(C) Firmenanteile.* Je Firma `SHARES_TOTAL` 1.000 Anteile, der
 Inhaber hält, was niemand sonst hält (keine eigene Zeile), mindestens
 `OWNER_MIN` 510; Angebote ab Stufe `IPO_MIN_STUFE` 2 (`listShares`,
 `company_share_offers`), Kauf an der Börse unter „Firmenanteile"
@@ -806,9 +821,10 @@ Inhaber hält, was niemand sonst hält (keine eigene Zeile), mindestens
 Gebühr `SHARE_FEE` 1 %, gerundet, die einzige Senke; ein Transfer zwischen
 Spielern, deshalb die einzige Ausnahme von §9 (zwei Buchungen: erst `pay`
 beim Käufer mit Bank, dann Gutschrift beim Verkäufer, scheitert die, geht
-die erste zurück – zwischen den Buchungen fehlt Geld, es entsteht keins; ein
-inzwischen verkleinertes Angebot wird nach dem Kauf für den Rest
-zurückgebucht, die Gebühr darauf bleibt Senke). **Kein Kurs:** Anteile
+die erste zurück – zwischen den Buchungen fehlt Geld, es entsteht keins; das
+Angebot wird vor der ersten Buchung synchron um die gekauften Anteile
+verkleinert (§7, erst nehmen, dann buchen) und bei einem Fehler wieder
+vergrößert – ein zweiter Klick sieht den Rest). **Kein Kurs:** Anteile
 werden nicht simuliert, nicht an den Markt verkauft, ihr Wert ist die
 Ausschüttung. Ausgeschüttet wird nur, was ohnehin die Kasse verlässt:
 `withdraw` teilt den Betrag `floor(value × shares / 1000)` je Halter auf

@@ -1926,7 +1926,7 @@ const stmt = {
   // Zeilen mit 0 Anteilen, solange noch eine Ausschüttung aussteht.
   companySharesOf: db.prepare(
     `SELECT s.company_id, s.user_id, s.shares, s.cost, s.pending, s.received,
-            c.name, c.branch, c.status, c.stufe, c.owner_id
+            c.name, c.branch, c.status, c.stufe
        FROM company_shares s JOIN companies c ON c.id = s.company_id
       WHERE c.guild_id = ? AND s.user_id = ? AND (s.shares > 0 OR s.pending > 0)
       ORDER BY s.company_id`),

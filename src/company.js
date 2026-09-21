@@ -218,18 +218,21 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
     return { ok: false, reason: 'already' };
   }
 
+  let newBalance;
   try {
     if (balance.cash < total) {
       await unb.withdrawFromBank(guildId, userId, total - balance.cash, `Gründung: ${clean}`);
     }
-    const newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
+    newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
       { kind: 'company' });
-    noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
-    return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
   } catch (err) {
     db.deleteCompany(row.id);
     return { ok: false, reason: 'payment', error: err.message };
   }
+  // Erst nach der Buchung, außerhalb des try: ein Fehler in der Nachfrage-Messung
+  // darf eine bezahlte Firma nie wieder löschen.
+  noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
+  return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
 }
 
 // ----------------------------------------------------------------- Personal
@@ -1101,6 +1104,7 @@ function cancelShareOffer(guildId, userId, offerId) {
  */
 function shareOffers(guildId, companyId = null) {
   return db.shareOffersOf(guildId, companyId).map((o) => {
+    if (o.shares <= 0) return null;                // gerade komplett reserviert (buyShares, §7)
     const c = db.getCompany(o.company_id);
     if (!c) return null;
     const b = branch(c.branch);
@@ -1115,16 +1119,16 @@ function shareOffers(guildId, companyId = null) {
 }
 
 /**
- * Anteilskauf: ein Transfer Spieler → Spieler mit Gebühr (Senke). Zwei
- * Buchungen sind hier unvermeidlich (zwei Konten) – scheitert die zweite,
- * wird die erste zurückgenommen (Muster `pay`). Der Zustand (Angebot, Halter)
- * wird erst nach beiden Buchungen geschrieben; ist das Angebot bis dahin
- * geschrumpft (zweiter Klick vor der ersten Buchung), geht der Rest zurück.
- * Kauft der Inhaber zurück, bekommt er keine eigene Halter-Zeile – sein
- * impliziter Anteil (`sharesOf().owner`) wächst schon dadurch, dass die
- * Halter-Summe sinkt. Im Ergebnis bezieht sich `cost` auf `take` (tatsächlich
- * gekaufte Anteile), `fee` dagegen auf die angefragten `n` (sie wurde vor der
- * Schrumpfung auf den vollen Betrag abgebucht).
+ * Anteilskauf: ein Transfer Spieler → Spieler mit Gebühr (Senke). Erst nehmen,
+ * dann buchen (§7): Das Angebot wird SYNCHRON vor dem ersten `await` um `n`
+ * verkleinert – ein zweiter Klick sieht den Rest (oder 0) und bekommt `shares`.
+ * Zwei Buchungen sind unvermeidlich (zwei Konten): Scheitert die erste (Käufer),
+ * wächst das Angebot zurück; scheitert die zweite (Verkäufer), geht das Geld an
+ * den Käufer zurück und das Angebot wächst zurück (Muster `pay`). Gelöscht wird
+ * ein leeres Angebot erst, wenn beide Buchungen durch sind. Halter-Zeilen werden
+ * erst danach geschrieben. Kauft der Inhaber zurück, bekommt er keine eigene
+ * Halter-Zeile – sein impliziter Anteil (`sharesOf().owner`) wächst schon
+ * dadurch, dass die Halter-Summe sinkt. Im Ergebnis ist `shares` immer `n`.
  */
 async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
   const o = db.getShareOffer(Number(offerId));
@@ -1136,44 +1140,38 @@ async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
   if (!(n > 0) || n > o.shares) return { ok: false, reason: 'shares', max: o.shares };
   const cost = n * o.price;
   const fee = Math.round(cost * data.SHARE_FEE);
+  const rest = o.shares - n;
+  db.updateShareOffer(o.id, rest);                 // reserviert – synchron, vor dem ersten await
+  const restore = () => db.updateShareOffer(o.id, o.shares);
   const paid = await pay(guildId, userId, cost + fee, `Anteile: ${c.name}`);
-  if (!paid.ok) return { ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error };
+  if (!paid.ok) {
+    restore();
+    return { ok: false, reason: paid.reason, needed: paid.needed, have: paid.have, error: paid.error };
+  }
   try {
     await changeCash(guildId, o.seller_id, cost, `Anteilsverkauf: ${c.name}`, { xp: false, tax: false, kind: 'company' });
   } catch (err) {
-    await changeCash(guildId, userId, cost + fee, 'Anteilskauf abgebrochen', { xp: false, tax: false, kind: 'company' }).catch(() => {});
+    restore();
+    await changeCash(guildId, userId, cost + fee, 'Anteilskauf abgebrochen', { xp: false, tax: false, kind: 'company' })
+      .catch((e) => console.warn(`Anteile: Rücknahme fehlgeschlagen (${userId}, ${cost + fee}) – ${e.message}`));
     return { ok: false, reason: 'payment', error: err.message };
   }
-  // Angebot noch da? Zwischen den Buchungen passiert nichts Synchrones, aber ein
-  // zweiter Klick vor der ersten Buchung kann es schon verkleinert haben.
-  const still = db.getShareOffer(o.id);
-  const take = Math.min(n, still?.shares ?? 0);
-  if (take < n) {
-    // Der Verkäufer hat für den Rest schon Geld bekommen – zurück zum Käufer
-    // (die Gebühr auf den Rest bleibt; sie ist die Senke). Rücknahme beim Verkäufer:
-    await changeCash(guildId, o.seller_id, -(n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' })
-      .catch((err) => console.warn(`Anteile: Rückbuchung fehlgeschlagen – ${err.message}`));
-    await changeCash(guildId, userId, (n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' })
-      .catch((err) => console.warn(`Anteile: Rückbuchung fehlgeschlagen – ${err.message}`));
+  if (rest <= 0) db.deleteShareOffer(o.id);
+  const seller = db.getCompanyShare(c.id, o.seller_id);
+  if (seller && seller.shares > 0) {
+    // Einstand anteilig mitgeben – der Rest bleibt beim Verkäufer.
+    const costOut = Math.round(seller.cost * n / seller.shares);
+    db.setCompanyShare(c.id, o.seller_id, { ...seller, shares: seller.shares - n, cost: seller.cost - costOut });
   }
-  if (take > 0) {
-    if (still.shares - take <= 0) db.deleteShareOffer(o.id); else db.updateShareOffer(o.id, still.shares - take);
-    const seller = db.getCompanyShare(c.id, o.seller_id);
-    if (seller && seller.shares > 0) {
-      // Einstand anteilig mitgeben – der Rest bleibt beim Verkäufer.
-      const costOut = Math.round(seller.cost * take / seller.shares);
-      db.setCompanyShare(c.id, o.seller_id, { ...seller, shares: seller.shares - take, cost: seller.cost - costOut });
-    }
-    if (String(userId) !== c.owner_id) {
-      // Kauft irgendjemand außer dem Inhaber, bekommt er/sie eine Halter-Zeile.
-      // Kauft der Inhaber selbst zurück, bleibt er ohne Zeile (siehe Kommentar oben).
-      const buyer = db.getCompanyShare(c.id, userId) ?? { shares: 0, cost: 0, pending: 0, received: 0 };
-      db.setCompanyShare(c.id, userId, { ...buyer, shares: buyer.shares + take, cost: buyer.cost + take * o.price });
-    }
-    const cur = db.getCompany(c.id);
-    db.saveCompany({ ...cur, news: pushNews(cur, now, `📈 ${take} Anteile gingen von ${nameOf(o.seller_id)} an ${nameOf(userId)} für ${(take * o.price).toLocaleString('de-DE')}`, 0) });
+  if (String(userId) !== c.owner_id) {
+    // Kauft irgendjemand außer dem Inhaber, bekommt er/sie eine Halter-Zeile.
+    // Kauft der Inhaber selbst zurück, bleibt er ohne Zeile (siehe Kommentar oben).
+    const buyer = db.getCompanyShare(c.id, userId) ?? { shares: 0, cost: 0, pending: 0, received: 0 };
+    db.setCompanyShare(c.id, userId, { ...buyer, shares: buyer.shares + n, cost: buyer.cost + cost });
   }
-  return { ok: true, shares: take, price: o.price, cost: take * o.price, fee, seller: o.seller_id, company: { id: c.id, name: c.name } };
+  const cur = db.getCompany(c.id);
+  db.saveCompany({ ...cur, news: pushNews(cur, now, `📈 ${n} Anteile gingen von ${nameOf(o.seller_id)} an ${nameOf(userId)} für ${cost.toLocaleString('de-DE')}`, 0) });
+  return { ok: true, shares: n, price: o.price, cost, fee, seller: o.seller_id, company: { id: c.id, name: c.name } };
 }
 
 /**

@@ -3183,7 +3183,8 @@ async function buildFirmaAnteileView({ guildId, userId }) {
       name: `🏷️ Offene Angebote (${offers.length})`,
       value: offers.slice(0, 5).map((o) =>
         `#${o.id} · **${o.shares}** Anteile à ${money(symbol, o.price)} · `
-        + (o.seller_id === String(userId) ? 'von dir' : `von ${identity.nameOf(o.seller_id) ?? 'Spieler'}`)).join('\n'),
+        + (o.seller_id === String(userId) ? 'von dir' : `von ${identity.nameOf(o.seller_id) ?? 'Spieler'}`)).join('\n')
+        + (offers.length > 5 ? `\n_… und ${offers.length - 5} weitere_` : ''),
     });
   }
   if (a.holders.length) {

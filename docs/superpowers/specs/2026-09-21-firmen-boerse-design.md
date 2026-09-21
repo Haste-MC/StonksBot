@@ -166,3 +166,31 @@ entnimmt. Kein Kurs → kein Sell-an-den-Markt-Zufluss. Test: Buchungssumme
   geschlossene Firma: kein Angebot, `pending` bleibt abholbar.
 - Docs: §15 (Nachfrage-Drift-Grenze +42 %/Jahr, Anteile = Transfers),
   Patchnotes 1.37.0, Addendum in der 3b-Spec.
+
+## Nachtrag 2026-09-21
+
+Nach dem Gesamt-Review des Branches weicht der Code in vier Punkten vom Text
+oben ab – der Code gilt:
+
+- **EMA rollt ungedeckelt.** `recordDemand` zieht übersprungene Tage nicht
+  „höchstens 30" einzeln nach, sondern geschlossen: `ema = ema × keep +
+  demand_today / 7`, dann `ema *= keep^(days − 1)` mit `keep = 6/7`. Das ist
+  dieselbe Rechnung ohne Schleife und ohne Obergrenze (nach 38 Tagen ist ein
+  1.000er-Tag auf 0,74 abgeklungen, siehe `test/wallstreet.test.js`).
+- **Handwert der EMA:** 7 Tage je 140 Einheiten ergeben `140 × (1 − (6/7)^7)`
+  = **92,41** (nicht die runden Werte aus frühen Entwürfen); so steht es im
+  Test.
+- **`buyShares` reserviert zuerst (§7).** Das Angebot wird synchron vor dem
+  ersten `await` um `n` verkleinert, dann Käufer, dann Verkäufer gebucht;
+  scheitert eine Buchung, wächst das Angebot zurück (und der Käufer bekommt
+  sein Geld zurück, protokolliert, falls auch das scheitert). Ein leeres
+  Angebot wird erst nach beiden Buchungen gelöscht. Es gibt keine
+  „Angebot inzwischen verkleinert"-Rückbuchung mehr; `shares` im Ergebnis ist
+  immer `n`.
+- **Drift-Vergleich ehrlich.** „Die Hälfte der bestehenden Drift" stimmt nur
+  gegen `DRIFT_CAP`. BETO selbst driftet mit `variance/2` ≈ 0,0000205 je Takt
+  (≈ +43 %/Jahr); volle Nachfrage (+0,00002) verdoppelt seinen passiven
+  Zufluss etwa (≈ +103 %/Jahr). Pumpen ist ab einer BETO-Position von
+  ≈ 2,5 Mio. netto positiv, gedeckelt auf +7,3 %/Jahr je Kern-Baufirma, und
+  der Gewinn geht an jeden Halter – ein begrenzter, dokumentierter dritter
+  Zufluss der Börse (ARCHITEKTUR §3, §15).

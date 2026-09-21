@@ -518,6 +518,7 @@ async function bankrupt(guildId, asset, price, tick, now = Date.now()) {
   db.addNews(guildId, asset.symbol, tick,
     data.BANKRUPTCY[Math.floor(Math.random() * data.BANKRUPTCY.length)]
       .replace('{name}', asset.name), -1, now);
+  // Der Nachfrage-Stand (EMA) überlebt die Insolvenz absichtlich: Die Firmen kaufen weiter.
   db.relistAsset(guildId, asset.symbol, asset.start, tick, now);
   db.addHistory(guildId, asset.symbol, tick, asset.start);
   db.addNews(guildId, asset.symbol, tick,

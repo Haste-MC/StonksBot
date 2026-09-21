@@ -1053,13 +1053,8 @@ async function handelslauf(tage, { ereignisse = !OHNE_EREIGNISSE, trace = {} } =
   return { spediteur: spediteur.ergebnis(tage), kaeufer: kaeufer.ergebnis(tage) };
 }
 
-// ------------------------------------------------------------ Heists
+// ------------------------------------------------------------ Nachfrage-Drift
 
-/**
- * Der Heist braucht keine Simulation – sein Erwartungswert ist geschlossen
- * ausrechenbar. Beute geteilt durch die Crew, Strafe trägt jeder voll,
- * Wartezeit ist das Maximum aus Sperre und Knast (sie laufen parallel).
- */
 /**
  * Nachfrage-Drift (Stück 3c): Drei Welten, derselbe Würfel, `tage` Tage Börse je 48 Takte
  * am Tag – in Welt 0 wird für BETO nichts nachgefragt, in Welt 40 täglich 40 Einheiten
@@ -1171,6 +1166,13 @@ async function nachfragelauf(laeufe, tage) {
   }
 }
 
+// ------------------------------------------------------------ Heists
+
+/**
+ * Der Heist braucht keine Simulation – sein Erwartungswert ist geschlossen
+ * ausrechenbar. Beute geteilt durch die Crew, Strafe trägt jeder voll,
+ * Wartezeit ist das Maximum aus Sperre und Knast (sie laufen parallel).
+ */
 function heists() {
   const gear = heistData.GEAR_TIERS ?? heistData.TIERS ?? [];
   const top = gear[gear.length - 1] ?? { risk: 0 };
