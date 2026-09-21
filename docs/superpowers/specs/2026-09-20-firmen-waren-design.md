@@ -203,3 +203,14 @@ Werkstatt, Baufirma.
   `company.test.js`/`companyEvents.test.js`, die am leeren Start-Lager hingen,
   sind neu hergeleitet (Minuskiosk −57/−45 statt −246/−612, Wachsendes Café
   4.536 statt 486 …).
+
+## Nachtrag 2026-09-21: 3b umgesetzt
+
+Stück 3b (die Spedition als Großhändler) ist umgesetzt – siehe
+`2026-09-21-firmen-handel-design.md`, gemessen in
+`docs/messungen/2026-09-21-firmen-handel.txt`, dokumentiert in ARCHITEKTUR §15
+(„Handel (seit 1.36.0, Stück 3b)"). Korrektur zur 3b-Spec (§3): Die
+Voll-Decke des Spediteurs ist **21.120** je Tag (Vollausbau der Spedition hat
+**22** Plätze – Stufe 5 „Flotte 20" plus Extra „Nachtschicht" –, also
+22 × 20 × 48); die Spec-Zahl 19.200 (20 × 20 × 48) war ein Rechenfehler, die
+Kern-Decke 9.600 (10 × 20 × 48) stimmt.

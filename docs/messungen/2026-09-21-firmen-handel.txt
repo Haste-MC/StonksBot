@@ -1,0 +1,39 @@
+Messung Handel (Stück 3b: die Spedition als Großhändler) – Auszug aus dem Lauf vom 2026-09-21.
+Aufruf: rm -rf .testdata && DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365
+(der Handel-Block und die beiden Referenzzeilen aus „Firmen (nicht ausgebaut, Vollbetrieb)";
+alles Übrige wie in docs/messungen/2026-09-20-firmen-waren.txt – die Firmen-Blöcke dieses Laufs
+sind Zeile für Zeile gleich mit einem Lauf des Codes vor dem Umbau von `firmenlauf` in `betrieb`,
+der Kern-Baufirma-Median mit Ereignissen liegt seit der Erstausstattung (0ca5a97) bei 52.915
+statt 55.830 in der Datei vom 20.09.).
+Kurs = Start in der Messwelt (keine Börsenticks): Baufirma-Ware 340, Angebot 95 % = 323,
+Großhandel 306, Spanne 17 je Einheit; Tagesverbrauch der Baufirma Kern 40 Einheiten.
+Handrechnung Tag 36 ohne Ereignisse (`--trace=handel:baufirma:ohne` / `handel:spedition:ohne`,
+Auszug in .superpowers/sdd/task-3-messung/trace-handel-ohne-60.txt):
+  Käufer:    morgens 103.600, Einkauf 40 × 323 = 12.920 (NPC wäre 40 × 340 = 13.600), Anpacken 4×,
+             vor der Abrechnung 100.739 (Referenz ohne Handel 100.059, +680), Umsatz 91.764 − Löhne 27.000
+             → abends 165.503 (Referenz 164.823, +680).
+  Spediteur: morgens 72.920, Werbung 60.000, eigener Einkauf 34 × 380 = 12.920, Anpacken 4×, Spanne +680,
+             vor der Abrechnung 11.754 (Referenz 11.074, +680), Umsatz 85.470 − Löhne 18.900
+             → abends 78.324 (Referenz 77.644, +680).
+
+--- Referenz aus „Firmen (nicht ausgebaut, Vollbetrieb)" (derselbe Lauf) ---
+
+  🚚 Spedition    mit Ereignissen    58.238/Tag (Vorfälle 4, 8 Tage zu) · ohne    64.929/Tag   Decke 65.080   Amortisation mit 56 Tage, ohne 50 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 62.826 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 98.310 (Ereignis-Decke 98.325)
+                  mit Ereignissen: Ware Ø 12.584/Tag, ad hoc 0,0 % (0 von 12.087 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 12.920/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 64.929 (Decke 65.080, Ware zum Verbrauch gerechnet)
+  🏗️ Baufirma    mit Ereignissen    52.915/Tag (Vorfälle 4, 8 Tage zu) · ohne    61.265/Tag   Decke 61.400   Amortisation mit 101 Tage, ohne 92 Tage
+                  Ereignistage 103, Vorfälle 4, 8 Tage zu, Nachschuss 153.059 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 105.588 (Ereignis-Decke 105.570)
+                  mit Ereignissen: Ware Ø 13.514/Tag, ad hoc 7,8 % (1.116 von 14.229 Einheiten), Einkauf 49× an der Kasse gescheitert · ohne: Ware Ø 13.833/Tag, ad hoc 6,8 % (1.000 von 14.600 Einheiten) · bester Tag ohne 61.265 (Decke 61.400, Ware zum Verbrauch gerechnet)
+
+--- Handel (Spedition liefert Baufirma) ---
+
+  Spedition Kern (10 Plätze, Kapazität 200/Tag) bietet alle Waren zu 95 % (Baufirma-Ware 340 → 323, Großhandel 306, Spanne 17 je Einheit); die Baufirma Kern kauft täglich zuerst dort, den Rest beim NPC.
+  🚚 Spediteur    mit Handel    58.770/Tag · ohne (Referenz)    58.238/Tag · Differenz +532 (mit Ereignissen)
+                  mit Handel    65.609/Tag · ohne (Referenz)    64.929/Tag · Differenz +680 (ohne Ereignisse)
+                  mit Ereignissen: Spanne Ø 600/Tag (Σ 218.841 an 307 Handelstagen), geliefert Ø 35 Einheiten/Tag (Σ 12.873), größte Tagesspanne 3.400 für 200 Einheiten (Handels-Decke Spediteur 9.600)
+                  ohne: Spanne Ø 628/Tag (Σ 229.160 an 333 Handelstagen), geliefert Ø 37 Einheiten/Tag (Σ 13.480), größte Tagesspanne 3.400 für 200 Einheiten (Handels-Decke Spediteur 9.600) · bester Tag 65.609 (Decke 65.080 + Handels-Decke 9.600, Ware zum Verbrauch gerechnet)
+  🏗️ Käufer       mit Handel    53.595/Tag · ohne (Referenz)    52.915/Tag · Differenz +680 (mit Ereignissen)
+                  mit Handel    61.945/Tag · ohne (Referenz)    61.265/Tag · Differenz +680 (ohne Ereignisse)
+                  mit Ereignissen: Ersparnis Ø 600/Tag (Σ 218.841), vom Spediteur 12.873 von 14.189 Einheiten (90,7 %; NPC 200, ad hoc 1.116; ohne Erstausstattung), Spediteur 0× zu, größte Tagesersparnis 3.400 für 200 Einheiten (Nachkauf nach Lücke; Handels-Decke Käufer 1.360 je Tag Verbrauch)
+                  ohne: Ersparnis Ø 628/Tag (Σ 229.160), vom Spediteur 13.480 von 14.560 Einheiten (92,6 %; NPC 80, ad hoc 1.000; ohne Erstausstattung), Spediteur 0× zu, größte Tagesersparnis 3.400 für 200 Einheiten (Nachkauf nach Lücke; Handels-Decke Käufer 1.360 je Tag Verbrauch) · bester Tag 61.945 (Decke 61.400 + Handels-Decke 1.360, Ware zum Verbrauch gerechnet)
+
