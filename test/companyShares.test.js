@@ -175,6 +175,34 @@ const DAY_MS = 24 * 60 * 60 * 1000;
     check('… = Start − Gründungspreis − Gebühren − nicht abgeholt (17.091)',
       kette === 30_000_000 - 120_000 - 3_750 - 17_091 && db.getCompanyShare(cid, A).pending === 17_091, String(kette));
   }
+  console.log('--- Rückkauf durch den Inhaber ---');
+  {
+    // Eigene Firma (die alte ist schon zu): Inhaber verkauft 300 an A, A bietet
+    // davon 100 weiter an, der Inhaber kauft die 100 zurück – er bekommt dabei
+    // KEINE eigene Halter-Zeile; sein impliziter Anteil wächst nur, weil die
+    // Halter-Summe sinkt (sharesOf().owner = 1000 − Σ Halter).
+    r = await company.found(G, O, 'cafe', 'Rueckkauf', t0 + 8 * H);
+    check('zweite Firma gegründet', r.ok, JSON.stringify(r));
+    const cid2 = r.company.id;
+    db.setCompanyStufe(cid2, 2);
+    r = company.listShares(G, O, cid2, 300, 1_000, t0 + 8 * H);
+    check('Inhaber bietet 300 an', r.ok, JSON.stringify(r));
+    r = await company.buyShares(G, A, r.offer.id, 300, t0 + 8 * H);
+    check('A kauft alle 300', r.ok && r.shares === 300, JSON.stringify(r));
+    r = company.listShares(G, A, cid2, 100, 1_100, t0 + 8 * H);
+    check('A bietet 100 davon an', r.ok, JSON.stringify(r));
+    bookings = [];
+    r = await company.buyShares(G, O, r.offer.id, 100, t0 + 9 * H);
+    check('Inhaber kauft die 100 zurück', r.ok && r.shares === 100, JSON.stringify(r));
+    check('Inhaber wieder bei 800, keine eigene Halter-Zeile',
+      company.sharesOf(cid2).owner === 800 && (db.getCompanyShare(cid2, O) === null || db.getCompanyShare(cid2, O).shares === 0),
+      JSON.stringify({ owner: company.sharesOf(cid2).owner, row: db.getCompanyShare(cid2, O) }));
+    check('A hat noch 200', db.getCompanyShare(cid2, A).shares === 200, JSON.stringify(db.getCompanyShare(cid2, A)));
+    r = company.listShares(G, O, cid2, 290, 1_000, t0 + 9 * H);
+    check('Inhaber darf bis zu 290 weitere anbieten (800 − 510)', r.ok, JSON.stringify(r));
+    check('291 geht nicht mehr: owner_min', company.listShares(G, O, cid2, 291, 1_000, t0 + 9 * H).reason === 'owner_min');
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

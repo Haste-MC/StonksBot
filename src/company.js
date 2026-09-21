@@ -744,20 +744,22 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
   const value = Math.floor(Number(amount) || 0);
   if (value <= 0) return { ok: false, reason: 'amount' };
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
-  // Anteile (Stück 3c): die Halter bekommen ihren Teil synchron gutgeschrieben
-  // (`pending`), der Inhaber den Rest in EINER Buchung; ohne Halter ist das `value`.
-  const d = distribute(c, value);
+  // Anteile (Stück 3c): der Split ist rein (keine Schreibung) – die Halter
+  // bekommen ihren Teil (`pending`) erst gutgeschrieben, wenn die Buchung des
+  // Inhaberteils geglückt ist; scheitert sie, gibt es nichts zurückzunehmen,
+  // weil noch nichts geschrieben wurde – nur die Kasse muss zurück.
+  const split = splitPayout(c.id, value);
   db.saveCompany({ ...c, kasse: c.kasse - value, last_payout: value });
   try {
-    const balance = await changeCash(guildId, userId, d.owner, `Entnahme: ${c.name}`,
+    const balance = await changeCash(guildId, userId, split.owner, `Entnahme: ${c.name}`,
       { xp: false, tax: false, kind: 'company' });
-    return { ok: true, amount: value, paid: d.owner, shared: d.shared, balance, kasse: c.kasse - value };
+    creditParts(c.id, split.parts);
+    const shared = value - split.owner;
+    return { ok: true, amount: value, paid: split.owner, shared, balance, kasse: c.kasse - value };
   } catch (err) {
-    // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`),
-    // und die eben gutgeschriebenen Halter-Anteile wieder abziehen.
+    // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
     const current = db.getCompany(c.id);
     db.saveCompany({ ...current, kasse: current.kasse + value, last_payout: c.last_payout ?? 0 });
-    undistribute(c, d);
     return { ok: false, reason: 'payment', error: err.message };
   }
 }
@@ -1036,22 +1038,19 @@ function splitPayout(companyId, value) {
   return { owner: value - parts.reduce((s, p) => s + p.amount, 0), parts };
 }
 
-/** Schreibt die Halter-Anteile gut (synchron) und merkt die Ausschüttung je 1000 Anteile. */
-function distribute(c, value) {
-  const split = splitPayout(c.id, value);
-  for (const p of split.parts) {
-    const h = db.getCompanyShare(c.id, p.user_id);
-    db.setCompanyShare(c.id, p.user_id, { ...h, pending: h.pending + p.amount });
+/** Schreibt die Halter-Teile eines (schon berechneten) Splits gut – reine Buchhaltung, keine Bank. */
+function creditParts(companyId, parts) {
+  for (const p of parts) {
+    const h = db.getCompanyShare(companyId, p.user_id);
+    db.setCompanyShare(companyId, p.user_id, { ...h, pending: (h?.pending ?? 0) + p.amount });
   }
-  return { ...split, shared: value - split.owner };
 }
 
-/** Rücknahme von `distribute` (Buchung des Inhabers gescheitert): die Gutschriften wieder abziehen. */
-function undistribute(c, d) {
-  for (const p of d.parts) {
-    const h = db.getCompanyShare(c.id, p.user_id);
-    if (h) db.setCompanyShare(c.id, p.user_id, { ...h, pending: Math.max(0, h.pending - p.amount) });
-  }
+/** Berechnet den Split und schreibt die Halter-Anteile sofort gut (synchron). */
+function distribute(c, value) {
+  const split = splitPayout(c.id, value);
+  creditParts(c.id, split.parts);
+  return { ...split, shared: value - split.owner };
 }
 
 /** Verteilung der Anteile: Gesamtzahl, Inhaberanteil, Halter mit > 0 Anteilen. */
@@ -1121,6 +1120,11 @@ function shareOffers(guildId, companyId = null) {
  * wird die erste zurückgenommen (Muster `pay`). Der Zustand (Angebot, Halter)
  * wird erst nach beiden Buchungen geschrieben; ist das Angebot bis dahin
  * geschrumpft (zweiter Klick vor der ersten Buchung), geht der Rest zurück.
+ * Kauft der Inhaber zurück, bekommt er keine eigene Halter-Zeile – sein
+ * impliziter Anteil (`sharesOf().owner`) wächst schon dadurch, dass die
+ * Halter-Summe sinkt. Im Ergebnis bezieht sich `cost` auf `take` (tatsächlich
+ * gekaufte Anteile), `fee` dagegen auf die angefragten `n` (sie wurde vor der
+ * Schrumpfung auf den vollen Betrag abgebucht).
  */
 async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
   const o = db.getShareOffer(Number(offerId));
@@ -1147,8 +1151,10 @@ async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
   if (take < n) {
     // Der Verkäufer hat für den Rest schon Geld bekommen – zurück zum Käufer
     // (die Gebühr auf den Rest bleibt; sie ist die Senke). Rücknahme beim Verkäufer:
-    await changeCash(guildId, o.seller_id, -(n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' }).catch(() => {});
-    await changeCash(guildId, userId, (n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' }).catch(() => {});
+    await changeCash(guildId, o.seller_id, -(n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' })
+      .catch((err) => console.warn(`Anteile: Rückbuchung fehlgeschlagen – ${err.message}`));
+    await changeCash(guildId, userId, (n - take) * o.price, 'Anteile: Angebot verkleinert', { xp: false, tax: false, kind: 'company' })
+      .catch((err) => console.warn(`Anteile: Rückbuchung fehlgeschlagen – ${err.message}`));
   }
   if (take > 0) {
     if (still.shares - take <= 0) db.deleteShareOffer(o.id); else db.updateShareOffer(o.id, still.shares - take);
@@ -1158,8 +1164,12 @@ async function buyShares(guildId, userId, offerId, shares, now = Date.now()) {
       const costOut = Math.round(seller.cost * take / seller.shares);
       db.setCompanyShare(c.id, o.seller_id, { ...seller, shares: seller.shares - take, cost: seller.cost - costOut });
     }
-    const buyer = db.getCompanyShare(c.id, userId) ?? { shares: 0, cost: 0, pending: 0, received: 0 };
-    db.setCompanyShare(c.id, userId, { ...buyer, shares: buyer.shares + take, cost: buyer.cost + take * o.price });
+    if (String(userId) !== c.owner_id) {
+      // Kauft irgendjemand außer dem Inhaber, bekommt er/sie eine Halter-Zeile.
+      // Kauft der Inhaber selbst zurück, bleibt er ohne Zeile (siehe Kommentar oben).
+      const buyer = db.getCompanyShare(c.id, userId) ?? { shares: 0, cost: 0, pending: 0, received: 0 };
+      db.setCompanyShare(c.id, userId, { ...buyer, shares: buyer.shares + take, cost: buyer.cost + take * o.price });
+    }
     const cur = db.getCompany(c.id);
     db.saveCompany({ ...cur, news: pushNews(cur, now, `📈 ${take} Anteile gingen von ${nameOf(o.seller_id)} an ${nameOf(userId)} für ${(take * o.price).toLocaleString('de-DE')}`, 0) });
   }
@@ -1181,7 +1191,7 @@ async function claimDividends(guildId, userId) {
   } catch (err) {
     for (const r of rows) {
       const h = db.getCompanyShare(r.company_id, userId);
-      db.setCompanyShare(r.company_id, userId, { ...h, pending: h.pending + r.pending, received: h.received - r.pending });
+      if (h) db.setCompanyShare(r.company_id, userId, { ...h, pending: h.pending + r.pending, received: h.received - r.pending });
     }
     return { ok: false, reason: 'payment', error: err.message };
   }
