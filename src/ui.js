@@ -1174,7 +1174,10 @@ async function buildFirmaView({ guildId, userId }) {
       + `${s.effective.slots} Plätze, Umsatz ×${faktor(s.effective.umsatzFactor)}`
       + (s.nextStufe ? `\nNächste Stufe: **${s.nextStufe.name}** für ${money(symbol, s.nextStufe.price)}` : '\n_Voll ausgebaut._'),
   });
-  embed.setFooter({ text: `Decke jetzt ~${money(symbol, s.ceilingNow.net)} am Tag · voll ausgebaut ~${money(symbol, s.ceilingMax.net)}` });
+  // Anteile (Stück 3c): wer mitverdient, steht in der Fußzeile.
+  const halter = s.anteile.holders.length;
+  embed.setFooter({ text: `Decke jetzt ~${money(symbol, s.ceilingNow.net)} am Tag · voll ausgebaut ~${money(symbol, s.ceilingMax.net)}`
+    + (halter ? ` · ${s.anteile.total - s.anteile.owner} Anteile bei ${halter} Spieler${halter === 1 ? '' : 'n'}` : '') });
 
   const ready = (cost) => s.budget.left >= cost;
   const data = require('./data/companies');
@@ -1310,6 +1313,10 @@ async function buildFirmaAusbauView({ guildId, userId }) {
           .setEmoji('⬆️').setStyle(ButtonStyle.Success).setDisabled(!s.nextStufe),
         new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
           .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+        // Anteile (Stück 3c): mit den vier Extras sind das 9 Knöpfe – die Fluxer-Grenze
+        // (MAX_REACTIONS) genau. Kommt ein zehnter, muss einer in eine andere Ansicht.
+        new ButtonBuilder().setCustomId(`firma|anteile|0|${userId}`)
+          .setLabel('Anteile').setEmoji('📊').setStyle(ButtonStyle.Primary),
         new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
           .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
         homeButton(userId)),
@@ -3095,12 +3102,218 @@ async function buildMarketView({ guildId, userId, page = 1, kind = null }) {
     new ButtonBuilder().setCustomId(`wkind|crypto|${userId}`)
       .setLabel('Krypto').setEmoji('🪙')
       .setStyle(kind === 'crypto' ? ButtonStyle.Primary : ButtonStyle.Secondary),
-    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
-      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Success),
+    // Anteile (Stück 3c): die Firmenanteile der Spieler – kein Kurs, nur Angebote.
+    new ButtonBuilder().setCustomId(`wanteile|1|${userId}`)
+      .setLabel('Firmenanteile').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
   ));
 
-  rows.push(navigationRow(kind ? `boerse:${kind}` : 'boerse', p, totalPages, userId));
+  // Das Depot wohnt als Extra in der Navigation – die Filterzeile ist mit fünf voll.
+  rows.push(navigationRow(kind ? `boerse:${kind}` : 'boerse', p, totalPages, userId,
+    new ButtonBuilder().setCustomId(`wdepot|${userId}`)
+      .setLabel('Depot').setEmoji('💼').setStyle(ButtonStyle.Success)));
   return { embeds: [embed], components: rows };
+}
+
+// ------------------------------------------------------------ Firmenanteile
+//
+// Anteile (Stück 3c): drei Ansichten – die des Inhabers (Verteilung, eigene
+// Angebote), die Liste aller Angebote des Servers an der Börse und „Meine
+// Anteile" (Beteiligungen und Ausschüttung). Kein Kurs: Anteile wechseln nur
+// zwischen Spielern, zu dem Preis, den der Verkäufer verlangt.
+
+/** Firma-Nr, Name und Branche als Kopf einer Zeile – die Nr braucht das Verkaufen-Modal. */
+function anteilKopf(c) {
+  return `**${c.name}** (${c.branchName ?? c.branch}, Stufe ${c.stufe ?? 0}, Firma-Nr ${c.id})`;
+}
+
+/** Anteile-Ansicht des Inhabers: Verteilung, Buchwert, Angebote, Halter. */
+async function buildFirmaAnteileView({ guildId, userId }) {
+  const company = require('./company');
+  const identity = require('./identity');
+  const s = company.status(guildId, userId);
+  if (!s) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const data = require('./data/companies');
+  const a = s.anteile;
+  const held = a.total - a.owner;
+  const offers = company.shareOffers(guildId, s.company.id);
+  const eigene = offers.filter((o) => o.seller_id === String(userId));
+  // Das jüngste eigene Angebot lässt sich zurückziehen (höchste ID).
+  const juengstes = eigene.reduce((best, o) => (!best || o.id > best.id ? o : best), null);
+  const offen = eigene.reduce((n, o) => n + o.shares, 0);
+  const frei = Math.max(0, a.owner - offen - data.OWNER_MIN);
+  const book = Math.round((s.invested + s.kasse + (s.company.stock_cost ?? 0)) / a.total);
+  const lastPayout = Math.round((s.company.last_payout ?? 0) / a.total);
+  const ipoOk = s.stufe >= data.IPO_MIN_STUFE;
+
+  const embed = new EmbedBuilder()
+    .setTitle(`📊 Anteile – ${s.company.name}`)
+    .setColor(0x34495e)
+    .setDescription(`Firma-Nr **${s.company.id}** · ${a.total} Anteile insgesamt. Du musst mindestens ${data.OWNER_MIN} behalten; `
+      + `Entnahmen und die Auszahlung beim Schließen werden nach Anteilen geteilt.\n`
+      + `_Käufer zahlen ${(data.SHARE_FEE * 100).toFixed(0)} % Gebühr, du bekommst den vollen Preis._`)
+    .addFields(
+      {
+        name: '🥧 Verteilung',
+        value: held > 0
+          ? `Du **${a.owner}** · ${a.holders.length} Anteilseigner **${held}**`
+          : `Du **${a.owner}** – alle Anteile bei dir.`,
+        inline: true,
+      },
+      { name: '📒 Buchwert je Anteil', value: money(symbol, book), inline: true },
+      {
+        name: '💰 Letzte Ausschüttung',
+        value: lastPayout > 0 ? `${money(symbol, lastPayout)} je Anteil` : '_noch keine_',
+        inline: true,
+      },
+    );
+  if (!ipoOk) {
+    embed.addFields({
+      name: '🏗️ Noch kein Börsengang',
+      value: `Anteile gibt es ab Ausbaustufe **${data.IPO_MIN_STUFE}** – du bist auf Stufe ${s.stufe}.`,
+    });
+  } else {
+    embed.addFields({
+      name: '📤 Anbieten',
+      value: `Noch **${frei}** Anteile frei` + (offen ? ` (${offen} schon im Angebot)` : '') + '.',
+    });
+  }
+  if (offers.length) {
+    embed.addFields({
+      name: `🏷️ Offene Angebote (${offers.length})`,
+      value: offers.slice(0, 5).map((o) =>
+        `#${o.id} · **${o.shares}** Anteile à ${money(symbol, o.price)} · `
+        + (o.seller_id === String(userId) ? 'von dir' : `von ${identity.nameOf(o.seller_id) ?? 'Spieler'}`)).join('\n'),
+    });
+  }
+  if (a.holders.length) {
+    embed.addFields({
+      name: `👥 Anteilseigner (${a.holders.length})`,
+      value: a.holders.slice(0, 5).map((h) =>
+        `${identity.nameOf(h.user_id) ?? 'Spieler'} – **${h.shares}** Anteile (${(h.shares / a.total * 100).toLocaleString('de-DE', { maximumFractionDigits: 1 })} %)`
+        + (h.pending > 0 ? ` · ${money(symbol, h.pending)} ausstehend` : '')).join('\n')
+        + (a.holders.length > 5 ? `\n_… und ${a.holders.length - 5} weitere_` : ''),
+    });
+  }
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`firma|anteilanbieten|0|${userId}`)
+        .setLabel('Anteile anbieten').setEmoji('📤').setStyle(ButtonStyle.Success)
+        .setDisabled(!ipoOk || frei <= 0),
+      new ButtonBuilder().setCustomId(`firma|anteilweg|${juengstes?.id ?? 0}|${userId}`)
+        .setLabel('Angebot zurückziehen').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
+        .setDisabled(!juengstes),
+      new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+        .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
+}
+
+/** Angebote je Seite in der Firmenanteile-Liste. */
+const ANTEILE_PER_PAGE = 5;
+
+/** Börse → Firmenanteile: alle Angebote des Servers, billigstes zuerst. */
+async function buildAnteileMarktView({ guildId, userId, page = 1 }) {
+  const company = require('./company');
+  const identity = require('./identity');
+  const symbol = await getSymbol(guildId);
+  const data = require('./data/companies');
+  const offers = company.shareOffers(guildId);
+  const totalPages = Math.max(1, Math.ceil(offers.length / ANTEILE_PER_PAGE));
+  const p = Math.min(totalPages, Math.max(1, Number(page) || 1));
+  const shown = offers.slice((p - 1) * ANTEILE_PER_PAGE, p * ANTEILE_PER_PAGE);
+
+  const embed = new EmbedBuilder()
+    .setTitle('🏢 Firmenanteile')
+    .setColor(0x2ecc71);
+  if (!offers.length) {
+    embed.setDescription('Niemand bietet gerade Firmenanteile an.\n'
+      + `_Inhaber können ab Ausbaustufe ${data.IPO_MIN_STUFE} bis zu ${data.SHARES_TOTAL - data.OWNER_MIN} von ${data.SHARES_TOTAL} Anteilen abgeben._`);
+  } else {
+    embed.setDescription(shown.map((o) =>
+      `#${o.id} ${o.company.emoji} ${anteilKopf(o.company)} · **${o.shares}** Anteile à **${money(symbol, o.price)}**\n`
+      + `Buchwert ${money(symbol, o.book)} · letzte Ausschüttung ${money(symbol, o.lastPayout)}/Anteil · `
+      + (o.seller_id === String(userId) ? '_dein Angebot_' : `von ${identity.nameOf(o.seller_id) ?? 'Spieler'}`)).join('\n\n'));
+  }
+  embed.setFooter({
+    text: `${offers.length} Angebot${offers.length === 1 ? '' : 'e'}` + (totalPages > 1 ? ` · Seite ${p}/${totalPages}` : '')
+      + ` · Gebühr ${(data.SHARE_FEE * 100).toFixed(0)} % je Kauf · Kaufen: „<Nr> <Anzahl>"`,
+  });
+
+  const rows = [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`wanteilkauf|${userId}`)
+      .setLabel('Kaufen').setEmoji('🛒').setStyle(ButtonStyle.Success).setDisabled(!offers.length),
+    new ButtonBuilder().setCustomId(`wmeine|${userId}`)
+      .setLabel('Meine Anteile').setEmoji('📊').setStyle(ButtonStyle.Primary),
+    new ButtonBuilder().setCustomId(`wkind|all|${userId}`)
+      .setLabel('Börse').setEmoji('📈').setStyle(ButtonStyle.Secondary),
+    homeButton(userId))];
+  // Blättern nur, wenn es mehr als eine Seite gibt – dann in einer eigenen Zeile
+  // (mit den vier Knöpfen oben wären es sechs in einer).
+  if (totalPages > 1) {
+    rows.push(new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`wanteile|${p - 1}|${userId}`).setLabel('Zurück').setEmoji('◀️')
+        .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+      new ButtonBuilder().setCustomId('noop').setLabel(`${p} / ${totalPages}`)
+        .setStyle(ButtonStyle.Secondary).setDisabled(true),
+      new ButtonBuilder().setCustomId(`wanteile|${p + 1}|${userId}`).setLabel('Weiter').setEmoji('▶️')
+        .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages)));
+  }
+  return { embeds: [embed], components: rows };
+}
+
+/** Meine Anteile: Beteiligungen je Firma, Ausschüttung abholen, verkaufen. */
+async function buildMeineAnteileView({ guildId, userId }) {
+  const company = require('./company');
+  const symbol = await getSymbol(guildId);
+  const data = require('./data/companies');
+  const rows = db.companySharesOf(guildId, userId);
+  const pending = rows.reduce((n, r) => n + r.pending, 0);
+  const haltend = rows.filter((r) => r.shares > 0);
+  const eigene = company.shareOffers(guildId).filter((o) => o.seller_id === String(userId));
+  const juengstes = eigene.reduce((best, o) => (!best || o.id > best.id ? o : best), null);
+
+  const embed = new EmbedBuilder()
+    .setTitle('📊 Meine Anteile')
+    .setColor(pending > 0 ? 0x2ecc71 : 0x34495e);
+  if (!rows.length) {
+    embed.setDescription('Du hältst noch keine Firmenanteile.\n_Angebote findest du unter 🏢 Firmenanteile an der Börse._');
+  } else {
+    embed.setDescription(rows.map((r) => {
+      const b = company.branch(r.branch);
+      const kopf = anteilKopf({ id: r.company_id, name: r.name, branchName: b?.name ?? r.branch, stufe: r.stufe });
+      return `${b?.emoji ?? '🏢'} ${kopf}` + (r.status !== 'open' ? ' · 🔒 _geschlossen_' : '') + '\n'
+        + `**${r.shares}** Anteile (${(r.shares / data.SHARES_TOTAL * 100).toLocaleString('de-DE', { maximumFractionDigits: 1 })} %)`
+        + ` · bezahlt ${money(symbol, r.cost)} · ausstehend **${money(symbol, r.pending)}** · erhalten ${money(symbol, r.received)}`;
+    }).join('\n\n'));
+  }
+  if (eigene.length) {
+    embed.addFields({
+      name: `🏷️ Deine Angebote (${eigene.length})`,
+      value: eigene.slice(0, 5).map((o) => `#${o.id} · **${o.shares}** Anteile an ${o.company.name} à ${money(symbol, o.price)}`).join('\n'),
+    });
+  }
+  embed.setFooter({
+    text: (pending > 0 ? `${money(symbol, pending)} warten auf dich · ` : '')
+      + 'Verkaufen: „<Firma-Nr> <Anzahl> <Preis>"',
+  });
+
+  return {
+    embeds: [embed],
+    components: [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`wanteilabholen|${userId}`)
+        .setLabel(pending > 0 ? `Ausschüttung abholen (${pending.toLocaleString('de-DE')})`.slice(0, 40) : 'Ausschüttung abholen')
+        .setEmoji('💰').setStyle(ButtonStyle.Success).setDisabled(pending <= 0),
+      new ButtonBuilder().setCustomId(`wanteilverkauf|${userId}`)
+        .setLabel('Anteile verkaufen').setEmoji('📤').setStyle(ButtonStyle.Primary).setDisabled(!haltend.length),
+      new ButtonBuilder().setCustomId(`wanteilweg|${juengstes?.id ?? 0}|${userId}`)
+        .setLabel('Angebot zurückziehen').setEmoji('↩️').setStyle(ButtonStyle.Secondary).setDisabled(!juengstes),
+      new ButtonBuilder().setCustomId(`wanteile|1|${userId}`)
+        .setLabel('Firmenanteile').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+      homeButton(userId))],
+  };
 }
 
 /** Das Lager: Ware, Lieferant, Preis, Bestand – und der Einkauf. */
@@ -4710,6 +4923,7 @@ module.exports = {
   buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView,
   buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
+  buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
   buildHomeView, buildCountryView, buildCountryConfirm, buildCountryTreasuryView,
   buildCrimeView, buildTargetsView, buildPlanView, buildRunView, buildOpenHeistsView,
   buildMusicView, buildMusicSetupView, buildPersonaView, buildReleaseView,

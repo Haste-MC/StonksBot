@@ -287,7 +287,7 @@ async function applyCompany(guildId, userId, row, effect, now, ignored, random) 
   let sold = null;
   if (effect.sell) {
     const s = await company.sell(guildId, userId, now);
-    sold = s.ok ? { payout: s.payout, paid: s.paid } : null;
+    sold = s.ok ? { payout: s.payout, paid: s.paid, shared: s.shared } : null;
   }
   return { ...r.done, sold, gone: false, text: effect.text };
 }

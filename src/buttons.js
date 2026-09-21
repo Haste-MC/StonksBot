@@ -21,6 +21,7 @@ const {
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
   buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
+  buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -304,6 +305,23 @@ function wareNote(symbol, r) {
 }
 
 /** Ergebnis einer Schicht als Text bzw. Embed. */
+/**
+ * Auszahlungs-Hinweis nach Schließen/Verkauf (Stück 3c): der Inhaber bekommt
+ * seinen Teil (`paid`), Anteilseigner ihren (`shared`, als ausstehende
+ * Ausschüttung). Schlägt die Buchung des Inhaberteils fehl, ist der Halterteil
+ * trotzdem schon gutgeschrieben – nur der Inhaberteil muss nachgebucht werden.
+ */
+function payoutNote(symbol, r) {
+  if (!(r.payout > 0)) return '';
+  const owner = typeof r.paid === 'number' ? r.paid : r.payout - (r.shared ?? 0);
+  const halter = r.shared > 0 ? ` an dich, ${money(symbol, r.shared)} an Anteilseigner` : '';
+  if (r.paid === false) {
+    return ` Aber die Auszahlung von ${money(symbol, owner)} an dich ist fehlgeschlagen – ein Admin muss sie von Hand nachbuchen.`
+      + (r.shared > 0 ? ` (${money(symbol, r.shared)} an Anteilseigner sind gutgeschrieben.)` : '');
+  }
+  return ` Ausgezahlt: ${money(symbol, owner)}${halter}.`;
+}
+
 async function shiftResult(interaction, result) {
   const symbol = await getSymbol(interaction.guildId);
 
@@ -1417,6 +1435,65 @@ Object.assign(buttons, {
     await interaction.showModal(modal);
   },
 
+  // ---------------------------------------------- Firmenanteile (Stück 3c)
+
+  /** Liste der Anteils-Angebote des Servers, seitenweise. */
+  async wanteile(interaction, [page]) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildAnteileMarktView({
+      guildId: gid(interaction), userId: uid(interaction), page: Number(page) || 1,
+    }));
+  },
+
+  /** Meine Anteile: Beteiligungen und Ausschüttung. */
+  async wmeine(interaction) {
+    await interaction.deferUpdate();
+    await interaction.editReply(await buildMeineAnteileView({ guildId: gid(interaction), userId: uid(interaction) }));
+  },
+
+  /** Anteile kaufen: Angebots-Nr und Anzahl (Modal). */
+  async wanteilkauf(interaction) {
+    const modal = new ModalBuilder().setCustomId(`fanteil|kaufen|${uid(interaction)}`).setTitle('Anteile kaufen');
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('text').setLabel('Angebots-Nr und Anzahl')
+        .setPlaceholder('z. B. „12 40"').setStyle(TextInputStyle.Short).setRequired(true)));
+    await interaction.showModal(modal);
+  },
+
+  /** Eigene Anteile anbieten: Firma-Nr, Anzahl, Preis (Modal). */
+  async wanteilverkauf(interaction) {
+    const modal = new ModalBuilder().setCustomId(`fanteil|verkaufen|${uid(interaction)}`).setTitle('Anteile verkaufen');
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId('text').setLabel('Firma-Nr, Anzahl und Preis je Anteil')
+        .setPlaceholder('z. B. „7 50 1500"').setStyle(TextInputStyle.Short).setRequired(true)));
+    await interaction.showModal(modal);
+  },
+
+  /** Ausstehende Ausschüttungen aller Firmen abholen – eine Buchung. */
+  async wanteilabholen(interaction) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    const r = await require('./company').claimDividends(guildId, userId);
+    const note = !r.ok ? '❌ Buchung fehlgeschlagen – nichts passiert.'
+      : r.amount <= 0 ? 'ℹ️ Nichts abzuholen.'
+        : `💰 **${money(symbol, r.amount)}** Ausschüttung abgeholt (${r.parts.map((p) => `${p.company} ${p.amount.toLocaleString('de-DE')}`).join(', ')}).`;
+    await interaction.editReply(await buildMeineAnteileView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /** Eigenes Angebot (als Anteilseigner) zurückziehen. */
+  async wanteilweg(interaction, [offerId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const r = require('./company').cancelShareOffer(guildId, userId, offerId);
+    await interaction.editReply(await buildMeineAnteileView({ guildId, userId }));
+    await interaction.followUp({ content: r.ok ? '↩️ Angebot zurückgezogen.' : '❌ Dieses Angebot gibt es nicht mehr.',
+      flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
   /** Angeln: einmal auswerfen. */
   async fish(interaction) {
     await interaction.deferUpdate();
@@ -2012,6 +2089,13 @@ Object.assign(buttons, {
           .setStyle(TextInputStyle.Short).setRequired(true)));
       return interaction.showModal(modal);
     }
+    if (aktion === 'anteilanbieten') {
+      const modal = new ModalBuilder().setCustomId(`fanteil|anbieten|${userId}`).setTitle('Anteile anbieten');
+      modal.addComponents(new ActionRowBuilder().addComponents(
+        new TextInputBuilder().setCustomId('text').setLabel('Anzahl und Preis je Anteil')
+          .setPlaceholder('z. B. „100 2500"').setStyle(TextInputStyle.Short).setRequired(true)));
+      return interaction.showModal(modal);
+    }
 
     await interaction.deferUpdate();
     // §4 faule Abrechnung: ein abgelaufener Vorfall wirkt, wenn gehandelt wird –
@@ -2110,6 +2194,14 @@ Object.assign(buttons, {
       await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
+    } else if (aktion === 'anteile') {
+      return interaction.editReply(await buildFirmaAnteileView({ guildId, userId }));
+    } else if (aktion === 'anteilweg') {
+      const r = company.cancelShareOffer(guildId, userId, arg);
+      note = r.ok ? '↩️ Angebot zurückgezogen.' : '❌ Dieses Angebot gibt es nicht mehr.';
+      await interaction.editReply(await buildFirmaAnteileView({ guildId, userId }));
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
     } else if (aktion === 'handel') {
       return interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
     } else if (aktion === 'handelaus') {
@@ -2130,9 +2222,14 @@ Object.assign(buttons, {
           : '';
         // Das Lager kommt zum Einstand zurück – der Dialog nennt es, wenn etwas drin liegt.
         const lager = s?.ware.value > 0 ? ` + Lagerwert ${money(symbol, s.ware.value)}` : '';
+        // Anteile (Stück 3c): die Auszahlung wird geteilt – der Dialog sagt, wie viel weggeht.
+        const halter = s?.anteile.holders.length ?? 0;
+        const anteile = halter > 0
+          ? ` ${(s.anteile.total - s.anteile.owner) / 10} % davon gehen an ${halter} Anteilseigner.`
+          : '';
         return interaction.editReply(buildConfirmView({
           title: '🔒 Firma schließen?',
-          text: `Die Kasse${lager} wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}. Sicher?`,
+          text: `Die Kasse${lager} wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}.${anteile} Sicher?`,
           color: 0xe74c3c,
           yesId: `firma|schliessen|ja|${userId}`,
           yesLabel: 'Ja, schließen',
@@ -2144,10 +2241,7 @@ Object.assign(buttons, {
       }
       const r = await company.close(guildId, userId);
       note = !r.ok ? '🏢 Du hast keine Firma.'
-        : r.payout > 0 && r.paid === false
-          ? `🔒 **${r.company.name}** ist geschlossen, aber die Auszahlung von ${money(symbol, r.payout)} ist `
-            + 'fehlgeschlagen – ein Admin muss sie von Hand nachbuchen.'
-          : `🔒 **${r.company.name}** ist geschlossen. ${r.payout > 0 ? `Ausgezahlt: ${money(symbol, r.payout)}.` : ''}`;
+        : `🔒 **${r.company.name}** ist geschlossen.` + payoutNote(symbol, r);
     }
     await interaction.editReply(await buildFirmaView({ guildId, userId }));
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -2427,7 +2521,13 @@ Object.assign(buttons, {
       if (e.wages && e.wages !== 1) parts.push(`💶 Löhne ×${e.wages.toFixed(2).replace('.', ',')} für ${e.days} Tage`);
       if (e.werbung) parts.push(`📣 ${e.werbung > 0 ? '+' : ''}${e.werbung} Werbetage`);
       if (e.staffRank) parts.push(`🎓 ${e.staffRank.name} ist jetzt ${require('./company').rankOf(e.staffRank.rank).name}`);
-      if (e.sold) parts.push(e.sold.paid ? `💰 Verkauft für ${money(symbol, e.sold.payout)}` : `⚠️ Verkauf gebucht, Auszahlung von ${money(symbol, e.sold.payout)} fehlgeschlagen`);
+      if (e.sold) {
+        // Anteile (Stück 3c): der Inhaber sieht seinen Teil, nicht die ganze Auszahlung.
+        const owner = typeof e.sold.paid === 'number' ? e.sold.paid : e.sold.payout - (e.sold.shared ?? 0);
+        const halter = e.sold.shared > 0 ? ` (+ ${money(symbol, e.sold.shared)} an Anteilseigner)` : '';
+        parts.push(e.sold.paid !== false ? `💰 Verkauft für ${money(symbol, owner)}${halter}`
+          : `⚠️ Verkauf gebucht, Auszahlung von ${money(symbol, owner)} fehlgeschlagen${halter}`);
+      }
 
       note = `${res.decision.emoji} **${res.option.label}**\n_${res.outcome.text}_` +
         (parts.length ? `\n\n${parts.join(' · ')}` : '\n\n_Ohne Folgen. Diesmal._');
@@ -2761,7 +2861,9 @@ const modals = {
     const r = modus === 'entnehmen'
       ? await company.withdraw(guildId, userId, amount) : await company.deposit(guildId, userId, amount);
     const note = r.ok
-      ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen. Kasse: ${money(symbol, r.kasse)}.`
+      ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen`
+        + (r.shared > 0 ? ` – ${money(symbol, r.paid)} für dich, ${money(symbol, r.shared)} an Anteilseigner` : '')
+        + `. Kasse: ${money(symbol, r.kasse)}.`
         : `🏦 **${money(symbol, r.amount)}** eingezahlt. Kasse: ${money(symbol, r.kasse)}.`)
       : { amount: '❌ Bitte einen Betrag über 0.', kasse: '💸 So viel ist nicht in der Kasse.',
         funds: '💸 So viel hast du nicht.', no_company: '🏢 Du hast keine Firma.',
@@ -2833,6 +2935,61 @@ const modals = {
             share: '❌ Prozent zwischen 90 und 100, oder „aus".' }[r.reason] ?? '❌ Das ging nicht.';
     }
     await interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
+    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /**
+   * Firmenanteile (Stück 3c): „anbieten" (`<anzahl> <preis>`, Inhaber),
+   * „kaufen" (`<nr> <anzahl>`), „verkaufen" (`<firma-nr> <anzahl> <preis>`, Halter).
+   * Zahlen dürfen Tausenderpunkte haben („2.500").
+   */
+  async fanteil(interaction, [modus]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const company = require('./company');
+    const symbol = await getSymbol(guildId);
+    const raw = String(interaction.fields.getTextInputValue('text') ?? '').trim();
+    const zahlen = raw.split(/[\s,;]+/).filter(Boolean).map((w) => Number(w.replace(/\./g, '')));
+    const ganz = zahlen.every((n) => Number.isInteger(n) && n >= 0);
+    let note;
+    let view;
+
+    if (modus === 'anbieten') {
+      const s = company.status(guildId, userId);
+      const r = !s ? { ok: false, reason: 'no_company' }
+        : !(ganz && zahlen.length === 2) ? { ok: false, reason: 'shares' }
+          : company.listShares(guildId, userId, s.company.id, zahlen[0], zahlen[1]);
+      note = r.ok ? `📤 **${r.offer.shares}** Anteile à ${money(symbol, r.offer.price)} angeboten (Angebot #${r.offer.id}).`
+        : { no_company: '🏢 Du hast keine Firma.',
+          stufe: '🏗️ Anteile gibt es ab Ausbaustufe 2.',
+          owner_min: `❌ Du musst mindestens 51 % behalten – noch ${r.free ?? 0} Anteile frei.`,
+          shares: '❌ Anzahl und Preis, z. B. „100 2500".', price: '❌ Anzahl und Preis, z. B. „100 2500".' }[r.reason]
+          ?? '❌ Das ging nicht.';
+      view = await buildFirmaAnteileView({ guildId, userId });
+    } else if (modus === 'kaufen') {
+      const r = !(ganz && zahlen.length === 2) ? { ok: false, reason: 'shares' }
+        : await company.buyShares(guildId, userId, zahlen[0], zahlen[1]);
+      note = r.ok ? `📈 **${r.shares}** Anteile an **${r.company.name}** für ${money(symbol, r.cost)} (+ ${money(symbol, r.fee)} Gebühr).`
+        : { offer: '❌ Dieses Angebot gibt es nicht mehr.', self: '❌ Das ist dein eigenes Angebot.',
+          shares: r.max ? `❌ Angebots-Nr und Anzahl, z. B. „12 40" – im Angebot sind ${r.max}.` : '❌ Angebots-Nr und Anzahl, z. B. „12 40".',
+          funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
+          payment: '❌ Buchung fehlgeschlagen – nichts passiert.',
+          closed: '🏢 Die Firma gibt es nicht mehr.' }[r.reason] ?? '❌ Das ging nicht.';
+      view = await buildAnteileMarktView({ guildId, userId, page: 1 });
+    } else {
+      const r = !(ganz && zahlen.length === 3) ? { ok: false, reason: 'format' }
+        : company.listShares(guildId, userId, zahlen[0], zahlen[1], zahlen[2]);
+      note = r.ok ? `📤 **${r.offer.shares}** Anteile à ${money(symbol, r.offer.price)} angeboten (Angebot #${r.offer.id}).`
+        : { format: '❌ Firma-Nr, Anzahl und Preis, z. B. „7 50 1500".',
+          no_company: '🏢 Diese Firma gibt es nicht (mehr) – die Firma-Nr steht in der Liste.',
+          stufe: '🏗️ Anteile gibt es ab Ausbaustufe 2.',
+          owner_min: `❌ Du musst mindestens 51 % behalten – noch ${r.free ?? 0} Anteile frei.`,
+          shares: r.free != null ? `❌ So viele hast du nicht – frei sind ${r.free} Anteile.` : '❌ Firma-Nr, Anzahl und Preis, z. B. „7 50 1500".',
+          price: '❌ Firma-Nr, Anzahl und Preis, z. B. „7 50 1500".' }[r.reason] ?? '❌ Das ging nicht.';
+      view = await buildMeineAnteileView({ guildId, userId });
+    }
+    await interaction.editReply(view);
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 

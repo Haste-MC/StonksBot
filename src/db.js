@@ -1922,6 +1922,14 @@ const stmt = {
     `UPDATE company_shares SET received = received + pending, pending = 0
       WHERE user_id = ? AND pending > 0
         AND company_id IN (SELECT id FROM companies WHERE guild_id = ?)`),
+  // Alle Beteiligungen eines Spielers auf einem Server (für „Meine Anteile"): auch
+  // Zeilen mit 0 Anteilen, solange noch eine Ausschüttung aussteht.
+  companySharesOf: db.prepare(
+    `SELECT s.company_id, s.user_id, s.shares, s.cost, s.pending, s.received,
+            c.name, c.branch, c.status, c.stufe, c.owner_id
+       FROM company_shares s JOIN companies c ON c.id = s.company_id
+      WHERE c.guild_id = ? AND s.user_id = ? AND (s.shares > 0 OR s.pending > 0)
+      ORDER BY s.company_id`),
 
   // --- Kontoverknüpfung ---
   getLink: db.prepare('SELECT * FROM account_links WHERE platform = ? AND user_id = ?'),
@@ -4043,6 +4051,8 @@ function shareOffersOf(guildId, companyId = null) {
 function deleteShareOffersOfCompany(companyId) { stmt.deleteShareOffersOfCompany.run(Number(companyId)); }
 /** Zeilen mit ausstehender Ausschüttung eines Spielers auf einem Server (mit Firmenname). */
 function pendingOf(guildId, userId) { return stmt.pendingOf.all(guildId, String(userId)); }
+/** Beteiligungen eines Spielers auf einem Server, mit Firmenkopf (Name, Branche, Status). */
+function companySharesOf(guildId, userId) { return stmt.companySharesOf.all(guildId, String(userId)); }
 /** Verschiebt alle ausstehenden Ausschüttungen des Spielers auf dem Server nach `received`. */
 function clearPending(guildId, userId) { return stmt.clearPending.run(String(userId), guildId).changes; }
 
@@ -4183,7 +4193,7 @@ module.exports = {
   setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,
   upsertOffer, offersOfCompany, activeOffersFor, deleteOffersOfCompany,
   getCompanyShare, companyShareHolders, setCompanyShare, insertShareOffer, getShareOffer, updateShareOffer, deleteShareOffer,
-  shareOffersOf, deleteShareOffersOfCompany, pendingOf, clearPending,
+  shareOffersOf, deleteShareOffersOfCompany, pendingOf, clearPending, companySharesOf,
   setAccountName, getAccountName, allAccountNames, mergeAccounts,
   saveFluxerView, getFluxerView, purgeFluxerViews,
   getClaim, setClaim, clearClaim, assetOwners, hasWallet,
