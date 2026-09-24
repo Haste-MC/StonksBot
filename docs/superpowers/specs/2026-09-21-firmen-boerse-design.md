@@ -194,3 +194,31 @@ oben ab – der Code gilt:
   ≈ 2,5 Mio. netto positiv, gedeckelt auf +7,3 %/Jahr je Kern-Baufirma, und
   der Gewinn geht an jeden Halter – ein begrenzter, dokumentierter dritter
   Zufluss der Börse (ARCHITEKTUR §3, §15).
+
+## Nachtrag 2026-09-24: Stück 4 umgesetzt (mehrere Firmen, Firmenwert)
+
+Stück 4 (`docs/superpowers/specs/2026-09-24-firmen-mehrere-design.md`) baut
+direkt auf 3c auf und ändert zwei Annahmen dieser Spec:
+
+- **Nicht mehr „eine offene Firma je Spieler".** Der Unique-Index
+  `idx_companies_owner_open` ist weg; das Limit hängt am Konto-Level
+  (`maxCompanies = 1 + floor(level / 10)`, höchstens 5). Alle Inhaber-
+  Funktionen nehmen eine optionale `companyId`, ohne sie gilt die aktive
+  Firma (`company_active`). Wo diese Spec „die Firma des Spielers" schreibt,
+  ist seitdem „die gemeinte Firma" zu lesen.
+- **Anteile haben jetzt einen Buchwert im Vermögen.** 3c sagte „Kein Kurs:
+  Anteile werden nicht simuliert, ihr Wert ist die Ausschüttung" – das gilt
+  weiter fürs Geld, aber `networth` zeigt seit Stück 4 den Posten 🏢 Firmen:
+  Firmenwert (Substanz + Ertragswert) × gehaltenem Anteil, dazu das noch
+  nicht abgeholte `pending`. Ein Halter sieht seine Anteile also im Vermögen
+  und in der Rangliste, ohne dass ein Kurs entsteht; verkaufen kann er sie
+  weiterhin nur über ein Angebot an einen anderen Spieler.
+
+Unverändert bleiben Nachfrage-Drift, `buyShares`, Ausschüttung und Gebühr.
+Neu ist nur, dass die Kassenwirkung außerhalb des Tagesschritts (Werbung,
+Prämie, Vorfall) über `companies.profit_pending` in den nächsten
+abgerechneten Tag fällt – sonst wäre der Ertragswert über die eigene Kasse
+käuflich (§3; siehe den Nachtrag „Ertragswert ohne Werbe-Hebel" in der
+Stück-4-Spec). Zahlen und Grenzen stehen in ARCHITEKTUR §15
+(„Mehrere Firmen und Firmenwert"), gemessen in
+`docs/messungen/2026-09-24-firmenwert.txt`.

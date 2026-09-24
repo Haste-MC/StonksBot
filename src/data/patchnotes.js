@@ -18,6 +18,16 @@
  */
 module.exports = [
   {
+    version: '1.38.0',
+    date: '2026-09-24',
+    title: '🏢 Firmen: mehrere und wertvoll',
+    lines: [
+      '🏢 **Mehrere Firmen je Konto.** Wie viele, sagt dein Level: Level 0–9 eine, ab Level 10 zwei, ab 20 drei, ab 30 vier, ab 40 fünf. Ab der zweiten Firma führt „Firma" zuerst auf eine Übersicht mit Kasse, Prognose und Vorfall-Warnung je Firma; die Betriebsansicht zeigt „Firma 2 von 3" und einen Knopf zurück zur Übersicht. Angestellt bist du weiterhin höchstens einmal, und einen offenen Vorfall gibt es weiterhin nur einen – mehrere Firmen sind mehr Kapital, nicht mehr Zeit.',
+      '💼 **Firmenwert zählt zum Vermögen.** Eine Firma ist ihre Substanz (gekaufter Ausbau + Kasse + Lager zum Einstand) plus das Dreißigfache ihres gleitenden Tagesgewinns aus dem Betrieb wert – anteilig: Der Inhaber trägt seinen Anteil, jeder Halter von Firmenanteilen seinen (plus noch nicht abgeholte Ausschüttung). Beispiel aus der Messung über ein Jahr: ein Kern-Kiosk **16.368** (Substanz 4.750, Ertragswert 11.618), eine voll ausgebaute Baufirma **88,5 Mio** (davon 75 Mio Substanz). In Profil und Rangliste steht dafür der Posten 🏢 Firmen, die Ranglisten-Fußzeile sagt, wie viel des gezeigten Vermögens in Firmen steckt.',
+      '⚖️ **Kein neuer Gelddrucker.** Einzahlen ändert dein Vermögen nicht (das Geld wechselt nur vom Konto in die Kasse), und der Ertragswert hängt allein an dem, was der Betrieb abwirft: Werbung und Prämien werden gegengerechnet, Spieler-Schichten zählen gar nicht mit. Eine Firma im Minus ist ihre Substanz wert, nie weniger.',
+    ],
+  },
+  {
     version: '1.37.0',
     date: '2026-09-21',
     title: '📈 Börse: Nachfrage und Firmenanteile',

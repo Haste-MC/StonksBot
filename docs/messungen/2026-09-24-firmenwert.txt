@@ -1,0 +1,197 @@
+Messung Firmenwert (Stück 4: mehrere Firmen, Firmenwert im Vermögen) – Auszug aus dem Lauf vom
+2026-09-24. Aufruf: rm -rf .testdata && DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365
+(die drei Firmen-Abschnitte Kern / Vollausbau / Aufsteiger; der vollständige Lauf liegt in
+.superpowers/sdd/task-4-messung/mess-4-voll.txt).
+
+Neu in diesem Lauf ist nur die Zeile „Firmenwert am Ende" je Branche und Lauf
+(`company.valueOf` am letzten Tag): Substanz = Ausbau + Kasse + Lager zum Einstand,
+Ertragswert = max(0, round(profit_ema × 30)), Summe = beides.
+
+Die Mediane sind Zeile für Zeile gleich mit docs/messungen/2026-09-21-firmen-handel.txt (alle
+dreizehn dort committeten Kopfzeilen der Firmen- und Handel-Blöcke kommen hier wörtlich wieder
+vor, geprüft per grep -qxF). Das war die Erwartung: Stück 4 ändert an der Kasse nichts, es zählt
+nur zusätzlich mit (`profit_ema`, `profit_pending`) – Werbung und Prämie gehen weiter im selben
+Moment aus der Kasse wie vorher, sie landen seit Task 3 nur zusätzlich im Ertragswert.
+
+Handrechnung (Kiosk Kern, 365 Tage – Skript .superpowers/sdd/task-4-messung/hand-kiosk.txt):
+  Ein eingeschwungener Tag ohne Ereignisse (Trace Tag 356 ff.):
+    NPC:      2 Plätze × 3 Schichten × 250 × 1,5 (Schichtleiter) = 2.250 Umsatz
+              6 × 100 × 1,5 = 900 Löhne · 6 Einheiten × 50 Einstand = 300 Ware
+              → Tagesgewinn im Sinne der EMA = 2.250 − 900 − 300 = 1.050
+    Werbung:  25.000 × 5 % = 1.250, alle 3 Tage – über `profit_pending` im Tagesgewinn
+              desselben Tages (Tag 358, 361, 364: −200 statt +1.050)
+    EMA:      Gewicht der Werbetage am Ende (letzte Werbung an Tag 364, also Abstand 1):
+              (1/7)(6/7)^1 / (1 − (6/7)^3) = 0,3308 → 1.050 − 1.250 × 0,3308 = 636,5
+    gemessen: profit_ema 636,61 (von Hand aus den Tagesbuchungen nachgerechnet: 636,61 –
+              exakt gleich), Ertragswert 30 × 636,61 = 19.098 ✔
+    mit Ereignissen: profit_ema 387,26 gemessen, 388,69 aus den Tagesbuchungen nachgerechnet –
+              die 1,4 Differenz ist der Vorfall-Ausgang, der in Echtzeit nach der Abrechnung
+              gebucht wird und deshalb erst am Folgetag über `profit_pending` in die EMA fällt,
+              während die Nachrechnung ihn dem Tag selbst zuschlägt.
+
+  Warum der Ertragswert NICHT 30 × Median ist (Kiosk Kern ohne Ereignisse: 30 × 2.331 = 69.930
+  gegen gemessene 19.098, Faktor 3,7) – drei Gründe, alle gewollt:
+    1. Der Median ist der KASSEN-Tagesgewinn und enthält die vier Anpacken-Schichten des
+       Inhabers: 4 × 375 Umsatz − 4 × 50 Ware = +1.300/Tag. Die EMA zählt nur den Betrieb
+       (NPC-Schichten) – Spieler-Schichten sind Arbeit des Inhabers, kein Ertrag der Firma.
+    2. Der Median ist ein Quantil über das Jahr und landet auf einem Tag OHNE Kampagne; die
+       Werbung (1.250 alle 3 Tage = 417/Tag im Schnitt) fehlt ihm, die EMA trägt sie (−413,5
+       am Ende des Laufs).
+    3. Die EMA ist ein 7-Tage-Fenster am Laufende, der Median das ganze Jahr (samt Anlauf).
+    Probe: eingeschwungener Kassentag ohne Kampagne 2.250 + 1.500 − 900 − 500 (Einkauf) = 2.350
+    (= die Decke; der Jahresmedian liegt mit 2.331 knapp darunter, das ist der Anlauf).
+    2.350 − 1.300 (Anpacken) − 413,5 (Werbung, EMA-gewichtet) = 636,5 = profit_ema ✔
+
+--- Firmen (nicht ausgebaut, Vollbetrieb) ---
+
+  🏪 Kiosk        mit Ereignissen     2.003/Tag (Vorfälle 8, 9 Tage zu) · ohne     2.331/Tag   Decke 2.350   Amortisation mit 31 Tage, ohne 28 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 7.720 an 11 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.478 (Ereignis-Decke 2.588)
+                  mit Ereignissen: Ware Ø 486/Tag, ad hoc 0,3 % (10 von 3.544 Einheiten), Einkauf 26× an der Kasse gescheitert · ohne: Ware Ø 500/Tag, ad hoc 0,3 % (10 von 3.650 Einheiten) · bester Tag ohne 2.331 (Decke 2.350, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 4.750 (Kasse 1.750, Lager 3.000, Ausbau 0) · Ertragswert 11.618 (profit_ema 387) · Summe 16.368
+                  Firmenwert am Ende ohne: Substanz 4.750 (Kasse 1.750, Lager 3.000, Ausbau 0) · Ertragswert 19.098 (profit_ema 637) · Summe 23.848
+  🌭 Imbiss       mit Ereignissen     2.660/Tag (Vorfälle 4, 5 Tage zu) · ohne     2.822/Tag   Decke 2.841   Amortisation mit 38 Tage, ohne 37 Tage
+                  Ereignistage 78, Vorfälle 4, 5 Tage zu, Nachschuss 5.750 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 3.564 (Ereignis-Decke 3.726)
+                  mit Ereignissen: Ware Ø 616/Tag, ad hoc 1,1 % (52 von 4.672 Einheiten), Einkauf 18× an der Kasse gescheitert · ohne: Ware Ø 624/Tag, ad hoc 0,3 % (13 von 4.745 Einheiten) · bester Tag ohne 2.822 (Decke 2.841, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 6.368 (Kasse 2.624, Lager 3.744, Ausbau 0) · Ertragswert 19.978 (profit_ema 666) · Summe 26.346
+                  Firmenwert am Ende ohne: Substanz 6.368 (Kasse 2.624, Lager 3.744, Ausbau 0) · Ertragswert 27.947 (profit_ema 932) · Summe 34.315
+  🚗 Autowäsche   mit Ereignissen     2.300/Tag (Vorfälle 8, 9 Tage zu) · ohne     2.640/Tag   Decke 2.660   Amortisation mit 35 Tage, ohne 33 Tage
+                  Ereignistage 86, Vorfälle 8, 9 Tage zu, Nachschuss 6.438 an 10 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 2.574 (Ereignis-Decke 2.691)
+                  mit Ereignissen: Ware Ø 505/Tag, ad hoc 0,3 % (10 von 3.544 Einheiten), Einkauf 16× an der Kasse gescheitert · ohne: Ware Ø 520/Tag, ad hoc 0,0 % (0 von 3.650 Einheiten) · bester Tag ohne 2.640 (Decke 2.660, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 5.390 (Kasse 2.270, Lager 3.120, Ausbau 0) · Ertragswert 13.591 (profit_ema 453) · Summe 18.981
+                  Firmenwert am Ende ohne: Substanz 5.390 (Kasse 2.270, Lager 3.120, Ausbau 0) · Ertragswert 18.984 (profit_ema 633) · Summe 24.374
+  ☕ Café          mit Ereignissen    15.956/Tag (Vorfälle 4, 8 Tage zu) · ohne    18.109/Tag   Decke 18.180   Amortisation mit 20 Tage, ohne 20 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 30.914 an 8 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 23.280 (Ereignis-Decke 23.288)
+                  mit Ereignissen: Ware Ø 3.320/Tag, ad hoc 0,0 % (0 von 6.732 Einheiten), Einkauf 7× an der Kasse gescheitert · ohne: Ware Ø 3.420/Tag, ad hoc 0,0 % (0 von 6.935 Einheiten) · bester Tag ohne 18.109 (Decke 18.180, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 29.940 (Kasse 9.420, Lager 20.520, Ausbau 0) · Ertragswert 329.525 (profit_ema 10.984) · Summe 359.465
+                  Firmenwert am Ende ohne: Substanz 29.940 (Kasse 9.420, Lager 20.520, Ausbau 0) · Ertragswert 353.976 (profit_ema 11.799) · Summe 383.916
+  🏋️ Fitnessstudiomit Ereignissen    10.382/Tag (Vorfälle 4, 8 Tage zu) · ohne    11.805/Tag   Decke 11.860   Amortisation mit 35 Tage, ohne 34 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 5.321 an 4 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 14.496 (Ereignis-Decke 14.490)
+                  mit Ereignissen: Ware Ø 2.171/Tag, ad hoc 0,0 % (0 von 5.661 Einheiten), Einkauf 7× an der Kasse gescheitert · ohne: Ware Ø 2.240/Tag, ad hoc 0,0 % (0 von 5.840 Einheiten) · bester Tag ohne 11.805 (Decke 11.860, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 23.180 (Kasse 9.740, Lager 13.440, Ausbau 0) · Ertragswert 167.250 (profit_ema 5.575) · Summe 190.430
+                  Firmenwert am Ende ohne: Substanz 23.180 (Kasse 9.740, Lager 13.440, Ausbau 0) · Ertragswert 159.789 (profit_ema 5.326) · Summe 182.969
+  🔧 Werkstatt    mit Ereignissen    14.797/Tag (Vorfälle 4, 8 Tage zu) · ohne    17.032/Tag   Decke 17.120   Amortisation mit 33 Tage, ohne 33 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 31.639 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.764 (Ereignis-Decke 22.770)
+                  mit Ereignissen: Ware Ø 3.415/Tag, ad hoc 0,3 % (16 von 5.661 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 3.522/Tag, ad hoc 0,3 % (16 von 5.840 Einheiten) · bester Tag ohne 17.032 (Decke 17.120, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 34.640 (Kasse 13.520, Lager 21.120, Ausbau 0) · Ertragswert 238.150 (profit_ema 7.938) · Summe 272.790
+                  Firmenwert am Ende ohne: Substanz 34.640 (Kasse 13.520, Lager 21.120, Ausbau 0) · Ertragswert 242.787 (profit_ema 8.093) · Summe 277.427
+  🚚 Spedition    mit Ereignissen    58.238/Tag (Vorfälle 4, 8 Tage zu) · ohne    64.929/Tag   Decke 65.080   Amortisation mit 56 Tage, ohne 50 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 62.826 an 6 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 98.310 (Ereignis-Decke 98.325)
+                  mit Ereignissen: Ware Ø 12.584/Tag, ad hoc 0,0 % (0 von 12.087 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 12.920/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 64.929 (Decke 65.080, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 150.440 (Kasse 72.920, Lager 77.520, Ausbau 0) · Ertragswert 1.096.510 (profit_ema 36.550) · Summe 1.246.950
+                  Firmenwert am Ende ohne: Substanz 150.440 (Kasse 72.920, Lager 77.520, Ausbau 0) · Ertragswert 1.145.764 (profit_ema 38.192) · Summe 1.296.204
+  🏗️ Baufirma    mit Ereignissen    52.915/Tag (Vorfälle 4, 8 Tage zu) · ohne    61.265/Tag   Decke 61.400   Amortisation mit 101 Tage, ohne 92 Tage
+                  Ereignistage 103, Vorfälle 4, 8 Tage zu, Nachschuss 153.059 an 7 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 105.588 (Ereignis-Decke 105.570)
+                  mit Ereignissen: Ware Ø 13.514/Tag, ad hoc 7,8 % (1.116 von 14.229 Einheiten), Einkauf 49× an der Kasse gescheitert · ohne: Ware Ø 13.833/Tag, ad hoc 6,8 % (1.000 von 14.600 Einheiten) · bester Tag ohne 61.265 (Decke 61.400, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 156.312 (Kasse 74.712, Lager 81.600, Ausbau 0) · Ertragswert 505.262 (profit_ema 16.842) · Summe 661.574
+                  Firmenwert am Ende ohne: Substanz 185.200 (Kasse 103.600, Lager 81.600, Ausbau 0) · Ertragswert 683.887 (profit_ema 22.796) · Summe 869.087
+  🍸 Club         mit Ereignissen    51.585/Tag (Vorfälle 4, 8 Tage zu) · ohne    58.189/Tag   Decke 58.380   Amortisation mit 49 Tage, ohne 45 Tage
+                  Ereignistage 104, Vorfälle 4, 8 Tage zu, Nachschuss 33.644 an 3 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 74.520 (Ereignis-Decke 74.520)
+                  mit Ereignissen: Ware Ø 10.261/Tag, ad hoc 0,0 % (0 von 7.803 Einheiten), Einkauf 13× an der Kasse gescheitert · ohne: Ware Ø 10.560/Tag, ad hoc 0,0 % (0 von 8.030 Einheiten) · bester Tag ohne 58.189 (Decke 58.380, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 123.920 (Kasse 60.560, Lager 63.360, Ausbau 0) · Ertragswert 727.683 (profit_ema 24.256) · Summe 851.603
+                  Firmenwert am Ende ohne: Substanz 123.920 (Kasse 60.560, Lager 63.360, Ausbau 0) · Ertragswert 798.260 (profit_ema 26.609) · Summe 922.180
+
+--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---
+
+  🏪 Kiosk        mit Ereignissen    14.321/Tag (Vorfälle 32, 20 Tage zu) · ohne    15.633/Tag   Decke 15.681   Amortisation des Ausbaus mit 93 Tage, ohne 82 Tage
+                  Ereignistage 75, Vorfälle 32, 20 Tage zu, Nachschuss 131.609 an 28 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.395 (Ereignis-Decke 17.147)
+                  mit Ereignissen: Ware Ø 895/Tag, ad hoc 0,0 % (0 von 6.535 Einheiten), Einkauf 22× an der Kasse gescheitert · ohne: Ware Ø 950/Tag, ad hoc 0,0 % (0 von 6.935 Einheiten) · bester Tag ohne 15.633 (Decke 15.681, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.045.400 (Kasse 2.200, Lager 5.700, Ausbau 1.037.500) · Ertragswert 316.345 (profit_ema 10.545) · Summe 1.361.745
+                  Firmenwert am Ende ohne: Substanz 1.045.400 (Kasse 2.200, Lager 5.700, Ausbau 1.037.500) · Ertragswert 342.831 (profit_ema 11.428) · Summe 1.388.231
+  🌭 Imbiss       mit Ereignissen    17.707/Tag (Vorfälle 32, 12 Tage zu) · ohne    19.764/Tag   Decke 19.815   Amortisation des Ausbaus mit 115 Tage, ohne 102 Tage
+                  Ereignistage 75, Vorfälle 32, 12 Tage zu, Nachschuss 119.627 an 20 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.029 (Ereignis-Decke 23.039)
+                  mit Ereignissen: Ware Ø 1.158/Tag, ad hoc 0,0 % (0 von 8.809 Einheiten), Einkauf 23× an der Kasse gescheitert · ohne: Ware Ø 1.200/Tag, ad hoc 0,0 % (0 von 9.125 Einheiten) · bester Tag ohne 19.764 (Decke 19.815, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.670.400 (Kasse 3.200, Lager 7.200, Ausbau 1.660.000) · Ertragswert 407.446 (profit_ema 13.582) · Summe 2.077.846
+                  Firmenwert am Ende ohne: Substanz 1.670.400 (Kasse 3.200, Lager 7.200, Ausbau 1.660.000) · Ertragswert 462.580 (profit_ema 15.419) · Summe 2.132.980
+  🚗 Autowäsche   mit Ereignissen    14.989/Tag (Vorfälle 32, 20 Tage zu) · ohne    16.785/Tag   Decke 16.849   Amortisation des Ausbaus mit 117 Tage, ohne 104 Tage
+                  Ereignistage 75, Vorfälle 32, 20 Tage zu, Nachschuss 127.590 an 28 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 17.055 (Ereignis-Decke 17.837)
+                  mit Ereignissen: Ware Ø 931/Tag, ad hoc 0,0 % (0 von 6.535 Einheiten), Einkauf 22× an der Kasse gescheitert · ohne: Ware Ø 988/Tag, ad hoc 0,0 % (0 von 6.935 Einheiten) · bester Tag ohne 16.785 (Decke 16.849, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.461.166 (Kasse 2.738, Lager 5.928, Ausbau 1.452.500) · Ertragswert 339.892 (profit_ema 11.330) · Summe 1.801.058
+                  Firmenwert am Ende ohne: Substanz 1.461.166 (Kasse 2.738, Lager 5.928, Ausbau 1.452.500) · Ertragswert 367.194 (profit_ema 12.240) · Summe 1.828.360
+  ☕ Café          mit Ereignissen   119.758/Tag (Vorfälle 25, 12 Tage zu) · ohne   125.973/Tag   Decke 126.180   Amortisation des Ausbaus mit 64 Tage, ohne 54 Tage
+                  Ereignistage 96, Vorfälle 25, 12 Tage zu, Nachschuss 662.341 an 18 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 148.104 (Ereignis-Decke 148.129)
+                  mit Ereignissen: Ware Ø 6.945/Tag, ad hoc 0,0 % (0 von 14.083 Einheiten), Einkauf 18× an der Kasse gescheitert · ohne: Ware Ø 7.200/Tag, ad hoc 0,0 % (0 von 14.600 Einheiten) · bester Tag ohne 125.973 (Decke 126.180, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 5.036.400 (Kasse 13.200, Lager 43.200, Ausbau 4.980.000) · Ertragswert 3.155.861 (profit_ema 105.195) · Summe 8.192.261
+                  Firmenwert am Ende ohne: Substanz 5.036.400 (Kasse 13.200, Lager 43.200, Ausbau 4.980.000) · Ertragswert 3.307.711 (profit_ema 110.257) · Summe 8.344.111
+  🏋️ Fitnessstudiomit Ereignissen    75.296/Tag (Vorfälle 25, 9 Tage zu) · ohne    82.933/Tag   Decke 83.095   Amortisation des Ausbaus mit 104 Tage, ohne 92 Tage
+                  Ereignistage 95, Vorfälle 25, 9 Tage zu, Nachschuss 477.055 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 96.000 (Ereignis-Decke 96.013)
+                  mit Ereignissen: Ware Ø 4.625/Tag, ad hoc 0,0 % (0 von 12.059 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 4.760/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 82.933 (Decke 83.095, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 6.265.820 (Kasse 12.260, Lager 28.560, Ausbau 6.225.000) · Ertragswert 1.974.668 (profit_ema 65.822) · Summe 8.240.488
+                  Firmenwert am Ende ohne: Substanz 6.265.820 (Kasse 12.260, Lager 28.560, Ausbau 6.225.000) · Ertragswert 2.088.489 (profit_ema 69.616) · Summe 8.354.309
+  🔧 Werkstatt    mit Ereignissen   116.307/Tag (Vorfälle 25, 9 Tage zu) · ohne   126.540/Tag   Decke 126.785   Amortisation des Ausbaus mit 93 Tage, ohne 82 Tage
+                  Ereignistage 95, Vorfälle 25, 9 Tage zu, Nachschuss 707.073 an 15 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 150.840 (Ereignis-Decke 150.869)
+                  mit Ereignissen: Ware Ø 7.270/Tag, ad hoc 0,0 % (0 von 12.062 Einheiten), Einkauf 13× an der Kasse gescheitert · ohne: Ware Ø 7.480/Tag, ad hoc 0,0 % (0 von 12.410 Einheiten) · bester Tag ohne 126.540 (Decke 126.785, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 8.362.360 (Kasse 17.480, Lager 44.880, Ausbau 8.300.000) · Ertragswert 2.938.904 (profit_ema 97.963) · Summe 11.301.264
+                  Firmenwert am Ende ohne: Substanz 8.362.360 (Kasse 17.480, Lager 44.880, Ausbau 8.300.000) · Ertragswert 3.189.052 (profit_ema 106.302) · Summe 11.551.412
+  🚚 Spedition    mit Ereignissen   412.039/Tag (Vorfälle 24, 9 Tage zu) · ohne   460.064/Tag   Decke 460.495   Amortisation des Ausbaus mit 147 Tage, ohne 130 Tage
+                  Ereignistage 93, Vorfälle 24, 9 Tage zu, Nachschuss 2.583.537 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 573.210 (Ereignis-Decke 573.273)
+                  mit Ereignissen: Ware Ø 25.900/Tag, ad hoc 0,0 % (0 von 24.878 Einheiten), Einkauf 15× an der Kasse gescheitert · ohne: Ware Ø 26.600/Tag, ad hoc 0,0 % (0 von 25.550 Einheiten) · bester Tag ohne 460.064 (Decke 460.495, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 50.046.200 (Kasse 86.600, Lager 159.600, Ausbau 49.800.000) · Ertragswert 11.401.838 (profit_ema 380.061) · Summe 61.448.038
+                  Firmenwert am Ende ohne: Substanz 50.046.200 (Kasse 86.600, Lager 159.600, Ausbau 49.800.000) · Ertragswert 12.258.672 (profit_ema 408.622) · Summe 62.304.872
+  🏗️ Baufirma    mit Ereignissen   471.973/Tag (Vorfälle 24, 9 Tage zu) · ohne   530.030/Tag   Decke 530.465   Amortisation des Ausbaus mit 188 Tage, ohne 167 Tage
+                  Ereignistage 94, Vorfälle 24, 9 Tage zu, Nachschuss 3.166.620 an 14 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 674.778 (Ereignis-Decke 674.813)
+                  mit Ereignissen: Ware Ø 27.184/Tag, ad hoc 0,4 % (130 von 29.150 Einheiten), Einkauf 18× an der Kasse gescheitert · ohne: Ware Ø 27.880/Tag, ad hoc 0,0 % (0 von 29.930 Einheiten) · bester Tag ohne 530.030 (Decke 530.465, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 74.985.160 (Kasse 117.880, Lager 167.280, Ausbau 74.700.000) · Ertragswert 13.513.558 (profit_ema 450.452) · Summe 88.498.718
+                  Firmenwert am Ende ohne: Substanz 74.985.160 (Kasse 117.880, Lager 167.280, Ausbau 74.700.000) · Ertragswert 14.009.148 (profit_ema 466.972) · Summe 88.994.308
+  🍸 Club         mit Ereignissen   352.144/Tag (Vorfälle 24, 9 Tage zu) · ohne   392.317/Tag   Decke 392.820   Amortisation des Ausbaus mit 140 Tage, ohne 127 Tage
+                  Ereignistage 95, Vorfälle 24, 9 Tage zu, Nachschuss 2.114.267 an 12 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 460.782 (Ereignis-Decke 460.782)
+                  mit Ereignissen: Ware Ø 21.472/Tag, ad hoc 0,0 % (0 von 16.328 Einheiten), Einkauf 16× an der Kasse gescheitert · ohne: Ware Ø 22.080/Tag, ad hoc 0,0 % (0 von 16.790 Einheiten) · bester Tag ohne 392.317 (Decke 392.820, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 41.704.560 (Kasse 72.080, Lager 132.480, Ausbau 41.500.000) · Ertragswert 9.093.225 (profit_ema 303.107) · Summe 50.797.785
+                  Firmenwert am Ende ohne: Substanz 41.704.560 (Kasse 72.080, Lager 132.480, Ausbau 41.500.000) · Ertragswert 10.118.660 (profit_ema 337.289) · Summe 51.823.220
+
+--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---
+
+  🏪 Kiosk        mit Ereignissen: Stufe 5 an Tag 165 · voll an Tag 165 · Ertrag am Ende 14.206/Tag (Vorfälle 27, 17 Tage zu)
+                  ohne:            Stufe 5 an Tag 155 · voll an Tag 155 · Ertrag am Ende 15.633/Tag
+                  Ereignistage 82, Vorfälle 27, 17 Tage zu, Nachschuss 110.678 an 23 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.290 (Ereignis-Decke 17.147)
+                  mit Ereignissen: Ware Ø 809/Tag, ad hoc 0,2 % (10 von 5.900 Einheiten), Einkauf 27× an der Kasse gescheitert · ohne: Ware Ø 859/Tag, ad hoc 0,2 % (10 von 6.269 Einheiten) · bester Tag ohne 15.633 (Decke 15.681, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.045.400 (Kasse 2.200, Lager 5.700, Ausbau 1.037.500) · Ertragswert 302.030 (profit_ema 10.068) · Summe 1.347.430
+                  Firmenwert am Ende ohne: Substanz 1.045.400 (Kasse 2.200, Lager 5.700, Ausbau 1.037.500) · Ertragswert 344.898 (profit_ema 11.497) · Summe 1.390.298
+  🌭 Imbiss       mit Ereignissen: Stufe 5 an Tag 230 · voll an Tag 230 · Ertrag am Ende 18.443/Tag (Vorfälle 22, 9 Tage zu)
+                  ohne:            Stufe 5 an Tag 214 · voll an Tag 214 · Ertrag am Ende 19.764/Tag
+                  Ereignistage 78, Vorfälle 22, 9 Tage zu, Nachschuss 89.034 an 17 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 22.029 (Ereignis-Decke 23.039)
+                  mit Ereignissen: Ware Ø 968/Tag, ad hoc 0,7 % (52 von 7.346 Einheiten), Einkauf 35× an der Kasse gescheitert · ohne: Ware Ø 1.009/Tag, ad hoc 0,2 % (13 von 7.670 Einheiten) · bester Tag ohne 19.764 (Decke 19.815, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.670.400 (Kasse 3.200, Lager 7.200, Ausbau 1.660.000) · Ertragswert 405.279 (profit_ema 13.509) · Summe 2.075.679
+                  Firmenwert am Ende ohne: Substanz 1.670.400 (Kasse 3.200, Lager 7.200, Ausbau 1.660.000) · Ertragswert 465.887 (profit_ema 15.530) · Summe 2.136.287
+  🚗 Autowäsche   mit Ereignissen: Stufe 5 an Tag 219 · voll an Tag 219 · Ertrag am Ende 14.782/Tag (Vorfälle 26, 17 Tage zu)
+                  ohne:            Stufe 5 an Tag 199 · voll an Tag 199 · Ertrag am Ende 16.785/Tag
+                  Ereignistage 89, Vorfälle 26, 17 Tage zu, Nachschuss 110.794 an 25 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 16.935 (Ereignis-Decke 17.837)
+                  mit Ereignissen: Ware Ø 814/Tag, ad hoc 0,2 % (10 von 5.714 Einheiten), Einkauf 31× an der Kasse gescheitert · ohne: Ware Ø 869/Tag, ad hoc 0,0 % (0 von 6.098 Einheiten) · bester Tag ohne 16.785 (Decke 16.849, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 1.461.166 (Kasse 2.738, Lager 5.928, Ausbau 1.452.500) · Ertragswert 311.045 (profit_ema 10.368) · Summe 1.772.211
+                  Firmenwert am Ende ohne: Substanz 1.461.166 (Kasse 2.738, Lager 5.928, Ausbau 1.452.500) · Ertragswert 367.194 (profit_ema 12.240) · Summe 1.828.360
+  ☕ Café          mit Ereignissen: Stufe 5 an Tag 111 · voll an Tag 111 · Ertrag am Ende 119.144/Tag (Vorfälle 20, 9 Tage zu)
+                  ohne:            Stufe 5 an Tag 106 · voll an Tag 106 · Ertrag am Ende 125.973/Tag
+                  Ereignistage 97, Vorfälle 20, 9 Tage zu, Nachschuss 351.776 an 13 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 148.104 (Ereignis-Decke 148.129)
+                  mit Ereignissen: Ware Ø 6.274/Tag, ad hoc 0,0 % (0 von 12.722 Einheiten), Einkauf 20× an der Kasse gescheitert · ohne: Ware Ø 6.511/Tag, ad hoc 0,0 % (0 von 13.202 Einheiten) · bester Tag ohne 125.973 (Decke 126.180, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 5.036.400 (Kasse 13.200, Lager 43.200, Ausbau 4.980.000) · Ertragswert 3.040.329 (profit_ema 101.344) · Summe 8.076.729
+                  Firmenwert am Ende ohne: Substanz 5.036.400 (Kasse 13.200, Lager 43.200, Ausbau 4.980.000) · Ertragswert 3.326.136 (profit_ema 110.871) · Summe 8.362.536
+  🏋️ Fitnessstudiomit Ereignissen: Stufe 5 an Tag 206 · voll an Tag 206 · Ertrag am Ende 82.933/Tag (Vorfälle 17, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 196 · voll an Tag 196 · Ertrag am Ende 82.933/Tag
+                  Ereignistage 94, Vorfälle 17, 6 Tage zu, Nachschuss 216.682 an 8 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 96.000 (Ereignis-Decke 96.013)
+                  mit Ereignissen: Ware Ø 3.810/Tag, ad hoc 0,0 % (0 von 9.933 Einheiten), Einkauf 11× an der Kasse gescheitert · ohne: Ware Ø 3.938/Tag, ad hoc 0,0 % (0 von 10.268 Einheiten) · bester Tag ohne 82.933 (Decke 83.095, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 6.265.820 (Kasse 12.260, Lager 28.560, Ausbau 6.225.000) · Ertragswert 2.011.838 (profit_ema 67.061) · Summe 8.277.658
+                  Firmenwert am Ende ohne: Substanz 6.265.820 (Kasse 12.260, Lager 28.560, Ausbau 6.225.000) · Ertragswert 2.088.489 (profit_ema 69.616) · Summe 8.354.309
+  🔧 Werkstatt    mit Ereignissen: Stufe 5 an Tag 186 · voll an Tag 186 · Ertrag am Ende 121.664/Tag (Vorfälle 16, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 176 · voll an Tag 176 · Ertrag am Ende 126.540/Tag
+                  Ereignistage 100, Vorfälle 16, 6 Tage zu, Nachschuss 417.166 an 11 Tagen, Werbung 1× an der Kasse gescheitert, bester NPC-Umsatz 150.840 (Ereignis-Decke 150.869)
+                  mit Ereignissen: Ware Ø 6.107/Tag, ad hoc 0,2 % (16 von 10.128 Einheiten), Einkauf 21× an der Kasse gescheitert · ohne: Ware Ø 6.307/Tag, ad hoc 0,2 % (16 von 10.460 Einheiten) · bester Tag ohne 126.540 (Decke 126.785, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 8.362.360 (Kasse 17.480, Lager 44.880, Ausbau 8.300.000) · Ertragswert 2.833.910 (profit_ema 94.464) · Summe 11.196.270
+                  Firmenwert am Ende ohne: Substanz 8.362.360 (Kasse 17.480, Lager 44.880, Ausbau 8.300.000) · Ertragswert 3.205.587 (profit_ema 106.853) · Summe 11.567.947
+  🚚 Spedition    mit Ereignissen: Stufe 5 an Tag 328 · voll an Tag 328 · Ertrag am Ende 460.063/Tag (Vorfälle 16, 6 Tage zu)
+                  ohne:            Stufe 5 an Tag 298 · voll an Tag 298 · Ertrag am Ende 460.064/Tag
+                  Ereignistage 101, Vorfälle 16, 6 Tage zu, Nachschuss 896.411 an 11 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 573.210 (Ereignis-Decke 573.273)
+                  mit Ereignissen: Ware Ø 18.593/Tag, ad hoc 0,0 % (0 von 17.859 Einheiten), Einkauf 25× an der Kasse gescheitert · ohne: Ware Ø 19.573/Tag, ad hoc 0,0 % (0 von 18.800 Einheiten) · bester Tag ohne 460.064 (Decke 460.495, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 50.046.200 (Kasse 86.600, Lager 159.600, Ausbau 49.800.000) · Ertragswert 11.554.297 (profit_ema 385.143) · Summe 61.600.497
+                  Firmenwert am Ende ohne: Substanz 50.046.200 (Kasse 86.600, Lager 159.600, Ausbau 49.800.000) · Ertragswert 12.442.843 (profit_ema 414.761) · Summe 62.489.043
+  🏗️ Baufirma    mit Ereignissen: Stufe 5 an Tag – · voll an Tag – · Ertrag am Ende 231.768/Tag (Vorfälle 6, 3 Tage zu)
+                  ohne:            Stufe 5 an Tag – · voll an Tag – · Ertrag am Ende 331.120/Tag
+                  Ereignistage 100, Vorfälle 6, 3 Tage zu, Nachschuss 125.736 an 5 Tagen, Werbung 1× an der Kasse gescheitert, bester NPC-Umsatz 353.430 (Ereignis-Decke 406.444)
+                  mit Ereignissen: Ware Ø 16.078/Tag, ad hoc 6,4 % (1.080 von 16.990 Einheiten), Einkauf 50× an der Kasse gescheitert · ohne: Ware Ø 16.865/Tag, ad hoc 5,6 % (1.000 von 17.855 Einheiten) · bester Tag ohne 331.120 (Decke 530.465, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 29.949.460 (Kasse 112.780, Lager 136.680, Ausbau 29.700.000) · Ertragswert 6.647.963 (profit_ema 221.599) · Summe 36.597.423
+                  Firmenwert am Ende ohne: Substanz 33.549.460 (Kasse 112.780, Lager 136.680, Ausbau 33.300.000) · Ertragswert 8.346.935 (profit_ema 278.231) · Summe 41.896.395
+  🍸 Club         mit Ereignissen: Stufe 5 an Tag 322 · voll an Tag 322 · Ertrag am Ende 388.631/Tag (Vorfälle 19, 9 Tage zu)
+                  ohne:            Stufe 5 an Tag 288 · voll an Tag 288 · Ertrag am Ende 392.317/Tag
+                  Ereignistage 99, Vorfälle 19, 9 Tage zu, Nachschuss 932.934 an 11 Tagen, Werbung 0× an der Kasse gescheitert, bester NPC-Umsatz 460.656 (Ereignis-Decke 460.782)
+                  mit Ereignissen: Ware Ø 15.129/Tag, ad hoc 0,0 % (0 von 11.504 Einheiten), Einkauf 27× an der Kasse gescheitert · ohne: Ware Ø 16.245/Tag, ad hoc 0,0 % (0 von 12.353 Einheiten) · bester Tag ohne 392.317 (Decke 392.820, Ware zum Verbrauch gerechnet)
+                  Firmenwert am Ende mit Ereignissen: Substanz 41.704.560 (Kasse 72.080, Lager 132.480, Ausbau 41.500.000) · Ertragswert 9.767.385 (profit_ema 325.579) · Summe 51.471.945
+                  Firmenwert am Ende ohne: Substanz 41.704.560 (Kasse 72.080, Lager 132.480, Ausbau 41.500.000) · Ertragswert 10.118.647 (profit_ema 337.288) · Summe 51.823.207
+

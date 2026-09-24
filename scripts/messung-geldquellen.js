@@ -601,14 +601,17 @@ async function durchlauf(name, musik, laeufe, tage, liste, kurz) {
  *   nachschuss:number, nachschussTage:number, werbungAus:number,
  *   wareProTag:number, wareEinkauf:number, wareAdhoc:number, einheiten:number,
  *   adhocEinheiten:number, adhocAnteil:number, bestGewinn:number, bestNetto:number, bestTag:object|null,
- *   lagerEnde:number, einkaufAus:number, handel:object}}
+ *   lagerEnde:number, einkaufAus:number, handel:object, wert:object}}
  *   `median` Tagesgewinn (Kassenstand nach Abrechnung minus Tagesbeginn),
  *   `decke` die Kern-Decke bzw. beim Ausbau die volle (`fullCeilingOf`),
  *   `ereignisTage` Tage mit Chronik-Zeile, `vorfaelle` gewürfelte Vorfälle,
  *   `zuTage` abgerechnete Tage mit geschlossenem Betrieb, `best` der höchste
  *   NPC-Umsatz eines Tages, `ereignisDecke` die Umsatz-Decke × EVENT_UMSATZ_MAX
  *   (§3; beim Aufsteiger die des Endausbaus), `nachschuss` eingezahlte Summe,
- *   `werbungAus` Tage, an denen die Werbung trotzdem an der Kasse scheiterte.
+ *   `werbungAus` Tage, an denen die Werbung trotzdem an der Kasse scheiterte,
+ *   `wert` der Firmenwert am Ende (Stück 4, `company.valueOf`): Substanz
+ *   (`invested` Ausbau + `kasse` + `stock` Lager zum Einstand) und `earnings`
+ *   = `max(0, round(profit_ema × 30))`, dazu die rohe `profitEma`.
  */
 async function betrieb(branchId, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNISSE, wuerfel = null, trace = null,
   welt: weltId = null, user: userId = null, name = null, kaufen = null } = {}) {
@@ -955,7 +958,12 @@ async function betrieb(branchId, { ausbau = 'keiner', ereignisse = !OHNE_EREIGNI
       throw new Error(`Firma ${b.id}: Spanne ${de(handel.spanne)} gezählt, aber ${de(c.trade_profit ?? 0)} an der Firma`);
     }
     const lagerEnde = c.stock_cost ?? 0;
+    // Firmenwert (Stück 4): Substanz (Ausbau + Kasse + Lager) und Ertragswert
+    // (gleitender Tagesgewinn × ERTRAG_FAKTOR) am Ende des Laufs, dazu die rohe
+    // `profit_ema` – damit die Docs-Zahl gegen den Median/Tag prüfbar ist.
+    const wert = { ...company.valueOf(cid), profitEma: c.profit_ema ?? 0 };
     return {
+      wert,
       median: median(gewinn), decke, amortTage, entnommen, stufe5Tag, vollTag,
       endeProTag: median(gewinn.slice(-30)),
       ereignisTage, vorfaelle, zuTage, best, ereignisDecke, nachschuss, nachschussTage, werbungAus,
@@ -1296,6 +1304,19 @@ async function main() {
       ` · bester Tag ohne ${de(ohne.bestNetto)} (Decke ${de(ohne.decke)}, Ware zum Verbrauch gerechnet)`;
   };
 
+  /**
+   * Firmenwert am Ende (Stück 4): Substanz und Ertragswert, je Lauf eine Zeile.
+   * `profit_ema` steht dabei, damit der Ertragswert gegen den Median/Tag desselben
+   * Laufs nachrechenbar ist (Ertragswert = max(0, round(profit_ema × 30))).
+   */
+  const wertZeile = (r, was) => `${' '.repeat(18)}Firmenwert am Ende ${was}: ` +
+    `Substanz ${de(r.wert.substance)} (Kasse ${de(r.wert.kasse)}, Lager ${de(r.wert.stock)}, Ausbau ${de(r.wert.invested)}) · ` +
+    `Ertragswert ${de(r.wert.earnings)} (profit_ema ${de(r.wert.profitEma)}) · Summe ${de(r.wert.total)}`;
+  const werte = (mit, ohne) => {
+    if (mit) console.log(wertZeile(mit, 'mit Ereignissen'));
+    console.log(wertZeile(ohne, mit ? 'ohne' : 'ohne Ereignisse'));
+  };
+
   console.log('\n--- Firmen (nicht ausgebaut, Vollbetrieb) ---\n');
   const kern = {};                      // die Kern-Läufe als Referenz für den Handel (Stück 3b)
   for (const br of companyData.BRANCHES) {
@@ -1311,6 +1332,7 @@ async function main() {
       console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation')}`);
     }
     console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
+    werte(mit, ohne);
   }
 
   console.log('\n--- Firmen voll ausgebaut (Kapitalist: alles am Tag 1) ---\n');
@@ -1326,6 +1348,7 @@ async function main() {
       console.log(`${kopf}${de(ohne.median).padStart(9)}/Tag   Decke ${de(ohne.decke)}   ${amort(ohne, 'Amortisation des Ausbaus')}`);
     }
     console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
+    werte(mit, ohne);
   }
   console.log('\n--- Firmen aus eigener Kraft (Aufsteiger: nur aus Gewinn) ---\n');
   for (const br of companyData.BRANCHES) {
@@ -1340,6 +1363,7 @@ async function main() {
       console.log(`${kopf}${weg(ohne)}`);
     }
     console.log(`${' '.repeat(18)}${wareZeile(mit, ohne)}`);
+    werte(mit, ohne);
   }
 
   /*
