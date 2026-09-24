@@ -20,7 +20,7 @@ const {
   buildOpenHeistsView, buildMusicView, buildMusicSetupView, buildPersonaView,
   buildReleaseView, buildMusicDealView,
   buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
-  buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
+  buildFirmaView, buildFirmenView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
@@ -38,6 +38,20 @@ const bills = require('./bills');
 const tenants = require('./tenants');
 const storage = require('./storage');
 const patchnotes = require('./patchnotes');
+
+/**
+ * Firmen-Aktionen, deren `arg`-Feld die Firmen-ID trägt (Stück 4, §6: die
+ * Knopf-ID sagt allein, was gemeint ist). `0` heißt „die aktive Firma".
+ * Nicht dabei sind die Aktionen mit belegtem `arg`: `personal|<seite>`,
+ * `npc|<seite>`, `ausbauen|<stufe>`, `extra|<id>`, `gruendung|<klasse>`,
+ * `gruenden|<branche>`, `anteilweg|<angebot>` und `firmen|<seite>` – sie
+ * gelten für die aktive Firma, aus deren Ansicht sie erreichbar sind.
+ */
+const FIRMA_ID_AKTIONEN = new Set([
+  'werbung', 'anpacken', 'entnehmen', 'einzahlen', 'lager', 'lagervoll', 'handel', 'handelaus',
+  'anteile', 'ausbau', 'schliessen', 'oeffnen', 'einkaufen', 'handelkauf', 'handelsetzen',
+  'anteilanbieten',
+]);
 
 /** Fehlermeldungen für Anzeigen privater Anbieter. */
 function npcFailure(result, symbol) {
@@ -2050,9 +2064,29 @@ Object.assign(buttons, {
     const company = require('./company');
     const symbol = await getSymbol(guildId);
 
-    if (aktion === 'gruenden') {
+    // Stück 4: Wo `arg` frei ist, trägt es die Firmen-ID (0 = die aktive). Die
+    // ID wird geprüft (eigene, offene Firma) und *vor* der Aktion aktiv gesetzt –
+    // auch vor einem Modal, dessen Handler später nur die aktive Firma kennt.
+    const fid = FIRMA_ID_AKTIONEN.has(aktion) && Number(arg) > 0
+      && company.ownCompany(guildId, userId, Number(arg)) ? Number(arg) : null;
+    if (fid) company.setActive(guildId, userId, fid);
+
+    // „Gründen" ohne Branche (Knopf der Übersicht) führt auf die Branchenseiten.
+    if (aktion === 'gruenden' && arg && arg !== '0') {
       const b = company.branch(arg);
       if (!b) return interaction.reply({ content: '❌ Diese Branche gibt es nicht.', flags: MessageFlags.Ephemeral });
+      // Am Limit gar nicht erst nach dem Namen fragen.
+      const offen = company.companiesOf(guildId, userId).length;
+      const max = company.maxCompanies(require('./perks').levelOf(guildId, userId));
+      if (offen >= max) {
+        const data = require('./data/companies');
+        const nextAt = max < data.COMPANIES_MAX ? max * data.COMPANIES_PER_LEVEL : null;
+        return interaction.reply({
+          content: `🏢 Du führst schon **${offen} von ${max}** Firmen. `
+            + (nextAt ? `Die nächste gibt es ab **Level ${nextAt}**.` : `Mehr als ${data.COMPANIES_MAX} Firmen gehen nicht.`),
+          flags: MessageFlags.Ephemeral,
+        });
+      }
       const modal = new ModalBuilder().setCustomId(`fname|${b.id}|${userId}`).setTitle(`${b.name} gründen`);
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('name').setLabel('Name der Firma (2–32 Zeichen)')
@@ -2103,14 +2137,14 @@ Object.assign(buttons, {
     await require('./decisions').settle(guildId, userId).catch(() => []);
     let note = null;
     if (aktion === 'werbung') {
-      const r = await company.advertise(guildId, userId);
+      const r = await company.advertise(guildId, userId, Date.now(), fid);
       note = r.ok ? `📣 Werbung geschaltet für ${money(symbol, r.cost)} – drei Tage mehr Kundschaft.`
         : { no_company: '🏢 Du hast keine Firma.', running: '📣 Die Kampagne läuft noch.',
           kasse: `💸 Dafür fehlen ${money(symbol, r.cost ?? 0)} in der Kasse.`,
           exhausted: require('./energy').blockText(r),
           no_time: `😴 Werbung kostet **${r.need}** Stunden, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
     } else if (aktion === 'anpacken') {
-      const r = await company.pitchIn(guildId, userId);
+      const r = await company.pitchIn(guildId, userId, Date.now(), fid);
       note = r.ok ? `🧑‍🔧 Selbst angepackt: **${money(symbol, r.umsatz)}** Umsatz für die Firma (${r.done}/${r.max} heute).`
         + (r.ware?.adhoc ? ` _(Ware ad hoc für ${money(symbol, r.ware.cost)} – das Lager ist leer)_` : '')
         : { no_company: '🏢 Du hast keine Firma.', limit: '🛌 Für heute reicht es – vier Schichten sind das Maximum.',
@@ -2123,8 +2157,16 @@ Object.assign(buttons, {
       await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
+    } else if (aktion === 'gruenden') {
+      // Der Knopf der Übersicht: die Branchenwahl, nicht gleich ein Modal.
+      return interaction.editReply(await buildFirmaFoundView({ guildId, userId }));
     } else if (aktion === 'gruendung') {
       return interaction.editReply(await buildFirmaFoundView({ guildId, userId, klasse: arg }));
+    } else if (aktion === 'firmen') {
+      // `arg` ist hier die Seite der Übersicht.
+      return interaction.editReply(await buildFirmenView({ guildId, userId, page: Number(arg) || 1 }));
+    } else if (aktion === 'oeffnen') {
+      return interaction.editReply(await buildFirmaView({ guildId, userId, companyId: fid }));
     } else if (aktion === 'ausbau') {
       await interaction.editReply(await buildFirmaAusbauView({ guildId, userId }));
       if (!company.status(guildId, userId)) {
@@ -2189,7 +2231,7 @@ Object.assign(buttons, {
     } else if (aktion === 'lager') {
       return interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
     } else if (aktion === 'lagervoll') {
-      const r = await company.buyStock(guildId, userId, 'voll');
+      const r = await company.buyStock(guildId, userId, 'voll', Date.now(), fid);
       note = wareNote(symbol, r);
       await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
@@ -2205,7 +2247,7 @@ Object.assign(buttons, {
     } else if (aktion === 'handel') {
       return interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
     } else if (aktion === 'handelaus') {
-      const r = company.setOffer(guildId, userId, 'alle', 'aus');
+      const r = company.setOffer(guildId, userId, 'alle', 'aus', Date.now(), fid);
       note = r.ok ? '🚫 Alle Angebote sind aus.' : { no_company: '🏢 Du hast keine Firma.',
         not_trader: '❌ Nur Speditionen handeln.' }[r.reason] ?? '❌ Das ging nicht.';
       await interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
@@ -2235,15 +2277,15 @@ Object.assign(buttons, {
           yesLabel: 'Ja, schließen',
           yesEmoji: '🔒',
           yesStyle: ButtonStyle.Danger,
-          cancelId: ID.menu('firma', 1, userId),
+          cancelId: fid ? `firma|oeffnen|${fid}|${userId}` : ID.menu('firma', 1, userId),
           userId,
         }));
       }
-      const r = await company.close(guildId, userId);
+      const r = await company.close(guildId, userId, Date.now(), fid);
       note = !r.ok ? '🏢 Du hast keine Firma.'
         : `🔒 **${r.company.name}** ist geschlossen.` + payoutNote(symbol, r);
     }
-    await interaction.editReply(await buildFirmaView({ guildId, userId }));
+    await interaction.editReply(await buildFirmaView({ guildId, userId, companyId: fid }));
     if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 

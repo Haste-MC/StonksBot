@@ -87,7 +87,9 @@ const ENTRIES = [
     emoji: '🏢',
     description: 'Gründen, ausbauen, Personal führen, Gewinn entnehmen',
     style: 'primary',
-    build: (ctx) => ui.buildFirmaView(ctx),
+    // Stück 4: keine Firma → Gründung, eine → ihr Betrieb, mehrere → Übersicht.
+    build: (ctx) => (require('./company').companiesOf(ctx.guildId, ctx.userId).length > 1
+      ? ui.buildFirmenView(ctx) : ui.buildFirmaView(ctx)),
   },
   {
     id: 'angeln',

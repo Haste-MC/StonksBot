@@ -1024,6 +1024,14 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
   const symbol = await getSymbol(guildId);
   const k = KLASSEN.find((x) => x.id === klasse) ?? KLASSEN[0];
   const branches = company.BRANCHES.filter((b) => b.klasse === k.id);
+  // Stück 4: Wie viele Firmen das Level hergibt – die Ansicht sagt, die
+  // wievielte das wäre, und am Limit, ab welchem Level die nächste kommt.
+  const cdata = require('./data/companies');
+  const open = company.companiesOf(guildId, userId);
+  const level = require('./perks').levelOf(guildId, userId);
+  const max = company.maxCompanies(level);
+  const amLimit = open.length >= max;
+  const nextAt = max < cdata.COMPANIES_MAX ? max * cdata.COMPANIES_PER_LEVEL : null;
 
   const embed = new EmbedBuilder()
     .setTitle('🏢 Eine Firma gründen')
@@ -1032,7 +1040,16 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
       'Deine eigene Firma: Personal einstellen, Kasse im Plus halten, Gewinn entnehmen – und '
       + 'mit dem Gewinn **ausbauen**. NPCs kosten jeden Tag Lohn, Spieler nur für gearbeitete '
       + 'Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
+      + `**Firma ${Math.min(open.length + 1, max)} von ${max}** (Level ${level})\n\n`
       + `**${k.emoji} ${k.label}** – _${k.blurb}_`);
+
+  if (amLimit) {
+    embed.addFields({
+      name: '🏢 Limit erreicht',
+      value: `Du führst schon **${open.length} von ${max}** Firmen. `
+        + (nextAt ? `Die nächste gibt es ab **Level ${nextAt}**.` : `Mehr als ${cdata.COMPANIES_MAX} Firmen gehen nicht.`),
+    });
+  }
 
   const last = company.lastClosed(guildId, userId);
   if (last && last.closed_why === 'insolvent') {
@@ -1067,21 +1084,114 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
           .setLabel(x.label).setEmoji(x.emoji)
           .setStyle(x.id === k.id ? ButtonStyle.Primary : ButtonStyle.Secondary)
           .setDisabled(x.id === k.id)),
+        // Zurück zu dem, was schon steht: die Übersicht (mehrere) oder die Firma (eine).
+        ...(open.length > 1
+          ? [new ButtonBuilder().setCustomId(`firma|firmen|0|${userId}`)
+            .setLabel('Firmen').setEmoji('🏢').setStyle(ButtonStyle.Secondary)]
+          : open.length === 1
+            ? [new ButtonBuilder().setCustomId(`firma|oeffnen|${open[0].id}|${userId}`)
+              .setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary)]
+            : []),
         homeButton(userId)),
       new ActionRowBuilder().addComponents(...branches.map((b) =>
         new ButtonBuilder().setCustomId(`firma|gruenden|${b.id}|${userId}`)
-          .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success))),
+          .setLabel(b.name).setEmoji(b.emoji).setStyle(ButtonStyle.Success)
+          .setDisabled(amLimit))),
     ],
   };
 }
 
-/** Mit Firma: die Betriebsansicht. */
-async function buildFirmaView({ guildId, userId }) {
+/** Firmen je Übersichtsseite: vier Knöpfe, die zweite Zeile bleibt für Gründen/Home. */
+const COMPANIES_PER_PAGE = 4;
+
+/**
+ * Mehrere Firmen (Stück 4): die Übersicht ist der Einstieg, sobald jemand mehr
+ * als eine führt. Je Firma eine Zeile mit Kasse, Prognose und Warnungen und ein
+ * Knopf – `firma|oeffnen|<id>` setzt die aktive Firma und zeigt ihren Betrieb.
+ */
+async function buildFirmenView({ guildId, userId, page = 1 }) {
   const company = require('./company');
-  const s = company.status(guildId, userId);
+  const list = company.companiesOf(guildId, userId);
+  if (!list.length) return buildFirmaFoundView({ guildId, userId });
+  const symbol = await getSymbol(guildId);
+  const fmt = require('./income').formatRemaining;
+  const cdata = require('./data/companies');
+  const level = require('./perks').levelOf(guildId, userId);
+  const max = company.maxCompanies(level);
+  const amLimit = list.length >= max;
+  const nextAt = max < cdata.COMPANIES_MAX ? max * cdata.COMPANIES_PER_LEVEL : null;
+  const aktiv = company.activeCompanyId(guildId, userId);
+
+  const totalPages = Math.max(1, Math.ceil(list.length / COMPANIES_PER_PAGE));
+  const p = Math.min(totalPages, Math.max(1, Number(page) || 1));
+  const shown = list.slice((p - 1) * COMPANIES_PER_PAGE, p * COMPANIES_PER_PAGE);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🏢 Deine Firmen (${list.length} von ${max})`)
+    .setColor(0x34495e)
+    .setDescription(amLimit
+      ? (nextAt
+        ? `Mehr gehen nicht – die nächste gibt es ab **Level ${nextAt}** (du bist Level ${level}).`
+        : `Mehr als ${cdata.COMPANIES_MAX} Firmen gehen nicht.`)
+      : `Du kannst noch **${max - list.length}** gründen (Level ${level}).`);
+
+  for (const c of shown) {
+    // Der Stand je Firma – `status` rechnet dabei ab, was fällig ist (§4).
+    const s = company.status(guildId, userId, Date.now(), c.id);
+    if (!s) continue;
+    const warn = [];
+    // Der Vorfall hängt an einer Firma (`ref_id`); Altbestand ohne ID zählt zur aktiven.
+    if (s.incident && (s.incident.ref_id ? s.incident.ref_id === c.id : c.id === aktiv)) warn.push('⚠️ Vorfall');
+    if (s.kasse < 0) warn.push(`⚠️ Minus – noch ${s.daysLeft} Tage`);
+    if (s.closedMs > 0) warn.push(`🔒 geschlossen noch ${fmt(s.closedMs)}`);
+    if (s.werbungMs > 0) warn.push('📣 Werbung läuft');
+    embed.addFields({
+      name: `${s.branch.emoji} ${c.name}${c.id === aktiv ? ' · aktiv' : ''}`,
+      value: `${s.branch.name}, Stufe ${s.stufe} · Kasse **${money(symbol, s.kasse)}** · `
+        + `Prognose ${s.forecast >= 0 ? '+' : ''}${money(symbol, s.forecast)}`
+        + (warn.length ? `\n${warn.join(' · ')}` : ''),
+    });
+  }
+  if (totalPages > 1) embed.setFooter({ text: `Seite ${p}/${totalPages}` });
+
+  const rows = [new ActionRowBuilder().addComponents(...shown.map((c) =>
+    new ButtonBuilder().setCustomId(`firma|oeffnen|${c.id}|${userId}`)
+      .setLabel(c.name.slice(0, 40)).setEmoji(company.branch(c.branch)?.emoji ?? '🏢')
+      .setStyle(c.id === aktiv ? ButtonStyle.Primary : ButtonStyle.Secondary)))];
+  const nav = new ActionRowBuilder();
+  if (totalPages > 1) {
+    nav.addComponents(
+      new ButtonBuilder().setCustomId(`firma|firmen|${p - 1}|${userId}`).setLabel('Zurück').setEmoji('◀️')
+        .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+      new ButtonBuilder().setCustomId(`firma|firmen|${p + 1}|${userId}`).setLabel('Weiter').setEmoji('▶️')
+        .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages));
+  }
+  nav.addComponents(
+    new ButtonBuilder().setCustomId(`firma|gruenden|0|${userId}`).setLabel('Gründen').setEmoji('➕')
+      .setStyle(ButtonStyle.Success).setDisabled(amLimit),
+    homeButton(userId));
+  rows.push(nav);
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Mit Firma: die Betriebsansicht. `companyId` nennt die gemeinte Firma
+ * (Stück 4) – ohne sie gilt die aktive; ist sie weg (geschlossen), fällt die
+ * Ansicht auf die aktive zurück.
+ */
+async function buildFirmaView({ guildId, userId, companyId = null }) {
+  const company = require('./company');
+  let s = company.status(guildId, userId, Date.now(), companyId);
+  if (!s && companyId) s = company.status(guildId, userId);
   if (!s) return buildFirmaFoundView({ guildId, userId });
   const symbol = await getSymbol(guildId);
   const fmt = require('./income').formatRemaining;
+  // Mehrere Firmen: die Fußzeile zählt mit, die Knöpfe tragen die Firmen-ID.
+  const list = company.companiesOf(guildId, userId);
+  const cid = s.company.id;
+  const platz = list.findIndex((c) => c.id === cid) + 1;
+  const level = require('./perks').levelOf(guildId, userId);
+  const mehr = list.length < company.maxCompanies(level);
 
   const embed = new EmbedBuilder()
     .setTitle(`${s.branch.emoji} ${s.company.name}`)
@@ -1177,34 +1287,40 @@ async function buildFirmaView({ guildId, userId }) {
   // Anteile (Stück 3c): wer mitverdient, steht in der Fußzeile.
   const halter = s.anteile.holders.length;
   embed.setFooter({ text: `Decke jetzt ~${money(symbol, s.ceilingNow.net)} am Tag · voll ausgebaut ~${money(symbol, s.ceilingMax.net)}`
-    + (halter ? ` · ${s.anteile.total - s.anteile.owner} Anteile bei ${halter} Spieler${halter === 1 ? '' : 'n'}` : '') });
+    + (halter ? ` · ${s.anteile.total - s.anteile.owner} Anteile bei ${halter} Spieler${halter === 1 ? '' : 'n'}` : '')
+    + (list.length > 1 ? ` · Firma ${platz} von ${list.length}` : '') });
 
   const ready = (cost) => s.budget.left >= cost;
   const data = require('./data/companies');
   const rows = [
     new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`firma|werbung|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|werbung|${cid}|${userId}`)
         .setLabel(`Werbung (${data.TIME_WERBUNG})`).setEmoji('📣').setStyle(ButtonStyle.Primary)
         .setDisabled(s.werbungMs > 0 || s.kasse < s.werbungCost || !ready(data.TIME_WERBUNG) || s.closedMs > 0),
-      new ButtonBuilder().setCustomId(`firma|anpacken|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|anpacken|${cid}|${userId}`)
         .setLabel(`Anpacken (${data.TIME_ANPACKEN})`).setEmoji('🧑‍🔧').setStyle(ButtonStyle.Primary)
         .setDisabled(s.pitchLeft <= 0 || !ready(data.TIME_ANPACKEN) || s.closedMs > 0),
-      new ButtonBuilder().setCustomId(`firma|entnehmen|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|entnehmen|${cid}|${userId}`)
         .setLabel('Entnehmen').setEmoji('💸').setStyle(ButtonStyle.Success)
         .setDisabled(s.kasse <= 0),
-      new ButtonBuilder().setCustomId(`firma|einzahlen|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|einzahlen|${cid}|${userId}`)
         .setLabel('Einzahlen').setEmoji('🏦').setStyle(ButtonStyle.Secondary)),
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`firma|personal|0|${userId}`)
         .setLabel('Personal').setEmoji('👥').setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`firma|ausbau|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|ausbau|${cid}|${userId}`)
         .setLabel('Ausbau').setEmoji('🏗️').setStyle(ButtonStyle.Primary),
       // Schließen wohnt im Ausbau (Fluxer: höchstens 8 Reaktionen je Ansicht).
-      new ButtonBuilder().setCustomId(`firma|lager|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|lager|${cid}|${userId}`)
         .setLabel('Lager').setEmoji('🏬').setStyle(ButtonStyle.Primary),
+      // Ein Knopf für den Rückweg: Vorfall hat Vorrang, dann die Übersicht
+      // (mehrere Firmen oder noch eine frei), sonst das Hauptmenü.
       s.incident
         ? new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)
-        : homeButton(userId)),
+        : list.length > 1 || mehr
+          ? new ButtonBuilder().setCustomId(`firma|firmen|0|${userId}`)
+            .setLabel('Firmen').setEmoji('🏢').setStyle(ButtonStyle.Secondary)
+          : homeButton(userId)),
   ];
   return { embeds: [embed], components: rows };
 }
@@ -1246,7 +1362,7 @@ async function buildFirmaStaffView({ guildId, userId, page = 1 }) {
       .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
     new ButtonBuilder().setCustomId(`firma|personal|${p + 1}|${userId}`).setLabel('Weiter').setEmoji('▶️')
       .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages),
-    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+    new ButtonBuilder().setCustomId(`firma|oeffnen|${s.company.id}|${userId}`).setLabel('Firma')
       .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
     homeButton(userId))];
   for (const st of shown) {
@@ -1311,13 +1427,13 @@ async function buildFirmaAusbauView({ guildId, userId }) {
         new ButtonBuilder().setCustomId(`firma|ausbauen|${s.nextStufe?.id ?? 0}|${userId}`)
           .setLabel(s.nextStufe ? `Ausbauen: ${s.nextStufe.name}`.slice(0, 40) : 'Voll ausgebaut')
           .setEmoji('⬆️').setStyle(ButtonStyle.Success).setDisabled(!s.nextStufe),
-        new ButtonBuilder().setCustomId(`firma|schliessen|0|${userId}`)
+        new ButtonBuilder().setCustomId(`firma|schliessen|${s.company.id}|${userId}`)
           .setLabel('Schließen').setEmoji('🔒').setStyle(ButtonStyle.Danger),
         // Anteile (Stück 3c): mit den vier Extras sind das 9 Knöpfe – die Fluxer-Grenze
         // (MAX_REACTIONS) genau. Kommt ein zehnter, muss einer in eine andere Ansicht.
-        new ButtonBuilder().setCustomId(`firma|anteile|0|${userId}`)
+        new ButtonBuilder().setCustomId(`firma|anteile|${s.company.id}|${userId}`)
           .setLabel('Anteile').setEmoji('📊').setStyle(ButtonStyle.Primary),
-        new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+        new ButtonBuilder().setCustomId(`firma|oeffnen|${s.company.id}|${userId}`).setLabel('Firma')
           .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
         homeButton(userId)),
       new ActionRowBuilder().addComponents(...s.extras.map((e) =>
@@ -2861,7 +2977,7 @@ async function buildDecisionView({ guildId, userId }) {
       .setStyle(ButtonStyle.Secondary)))];
   rows.push(new ActionRowBuilder().addComponents(
     isCompany
-      ? new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId))
+      ? new ButtonBuilder().setCustomId(firma ? `firma|oeffnen|${firma.id}|${userId}` : ID.menu('firma', 1, userId))
         .setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary)
       : isMusic
         ? new ButtonBuilder().setCustomId(ID.menu('musik', 1, userId))
@@ -3203,13 +3319,13 @@ async function buildFirmaAnteileView({ guildId, userId }) {
   return {
     embeds: [embed],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`firma|anteilanbieten|0|${userId}`)
+      new ButtonBuilder().setCustomId(`firma|anteilanbieten|${s.company.id}|${userId}`)
         .setLabel('Anteile anbieten').setEmoji('📤').setStyle(ButtonStyle.Success)
         .setDisabled(!ipoOk || frei <= 0),
       new ButtonBuilder().setCustomId(`firma|anteilweg|${juengstes?.id ?? 0}|${userId}`)
         .setLabel('Angebot zurückziehen').setEmoji('↩️').setStyle(ButtonStyle.Secondary)
         .setDisabled(!juengstes),
-      new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma')
+      new ButtonBuilder().setCustomId(`firma|oeffnen|${s.company.id}|${userId}`).setLabel('Firma')
         .setEmoji('🏢').setStyle(ButtonStyle.Secondary),
       homeButton(userId))],
   };
@@ -3358,26 +3474,26 @@ async function buildFirmaLagerView({ guildId, userId }) {
 
   const bestAngebot = s.angebote[0];
   const handelkaufButton = () => new ButtonBuilder()
-    .setCustomId(`firma|handelkauf|0|${userId}`).setLabel('Bei Spediteur kaufen').setEmoji('🚚')
+    .setCustomId(`firma|handelkauf|${s.company.id}|${userId}`).setLabel('Bei Spediteur kaufen').setEmoji('🚚')
     .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || !bestAngebot || s.kasse < bestAngebot.price);
 
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`firma|einkaufen|0|${userId}`).setLabel('Einkaufen').setEmoji('🛒')
+    new ButtonBuilder().setCustomId(`firma|einkaufen|${s.company.id}|${userId}`).setLabel('Einkaufen').setEmoji('🛒')
       .setStyle(ButtonStyle.Primary).setDisabled(free <= 0 || s.kasse < w.price),
-    new ButtonBuilder().setCustomId(`firma|lagervoll|0|${userId}`).setLabel(`Voll machen (${free})`).setEmoji('📦')
+    new ButtonBuilder().setCustomId(`firma|lagervoll|${s.company.id}|${userId}`).setLabel(`Voll machen (${free})`).setEmoji('📦')
       .setStyle(ButtonStyle.Success).setDisabled(free <= 0 || s.kasse < free * w.price));
   if (s.handel) {
     // Ein Spediteur kauft seine eigene Ware nur beim NPC – „Handel" führt zu den
     // eigenen Angeboten. Beliefert ihn ein anderer Spediteur, kommt der Kaufknopf
     // in eine zweite Zeile (sonst wären es sechs Knöpfe in einer).
     row1.addComponents(
-      new ButtonBuilder().setCustomId(`firma|handel|0|${userId}`).setLabel('Handel').setEmoji('🚚')
+      new ButtonBuilder().setCustomId(`firma|handel|${s.company.id}|${userId}`).setLabel('Handel').setEmoji('🚚')
         .setStyle(ButtonStyle.Primary));
   } else if (s.angebote.length) {
     row1.addComponents(handelkaufButton());
   }
   row1.addComponents(
-    new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`firma|oeffnen|${s.company.id}|${userId}`).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
     homeButton(userId));
 
   const rows = [row1];
@@ -3417,13 +3533,13 @@ async function buildFirmaHandelView({ guildId, userId }) {
   return {
     embeds: [embed],
     components: [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`firma|handelsetzen|0|${userId}`).setLabel('Angebot setzen').setEmoji('🏷️')
+      new ButtonBuilder().setCustomId(`firma|handelsetzen|${s.company.id}|${userId}`).setLabel('Angebot setzen').setEmoji('🏷️')
         .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(`firma|handelaus|0|${userId}`).setLabel('Alles aus').setEmoji('🚫')
+      new ButtonBuilder().setCustomId(`firma|handelaus|${s.company.id}|${userId}`).setLabel('Alles aus').setEmoji('🚫')
         .setStyle(ButtonStyle.Danger),
-      new ButtonBuilder().setCustomId(`firma|lager|0|${userId}`).setLabel('Lager').setEmoji('🏬')
+      new ButtonBuilder().setCustomId(`firma|lager|${s.company.id}|${userId}`).setLabel('Lager').setEmoji('🏬')
         .setStyle(ButtonStyle.Primary),
-      new ButtonBuilder().setCustomId(ID.menu('firma', 1, userId)).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`firma|oeffnen|${s.company.id}|${userId}`).setLabel('Firma').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
       homeButton(userId))],
   };
 }
@@ -4924,7 +5040,7 @@ async function buildDetailView({ guildId, mode, key, page, userId }) {
 module.exports = {
   buildNewShopView, buildUsedShopView, buildBrandsView, buildGearShopView,
   buildPropertyShopView, buildPropertyDetailView, buildEstateView,
-  buildJobCenterView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView,
+  buildJobCenterView, buildFirmenView, buildFirmaView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView,
   buildGarageView, buildWorkshopView, buildRepairView,
   buildMarketView, buildAssetView, buildDepotView, buildFishingView, buildCreatorView, buildPlatformView, buildDealsView, buildDecisionView,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,

@@ -140,7 +140,8 @@ function view(buttons) {
     check('Vorfall-Ansicht: Titel beginnt mit 🏢', d.embeds[0].data.title.startsWith('🏢'), d.embeds[0].data.title);
     check('Fußzeile nennt die Firma', d.embeds[0].data.footer.text.includes('Rösterei'), d.embeds[0].data.footer.text);
     const back = d.components[1].components[0].data.custom_id;
-    check('Zurück führt zur Firma', back === `menu|firma|1|${FU}`, back);
+    // Stück 4: der Weg zurück nennt die Firma des Vorfalls, nicht mehr nur das Menü.
+    check('Zurück führt zur Firma des Vorfalls', back === `firma|oeffnen|${r.company.id}|${FU}`, back);
     check('Vorfall-Ansicht hält das Fluxer-Limit', render.toMessage(d).reactions.length <= render.MAX_REACTIONS);
 
     // Rückschau ohne offenen Vorfall: Firmeninhaber bekommen einen Firma-Knopf.
@@ -176,7 +177,7 @@ function view(buttons) {
     check('leeres Lager: Feld warnt vor ad hoc', waren?.value.includes('leer') && waren.value.includes('ad hoc'), waren?.value);
     const alleIds = v.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
     check('Zeile 2 führt zum Lager, nicht zum Schließen',
-      v.components[1].components.some((b) => b.data.custom_id === `firma|lager|0|${FU}`) && !alleIds.some((id) => id.startsWith('firma|schliessen')),
+      v.components[1].components.some((b) => b.data.custom_id === `firma|lager|${cid}|${FU}`) && !alleIds.some((id) => id.startsWith('firma|schliessen')),
       alleIds.join(' '));
     check('Betriebsansicht: höchstens 8 Knöpfe', alleIds.length <= 8, String(alleIds.length));
     check('Betriebsansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
@@ -184,7 +185,7 @@ function view(buttons) {
     // Ausbau: Schließen wohnt jetzt hier, in Zeile 1.
     const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FU });
     const zeile1 = a.components[0].components.map((b) => b.data.custom_id);
-    check('Ausbau Zeile 1 enthält Schließen', zeile1.includes(`firma|schliessen|0|${FU}`), zeile1.join(' '));
+    check('Ausbau Zeile 1 enthält Schließen', zeile1.includes(`firma|schliessen|${cid}|${FU}`), zeile1.join(' '));
     check('Ausbau hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(a).overflow === undefined, String(render.mapReactions(a).overflow));
 
     // Lager-Ansicht: Titel, vier Knöpfe, Einkaufen aktiv bei Kasse ≥ Tagespreis.
@@ -192,8 +193,8 @@ function view(buttons) {
     check('Lager: Titel beginnt mit 🏬', l.embeds[0].data.title.startsWith('🏬'), l.embeds[0].data.title);
     const lk = l.components[0].components;
     check('Lager: vier Knöpfe', l.components.length === 1 && lk.length === 4, String(lk.length));
-    check('Lager: Einkaufen aktiv (Kasse 100.000 ≥ 340)', lk[0].data.custom_id === `firma|einkaufen|0|${FU}` && lk[0].data.disabled !== true);
-    check('Lager: Voll machen nennt die freien Plätze (280)', lk[1].data.custom_id === `firma|lagervoll|0|${FU}` && lk[1].data.label.includes('(280)'), lk[1].data.label);
+    check('Lager: Einkaufen aktiv (Kasse 100.000 ≥ 340)', lk[0].data.custom_id === `firma|einkaufen|${cid}|${FU}` && lk[0].data.disabled !== true);
+    check('Lager: Voll machen nennt die freien Plätze (280)', lk[1].data.custom_id === `firma|lagervoll|${cid}|${FU}` && lk[1].data.label.includes('(280)'), lk[1].data.label);
     check('Lager: leerer Bestand sagt „leer", nicht „reicht ~0 Tage"',
       l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('leer')
       && !l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('reicht'), l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value);
@@ -249,15 +250,15 @@ function view(buttons) {
     const kFields = kaeuferLager.embeds[0].data.fields.map((f) => f.name);
     check('Käufer-Lager zeigt 🚚 Spediteure', kFields.includes('🚚 Spediteure'), kFields.join(', '));
     const kIds = kaeuferLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
-    check('Käufer-Lager hat den Kauf-Knopf', kIds.includes(`firma|handelkauf|0|${FK}`), kIds.join(' '));
-    const kaufBtn = kaeuferLager.components.flatMap((row) => row.components).find((b) => b.data.custom_id === `firma|handelkauf|0|${FK}`);
+    check('Käufer-Lager hat den Kauf-Knopf', kIds.includes(`firma|handelkauf|${kid}|${FK}`), kIds.join(' '));
+    const kaufBtn = kaeuferLager.components.flatMap((row) => row.components).find((b) => b.data.custom_id === `firma|handelkauf|${kid}|${FK}`);
     check('Kauf-Knopf ist aktiv (Lager frei, Kasse reicht)', kaufBtn.data.disabled !== true);
     check('Käufer-Lager hält das Fluxer-Limit', render.mapReactions(kaeuferLager).overflow === undefined,
       String(render.mapReactions(kaeuferLager).overflow));
 
     const spediLager = await ui.buildFirmaLagerView({ guildId: FG, userId: FT });
     const sIds = spediLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
-    check('Spediteur-Lager zeigt „Handel"', sIds.includes(`firma|handel|0|${FT}`), sIds.join(' '));
+    check('Spediteur-Lager zeigt „Handel"', sIds.includes(`firma|handel|${tid}|${FT}`), sIds.join(' '));
     check('Spediteur-Lager hält das Fluxer-Limit', render.mapReactions(spediLager).overflow === undefined,
       String(render.mapReactions(spediLager).overflow));
 
@@ -340,7 +341,7 @@ function view(buttons) {
     const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FO });
     const aIds = a.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
     const aAktiv = a.components.flatMap((row) => row.components).filter((b) => !b.data.disabled);
-    check('Ausbau Zeile 1 enthält Anteile', a.components[0].components.some((b) => b.data.custom_id === `firma|anteile|0|${FO}`), aIds.join(' '));
+    check('Ausbau Zeile 1 enthält Anteile', a.components[0].components.some((b) => b.data.custom_id === `firma|anteile|${cid}|${FO}`), aIds.join(' '));
     check('Ausbau: 9 Knöpfe, alle aktiv', aIds.length === 9 && aAktiv.length === 9, `${aIds.length} / ${aAktiv.length} aktiv`);
     for (const row of a.components) check('Ausbau: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
     check('Ausbau mit 9 Knöpfen hält das Fluxer-Limit genau (kein Überlauf)',
@@ -370,7 +371,7 @@ function view(buttons) {
       v2Fields['🏷️ Offene Angebote (1)']);
     const v2Ids = v2.components[0].components.map((b) => b.data.custom_id);
     check('Anteile: Knöpfe Anbieten · Zurückziehen(#id) · Firma · Home',
-      v2Ids.join(' ') === `firma|anteilanbieten|0|${FO} firma|anteilweg|${offerId}|${FO} menu|firma|1|${FO} home|${FO}`, v2Ids.join(' '));
+      v2Ids.join(' ') === `firma|anteilanbieten|${cid}|${FO} firma|anteilweg|${offerId}|${FO} firma|oeffnen|${cid}|${FO} home|${FO}`, v2Ids.join(' '));
     check('Anteile: Zurückziehen aktiv', v2.components[0].components[1].data.disabled !== true);
     check('Anteile-Ansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v2).overflow === undefined, String(render.mapReactions(v2).overflow));
     console.log('    ' + v2.embeds[0].data.title);
@@ -458,6 +459,101 @@ function view(buttons) {
     check('Meine Anteile: Feld „Deine Angebote"', mine2.embeds[0].data.fields.some((f) => f.name.startsWith('🏷️ Deine Angebote')));
 
     await company.close(FG, FO, now);
+  }
+
+  console.log('--- Mehrere Firmen: Übersicht, Betrieb, Gründung am Limit (Spec 4: Ansichten) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const level = require('../src/level');
+    const FG = `FR4_T${Date.now()}`;
+    const FU = 'fr_multi';
+    const now = Date.now();
+    // Level 15 erlaubt zwei Firmen (eine je 10 Level, Deckel 5).
+    const setLevel = (lvl) => db.addStats(FG, FU, { xp: level.xpForLevel(lvl) - db.getStats(FG, FU).xp });
+    setLevel(15);
+    const a = (await company.found(FG, FU, 'kiosk', 'Eckladen', now)).company.id;
+
+    // Eine Firma: der Menüeintrag zeigt den Betrieb, nicht die Übersicht.
+    const eine = await buildEntryView('firma', { guildId: FG, userId: FU, page: 1 });
+    check('eine Firma: Menü zeigt den Betrieb', eine.embeds[0].data.title.includes('Eckladen'), eine.embeds[0].data.title);
+    const eineIds = eine.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('eine Firma (noch eine frei): Zeile 2 endet mit „Firmen"',
+      eineIds[eineIds.length - 1] === `firma|firmen|0|${FU}`, eineIds.join(' '));
+    check('eine Firma: keine Fußzeile „Firma x von y"',
+      !(eine.embeds[0].data.footer?.text ?? '').includes('Firma 1 von'), eine.embeds[0].data.footer?.text);
+
+    const b = (await company.found(FG, FU, 'imbiss', 'Bude', now + 3600e3)).company.id;
+
+    // Übersicht: Titel, je Firma ein Feld und ein Knopf, Gründen am Limit gesperrt.
+    const ueber = await buildEntryView('firma', { guildId: FG, userId: FU, page: 1 });
+    check('zwei Firmen: Menü zeigt die Übersicht', ueber.embeds[0].data.title === '🏢 Deine Firmen (2 von 2)', ueber.embeds[0].data.title);
+    const uFelder = ueber.embeds[0].data.fields;
+    check('Übersicht: je Firma ein Feld', uFelder.length === 2, uFelder.map((f) => f.name).join(', '));
+    check('Übersicht: Feld nennt Branche, Stufe, Kasse und Prognose',
+      uFelder[0].value.includes('Kiosk, Stufe 0') && uFelder[0].value.includes('Kasse') && uFelder[0].value.includes('Prognose'),
+      uFelder[0].value);
+    check('Übersicht: die aktive Firma ist markiert', uFelder[1].name.endsWith('· aktiv') && !uFelder[0].name.endsWith('· aktiv'),
+      `${uFelder[0].name} / ${uFelder[1].name}`);
+    const uIds = ueber.components.map((row) => row.components.map((btn) => btn.data.custom_id));
+    check('Übersicht: Knopf je Firma (älteste zuerst), dann Gründen und Home',
+      uIds[0].join(' ') === `firma|oeffnen|${a}|${FU} firma|oeffnen|${b}|${FU}`
+      && uIds[1].join(' ') === `firma|gruenden|0|${FU} home|${FU}`, JSON.stringify(uIds));
+    check('Übersicht: Gründen ist am Limit gesperrt',
+      ueber.components[1].components[0].data.disabled === true);
+    for (const row of ueber.components) check('Übersicht: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Übersicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(ueber).overflow === undefined,
+      String(render.mapReactions(ueber).overflow));
+    console.log('    ' + ueber.embeds[0].data.title);
+    for (const f of uFelder) console.log(`    [${f.name}] ${f.value.replace(/\n/g, ' | ')}`);
+
+    // Betriebsansicht: Fußzeile zählt mit, die Knöpfe tragen die Firmen-ID, „Firmen" statt Home.
+    const vA = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: a });
+    check('Betrieb A: richtige Firma', vA.embeds[0].data.title.includes('Eckladen'), vA.embeds[0].data.title);
+    check('Betrieb A: Fußzeile „· Firma 1 von 2"', vA.embeds[0].data.footer.text.includes('· Firma 1 von 2'), vA.embeds[0].data.footer.text);
+    const aIds = vA.components.map((row) => row.components.map((btn) => btn.data.custom_id));
+    check('Betrieb A: Zeile 1 trägt die Firmen-ID',
+      aIds[0].join(' ') === `firma|werbung|${a}|${FU} firma|anpacken|${a}|${FU} firma|entnehmen|${a}|${FU} firma|einzahlen|${a}|${FU}`,
+      aIds[0].join(' '));
+    check('Betrieb A: Zeile 2 Personal · Ausbau · Lager · Firmen',
+      aIds[1].join(' ') === `firma|personal|0|${FU} firma|ausbau|${a}|${FU} firma|lager|${a}|${FU} firma|firmen|0|${FU}`,
+      aIds[1].join(' '));
+    check('Betrieb A hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(vA).overflow === undefined,
+      String(render.mapReactions(vA).overflow));
+
+    const vB = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: b });
+    check('Betrieb B: richtige Firma und Fußzeile „· Firma 2 von 2"',
+      vB.embeds[0].data.title.includes('Bude') && vB.embeds[0].data.footer.text.includes('· Firma 2 von 2'),
+      `${vB.embeds[0].data.title} / ${vB.embeds[0].data.footer.text}`);
+
+    // Gründungsansicht am Limit: Hinweis auf das Level, Branchenknöpfe gesperrt.
+    const g = await ui.buildFirmaFoundView({ guildId: FG, userId: FU });
+    check('Gründung am Limit: Beschreibung nennt „Firma 2 von 2 (Level 15)"',
+      g.embeds[0].data.description.includes('**Firma 2 von 2** (Level 15)'), g.embeds[0].data.description);
+    const gLimit = g.embeds[0].data.fields.find((f) => f.name === '🏢 Limit erreicht');
+    check('Gründung am Limit: Hinweis „ab Level 20"',
+      gLimit?.value.includes('**2 von 2**') && gLimit.value.includes('**Level 20**'), gLimit?.value);
+    check('Gründung am Limit: Branchenknöpfe gesperrt',
+      g.components[1].components.every((btn) => btn.data.disabled === true));
+    check('Gründung: Rückweg zur Übersicht',
+      g.components[0].components.some((btn) => btn.data.custom_id === `firma|firmen|0|${FU}`),
+      g.components[0].components.map((btn) => btn.data.custom_id).join(' '));
+    check('Gründungsansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(g).overflow === undefined,
+      String(render.mapReactions(g).overflow));
+
+    // Ein Level mehr: die dritte darf gegründet werden.
+    setLevel(20);
+    const g2 = await ui.buildFirmaFoundView({ guildId: FG, userId: FU });
+    check('Level 20: „Firma 3 von 3 (Level 20)", Branchen wieder frei',
+      g2.embeds[0].data.description.includes('**Firma 3 von 3** (Level 20)')
+      && g2.components[1].components.every((btn) => btn.data.disabled !== true), g2.embeds[0].data.description);
+    const ueber2 = await ui.buildFirmenView({ guildId: FG, userId: FU });
+    check('Level 20: Übersicht „2 von 3", Gründen frei',
+      ueber2.embeds[0].data.title === '🏢 Deine Firmen (2 von 3)'
+      && ueber2.components[1].components[0].data.disabled !== true, ueber2.embeds[0].data.title);
+
+    await company.close(FG, FU, now, a);
+    await company.close(FG, FU, now, b);
   }
 
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');
