@@ -53,6 +53,30 @@ const FIRMA_ID_AKTIONEN = new Set([
   'anteilanbieten',
 ]);
 
+/**
+ * Firmen-ID aus einer Modal-ID (Stück 4b). Die fünf Inhaber-Modale tragen die
+ * Firma, für die der Knopf stand – `0` heißt weiter „die aktive". Löst eine
+ * genannte ID nicht mehr auf (geschlossen, insolvent), ist das Modal veraltet;
+ * dann wird abgewiesen statt umgeleitet, sonst zahlte ein liegengebliebenes
+ * Einzahl-Modal in eine ganz andere Firma ein.
+ * Rückgabe: Firmen-ID, `null` für „die aktive" – oder `false`, wenn schon
+ * abgewiesen wurde (der Aufrufer bricht dann ab).
+ */
+async function modalCompanyId(interaction, guildId, userId, cid) {
+  if (!(Number(cid) > 0)) return null;
+  const company = require('./company');
+  const id = Number(cid);
+  if (company.ownCompany(guildId, userId, id)) {
+    // Wie beim Knopf: die genannte Firma wird auch wieder die aktive – sonst
+    // zeigte die Ansicht A, während „Personal" daraus noch in B führte.
+    company.setActive(guildId, userId, id);
+    return id;
+  }
+  await interaction.editReply(await buildFirmenView({ guildId, userId }));
+  await interaction.followUp({ content: '❌ Diese Firma gibt es nicht mehr.', flags: MessageFlags.Ephemeral }).catch(() => {});
+  return false;
+}
+
 /** Fehlermeldungen für Anzeigen privater Anbieter. */
 function npcFailure(result, symbol) {
   const texts = {
@@ -2107,7 +2131,9 @@ Object.assign(buttons, {
       return interaction.showModal(modal);
     }
     if (aktion === 'entnehmen' || aktion === 'einzahlen') {
-      const modal = new ModalBuilder().setCustomId(`fbetrag|${aktion}|${userId}`)
+      // Stück 4b: Das Modal trägt die Firma des Knopfes mit (0 = die aktive).
+      // Sonst zahlt ein offen gebliebenes Modal in die inzwischen aktive Firma ein.
+      const modal = new ModalBuilder().setCustomId(`fbetrag|${aktion}|${fid ?? 0}|${userId}`)
         .setTitle(aktion === 'entnehmen' ? 'Gewinn entnehmen' : 'Kapital einzahlen');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('amount').setLabel('Betrag (oder „alles")')
@@ -2115,21 +2141,21 @@ Object.assign(buttons, {
       return interaction.showModal(modal);
     }
     if (aktion === 'einkaufen') {
-      const modal = new ModalBuilder().setCustomId(`fware|kaufen|${userId}`).setTitle('Ware einkaufen');
+      const modal = new ModalBuilder().setCustomId(`fware|kaufen|${fid ?? 0}|${userId}`).setTitle('Ware einkaufen');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('amount').setLabel('Menge (oder „voll")')
           .setStyle(TextInputStyle.Short).setRequired(true)));
       return interaction.showModal(modal);
     }
     if (aktion === 'handelkauf') {
-      const modal = new ModalBuilder().setCustomId(`fware|handel|${userId}`).setTitle('Beim Spediteur kaufen');
+      const modal = new ModalBuilder().setCustomId(`fware|handel|${fid ?? 0}|${userId}`).setTitle('Beim Spediteur kaufen');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('amount').setLabel('Menge (oder „voll")')
           .setStyle(TextInputStyle.Short).setRequired(true)));
       return interaction.showModal(modal);
     }
     if (aktion === 'handelsetzen') {
-      const modal = new ModalBuilder().setCustomId(`fhandel|setzen|${userId}`).setTitle('Angebot setzen');
+      const modal = new ModalBuilder().setCustomId(`fhandel|setzen|${fid ?? 0}|${userId}`).setTitle('Angebot setzen');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('text').setLabel('Branche oder „alle", dann Prozent oder „aus"')
           .setPlaceholder('z. B. „baufirma 95" oder „alle 97"')
@@ -2137,7 +2163,7 @@ Object.assign(buttons, {
       return interaction.showModal(modal);
     }
     if (aktion === 'anteilanbieten') {
-      const modal = new ModalBuilder().setCustomId(`fanteil|anbieten|${userId}`).setTitle('Anteile anbieten');
+      const modal = new ModalBuilder().setCustomId(`fanteil|anbieten|${fid ?? 0}|${userId}`).setTitle('Anteile anbieten');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('text').setLabel('Anzahl und Preis je Anteil')
           .setPlaceholder('z. B. „100 2500"').setStyle(TextInputStyle.Short).setRequired(true)));
@@ -2927,20 +2953,24 @@ const modals = {
   },
 
   /** Betrag für Entnahme/Einzahlung eingegeben. */
-  async fbetrag(interaction, [modus]) {
+  async fbetrag(interaction, [modus, cid]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const company = require('./company');
+    const fid = await modalCompanyId(interaction, guildId, userId, cid);
+    if (fid === false) return;
     const symbol = await getSymbol(guildId);
     const raw = String(interaction.fields.getTextInputValue('amount') ?? '').trim().toLowerCase();
     let amount = Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
     if (raw === 'alles') {
-      const s = company.status(guildId, userId);
+      // „alles" muss dieselbe Kasse meinen wie die Buchung gleich darunter.
+      const s = company.status(guildId, userId, undefined, fid);
       amount = modus === 'entnehmen' ? (s?.kasse ?? 0) : (await require('./unb').getBalance(guildId, userId)).total;
     }
     const r = modus === 'entnehmen'
-      ? await company.withdraw(guildId, userId, amount) : await company.deposit(guildId, userId, amount);
+      ? await company.withdraw(guildId, userId, amount, undefined, fid)
+      : await company.deposit(guildId, userId, amount, undefined, fid);
     const note = r.ok
       ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen`
         + (r.shared > 0 ? ` – ${money(symbol, r.paid)} für dich, ${money(symbol, r.shared)} an Anteilseigner` : '')
@@ -2954,16 +2984,18 @@ const modals = {
         payment: '❌ Die Buchung ist fehlgeschlagen – die Kasse ist unverändert.',
         closed: '❌ Die Firma existiert nicht mehr – das Geld ist zurück auf deinem Konto.' }[r.reason]
         ?? '❌ Das ging nicht.';
-    await interaction.editReply(await buildFirmaView({ guildId, userId }));
+    await interaction.editReply(await buildFirmaView({ guildId, userId, companyId: fid }));
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Menge für den Wareneinkauf eingegeben (Zahl oder „voll"). */
-  async fware(interaction, [modus]) {
+  async fware(interaction, [modus, cid]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const company = require('./company');
+    const fid = await modalCompanyId(interaction, guildId, userId, cid);
+    if (fid === false) return;
     const symbol = await getSymbol(guildId);
     const raw = String(interaction.fields.getTextInputValue('amount') ?? '').trim().toLowerCase();
     const units = raw === 'voll' ? 'voll' : Number(raw.replace(/[.\s]/g, '').replace(',', '.'));
@@ -2971,14 +3003,16 @@ const modals = {
     if (modus === 'handel') {
       // Kauf beim Spediteur (Stück 3b): das Modal kennt keinen Anbieter – es nimmt
       // immer das günstigste Angebot, wie es die Lager-Ansicht auch zeigt.
-      const s = company.status(guildId, userId);
+      // Die Angebotsliste muss die der kaufenden Firma sein – sonst kauft A zu
+      // den Konditionen, die B angezeigt bekam.
+      const s = company.status(guildId, userId, undefined, fid);
       if (!s) {
-        await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+        await interaction.editReply(await buildFirmaLagerView({ guildId, userId, companyId: fid }));
         await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
         return;
       }
       const angebot = s.angebote[0];
-      const r = angebot ? await company.buyFromTrader(guildId, userId, angebot.company.id, units) : { ok: false, reason: 'trader' };
+      const r = angebot ? await company.buyFromTrader(guildId, userId, angebot.company.id, units, undefined, fid) : { ok: false, reason: 'trader' };
       const note = r.ok
         ? `🚚 **${r.units}** Einheiten von **${r.trader.name}** für ${money(symbol, r.cost)} (${money(symbol, r.price)} je Einheit statt ${money(symbol, s.ware.price)}).`
         : { trader: '🚚 Der Spediteur liefert gerade nicht.',
@@ -2986,23 +3020,25 @@ const modals = {
             units: '❌ Menge? Eine ganze Zahl über 0 oder „voll".',
             kasse: `💸 Dafür fehlen ${money(symbol, (r.cost ?? 0) - (r.kasse ?? 0))} in der Kasse.`,
             self: '❌ Das eigene Angebot kannst du nicht kaufen.' }[r.reason] ?? '❌ Das ging nicht.';
-      await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+      await interaction.editReply(await buildFirmaLagerView({ guildId, userId, companyId: fid }));
       await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     }
 
-    const r = modus === 'kaufen' ? await company.buyStock(guildId, userId, units) : { ok: false, reason: 'units' };
-    await interaction.editReply(await buildFirmaLagerView({ guildId, userId }));
+    const r = modus === 'kaufen' ? await company.buyStock(guildId, userId, units, undefined, fid) : { ok: false, reason: 'units' };
+    await interaction.editReply(await buildFirmaLagerView({ guildId, userId, companyId: fid }));
     await interaction.followUp({ content: wareNote(symbol, r), flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
   /** Angebot der Spedition gesetzt (Stück 3b): „<branche|alle> <prozent|aus>". */
-  async fhandel(interaction, [aktion]) {
+  async fhandel(interaction, [aktion, cid]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const company = require('./company');
     if (aktion !== 'setzen') return;
+    const fid = await modalCompanyId(interaction, guildId, userId, cid);
+    if (fid === false) return;
     const raw = String(interaction.fields.getTextInputValue('text') ?? '').trim().toLowerCase();
     const m = raw.match(/^(\S+)\s+(\d+|aus)$/i);
     let note;
@@ -3011,14 +3047,14 @@ const modals = {
     } else {
       const [, branchWort, prozentWort] = m;
       const share = prozentWort === 'aus' ? 'aus' : Number(prozentWort);
-      const r = company.setOffer(guildId, userId, branchWort, share);
+      const r = company.setOffer(guildId, userId, branchWort, share, undefined, fid);
       note = r.ok
         ? (share === 'aus' ? `🚫 **${branchWort}** ist aus.` : `🏷️ **${branchWort}**: **${share} %**.`)
         : { no_company: '🏢 Du hast keine Firma.', not_trader: '❌ Nur Speditionen handeln.',
             branch: '❌ Branche unbekannt – z. B. „baufirma 95" oder „alle 97".',
             share: '❌ Prozent zwischen 90 und 100, oder „aus".' }[r.reason] ?? '❌ Das ging nicht.';
     }
-    await interaction.editReply(await buildFirmaHandelView({ guildId, userId }));
+    await interaction.editReply(await buildFirmaHandelView({ guildId, userId, companyId: fid }));
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -3027,7 +3063,7 @@ const modals = {
    * „kaufen" (`<nr> <anzahl>`), „verkaufen" (`<firma-nr> <anzahl> <preis>`, Halter).
    * Zahlen dürfen Tausenderpunkte haben („2.500").
    */
-  async fanteil(interaction, [modus]) {
+  async fanteil(interaction, [modus, cid]) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
@@ -3040,7 +3076,12 @@ const modals = {
     let view;
 
     if (modus === 'anbieten') {
-      const s = company.status(guildId, userId);
+      // Nur das Anbieten hängt an einer eigenen Firma – „kaufen"/„verkaufen"
+      // kommen von der Börse und tragen keine Firmen-ID (`cid` ist dort die
+      // Nutzer-ID und wird nicht angefasst).
+      const fid = await modalCompanyId(interaction, guildId, userId, cid);
+      if (fid === false) return;
+      const s = company.status(guildId, userId, undefined, fid);
       const r = !s ? { ok: false, reason: 'no_company' }
         : !(ganz && zahlen.length === 2) ? { ok: false, reason: 'shares' }
           : company.listShares(guildId, userId, s.company.id, zahlen[0], zahlen[1]);
@@ -3050,7 +3091,7 @@ const modals = {
           owner_min: `❌ Du musst mindestens 51 % behalten – noch ${r.free ?? 0} Anteile frei.`,
           shares: '❌ Anzahl und Preis, z. B. „100 2500".', price: '❌ Anzahl und Preis, z. B. „100 2500".' }[r.reason]
           ?? '❌ Das ging nicht.';
-      view = await buildFirmaAnteileView({ guildId, userId });
+      view = await buildFirmaAnteileView({ guildId, userId, companyId: fid });
     } else if (modus === 'kaufen') {
       const r = !(ganz && zahlen.length === 2) ? { ok: false, reason: 'shares' }
         : await company.buyShares(guildId, userId, zahlen[0], zahlen[1]);

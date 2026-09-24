@@ -3275,10 +3275,11 @@ function anteilKopf(c) {
 }
 
 /** Anteile-Ansicht des Inhabers: Verteilung, Buchwert, Angebote, Halter. */
-async function buildFirmaAnteileView({ guildId, userId }) {
+async function buildFirmaAnteileView({ guildId, userId, companyId = null }) {
   const company = require('./company');
   const identity = require('./identity');
-  const s = company.status(guildId, userId);
+  let s = company.status(guildId, userId, Date.now(), companyId);
+  if (!s && companyId) s = company.status(guildId, userId);
   if (!s) return buildFirmaFoundView({ guildId, userId });
   const symbol = await getSymbol(guildId);
   const data = require('./data/companies');
@@ -3466,9 +3467,10 @@ async function buildMeineAnteileView({ guildId, userId }) {
 }
 
 /** Das Lager: Ware, Lieferant, Preis, Bestand – und der Einkauf. */
-async function buildFirmaLagerView({ guildId, userId }) {
+async function buildFirmaLagerView({ guildId, userId, companyId = null }) {
   const company = require('./company');
-  const s = company.status(guildId, userId);
+  let s = company.status(guildId, userId, Date.now(), companyId);
+  if (!s && companyId) s = company.status(guildId, userId);
   if (!s) return buildFirmaFoundView({ guildId, userId });
   const symbol = await getSymbol(guildId);
   const w = s.ware;
@@ -3537,11 +3539,12 @@ async function buildFirmaLagerView({ guildId, userId }) {
  * Tageskapazität und bisherige Spanne. Neun Branchen als eigene Felder wären zu
  * viel – die Angebote stehen als Tabelle im Beschreibungstext.
  */
-async function buildFirmaHandelView({ guildId, userId }) {
+async function buildFirmaHandelView({ guildId, userId, companyId = null }) {
   const company = require('./company');
-  const s = company.status(guildId, userId);
+  let s = company.status(guildId, userId, Date.now(), companyId);
+  if (!s && companyId) s = company.status(guildId, userId);
   if (!s) return buildFirmaFoundView({ guildId, userId });
-  if (!s.handel) return buildFirmaView({ guildId, userId });
+  if (!s.handel) return buildFirmaView({ guildId, userId, companyId });
   const symbol = await getSymbol(guildId);
   const h = s.handel;
   const data = require('./data/companies');

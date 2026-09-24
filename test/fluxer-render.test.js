@@ -675,6 +675,177 @@ function view(buttons) {
     await company.close(FG, FU, now + 3 * 3600e3, b);
   }
 
+  console.log('--- Stück 4b: die Modale tragen die Firmen-ID ---');
+  {
+    const company = require('../src/company');
+    const level = require('../src/level');
+    const { buttons, modals, parseId } = require('../src/buttons');
+    const now = Date.now();
+
+    /** Ein Klick auf einen Knopf – sammelt Ansicht, Hinweise und Modale. */
+    const klick = async (guildId, userId, aktion, arg) => {
+      const rec = { views: [], notes: [], modals: [] };
+      await buttons.firma({
+        guildId,
+        user: { id: userId },
+        deferUpdate: async () => {},
+        editReply: async (v) => { rec.views.push(v); return v; },
+        reply: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        showModal: async (m) => { rec.modals.push(m); },
+      }, [aktion, arg]);
+      return rec;
+    };
+    const modalId = (m) => m.data?.custom_id ?? m.toJSON().custom_id;
+    /**
+     * Ein abgesendetes Modal – zerlegt wie der Fluxer-Shim
+     * (`src/fluxer/index.js`: `parseId(modalId)` → `modals[action](inter, parts)`),
+     * damit die Argumentreihenfolge `[modus, cid]` hier mitgeprüft wird.
+     */
+    const absenden = async (guildId, userId, id, wert) => {
+      const { action, parts } = parseId(id);
+      const rec = { views: [], notes: [], parts };
+      await modals[action]({
+        guildId,
+        user: { id: userId },
+        deferUpdate: async () => {},
+        editReply: async (v) => { rec.views.push(v); return v; },
+        reply: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        fields: { getTextInputValue: () => wert },
+      }, parts);
+      return rec;
+    };
+    const titel = (rec) => rec.views[0]?.embeds[0].data.title ?? '';
+
+    // Zwei Firmen desselben Inhabers: A ist der Knopf, B wird zwischendurch aktiv.
+    const FG = `FR4B_T${Date.now()}`;
+    const FU = 'fr4b_inhaber';
+    db.addStats(FG, FU, { xp: level.xpForLevel(15) - db.getStats(FG, FU).xp });
+    const a = (await company.found(FG, FU, 'kiosk', 'Eckladen', now)).company.id;
+    const b = (await company.found(FG, FU, 'imbiss', 'Bude', now + 3600e3)).company.id;
+    await company.deposit(FG, FU, 200_000, now, a);
+    await company.deposit(FG, FU, 200_000, now, b);
+    // Beide Lager leer: ein falsch gelandeter Kauf wäre in B sichtbar.
+    db.saveCompany({ ...db.getCompany(a), stock: 0, stock_cost: 0 });
+    db.saveCompany({ ...db.getCompany(b), stock: 0, stock_cost: 0 });
+
+    // (1) Einzahlen: Knopf in A, zwischendurch wird B aktiv, Modal trifft A.
+    const einzahlen = await klick(FG, FU, 'einzahlen', String(a));
+    check('Einzahlen: das Modal trägt die Firmen-ID', modalId(einzahlen.modals[0]) === `fbetrag|einzahlen|${a}|${FU}`,
+      modalId(einzahlen.modals[0]));
+    company.setActive(FG, FU, b);                      // andere Nachricht, andere Firma
+    const kasseA = db.getCompany(a).kasse, kasseB = db.getCompany(b).kasse;
+    const eingezahlt = await absenden(FG, FU, modalId(einzahlen.modals[0]), '5000');
+    check('Fluxer-Reihenfolge: parts sind [modus, cid, uid]',
+      eingezahlt.parts[0] === 'einzahlen' && Number(eingezahlt.parts[1]) === a && eingezahlt.parts[2] === FU,
+      eingezahlt.parts.join(' '));
+    check('Einzahlen: das Geld landet in A, B bleibt unberührt',
+      db.getCompany(a).kasse === kasseA + 5000 && db.getCompany(b).kasse === kasseB,
+      `A ${db.getCompany(a).kasse - kasseA} / B ${db.getCompany(b).kasse - kasseB}`);
+    check('Einzahlen: die Ansicht danach zeigt A', titel(eingezahlt).includes('Eckladen'), titel(eingezahlt));
+
+    // (2) Entnehmen mit „alles": der Betrag muss aus derselben Kasse kommen.
+    const entnehmen = await klick(FG, FU, 'entnehmen', String(a));
+    company.setActive(FG, FU, b);
+    const kasseA2 = db.getCompany(a).kasse, kasseB2 = db.getCompany(b).kasse;
+    const entnommen = await absenden(FG, FU, modalId(entnehmen.modals[0]), 'alles');
+    check('Entnehmen „alles": leert A, B bleibt unberührt',
+      db.getCompany(a).kasse === 0 && kasseA2 > 0 && db.getCompany(b).kasse === kasseB2,
+      `A ${kasseA2} → ${db.getCompany(a).kasse} / B ${db.getCompany(b).kasse} statt ${kasseB2}`);
+    check('Entnehmen: die Ansicht danach zeigt A', titel(entnommen).includes('Eckladen'), titel(entnommen));
+    await company.deposit(FG, FU, 200_000, now, a);
+
+    // (3) Wareneinkauf: der Knopf der Lager-Ansicht von A.
+    const einkaufen = await klick(FG, FU, 'einkaufen', String(a));
+    check('Einkaufen: das Modal trägt die Firmen-ID', modalId(einkaufen.modals[0]) === `fware|kaufen|${a}|${FU}`,
+      modalId(einkaufen.modals[0]));
+    company.setActive(FG, FU, b);
+    const lagerA = db.getCompany(a).stock, lagerB = db.getCompany(b).stock;
+    const gekauft = await absenden(FG, FU, modalId(einkaufen.modals[0]), '10');
+    check('Einkaufen: die Ware landet in A, B bleibt leer',
+      db.getCompany(a).stock === lagerA + 10 && db.getCompany(b).stock === lagerB,
+      `A ${db.getCompany(a).stock - lagerA} / B ${db.getCompany(b).stock - lagerB}`);
+    check('Einkaufen: die Lager-Ansicht danach zeigt A', titel(gekauft).includes('Eckladen'), titel(gekauft));
+
+    // (4) Kauf beim Spediteur: ein Großhändler beliefert beide Branchen.
+    const FT = 'fr4b_spedi';
+    const tid = (await company.found(FG, FT, 'spedition', 'Blitz-Spedition', now)).company.id;
+    await company.deposit(FG, FT, 500_000, now, tid);
+    company.setOffer(FG, FT, 'alle', 95, now, tid);
+    company.setActive(FG, FU, a);
+    const handelkauf = await klick(FG, FU, 'handelkauf', String(a));
+    check('Spediteur-Kauf: das Modal trägt die Firmen-ID', modalId(handelkauf.modals[0]) === `fware|handel|${a}|${FU}`,
+      modalId(handelkauf.modals[0]));
+    company.setActive(FG, FU, b);
+    const lagerA2 = db.getCompany(a).stock, lagerB2 = db.getCompany(b).stock;
+    const geliefert = await absenden(FG, FU, modalId(handelkauf.modals[0]), '10');
+    check('Spediteur-Kauf: die Ware landet in A, B bleibt unberührt',
+      db.getCompany(a).stock === lagerA2 + 10 && db.getCompany(b).stock === lagerB2,
+      `A ${db.getCompany(a).stock - lagerA2} / B ${db.getCompany(b).stock - lagerB2} (${JSON.stringify(geliefert.notes)})`);
+    check('Spediteur-Kauf: die Lager-Ansicht danach zeigt A', titel(geliefert).includes('Eckladen'), titel(geliefert));
+
+    // (5) Handelsangebot: zwei Speditionen desselben Inhabers.
+    const FS = 'fr4b_haendler';
+    db.addStats(FG, FS, { xp: level.xpForLevel(15) - db.getStats(FG, FS).xp });
+    const s1 = (await company.found(FG, FS, 'spedition', 'Erste Fuhre', now)).company.id;
+    const s2 = (await company.found(FG, FS, 'spedition', 'Zweite Fuhre', now + 3600e3)).company.id;
+    const handelsetzen = await klick(FG, FS, 'handelsetzen', String(s1));
+    check('Angebot setzen: das Modal trägt die Firmen-ID', modalId(handelsetzen.modals[0]) === `fhandel|setzen|${s1}|${FS}`,
+      modalId(handelsetzen.modals[0]));
+    company.setActive(FG, FS, s2);
+    const gesetzt = await absenden(FG, FS, modalId(handelsetzen.modals[0]), 'kiosk 97');
+    const offerS1 = db.offersOfCompany(s1).find((o) => o.branch === 'kiosk');
+    const offerS2 = db.offersOfCompany(s2).find((o) => o.branch === 'kiosk');
+    check('Angebot setzen: das Angebot steht bei S1, nicht bei S2',
+      offerS1?.share === 97 && offerS1.active === 1 && !(offerS2?.active === 1 && offerS2.share === 97),
+      `${JSON.stringify(offerS1)} / ${JSON.stringify(offerS2)}`);
+    check('Angebot setzen: die Handel-Ansicht danach zeigt S1', titel(gesetzt).includes('Erste Fuhre'), titel(gesetzt));
+
+    // (6) Anteile anbieten: zwei ausgebaute Firmen desselben Inhabers.
+    const FO = 'fr4b_ag';
+    db.addStats(FG, FO, { xp: level.xpForLevel(15) - db.getStats(FG, FO).xp });
+    const o1 = (await company.found(FG, FO, 'baufirma', 'Bau AG', now)).company.id;
+    const o2 = (await company.found(FG, FO, 'baufirma', 'Beton AG', now + 3600e3)).company.id;
+    db.setCompanyStufe(o1, 2);
+    db.setCompanyStufe(o2, 2);
+    const anbieten = await klick(FG, FO, 'anteilanbieten', String(o1));
+    check('Anteile anbieten: das Modal trägt die Firmen-ID', modalId(anbieten.modals[0]) === `fanteil|anbieten|${o1}|${FO}`,
+      modalId(anbieten.modals[0]));
+    company.setActive(FG, FO, o2);
+    const angeboten = await absenden(FG, FO, modalId(anbieten.modals[0]), '100 2500');
+    check('Anteile anbieten: das Angebot gehört O1, O2 hat keines',
+      company.shareOffers(FG, o1).length === 1 && company.shareOffers(FG, o2).length === 0,
+      `O1 ${company.shareOffers(FG, o1).length} / O2 ${company.shareOffers(FG, o2).length} (${JSON.stringify(angeboten.notes)})`);
+    check('Anteile anbieten: die Anteile-Ansicht danach zeigt O1', titel(angeboten).includes('Bau AG'), titel(angeboten));
+
+    // (7) Veraltetes Modal: die genannte Firma ist zu – abweisen statt umleiten.
+    const veraltet = `fbetrag|einzahlen|${a}|${FU}`;
+    await company.close(FG, FU, now + 2 * 3600e3, a);
+    company.setActive(FG, FU, b);
+    const kasseB3 = db.getCompany(b).kasse;
+    const abgewiesen = await absenden(FG, FU, veraltet, '5000');
+    check('Veraltetes Modal: Hinweis „gibt es nicht mehr"',
+      abgewiesen.notes.some((n) => String(n).includes('Diese Firma gibt es nicht mehr')), JSON.stringify(abgewiesen.notes));
+    check('Veraltetes Modal: die aktive Firma bleibt unberührt', db.getCompany(b).kasse === kasseB3,
+      `${db.getCompany(b).kasse} statt ${kasseB3}`);
+    check('Veraltetes Modal: die Übersicht kommt zurück', titel(abgewiesen).startsWith('🏢 Deine Firmen'), titel(abgewiesen));
+
+    // (8) Ohne ID (`0`) gilt weiter die aktive Firma – Altverhalten.
+    company.setActive(FG, FU, b);
+    const kasseB4 = db.getCompany(b).kasse;
+    await absenden(FG, FU, `fbetrag|einzahlen|0|${FU}`, '1000');
+    check('Modal ohne Firmen-ID (0): die aktive Firma bekommt das Geld',
+      db.getCompany(b).kasse === kasseB4 + 1000, `${db.getCompany(b).kasse - kasseB4}`);
+
+    await company.close(FG, FU, now + 3 * 3600e3, b);
+    await company.close(FG, FT, now + 3 * 3600e3, tid);
+    await company.close(FG, FS, now + 3 * 3600e3, s1);
+    await company.close(FG, FS, now + 3 * 3600e3, s2);
+    await company.close(FG, FO, now + 3 * 3600e3, o1);
+    await company.close(FG, FO, now + 3 * 3600e3, o2);
+  }
+
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');
   const msgId = `MSG_${Date.now()}`;
   render.remember(msgId, U, many.mapping);
