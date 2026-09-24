@@ -1864,9 +1864,6 @@ const stmt = {
        stock, stock_cost, stock_seeded)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING *`),
   getCompany: db.prepare('SELECT * FROM companies WHERE id = ?'),
-  getOpenCompany: db.prepare(
-    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'
-     ORDER BY founded_at, id LIMIT 1`),
   openCompaniesOf: db.prepare(
     `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'
      ORDER BY founded_at, id`),
@@ -1894,6 +1891,7 @@ const stmt = {
      ORDER BY closed_at DESC LIMIT 1`),
   deleteCompany: db.prepare('DELETE FROM companies WHERE id = ?'),
   clearCompanies: db.prepare('DELETE FROM companies WHERE guild_id = ?'),
+  clearActiveCompaniesOfGuild: db.prepare('DELETE FROM company_active WHERE guild_id = ?'),
   insertStaff: db.prepare(
     `INSERT INTO company_staff (company_id, kind, user_id, name, hired_at)
      VALUES (?, ?, ?, ?, ?) RETURNING *`),
@@ -3979,9 +3977,6 @@ function insertCompany({ guildId, ownerId, branch, name, now = Date.now(), stock
   return stmt.insertCompany.get(guildId, String(ownerId), branch, name, now, now, stock, stockCost);
 }
 function getCompany(id) { return stmt.getCompany.get(Number(id)) ?? null; }
-function getOpenCompany(guildId, ownerId) {
-  return stmt.getOpenCompany.get(guildId, String(ownerId)) ?? null;
-}
 
 /** Alle offenen Firmen eines Spielers – älteste zuerst (Stück 4). */
 function openCompaniesOf(guildId, ownerId) {
@@ -4031,6 +4026,7 @@ function clearCompanies(guildId) {
     stmt.deleteSharesOfCompany.run(c.id);
   }
   stmt.clearCompanies.run(guildId);
+  stmt.clearActiveCompaniesOfGuild.run(guildId);   // gemerkte aktive Firma wäre sonst verwaist
 }
 function insertStaff({ companyId, kind, userId = '', name = '', now = Date.now() }) {
   return stmt.insertStaff.get(Number(companyId), kind, String(userId), name, now);
@@ -4240,7 +4236,7 @@ module.exports = {
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
-  insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
+  insertCompany, getCompany, openCompanies, saveCompany, lastClosedCompany,
   openCompaniesOf, getActiveCompany, setActiveCompany, clearActiveCompany,
   deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,

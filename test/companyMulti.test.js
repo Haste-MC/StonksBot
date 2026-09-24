@@ -124,6 +124,27 @@ function setLevel(G, U, lvl) {
       `${db.getCompany(a).kasse} / ${db.getCompany(b).kasse} (vorher ${kasseB})`);
   }
 
+  console.log('--- Gleichzeitige Gründung (§7, Sperre statt Unique-Index) ---');
+  {
+    const G = `MULTI_F${Date.now()}`;
+    const U = 'f1';
+    konten.set(U, 50_000_000);
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
+    // Level bleibt 0 → Limit ist 1: ohne Sperre würden beide `await getBalance`
+    // denselben (noch leeren) Stand lesen und beide gründen.
+    const [r1, r2] = await Promise.all([
+      company.found(G, U, 'kiosk', 'Erste', t0),
+      company.found(G, U, 'kiosk', 'Zweite', t0),
+    ]);
+    const oks = [r1, r2].filter((r) => r.ok);
+    const fails = [r1, r2].filter((r) => !r.ok);
+    check('genau eine Gründung glückt', oks.length === 1, JSON.stringify([r1, r2]));
+    check('die andere scheitert an der Sperre oder (falls sie erst danach lief) am Limit',
+      fails.length === 1 && ['busy', 'limit'].includes(fails[0].reason), JSON.stringify(fails));
+    check('companiesOf zählt genau eine', company.companiesOf(G, U).length === 1,
+      String(company.companiesOf(G, U).length));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

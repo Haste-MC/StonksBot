@@ -2837,7 +2837,11 @@ const modals = {
     const note = r.ok
       ? `🏢 **${r.company.name}** ist gegründet – Gründung ${money(symbol, r.branch.price)} + Erstausstattung ${money(symbol, r.starter.cost)}: `
         + `das Lager ist voll (${r.starter.units} ${r.branch.ware.emoji} ${r.branch.ware.name}). Stell Personal ein – ohne Leute läuft nur der Notbetrieb.`
-      : { name: '❌ Der Name muss 2–32 Zeichen haben, ohne @.', already: 'ℹ️ Du hast schon eine Firma.',
+      : { name: '❌ Der Name muss 2–32 Zeichen haben, ohne @.',
+        limit: `🏢 Du führst schon **${r.have} von ${r.max}** Firmen. `
+          + (r.nextAt ? `Die nächste gibt es ab **Level ${r.nextAt}**.` : 'Mehr als 5 Firmen gehen nicht.'),
+        busy: '⏳ Einen Moment – die Gründung läuft schon.',
+        insert: '❌ Die Firma konnte nicht angelegt werden – nichts ist passiert.',
         funds: `💸 Dafür fehlen ${money(symbol, (r.needed ?? 0) - (r.have ?? 0))}.`,
         unknown_branch: '❌ Diese Branche gibt es nicht.', payment: '❌ Die Buchung ist fehlgeschlagen – nichts ist passiert.' }[r.reason]
         ?? '❌ Das ging nicht.';

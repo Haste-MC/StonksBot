@@ -230,6 +230,18 @@ function cleanName(name) {
 // ------------------------------------------------------------------ Gründen
 
 /**
+ * Aktionen, die gerade laufen (§7). Die Sperre wird synchron vor dem ersten
+ * `await` gesetzt: Ein zweiter Klick, der während eines `await` eintrifft,
+ * darf nicht denselben (noch alten) Stand lesen und ein zweites Mal zuschlagen
+ * – das wäre z. B. eine Gründung ohne erneute Limit-Prüfung oder ein Kauf ohne
+ * erneute Guthabenprüfung. `found` schlüsselt über `${guildId}:${userId}`
+ * (es gibt noch keine Firmen-ID), `upgrade`/`buyExtra` über die Firmen-ID –
+ * beide Schlüsselarten leben nebeneinander im selben Set, sie können nicht
+ * kollidieren.
+ */
+const inFlight = new Set();
+
+/**
  * Gründet eine Firma. Zeile zuerst (§7), dann EINE Buchung von Preis plus
  * Erstausstattung (§9: Gründung und Lager sind ein Kauf); scheitert die
  * Buchung, wird die Zeile wieder gelöscht. Die Firma kommt mit vollem Lager
@@ -240,47 +252,58 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
   if (!b) return { ok: false, reason: 'unknown_branch' };
   const clean = cleanName(name);
   if (!clean) return { ok: false, reason: 'name' };
-  // Stück 4: mehrere Firmen, aber nur so viele, wie das Level hergibt.
-  const open = companiesOf(guildId, userId);
-  const level = require('./perks').levelOf(guildId, userId);
-  const max = maxCompanies(level);
-  if (open.length >= max) {
-    const nextAt = max < data.COMPANIES_MAX ? max * data.COMPANIES_PER_LEVEL : null;
-    return { ok: false, reason: 'limit', have: open.length, max, level, nextAt };
-  }
-
-  const starter = starterOf(b);
-  const total = b.price + starter.cost;
-  const balance = await getBalance(guildId, userId);
-  if (balance.total < total) {
-    return { ok: false, reason: 'funds', needed: total, have: balance.total, starter };
-  }
-
-  let row;
+  // Sperre vor der Limit-Prüfung, synchron vor dem ersten `await`: zwei
+  // Gründungen desselben Spielers kurz hintereinander dürfen nicht beide am
+  // selben (noch alten) Limit-Stand vorbei ins Ziel laufen (früher hielt das
+  // der inzwischen entfernte Unique-Index `idx_companies_owner_open`).
+  const lockKey = `${guildId}:${userId}`;
+  if (inFlight.has(lockKey)) return { ok: false, reason: 'busy' };
+  inFlight.add(lockKey);
   try {
-    row = db.insertCompany({ guildId, ownerId: userId, branch: b.id, name: clean, now,
-      stock: starter.units, stockCost: starter.cost });
-  } catch (err) {
-    // Die Zeile konnte nicht angelegt werden (Datenbankfehler) – nichts gebucht.
-    return { ok: false, reason: 'insert', error: err.message };
-  }
-
-  let newBalance;
-  try {
-    if (balance.cash < total) {
-      await unb.withdrawFromBank(guildId, userId, total - balance.cash, `Gründung: ${clean}`);
+    // Stück 4: mehrere Firmen, aber nur so viele, wie das Level hergibt.
+    const open = companiesOf(guildId, userId);
+    const level = require('./perks').levelOf(guildId, userId);
+    const max = maxCompanies(level);
+    if (open.length >= max) {
+      const nextAt = max < data.COMPANIES_MAX ? max * data.COMPANIES_PER_LEVEL : null;
+      return { ok: false, reason: 'limit', have: open.length, max, level, nextAt };
     }
-    newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
-      { kind: 'company' });
-  } catch (err) {
-    db.deleteCompany(row.id);
-    return { ok: false, reason: 'payment', error: err.message };
+
+    const starter = starterOf(b);
+    const total = b.price + starter.cost;
+    const balance = await getBalance(guildId, userId);
+    if (balance.total < total) {
+      return { ok: false, reason: 'funds', needed: total, have: balance.total, starter };
+    }
+
+    let row;
+    try {
+      row = db.insertCompany({ guildId, ownerId: userId, branch: b.id, name: clean, now,
+        stock: starter.units, stockCost: starter.cost });
+    } catch (err) {
+      // Die Zeile konnte nicht angelegt werden (Datenbankfehler) – nichts gebucht.
+      return { ok: false, reason: 'insert', error: err.message };
+    }
+
+    let newBalance;
+    try {
+      if (balance.cash < total) {
+        await unb.withdrawFromBank(guildId, userId, total - balance.cash, `Gründung: ${clean}`);
+      }
+      newBalance = await changeCash(guildId, userId, -total, `Gründung: ${clean}`,
+        { kind: 'company' });
+    } catch (err) {
+      db.deleteCompany(row.id);
+      return { ok: false, reason: 'payment', error: err.message };
+    }
+    // Erst nach der Buchung, außerhalb des try: ein Fehler in der Nachfrage-Messung
+    // darf eine bezahlte Firma nie wieder löschen.
+    noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
+    setActive(guildId, userId, row.id, now);      // die frisch gegründete ist die gemeinte
+    return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
+  } finally {
+    inFlight.delete(lockKey);
   }
-  // Erst nach der Buchung, außerhalb des try: ein Fehler in der Nachfrage-Messung
-  // darf eine bezahlte Firma nie wieder löschen.
-  noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
-  setActive(guildId, userId, row.id, now);      // die frisch gegründete ist die gemeinte
-  return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
 }
 
 // ----------------------------------------------------------------- Personal
@@ -294,6 +317,8 @@ function ownerContext(guildId, userId, companyId = null) {
 
 /** Einen NPC einstellen, solange ein Platz frei ist – nach Abrechnung (Kündigungen zuerst). */
 function hireNpc(guildId, userId, now = Date.now(), random = Math.random, companyId = null) {
+  // `Math.random` hier ist der Abrechnungswürfel von `fresh`, nicht der Namenswürfel
+  // `random` unten – zwei verschiedene Würfel, absichtlich nicht zusammengelegt.
   const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const eff = effectiveOf(ctx.company, ctx.branch);
@@ -306,6 +331,7 @@ function hireNpc(guildId, userId, now = Date.now(), random = Math.random, compan
 
 /** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. Rechnet vorher ab. */
 function fire(guildId, userId, staffId, now = Date.now(), companyId = null) {
+  // `Math.random` hier ist nur der Abrechnungswürfel von `fresh` (wie bei `hireNpc`).
   const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const s = db.staffById(staffId);
@@ -1378,16 +1404,6 @@ async function pay(guildId, userId, price, reason) {
     return { ok: false, reason: 'payment', error: err.message };
   }
 }
-
-/**
- * Firmen, für die gerade ein Kauf läuft (§7). Die Sperre wird synchron vor dem
- * ersten `await` gesetzt: Ein zweiter Klick, der während `getBalance` eintrifft,
- * darf nicht die schon erhöhte Stufe lesen und die übernächste kaufen – das
- * wäre ein Kauf ohne Guthabenprüfung, und die bedingte Rücknahme des ersten
- * Kaufs würde bei einem Buchungsfehler ins Leere laufen. Die bedingte
- * Schreibung bleibt als zweite Verteidigungslinie.
- */
-const inFlight = new Set();
 
 /** Die nächste Stufe der Leiter kaufen. Stufe zuerst (§7), dann buchen; bei Fehler zurück. */
 async function upgrade(guildId, userId, now = Date.now(), companyId = null) {

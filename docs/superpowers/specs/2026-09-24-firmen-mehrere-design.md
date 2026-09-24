@@ -159,3 +159,14 @@ unverändert; Entnahme desselben Betrags → unverändert.
   nennt die Zahlen, damit klar ist, wie stark Firmen die Rangliste bewegen.
 - Docs: §15 (Firmenwert-Formel, gemessene Größenordnung, Limit am Level),
   Patchnotes 1.38.0, Addendum in der 3c-Spec.
+
+## Nachtrag
+
+Der alte Unique-Index `idx_companies_owner_open` („höchstens eine offene
+Firma je Spieler") ist mit diesem Stück weg (`DROP INDEX IF EXISTS` in
+`src/db.js`). Das ist kein Rückweg: Sobald ein Spieler zwei offene Firmen
+hat, schlägt ein Rollback auf einen älteren Commit beim Start fehl, weil
+dessen `CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open` gegen
+die vorhandenen Duplikate läuft. Ein Rollback muss also vorher die
+überzähligen Firmen der betroffenen Spieler schließen (oder löschen), sonst
+bricht der Serverstart der alten Version an der Index-Erstellung ab.
