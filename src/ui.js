@@ -2834,7 +2834,10 @@ async function buildDecisionView({ guildId, userId }) {
   const isMusic = open.platform === 'music';
   const isCompany = open.platform === 'company';
   const platform = !isMusic && !isCompany && open.platform ? creator.platform(open.platform) : null;
-  const firma = isCompany ? require('./company').ownCompany(guildId, userId) : null;
+  // Stück 4: der Vorfall hängt an einer bestimmten Firma (`ref_id`); ältere
+  // Zeilen ohne ID zeigen weiter die aktive Firma.
+  const firma = isCompany
+    ? require('./company').ownCompany(guildId, userId, open.ref_id || null) : null;
 
   const embed = new EmbedBuilder()
     .setTitle(`${isMusic ? '🎵 ' : isCompany ? '🏢 ' : ''}${d.emoji} ${d.title}`)

@@ -96,8 +96,11 @@ const user = () => `u${++n}`;
       r.company.kasse === 0 && Math.abs(r.company.auslastung - data.AUSLASTUNG_MIN) < 1e-9);
     check('ownCompany findet sie', company.ownCompany(G, U)?.name === 'Kaffeeklatsch');
 
+    // Stück 4: mehrere Firmen sind erlaubt – aber erst ab Level 10 (hier: Level 0).
     r = await company.found(G, U, 'kiosk', 'Zweite', t0);
-    check('zweite Firma abgelehnt', r.ok === false && r.reason === 'already');
+    check('zweite Firma am Level-Limit abgelehnt',
+      r.ok === false && r.reason === 'limit' && r.have === 1 && r.max === 1 && r.nextAt === 10,
+      JSON.stringify(r));
     const V = user(); funds(V, 1_000);
     r = await company.found(G, V, 'kiosk', 'Arm', t0);
     check('zu wenig Geld abgelehnt', r.ok === false && r.reason === 'funds' && company.ownCompany(G, V) === null);

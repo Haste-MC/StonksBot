@@ -572,8 +572,22 @@ db.exec(`
     trade_profit       INTEGER NOT NULL DEFAULT 0,   -- verdiente Spanne gesamt
     last_payout        INTEGER NOT NULL DEFAULT 0    -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
-    ON companies (guild_id, owner_id) WHERE status = 'open';
+  -- Stück 4: mehrere offene Firmen je Spieler. Der frühere eindeutige Index
+  -- (eine offene Firma je Inhaber) fällt deshalb weg; gesucht wird weiter
+  -- nach (Server, Inhaber, Status).
+  DROP INDEX IF EXISTS idx_companies_owner_open;
+  CREATE INDEX IF NOT EXISTS idx_companies_owner
+    ON companies (guild_id, owner_id, status);
+  -- Auf welche Firma sich eine Aktion ohne ausdrückliche ID bezieht: die
+  -- zuletzt gewählte oder gegründete. Reiner Komfort – fehlt die Zeile oder
+  -- zeigt sie auf eine geschlossene Firma, gilt die älteste offene.
+  CREATE TABLE IF NOT EXISTS company_active (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    company_id INTEGER NOT NULL,
+    at         INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
 `);
 // `companies` ist auf diesem Branch schon vorher live gelaufen – lokale
 // Datenbanken haben die Tabelle also unter Umständen noch ohne `closed_why`.
@@ -882,11 +896,18 @@ db.exec(`
     effect     TEXT    NOT NULL DEFAULT '', -- angewandte Wirkung als JSON
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
-    decided_at INTEGER
+    decided_at INTEGER,
+    ref_id     INTEGER NOT NULL DEFAULT 0  -- woran der Vorfall hängt (Stück 4: die Firma)
   );
   CREATE INDEX IF NOT EXISTS idx_creator_events
     ON creator_events (guild_id, user_id, status);
 `);
+// Stück 4: Ein Firmen-Vorfall gehört zu EINER Firma – seit es mehrere je
+// Spieler gibt, reicht die User-ID nicht mehr. Spalte nachrüsten statt
+// Migration (wie überall hier).
+if (!db.prepare('PRAGMA table_info(creator_events)').all().some((c) => c.name === 'ref_id')) {
+  db.exec('ALTER TABLE creator_events ADD COLUMN ref_id INTEGER NOT NULL DEFAULT 0');
+}
 
 // Sponsorenverträge: Eine Marke zahlt für eine vereinbarte Zahl von Beiträgen
 // innerhalb einer Frist. Wer liefert, kassiert; wer die Frist reißt, zahlt
@@ -1844,7 +1865,18 @@ const stmt = {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING *`),
   getCompany: db.prepare('SELECT * FROM companies WHERE id = ?'),
   getOpenCompany: db.prepare(
-    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'`),
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'
+     ORDER BY founded_at, id LIMIT 1`),
+  openCompaniesOf: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'
+     ORDER BY founded_at, id`),
+  getActiveCompany: db.prepare(
+    'SELECT * FROM company_active WHERE guild_id = ? AND user_id = ?'),
+  setActiveCompany: db.prepare(
+    `INSERT INTO company_active (guild_id, user_id, company_id, at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET company_id = excluded.company_id, at = excluded.at`),
+  clearActiveCompany: db.prepare(
+    'DELETE FROM company_active WHERE guild_id = ? AND user_id = ?'),
   openCompanies: db.prepare(
     `SELECT * FROM companies WHERE guild_id = ? AND status = 'open' ORDER BY founded_at`),
   saveCompany: db.prepare(
@@ -2152,8 +2184,8 @@ const stmt = {
 
   // --- Vorfälle mit Entscheidung ---
   insertEvent: db.prepare(
-    `INSERT INTO creator_events (guild_id, user_id, kind, platform, status, created_at, expires_at)
-     VALUES (?, ?, ?, ?, 'open', ?, ?) RETURNING *`),
+    `INSERT INTO creator_events (guild_id, user_id, kind, platform, status, created_at, expires_at, ref_id)
+     VALUES (?, ?, ?, ?, 'open', ?, ?, ?) RETURNING *`),
   getEvent: db.prepare('SELECT * FROM creator_events WHERE guild_id = ? AND id = ?'),
   openEvent: db.prepare(
     `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status = 'open'
@@ -3597,8 +3629,9 @@ function topCreatorTotal(guildId, limit = 10) {
 // ------------------------------------------------- Vorfälle (Entscheidungen)
 
 /** Legt einen offenen Vorfall an. */
-function insertEvent({ guildId, userId, kind, platform = '', createdAt, expiresAt }) {
-  return stmt.insertEvent.get(guildId, String(userId), kind, platform, createdAt, expiresAt);
+function insertEvent({ guildId, userId, kind, platform = '', createdAt, expiresAt, refId = 0 }) {
+  return stmt.insertEvent.get(guildId, String(userId), kind, platform, createdAt, expiresAt,
+    Number(refId) || 0);
 }
 
 function getEvent(guildId, id) {
@@ -3949,6 +3982,26 @@ function getCompany(id) { return stmt.getCompany.get(Number(id)) ?? null; }
 function getOpenCompany(guildId, ownerId) {
   return stmt.getOpenCompany.get(guildId, String(ownerId)) ?? null;
 }
+
+/** Alle offenen Firmen eines Spielers – älteste zuerst (Stück 4). */
+function openCompaniesOf(guildId, ownerId) {
+  return stmt.openCompaniesOf.all(guildId, String(ownerId));
+}
+
+/** Die gemerkte Firma eines Spielers, oder null. */
+function getActiveCompany(guildId, userId) {
+  return stmt.getActiveCompany.get(guildId, String(userId)) ?? null;
+}
+
+/** Merkt sich, welche Firma zuletzt gewählt oder gegründet wurde. */
+function setActiveCompany(guildId, userId, companyId, at = Date.now()) {
+  stmt.setActiveCompany.run(guildId, String(userId), Number(companyId), at);
+}
+
+/** Vergisst die gemerkte Firma (z. B. weil sie geschlossen wurde). */
+function clearActiveCompany(guildId, userId) {
+  stmt.clearActiveCompany.run(guildId, String(userId));
+}
 function openCompanies(guildId) { return stmt.openCompanies.all(guildId); }
 /** Schreibt die Firma in EINER Anweisung fort. */
 function saveCompany(c) {
@@ -4188,6 +4241,7 @@ module.exports = {
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
   insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
+  openCompaniesOf, getActiveCompany, setActiveCompany, clearActiveCompany,
   deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,

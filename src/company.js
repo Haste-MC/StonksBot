@@ -54,8 +54,48 @@ function dayKey(now) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-/** Die offene Firma eines Spielers, oder null. */
-function ownCompany(guildId, userId) { return db.getOpenCompany(guildId, userId); }
+/**
+ * Wie viele Firmen ein Konto dieses Levels führen darf – rein, ohne Datenbank.
+ * Level 0…9 eine, ab 10 zwei … gedeckelt auf COMPANIES_MAX.
+ */
+function maxCompanies(level) {
+  return Math.max(1, Math.min(data.COMPANIES_MAX,
+    1 + Math.floor((Number(level) || 0) / data.COMPANIES_PER_LEVEL)));
+}
+
+/** Alle offenen Firmen eines Spielers, älteste zuerst. */
+function companiesOf(guildId, userId) { return db.openCompaniesOf(guildId, userId); }
+
+/**
+ * Die Firma, auf die sich eine Aktion ohne ausdrückliche ID bezieht: die
+ * zuletzt gewählte oder gegründete – sonst die älteste offene.
+ */
+function activeCompanyId(guildId, userId) {
+  const row = db.getActiveCompany(guildId, userId);
+  const open = companiesOf(guildId, userId);
+  if (row && open.some((c) => c.id === row.company_id)) return row.company_id;
+  return open[0]?.id ?? null;
+}
+
+/** Merkt sich die Firma, auf die sich die nächsten Aktionen beziehen. */
+function setActive(guildId, userId, companyId, now = Date.now()) {
+  if (companyId) db.setActiveCompany(guildId, userId, Number(companyId), now);
+}
+
+/**
+ * Die gemeinte offene Firma eines Spielers, oder null. Mit `companyId` wird
+ * die Zeile geprüft (Server, Inhaber, offen) – so kann keine fremde Firma
+ * über eine geratene ID bedient werden; ohne ID gilt die aktive.
+ */
+function ownCompany(guildId, userId, companyId = null) {
+  if (companyId === null || companyId === undefined || companyId === '') {
+    const id = activeCompanyId(guildId, userId);
+    return id === null ? null : db.getCompany(id) ?? null;
+  }
+  const c = db.getCompany(Number(companyId));
+  if (!c || c.guild_id !== guildId || c.owner_id !== String(userId) || c.status !== 'open') return null;
+  return c;
+}
 
 /**
  * Was Stufe und Extras aus einer Branche machen: Plätze und Umsatzfaktor.
@@ -200,7 +240,14 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
   if (!b) return { ok: false, reason: 'unknown_branch' };
   const clean = cleanName(name);
   if (!clean) return { ok: false, reason: 'name' };
-  if (db.getOpenCompany(guildId, userId)) return { ok: false, reason: 'already' };
+  // Stück 4: mehrere Firmen, aber nur so viele, wie das Level hergibt.
+  const open = companiesOf(guildId, userId);
+  const level = require('./perks').levelOf(guildId, userId);
+  const max = maxCompanies(level);
+  if (open.length >= max) {
+    const nextAt = max < data.COMPANIES_MAX ? max * data.COMPANIES_PER_LEVEL : null;
+    return { ok: false, reason: 'limit', have: open.length, max, level, nextAt };
+  }
 
   const starter = starterOf(b);
   const total = b.price + starter.cost;
@@ -213,9 +260,9 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
   try {
     row = db.insertCompany({ guildId, ownerId: userId, branch: b.id, name: clean, now,
       stock: starter.units, stockCost: starter.cost });
-  } catch {
-    // Eindeutiger Index: zwei Gründungen kurz hintereinander – die zweite verliert.
-    return { ok: false, reason: 'already' };
+  } catch (err) {
+    // Die Zeile konnte nicht angelegt werden (Datenbankfehler) – nichts gebucht.
+    return { ok: false, reason: 'insert', error: err.message };
   }
 
   let newBalance;
@@ -232,21 +279,22 @@ async function found(guildId, userId, branchId, name, now = Date.now()) {
   // Erst nach der Buchung, außerhalb des try: ein Fehler in der Nachfrage-Messung
   // darf eine bezahlte Firma nie wieder löschen.
   noteDemand(guildId, b, starter.units, now);   // die Erstausstattung ist ein Kauf
+  setActive(guildId, userId, row.id, now);      // die frisch gegründete ist die gemeinte
   return { ok: true, company: row, branch: b, balance: newBalance, starter, total };
 }
 
 // ----------------------------------------------------------------- Personal
 
 /** Firma des Inhabers samt Branche und Personal – der Einstieg jeder Aktion. */
-function ownerContext(guildId, userId) {
-  const c = db.getOpenCompany(guildId, userId);
+function ownerContext(guildId, userId, companyId = null) {
+  const c = ownCompany(guildId, userId, companyId);
   if (!c) return null;
   return { company: c, branch: branch(c.branch), staff: db.companyStaff(c.id) };
 }
 
 /** Einen NPC einstellen, solange ein Platz frei ist – nach Abrechnung (Kündigungen zuerst). */
-function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
-  const ctx = fresh(guildId, userId, now);
+function hireNpc(guildId, userId, now = Date.now(), random = Math.random, companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const eff = effectiveOf(ctx.company, ctx.branch);
   if (ctx.staff.length >= eff.slots) return { ok: false, reason: 'full' };
@@ -257,8 +305,8 @@ function hireNpc(guildId, userId, now = Date.now(), random = Math.random) {
 }
 
 /** Entlassen – NPC oder Spieler; bei Spielern auch die Anstellung lösen. Rechnet vorher ab. */
-function fire(guildId, userId, staffId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+function fire(guildId, userId, staffId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const s = db.staffById(staffId);
   if (!s || s.company_id !== ctx.company.id) return { ok: false, reason: 'not_found' };
@@ -426,6 +474,11 @@ function closeCompany(guildId, companyId, now = Date.now(), why = 'closed') {
   db.deleteOffersOfCompany(c.id);
   db.deleteShareOffersOfCompany(c.id);      // Anteile bleiben (Auszahlung wird geteilt), Angebote nicht
   db.clearEmploymentByJob(guildId, companyJobId(c.id));
+  // Zeigte die gemerkte Firma hierher, ist sie hinfällig – die nächste Aktion
+  // ohne ID nimmt dann wieder die älteste offene (Stück 4).
+  if (db.getActiveCompany(guildId, c.owner_id)?.company_id === c.id) {
+    db.clearActiveCompany(guildId, c.owner_id);
+  }
   return { ...c, status: 'closed', closed_at: now, closed_why: why, why };
 }
 
@@ -557,7 +610,8 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   // Ein Vorfall je Abrechnung – über die nachgeholten Tage, nicht je Tag (§4).
   // Gewürfelt mit `now`, nicht mit dem Abrechnungstag: die 24-h-Frist läuft ab jetzt.
   out.incident = require('./decisions').roll(guildId, c.owner_id,
-    { groesse: groesse(cur, extraIds), days, npc: staff.filter((s) => s.kind === 'npc').length },
+    { groesse: groesse(cur, extraIds), days, npc: staff.filter((s) => s.kind === 'npc').length,
+      companyId: c.id },
     now, random, 'company');
   return out;
 }
@@ -660,8 +714,8 @@ function useTime(guildId, userId, cost, now) {
  * Firma des Inhabers nach Abrechnung – oder null (auch wenn gerade insolvent
  * geworden). `random` ist der Würfel der Abrechnung (Tests).
  */
-function fresh(guildId, userId, now, random = Math.random) {
-  const c = db.getOpenCompany(guildId, userId);
+function fresh(guildId, userId, now, random = Math.random, companyId = null) {
+  const c = ownCompany(guildId, userId, companyId);
   if (!c) return null;
   settle(c.id, now, random);
   const after = db.getCompany(c.id);
@@ -670,8 +724,8 @@ function fresh(guildId, userId, now, random = Math.random) {
 }
 
 /** Werbung: kostet 5 % des Gründungspreises aus der Kasse und Zeit; 3 Tage +0,25 aufs Ziel. */
-async function advertise(guildId, userId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function advertise(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   // Sperre vor Zeit und Kasse: eine abgelehnte Aktion kostet keine Stunden.
@@ -688,8 +742,8 @@ async function advertise(guildId, userId, now = Date.now()) {
 }
 
 /** Selbst anpacken: eine Schicht als Schichtleiter, ohne Lohn, höchstens 4 je Tag. */
-async function pitchIn(guildId, userId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function pitchIn(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   if (now < (c.closed_until ?? 0)) return { ok: false, reason: 'locked', remainingMs: c.closed_until - now };
@@ -714,8 +768,8 @@ async function pitchIn(guildId, userId, now = Date.now()) {
  * `async`, damit der Handler-Aufruf wie `deposit`/`withdraw` aussieht; es gibt
  * kein `await` – gewollt: Kassenzustand, keine Buchung über `unb`.
  */
-async function buyStock(guildId, userId, units, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function buyStock(guildId, userId, units, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   const eff = effectiveOf(c, b);
@@ -740,8 +794,8 @@ async function buyStock(guildId, userId, units, now = Date.now()) {
  * (unb.changeCash vergibt sie je Buchung). XP für Firmengewinn gibt es erst,
  * wenn Stück 2 Kapital und Gewinn trennt.
  */
-async function withdraw(guildId, userId, amount, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function withdraw(guildId, userId, amount, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
   const value = Math.floor(Number(amount) || 0);
@@ -771,8 +825,8 @@ async function withdraw(guildId, userId, amount, now = Date.now()) {
  * Kapital einzahlen – von Bargeld (notfalls Bank), setzt die Minus-Uhr zurück.
  * Umbuchung wie die Entnahme: keine Erfahrung (sonst XP-Schleife über die Kasse).
  */
-async function deposit(guildId, userId, amount, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function deposit(guildId, userId, amount, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
   const value = Math.floor(Number(amount) || 0);
@@ -797,10 +851,10 @@ async function deposit(guildId, userId, amount, now = Date.now()) {
 }
 
 /** Rang ±1, geklemmt auf 0…2; bei Spielern auch employment.rank. */
-function promote(guildId, userId, staffId, delta, now = Date.now()) {
+function promote(guildId, userId, staffId, delta, now = Date.now(), companyId = null) {
   const step = delta > 0 ? 1 : delta < 0 ? -1 : 0;
   if (!step) return { ok: false, reason: 'delta' };
-  const ctx = fresh(guildId, userId, now);
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const s = db.staffById(staffId);
   if (!s || s.company_id !== ctx.company.id) return { ok: false, reason: 'not_found' };
@@ -816,8 +870,8 @@ function promote(guildId, userId, staffId, delta, now = Date.now()) {
  * 'company'`, nicht 'job': Eine Prämie ist keine Schicht und darf keinen
  * Schicht-Erfolg auslösen (activity.js ignoriert unbekannte Kennungen).
  */
-async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function bonus(guildId, userId, staffId, amount, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
   const s = db.staffById(staffId);
@@ -845,8 +899,8 @@ async function bonus(guildId, userId, staffId, amount, now = Date.now()) {
  * zuerst (§7) – schlägt die Auszahlung danach fehl, gibt es niemanden mehr, dem man das
  * Geld zurückbuchen könnte, also bleibt die Firma zu und ein Admin muss von Hand nachbuchen.
  */
-async function close(guildId, userId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function close(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const c = ctx.company;
   const payout = Math.max(0, Math.round(c.kasse + (c.stock_cost ?? 0)));
@@ -873,8 +927,8 @@ async function close(guildId, userId, now = Date.now()) {
  * Ohne Abrechnung (`ownerContext`, nicht `fresh`): der Aufrufer steht
  * mitten in einem Vorfall, die Firma ist schon abgerechnet.
  */
-async function sell(guildId, userId, now = Date.now()) {
-  const ctx = ownerContext(guildId, userId);
+async function sell(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = ownerContext(guildId, userId, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   const extraIds = db.companyExtras(c.id);
@@ -935,8 +989,8 @@ function offersOf(guildId, companyId) {
  * (der Anteil bleibt gespeichert, nur der Schalter kippt). Ohne Abrechnung
  * (`ownerContext`): ein Preisschild kostet weder Zeit noch Geld.
  */
-function setOffer(guildId, userId, branchId, share, now = Date.now()) {
-  const ctx = ownerContext(guildId, userId);
+function setOffer(guildId, userId, branchId, share, now = Date.now(), companyId = null) {
+  const ctx = ownerContext(guildId, userId, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   if (!isTrader(ctx.branch)) return { ok: false, reason: 'not_trader' };
   const targets = branchId === 'alle' ? data.BRANCHES.map((b) => b.id) : [String(branchId)];
@@ -976,8 +1030,8 @@ function offersFor(guildId, buyerBranchId, now = Date.now(), exceptId = null) {
  * ganze Zahl oder 'voll' (so viel wie Lager und Tageskapazität hergeben).
  * `async` wie `buyStock`: kein `await`, gewollt.
  */
-async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now = Date.now()) {
-  const ctx = fresh(guildId, buyerUserId, now);
+async function buyFromTrader(guildId, buyerUserId, traderCompanyId, units, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, buyerUserId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   const traderId = Number(traderCompanyId);
@@ -1218,8 +1272,8 @@ async function claimDividends(guildId, userId) {
 // ------------------------------------------------------------------ Anzeige
 
 /** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
-function status(guildId, userId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+function status(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return null;
   const { company: c, branch: b, staff } = ctx;
   const day = dayKey(now);
@@ -1336,8 +1390,8 @@ async function pay(guildId, userId, price, reason) {
 const inFlight = new Set();
 
 /** Die nächste Stufe der Leiter kaufen. Stufe zuerst (§7), dann buchen; bei Fehler zurück. */
-async function upgrade(guildId, userId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function upgrade(guildId, userId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
@@ -1367,8 +1421,8 @@ async function upgrade(guildId, userId, now = Date.now()) {
 }
 
 /** Ein Extra kaufen – jedes genau einmal, manche erst ab einer Stufe. */
-async function buyExtra(guildId, userId, extraId, now = Date.now()) {
-  const ctx = fresh(guildId, userId, now);
+async function buyExtra(guildId, userId, extraId, now = Date.now(), companyId = null) {
+  const ctx = fresh(guildId, userId, now, Math.random, companyId);
   if (!ctx) return { ok: false, reason: 'no_company' };
   const { company: c, branch: b } = ctx;
   if (inFlight.has(c.id)) return { ok: false, reason: 'busy' };
@@ -1405,6 +1459,7 @@ module.exports = {
   BRANCHES: data.BRANCHES, RANKS: data.RANKS, JOB_PREFIX, DAY_MS,
   MAX_STUFE: data.MAX_STUFE, CONFIRM_ABOVE: data.CONFIRM_ABOVE,
   branch, rankOf, companyJobId, companyIdOfJob, dayKey, ownCompany, ownerContext,
+  maxCompanies, companiesOf, activeCompanyId, setActive,
   ceilingOf, effectiveOf, nextStufe, fullCeilingOf, cleanName, found, hireNpc, fire,
   wareUnit, wareOf, capacityOf, starterOf, consumeOne, buyStock,
   tradeQuote, isTrader, tradeCapacity, offersOf, setOffer, offersFor, buyFromTrader,
