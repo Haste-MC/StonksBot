@@ -563,6 +563,15 @@ function settle(companyId, now = Date.now(), random = Math.random) {
   for (let d = 0; d < days; d++) {
     tag += DAY_MS;
 
+    // Das Betriebsergebnis dieses Tages – die Grundlage des Ertragswerts
+    // (Firmenwert, Stück 4). Gezählt wird nur, was der BETRIEB bewegt:
+    // NPC-Umsatz, Löhne, Ware (ad hoc und Entnahme zum Ø-Preis) und die
+    // Kassenwirkung der Ereignisse. Einzahlungen, Entnahmen, Anteilskäufe und
+    // der Großhandel bleiben draußen – sonst ließe sich der Ertragswert durch
+    // Hin- und Herbuchen hochspielen (§3: keine neue Geldquelle, und der
+    // Firmenwert ist nur eine Anzeige über gemessenem Betrieb).
+    let tagUmsatz = 0, tagLohn = 0, tagWare = 0, tagEreignis = 0;
+
     // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
     //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
     //    genau zum Tick gekauft wurde.
@@ -579,6 +588,7 @@ function settle(companyId, now = Date.now(), random = Math.random) {
       const kasse = r.done.kasse + r.done.refund;
       cur.news = pushNews(cur, tag, text, kasse);
       out.news.push({ at: tag, text, kasse });
+      tagEreignis += kasse;          // vorzeichenbehaftet: Schaden negativ, Erstattung positiv
     }
 
     // 3. Faktoren des Tages und Schließung.
@@ -590,6 +600,9 @@ function settle(companyId, now = Date.now(), random = Math.random) {
     //    Jede Schicht verbraucht eine Einheit Ware (Lager, sonst ad hoc von der
     //    Kasse) – vor der Umsatzbuchung, damit der Tag vollständig ist. Bei
     //    geschlossenem Betrieb gibt es keine Schicht und keinen Verbrauch.
+    // Der Lagerwert vor den Schichten: die Entnahme kostet nicht die Kasse,
+    // aber sehr wohl den Betrieb (Einstand der verbrauchten Einheiten).
+    const lagerVor = cur.stock_cost ?? 0;
     for (const s of staff) {
       if (s.kind !== 'npc') continue;
       const f = rankOf(s.rank).factor;
@@ -600,14 +613,23 @@ function settle(companyId, now = Date.now(), random = Math.random) {
           const v = consumeOne(cur, w);
           cur = v.company;
           out.ware.units++;
-          if (v.adhoc) { out.ware.adhoc++; out.ware.cost += v.cost; }
+          if (v.adhoc) { out.ware.adhoc++; out.ware.cost += v.cost; tagWare += v.cost; }
         }
       }
       cur.kasse += data.NPC_SHIFTS * (umsatz - lohn);
       out.umsatz += data.NPC_SHIFTS * umsatz;
       out.loehne += data.NPC_SHIFTS * lohn;
+      tagUmsatz += data.NPC_SHIFTS * umsatz;
+      tagLohn += data.NPC_SHIFTS * lohn;
       if (!zu) s.shifts += data.NPC_SHIFTS;
     }
+    tagWare += lagerVor - (cur.stock_cost ?? 0);
+
+    // Der gleitende Tagesgewinn (EMA über 7 Tage, wie die Nachfrage an der
+    // Börse): profit_ema = profit_ema × 6/7 + tagesgewinn / 7. Vor der
+    // Minus-Uhr, damit auch der letzte Tag einer Insolvenz noch zählt.
+    const tagesgewinn = tagUmsatz - tagLohn - tagWare + tagEreignis;
+    cur.profit_ema = (cur.profit_ema ?? 0) * 6 / 7 + tagesgewinn / 7;
     // Unbezahlt heißt: Am Tagesende ist die Kasse im Minus – für alle gleich.
     for (const s of staff) if (s.kind === 'npc') s.unpaid_days = cur.kasse < 0 ? s.unpaid_days + 1 : 0;
     const quitting = staff.filter((s) => s.kind === 'npc' && s.unpaid_days >= data.NPC_QUIT_AFTER_UNPAID);
@@ -1295,6 +1317,74 @@ async function claimDividends(guildId, userId) {
   }
 }
 
+// --------------------------------------------------------------- Firmenwert
+//
+// Stück 4, Teil 2: Eine Firma ist Besitz wie ein Auto oder ein Depot – ohne
+// sie war die Vermögensrechnung blind für den größten Posten, den ein Spieler
+// haben kann. Der Wert ist eine reine ANZEIGE über bestehendem Zustand:
+//
+//   Substanz = Investition (Stufen und Extras, ohne Gründungsgebühr – so
+//              rechnet auch der Schließen-Dialog) + Kasse + Lager zum Einstand
+//   Ertrag   = max(0, gemessener Tagesgewinn × ERTRAG_FAKTOR)
+//
+// Kein Weg zahlt diesen Wert aus; er entsteht aus Geld, das der Spieler vorher
+// eingezahlt oder erwirtschaftet hat (§3).
+
+/**
+ * Was eine Firma wert ist. Geschlossene und unbekannte Firmen sind 0 wert –
+ * ihre Auszahlung ist schon gelaufen.
+ *
+ * Die Summe ist nie negativ: Eine Firma mit tief roter Kasse kann der Inhaber
+ * schließen, und `close` zahlt `max(0, Kasse + Lager)` – schlimmer als
+ * wertlos wird sie für ihn also nicht.
+ *
+ * @returns {{invested,kasse,stock,substance,earnings,total}}
+ */
+function valueOf(companyId) {
+  const leer = { invested: 0, kasse: 0, stock: 0, substance: 0, earnings: 0, total: 0 };
+  const c = db.getCompany(Number(companyId));
+  if (!c || c.status !== 'open') return leer;
+  const b = branch(c.branch);
+  if (!b) return leer;
+  const invested = investedOf(b, c, db.companyExtras(c.id));
+  const kasse = Math.round(c.kasse ?? 0);
+  const stock = Math.round(c.stock_cost ?? 0);
+  const substance = invested + kasse + stock;
+  // Negative Gewinne zählen nicht: eine Firma im Minus ist nicht negativ wert,
+  // sie ist ihre Substanz wert.
+  const earnings = Math.max(0, Math.round((c.profit_ema ?? 0) * data.ERTRAG_FAKTOR));
+  return { invested, kasse, stock, substance, earnings, total: Math.max(0, substance + earnings) };
+}
+
+/**
+ * Was die Firmen eines Spielers zu seinem Vermögen beitragen – synchron,
+ * ohne Buchung und ohne Abrechnung (networth.assetsOf ruft das je Zeile der
+ * Rangliste; eine Abrechnung an dieser Stelle wäre eine Zustandsänderung beim
+ * bloßen Hinsehen).
+ *
+ *   own     eigene offene Firmen × dem Anteil, den der Inhaber noch hält
+ *   shares  gehaltene Anteile fremder (offener) Firmen
+ *   pending schon verdiente, aber nicht abgeholte Ausschüttung – zählt auch
+ *           aus geschlossenen Firmen, denn das Geld gehört ihm bereits
+ *
+ * @returns {{own,shares,pending,total}}
+ */
+function worthOf(guildId, userId) {
+  const uid = String(userId);
+  let own = 0, shares = 0, pending = 0;
+  for (const c of companiesOf(guildId, uid)) {
+    own += Math.round(valueOf(c.id).total * sharesOf(c.id).owner / data.SHARES_TOTAL);
+  }
+  for (const h of db.companySharesOf(guildId, uid)) {
+    pending += h.pending ?? 0;
+    // Anteile einer geschlossenen Firma sind wertlos (die Auszahlung steht
+    // schon als `pending` daneben) – doppelt zählen wäre ein Phantomvermögen.
+    if (h.status !== 'open' || !(h.shares > 0)) continue;
+    shares += Math.round(valueOf(h.company_id).total * h.shares / data.SHARES_TOTAL);
+  }
+  return { own, shares, pending, total: own + shares + pending };
+}
+
 // ------------------------------------------------------------------ Anzeige
 
 /** Alles, was die Firmenansicht wissen muss – nach Abrechnung. */
@@ -1483,6 +1573,7 @@ module.exports = {
   asJob, openings, join, leave, workShift,
   advertise, pitchIn, withdraw, deposit, promote, bonus, close, sell, status, fresh,
   upgrade, buyExtra,
+  valueOf, worthOf, ERTRAG_FAKTOR: data.ERTRAG_FAKTOR,
   splitPayout, sharesOf, listShares, cancelShareOffer, shareOffers, buyShares, claimDividends,
   groesse, riskPerDay, riskFor, severityFor, investedOf, applyEffect, pushNews, newsOf, rollLightEvent, NEWS_MAX,
 };

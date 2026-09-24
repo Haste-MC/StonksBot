@@ -197,6 +197,13 @@ const SHARE_FEE = 0.01;          // 1 % des Kaufpreises, zahlt der Käufer
 const COMPANIES_PER_LEVEL = 10;
 const COMPANIES_MAX = 5;
 
+// Firmenwert (Stück 4, Teil 2): Substanz (Investition + Kasse + Lager zum
+// Einstand) plus Ertragswert = gemessener Tagesgewinn × ERTRAG_FAKTOR. 30 Tage
+// ist bewusst knapp – ein Käufer, der den Betrieb in einem Monat wieder drin
+// hat, zahlt eher zu wenig als zu viel; so hebt der Ertragswert die Rangliste
+// nicht über die Substanz hinaus aus den Angeln (§3: reine Anzeige, kein Geld).
+const ERTRAG_FAKTOR = 30;
+
 module.exports = {
   BRANCHES, RANKS, NPC_NAMES,
   NPC_SHIFTS, INSOLVENCY_DAYS, NPC_QUIT_AFTER_UNPAID, WERBUNG_DAYS, WERBUNG_BOOST,
@@ -207,5 +214,5 @@ module.exports = {
   WARE_SHARE, WARE_KURS_MIN, WARE_KURS_MAX, AD_HOC_MARKUP, LAGER_TAGE,
   HANDEL_RABATT, HANDEL_SHARE_MIN, HANDEL_SHARE_MAX, HANDEL_KAPAZITAET,
   SHARES_TOTAL, OWNER_MIN, IPO_MIN_STUFE, SHARE_FEE,
-  COMPANIES_PER_LEVEL, COMPANIES_MAX,
+  COMPANIES_PER_LEVEL, COMPANIES_MAX, ERTRAG_FAKTOR,
 };

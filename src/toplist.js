@@ -20,9 +20,9 @@ const getBalance = (...a) => unb.getBalance(...a);
  * Ergänzt wird sie um alles, was UnbelievaBoat NICHT weiß:
  *
  *  - **Fluxer-Spieler ohne Verknüpfung** – ihr Geld liegt im lokalen Wallet.
- *  - **Besitz** – Autos, Immobilien, Depot und die Sammlung aus den Auktionen
- *    (siehe networth.js). Jede Zeile trägt deshalb neben dem Geld auch
- *    `assets` und `networth`, und `!top vermögen` sortiert danach.
+ *  - **Besitz** – Autos, Immobilien, Depot, die Sammlung aus den Auktionen und
+ *    die eigenen Firmen (siehe networth.js). Jede Zeile trägt deshalb neben
+ *    dem Geld auch `assets` und `networth`, und `!top vermögen` sortiert danach.
  *
  * Erst dadurch ist es **unsere** Rangliste und nicht bloß eine Kopie der
  * fremden: Wer nichts auf dem Konto hat, aber eine Sammlung für 50.000, steht
@@ -127,6 +127,7 @@ async function fetch({ sort = 'total', limit = 15 } = {}) {
     e.realty = assets.realty;
     e.depot = assets.depot;
     e.collection = assets.collection;
+    e.company = assets.company;
     e.networth = e.total + assets.total;
   }
 

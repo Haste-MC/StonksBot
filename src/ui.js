@@ -4912,11 +4912,21 @@ async function buildTopView({ guildId, userId, sort = 'networth' }) {
   }).join('\n'));
 
   const mine = entries.find((e) => e.userId === userId);
+  // Wie viel des gezeigten Vermögens in Firmen steckt (Stück 4): Ohne diese
+  // Zeile wirkt die Rangliste seit dem Firmenwert wie über Nacht aufgeblasen –
+  // so ist sofort zu sehen, woher der Sprung kommt. Gerechnet über die
+  // angezeigten Zeilen, nicht über den ganzen Server.
+  const firmen = entries.reduce((s, e) => s + (e.company ?? 0), 0);
+  const gesamt = entries.reduce((s, e) => s + (e.networth ?? 0), 0);
+  const anteil = gesamt > 0 ? Math.round((firmen / gesamt) * 100) : 0;
   embed.setFooter({
     text: (mine
       ? `Dein Platz: ${mine.rank} von ${entries.length}`
-      : 'Du bist (noch) nicht in den Top 15.')
-      + (key === 'networth' ? ' · Vermögen = Geld + Autos + Immobilien + Depot + Sammlung' : ''),
+      : `Du bist (noch) nicht in den Top ${entries.length}.`)
+      + (key === 'networth'
+        ? ' · Vermögen = Geld + Autos + Immobilien + Depot + Sammlung + Firmen'
+          + (firmen > 0 ? `\n🏢 Firmen: ${anteil} % des Vermögens der Top ${entries.length}` : '')
+        : ''),
   });
 
   // Umschalten zwischen den vier Sichten.

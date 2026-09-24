@@ -570,7 +570,8 @@ db.exec(`
     trade_today        INTEGER NOT NULL DEFAULT 0,   -- … gelieferte Einheiten an diesem Tag
     trade_units        INTEGER NOT NULL DEFAULT 0,   -- gelieferte Einheiten gesamt
     trade_profit       INTEGER NOT NULL DEFAULT 0,   -- verdiente Spanne gesamt
-    last_payout        INTEGER NOT NULL DEFAULT 0    -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
+    last_payout        INTEGER NOT NULL DEFAULT 0,   -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
+    profit_ema         REAL    NOT NULL DEFAULT 0    -- Firmenwert (Stück 4): gleitender Tagesgewinn (7 Tage)
   );
   -- Stück 4: mehrere offene Firmen je Spieler. Der frühere eindeutige Index
   -- (eine offene Firma je Inhaber) fällt deshalb weg; gesucht wird weiter
@@ -622,6 +623,10 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     ['trade_profit', 'INTEGER NOT NULL DEFAULT 0'],
     // Anteile (Stück 3c): letzte Ausschüttung (Entnahme/Auszahlung) je 1000 Anteile.
     ['last_payout', 'INTEGER NOT NULL DEFAULT 0'],
+    // Firmenwert (Stück 4): gleitender Tagesgewinn aus dem Betrieb (EMA über 7
+    // Tage, wie die Nachfrage). 0 heißt „noch nichts gemessen" – dann ist die
+    // Firma ihre Substanz wert, nicht mehr.
+    ['profit_ema', 'REAL NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
@@ -1882,7 +1887,8 @@ const stmt = {
        status = ?, closed_at = ?, closed_why = ?,
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
        wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?,
-       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?
+       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?,
+       profit_ema = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -2005,6 +2011,12 @@ const stmt = {
    * Jeder, der irgendetwas BESITZT – auch ohne einen Cent auf dem Konto.
    * Gebraucht fürs Vermögens-Ranking: Wer 50.000 in Fundstücken liegen hat,
    * gehört dort hin, selbst wenn sein Geldbeutel leer ist.
+   *
+   * Seit Stück 4 zählen auch Firmen: ein Inhaber mit einer ausgebauten Firma
+   * und ein reiner Anteilshalter haben oft weder Auto noch Sammlung – ohne die
+   * beiden letzten Zweige stünden ausgerechnet die Reichsten nicht in der
+   * Liste. Anteilszeilen zählen auch mit 0 Anteilen, solange noch eine
+   * Ausschüttung aussteht (die ist Geld, das ihnen gehört).
    */
   assetOwners: db.prepare(
     `SELECT inv.user_id AS user_id FROM inventory inv JOIN items i ON i.id = inv.item_id
@@ -2012,7 +2024,12 @@ const stmt = {
      UNION
      SELECT user_id FROM market_holdings WHERE guild_id = ? AND shares > 0
      UNION
-     SELECT user_id FROM storage_loot WHERE guild_id = ?`),
+     SELECT user_id FROM storage_loot WHERE guild_id = ?
+     UNION
+     SELECT owner_id FROM companies WHERE guild_id = ? AND status = 'open'
+     UNION
+     SELECT cs.user_id FROM company_shares cs JOIN companies c ON c.id = cs.company_id
+      WHERE c.guild_id = ? AND (cs.shares > 0 OR cs.pending > 0)`),
 
   // --- Einkommens-Cooldowns (!daily …) ---
   getClaim: db.prepare(
@@ -4010,6 +4027,9 @@ function saveCompany(c) {
     c.stock ?? 0, c.stock_cost ?? 0, c.stock_seeded ? 1 : 0,
     c.trade_day ?? '', c.trade_today ?? 0, c.trade_units ?? 0, c.trade_profit ?? 0,
     Math.round(c.last_payout ?? 0),
+    // Der gleitende Gewinn ist bewusst KEINE ganze Zahl: gerundet wäre die EMA
+    // bei kleinen Firmen sofort tot (0,4 → 0).
+    Number(c.profit_ema ?? 0) || 0,
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */
@@ -4189,7 +4209,8 @@ function walletTop(guildId, limit = 50) {
 
 /** IDs aller Spieler mit Autos, Immobilien, Wertpapieren oder Fundstücken. */
 function assetOwners(guildId) {
-  return stmt.assetOwners.all(guildId, guildId, guildId).map((r) => String(r.user_id));
+  return stmt.assetOwners.all(guildId, guildId, guildId, guildId, guildId)
+    .map((r) => String(r.user_id));
 }
 
 // --------------------------------------------------- Einkommens-Cooldowns
