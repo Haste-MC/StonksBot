@@ -2024,7 +2024,10 @@ const stmt = {
    * und ein reiner Anteilshalter haben oft weder Auto noch Sammlung – ohne die
    * beiden letzten Zweige stünden ausgerechnet die Reichsten nicht in der
    * Liste. Anteilszeilen zählen auch mit 0 Anteilen, solange noch eine
-   * Ausschüttung aussteht (die ist Geld, das ihnen gehört).
+   * Ausschüttung aussteht (die ist Geld, das ihnen gehört) – Anteile an einer
+   * geschlossenen Firma dagegen nicht mehr: sie sind wertlos und hielten den
+   * Halter sonst für immer in der Kandidatenliste der Rangliste, wo jeder
+   * Name ein `getBalance` gegen `MAX_LOOKUPS` kostet.
    */
   assetOwners: db.prepare(
     `SELECT inv.user_id AS user_id FROM inventory inv JOIN items i ON i.id = inv.item_id
@@ -2037,7 +2040,7 @@ const stmt = {
      SELECT owner_id FROM companies WHERE guild_id = ? AND status = 'open'
      UNION
      SELECT cs.user_id FROM company_shares cs JOIN companies c ON c.id = cs.company_id
-      WHERE c.guild_id = ? AND (cs.shares > 0 OR cs.pending > 0)`),
+      WHERE c.guild_id = ? AND (cs.pending > 0 OR (cs.shares > 0 AND c.status = 'open'))`),
 
   // --- Einkommens-Cooldowns (!daily …) ---
   getClaim: db.prepare(

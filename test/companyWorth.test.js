@@ -505,6 +505,48 @@ const start = () => new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS
       db.getCompany(id).profit_pending === 0, String(db.getCompany(id).profit_pending));
   }
 
+  console.log('--- Einzahlen verteilt bei verkauften Anteilen still um (Review) ---');
+  {
+    // Die Kasse ist Substanz (§15) – wer einzahlt, hebt damit auch das Vermögen
+    // der Anteilseigner. Das ist wirtschaftlich richtig (Eigenkapital, kein
+    // Darlehen), aber es muss festgehalten und in der Ansicht gesagt werden.
+    const G = `CW_K${Date.now()}`;
+    const U = 'cw-k';           // Inhaber, 800 von 1000
+    const H = 'cw-k-halter';    // Halter, 200 von 1000
+    konten.set(U, 50_000_000);
+    konten.set(H, 0);
+    const t0 = start();
+    const id = (await company.found(G, U, 'kiosk', 'Stiller Zuschuss', t0)).company.id;
+    db.setCompanyShare(id, H, { shares: 200, cost: 4_000, pending: 0, received: 0 });
+
+    // Vermögen = Bargeld + Firmenanteil, vor der Einzahlung.
+    const vorherU = konten.get(U) + company.worthOf(G, U).total;
+    const vorherH = konten.get(H) + company.worthOf(G, H).total;
+
+    const r = await company.deposit(G, U, 100_000, t0 + 1000, id);
+    check('Einzahlung geglückt', r.ok && r.amount === 100_000, JSON.stringify(r));
+    check('deposit meldet den Halter-Teil: 100.000 × 200/1000 = 20.000 (20 %)',
+      r.shared === 20_000 && r.sharePct === 20 && r.held === 200, JSON.stringify(r));
+
+    // Handrechnung: 100.000 gehen vom Konto, der Firmenwert steigt um 100.000.
+    // Davon trägt der Inhaber 800/1000 = 80.000 → −100.000 + 80.000 = −20.000.
+    const nachherU = konten.get(U) + company.worthOf(G, U).total;
+    const nachherH = konten.get(H) + company.worthOf(G, H).total;
+    check('Inhaber: −20.000', nachherU - vorherU === -20_000, String(nachherU - vorherU));
+    check('Halter: +20.000, ohne etwas zu tun', nachherH - vorherH === 20_000,
+      String(nachherH - vorherH));
+    check('Summe 0 – eine Umverteilung, kein Geld aus dem Nichts',
+      (nachherU - vorherU) + (nachherH - vorherH) === 0);
+
+    // Gegenprobe ohne Halter: dann gibt es nichts zu melden.
+    const G2 = `CW_K2${Date.now()}`;
+    konten.set('cw-k2', 50_000_000);
+    const id2 = (await company.found(G2, 'cw-k2', 'kiosk', 'Alleinladen', t0)).company.id;
+    const r2 = await company.deposit(G2, 'cw-k2', 100_000, t0 + 1000, id2);
+    check('ohne Anteilseigner kein Hinweis', r2.ok && r2.shared === 0 && r2.held === 0,
+      JSON.stringify(r2));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

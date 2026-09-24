@@ -2164,10 +2164,25 @@ Object.assign(buttons, {
           exhausted: require('./energy').blockText(r),
           no_time: `😴 Anpacken kostet **${r.need}** Stunden, übrig sind **${r.left}**.` }[r.reason] ?? '❌ Das ging nicht.';
     } else if (aktion === 'npc') {
-      const r = company.hireNpc(guildId, userId);
+      // Stück 4: Der Knopf der Personalseite trägt `<seite>-<firma>`, weil `arg`
+      // hier schon die Seite ist (deshalb steht `npc` nicht in FIRMA_ID_AKTIONEN).
+      // Ohne die ID stellte ein liegengelassener Knopf still in der inzwischen
+      // aktiven Firma ein – der NPC landet jetzt in der Firma, deren Seite man
+      // vor sich hat; ist die zu, wird abgewiesen statt umgeleitet.
+      const [seite, genannteFirma] = String(arg ?? '').split('-');
+      const ziel = genannteFirma
+        ? (company.ownCompany(guildId, userId, Number(genannteFirma))?.id ?? null)
+        : (fid ?? company.activeCompanyId(guildId, userId));
+      if (genannteFirma && !ziel) {
+        await interaction.editReply(await buildFirmenView({ guildId, userId }));
+        await interaction.followUp({ content: '❌ Diese Firma gibt es nicht mehr.', flags: MessageFlags.Ephemeral }).catch(() => {});
+        return;
+      }
+      if (ziel) company.setActive(guildId, userId, ziel);   // damit die Ansicht dieselbe Firma zeigt
+      const r = company.hireNpc(guildId, userId, Date.now(), Math.random, ziel);
       note = r.ok ? `🤖 **${r.staff.name}** fängt morgen an (noch ${r.free} Plätze frei).`
         : r.reason === 'full' ? '❌ Kein Platz mehr – entlasse zuerst jemanden.' : '🏢 Du hast keine Firma.';
-      await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(arg) || 1 }));
+      await interaction.editReply(await buildFirmaStaffView({ guildId, userId, page: Number(seite) || 1 }));
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     } else if (aktion === 'gruenden') {
@@ -2930,7 +2945,10 @@ const modals = {
       ? (modus === 'entnehmen' ? `💸 **${money(symbol, r.amount)}** entnommen`
         + (r.shared > 0 ? ` – ${money(symbol, r.paid)} für dich, ${money(symbol, r.shared)} an Anteilseigner` : '')
         + `. Kasse: ${money(symbol, r.kasse)}.`
-        : `🏦 **${money(symbol, r.amount)}** eingezahlt. Kasse: ${money(symbol, r.kasse)}.`)
+        : `🏦 **${money(symbol, r.amount)}** eingezahlt. Kasse: ${money(symbol, r.kasse)}.`
+        // Die Kasse ist Teil der Substanz und damit anteilig auch der Halter –
+        // wer einzahlt, verschenkt ihren Anteil. Das darf nicht still passieren.
+        + (r.shared > 0 ? `\n_Davon gehören **${money(symbol, r.shared)}** den Anteilseignern (${r.sharePct} %)._` : ''))
       : { amount: '❌ Bitte einen Betrag über 0.', kasse: '💸 So viel ist nicht in der Kasse.',
         funds: '💸 So viel hast du nicht.', no_company: '🏢 Du hast keine Firma.',
         payment: '❌ Die Buchung ist fehlgeschlagen – die Kasse ist unverändert.',

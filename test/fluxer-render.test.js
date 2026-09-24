@@ -610,6 +610,27 @@ function view(buttons) {
       String(render.mapReactions(vorfallB).overflow));
     db.clearEvents(FG, FU);
 
+    // (i-b) „NPC einstellen" trägt Seite UND Firma (`<seite>-<id>`): Die
+    // Personalseite von A darf nicht in B einstellen, nur weil zwischendurch B
+    // aktiv geworden ist. Vorher rief der Knopf `hireNpc` ohne ID – der NPC
+    // landete still in der aktiven Firma.
+    company.setActive(FG, FU, a);
+    const personalA = await ui.buildFirmaStaffView({ guildId: FG, userId: FU });
+    check('Personal: der NPC-Knopf trägt Seite und Firma',
+      idsOf(personalA).includes(`firma|npc|1-${a}|${FU}`), idsOf(personalA).join(' '));
+    check('Personal: A hält das Fluxer-Limit', render.mapReactions(personalA).overflow === undefined,
+      String(render.mapReactions(personalA).overflow));
+    company.setActive(FG, FU, b);                      // der Spieler wechselt zwischendurch
+    const npcKlick = await klick('npc', `1-${a}`);
+    check('NPC: eingestellt wird in der Firma der Personalseite (A), nicht in der aktiven (B)',
+      db.companyStaff(a).length === 1 && db.companyStaff(b).length === 0,
+      `A ${db.companyStaff(a).length} / B ${db.companyStaff(b).length}`);
+    check('NPC: die Ansicht danach zeigt dieselbe Firma (A)',
+      (npcKlick.views[0]?.embeds[0].data.title ?? '').includes('Eckladen'),
+      npcKlick.views[0]?.embeds[0].data.title);
+    check('NPC: A ist danach auch die aktive Firma', company.activeCompanyId(FG, FU) === a,
+      String(company.activeCompanyId(FG, FU)));
+
     // (ii) Die Schließen-Bestätigung trägt die Firmen-ID – und trifft sie auch
     // dann, wenn zwischendurch eine andere Firma aktiv geworden ist.
     const dialog = await klick('schliessen', String(a));
@@ -642,6 +663,14 @@ function view(buttons) {
       !(altOeffnen.views[0]?.embeds[0].data.title ?? '').includes('Bude')
       && altOeffnen.notes.some((n) => String(n).includes('gibt es nicht mehr')),
       `${altOeffnen.views[0]?.embeds[0].data.title} / ${JSON.stringify(altOeffnen.notes)}`);
+
+    // (iv) Auch der NPC-Knopf einer inzwischen geschlossenen Firma wird
+    // abgewiesen statt umgeleitet – A ist seit (ii) zu.
+    const npcAlt = await klick('npc', `1-${a}`);
+    check('NPC: veralteter Knopf wird abgewiesen',
+      npcAlt.notes.some((n) => String(n).includes('Diese Firma gibt es nicht mehr')), JSON.stringify(npcAlt.notes));
+    check('NPC: die aktive Firma bekommt kein Personal untergeschoben',
+      db.companyStaff(b).length === 0, String(db.companyStaff(b).length));
 
     await company.close(FG, FU, now + 3 * 3600e3, b);
   }

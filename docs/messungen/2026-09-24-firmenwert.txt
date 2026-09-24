@@ -7,9 +7,12 @@ Neu in diesem Lauf ist nur die Zeile „Firmenwert am Ende" je Branche und Lauf
 (`company.valueOf` am letzten Tag): Substanz = Ausbau + Kasse + Lager zum Einstand,
 Ertragswert = max(0, round(profit_ema × 30)), Summe = beides.
 
-Die Mediane sind Zeile für Zeile gleich mit docs/messungen/2026-09-21-firmen-handel.txt (alle
-dreizehn dort committeten Kopfzeilen der Firmen- und Handel-Blöcke kommen hier wörtlich wieder
-vor, geprüft per grep -qxF). Das war die Erwartung: Stück 4 ändert an der Kasse nichts, es zählt
+Die Mediane sind Zeile für Zeile gleich mit docs/messungen/2026-09-21-firmen-handel.txt: Von den
+13 dort committeten Branchen-Kopfzeilen (11 verschiedene – Spedition und Baufirma stehen dort
+zweimal) kommen 11 in DIESER Datei wörtlich wieder vor und 13 von 13 im vollständigen Lauf
+(.superpowers/sdd/task-4-messung/mess-4-voll.txt), geprüft per grep -qxF. Die beiden fehlenden
+sind die Kopfzeilen des Handel-Blocks (🚚 Spediteur, 🏗️ Käufer): Dieser Auszug enthält bewusst
+nur die drei Firmen-Abschnitte, nicht den Handel-Block. Das war die Erwartung: Stück 4 ändert an der Kasse nichts, es zählt
 nur zusätzlich mit (`profit_ema`, `profit_pending`) – Werbung und Prämie gehen weiter im selben
 Moment aus der Kasse wie vorher, sie landen seit Task 3 nur zusätzlich im Ertragswert.
 

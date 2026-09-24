@@ -889,9 +889,10 @@ Ausbau, Ertragswert 11.401.838), **Baufirma 88.498.718** (Substanz
 74.985.160, Ertragswert 13.513.558), Café 8.192.261, Kiosk 1.361.745. Die
 Spanne zwischen der kleinsten und der größten Firma ist damit **1 : 5.400** –
 und bei den ausgebauten Firmen ist der größere Teil **Substanz** (Café 62 %,
-Spedition 81 %, Baufirma 85 %), also bezahltes Kapital, das beim Schließen
-ohnehin zurückkäme; der Ertragswert ist der kleinere Teil. Die Rangliste
-bewegt sich dadurch für Kern-Firmen kaum, für Endgame-Firmen dagegen stark:
+Spedition 81 %, Baufirma 85 %), also bezahltes Kapital, das **im Betrieb
+steckt** – beim freiwilligen Schließen kommen nur Kasse und Lager zurück, der
+Ausbau nur beim Übernahme-Verkauf (`sell`); der Ertragswert ist der kleinere
+Teil. Die Rangliste bewegt sich dadurch für Kern-Firmen kaum, für Endgame-Firmen dagegen stark:
 Eine voll ausgebaute Baufirma trägt mit 88,5 Mio so viel zum Vermögen bei wie
 **239 Tage Musik+Creator** (369.752/Tag im selben Lauf) – sie hat aber auch
 74,7 Mio Ausbau gekostet, und genau die stehen als Substanz darin.
@@ -916,6 +917,28 @@ nicht in die EMA** – eine Firma, die vor allem vom Anpacken des Inhabers und
 von Spieler-Angestellten lebt, ist im Ertragswert systematisch zu niedrig
 bewertet (beim Kiosk um 1.300 von 2.350 am Tag, also mehr als die Hälfte).
 Das ist gewollt: Bewertet wird, was die Firma ohne ihren Inhaber abwirft.
+(4) **Die Substanz ist kein Liquidationserlös.** `close` zahlt nur
+`max(0, Kasse + Lager zum Einstand)` aus; der Ausbau (`invested`) kommt allein
+beim Übernahme-Verkauf (`sell`) zurück. Gemessen an einem Café auf Stufe 5 mit
+`invested` **4.020.000**: Auszahlung beim freiwilligen Schließen **23.940**.
+Der Wert in der Rangliste ist der eines laufenden Betriebs, nicht der, den ein
+Aufgeben einbringt. (5) **Der ×30-Hebel wirkt auch auf befristete Ereignisse.**
+Ein Großauftrag (`umsatz ×1,15` über 5 Tage) hebt den angezeigten Wert eines
+Kern-Cafés um rund **44.000**, während er tatsächlich nur rund **13.600** Kasse
+einbringt; die Überzeichnung klingt mit 6/7 je Abrechnungstag wieder ab und
+zahlt nie etwas aus. (6) **Die Großhandels-Spanne (3b) hebt die Summe aller
+Vermögen** um genau diese Spanne: Der Käufer bucht die Ware zum eigenen
+Einstand ins Lager, der Verkäufer hat den Aufschlag schon in der Kasse. Gedeckelt
+ist das durch die Handels-Decke – gemessen **680 je Tag und Firmenpaar**.
+
+**Kein Rückweg.** Der alte Unique-Index `idx_companies_owner_open` („höchstens
+eine offene Firma je Spieler") fällt beim Start (`DROP INDEX IF EXISTS` in
+`src/db.js`). Sobald ein Spieler zwei offene Firmen hat, kann diese Datenbank
+nicht mehr auf einen älteren Stand zurück: Das
+`CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open` der alten Version
+läuft beim Start gegen die vorhandenen Duplikate, und der Serverstart bricht an
+der Index-Erstellung ab. Ein Rollback muss vorher die überzähligen Firmen der
+betroffenen Spieler schließen oder löschen.
 
 ### Eine Bremse, nicht zwei
 

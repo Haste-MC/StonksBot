@@ -1310,6 +1310,10 @@ async function buildFirmaView({ guildId, userId, companyId = null }) {
 
   const ready = (cost) => s.budget.left >= cost;
   const data = require('./data/companies');
+  // Die Betriebsansicht hat 4 + 5 = 9 Knöpfe und liegt damit genau auf der
+  // Fluxer-Grenze (MAX_REACTIONS in fluxer/render.js), wie die Ausbau-Ansicht.
+  // Ein zehnter Knopf fiele bei Fluxer hinten herunter – er muss in eine
+  // Unteransicht (so wohnt „Schließen" schon im Ausbau).
   const rows = [
     new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`firma|werbung|${cid}|${userId}`)
@@ -1378,7 +1382,10 @@ async function buildFirmaStaffView({ guildId, userId, page = 1 }) {
   // stehen, sonst fallen „NPC einstellen“/„Firma“ bei voller Belegschaft raus.
   // Discord ist die Zeilenreihenfolge egal.
   const rows = [new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId(`firma|npc|${p}|${userId}`).setLabel('NPC einstellen')
+    // `<seite>-<firma>`: Die Seite braucht der Rücksprung, die Firmen-ID sorgt
+    // dafür, dass ein liegengelassener Knopf nicht in einer inzwischen aktiv
+    // gewordenen anderen Firma einstellt (Stück 4).
+    new ButtonBuilder().setCustomId(`firma|npc|${p}-${s.company.id}|${userId}`).setLabel('NPC einstellen')
       .setEmoji('🤖').setStyle(ButtonStyle.Primary).setDisabled(s.free <= 0),
     new ButtonBuilder().setCustomId(`firma|personal|${p - 1}|${userId}`).setLabel('Zurück').setEmoji('◀️')
       .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),

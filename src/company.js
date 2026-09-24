@@ -913,7 +913,15 @@ async function deposit(guildId, userId, amount, now = Date.now(), companyId = nu
   }
   const kasse = current.kasse + value;
   db.saveCompany({ ...current, kasse, negative_since: kasse < 0 ? current.negative_since : 0 });
-  return { ok: true, amount: value, balance: after, kasse };
+  // Sind Anteile verkauft, gehört der Kassenzuwachs anteilig auch den Haltern
+  // (die Kasse ist Teil der Substanz, §15). Das ist gewollt – Einzahlen ist
+  // Eigenkapital, kein Darlehen –, aber es darf nicht still passieren: die
+  // Ansicht nennt den Teil, der wirtschaftlich abgegeben wird.
+  const anteile = sharesOf(current.id);
+  const held = anteile.total - anteile.owner;
+  return { ok: true, amount: value, balance: after, kasse,
+    held, sharePct: Math.round(held * 100 / anteile.total),
+    shared: Math.round(value * held / anteile.total) };
 }
 
 /** Rang ±1, geklemmt auf 0…2; bei Spielern auch employment.rank. */
