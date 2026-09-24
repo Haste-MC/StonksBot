@@ -131,8 +131,9 @@ function view(buttons) {
       chronik.includes('-1.425)') && chronik.includes('Gute Bewertung.') && !chronik.includes('Gute Bewertung. ('), chronik);
     const [row1, row2] = v.components.map((row) => row.components);
     check('Werbung und Anpacken sind bei Schließung gesperrt', row1[0].data.disabled === true && row1[1].data.disabled === true);
-    check('letzter Knopf der zweiten Zeile ist der Vorfall', row2[row2.length - 1].data.custom_id === `vorfall|${FU}`,
-      row2[row2.length - 1].data.custom_id);
+    const row2Ids = row2.map((b) => b.data.custom_id);
+    check('zweite Zeile hat den Vorfall UND einen Rückweg',
+      row2Ids.includes(`vorfall|${FU}`) && row2Ids[row2Ids.length - 1] === `home|${FU}`, row2Ids.join(' '));
     // Nicht die (immer wahre) Länge nach dem Abschneiden prüfen, sondern dass nichts abgeschnitten wurde.
     check('Firmenansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
 
@@ -140,7 +141,8 @@ function view(buttons) {
     check('Vorfall-Ansicht: Titel beginnt mit 🏢', d.embeds[0].data.title.startsWith('🏢'), d.embeds[0].data.title);
     check('Fußzeile nennt die Firma', d.embeds[0].data.footer.text.includes('Rösterei'), d.embeds[0].data.footer.text);
     const back = d.components[1].components[0].data.custom_id;
-    check('Zurück führt zur Firma', back === `menu|firma|1|${FU}`, back);
+    // Stück 4: der Weg zurück nennt die Firma des Vorfalls, nicht mehr nur das Menü.
+    check('Zurück führt zur Firma des Vorfalls', back === `firma|oeffnen|${r.company.id}|${FU}`, back);
     check('Vorfall-Ansicht hält das Fluxer-Limit', render.toMessage(d).reactions.length <= render.MAX_REACTIONS);
 
     // Rückschau ohne offenen Vorfall: Firmeninhaber bekommen einen Firma-Knopf.
@@ -176,7 +178,7 @@ function view(buttons) {
     check('leeres Lager: Feld warnt vor ad hoc', waren?.value.includes('leer') && waren.value.includes('ad hoc'), waren?.value);
     const alleIds = v.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
     check('Zeile 2 führt zum Lager, nicht zum Schließen',
-      v.components[1].components.some((b) => b.data.custom_id === `firma|lager|0|${FU}`) && !alleIds.some((id) => id.startsWith('firma|schliessen')),
+      v.components[1].components.some((b) => b.data.custom_id === `firma|lager|${cid}|${FU}`) && !alleIds.some((id) => id.startsWith('firma|schliessen')),
       alleIds.join(' '));
     check('Betriebsansicht: höchstens 8 Knöpfe', alleIds.length <= 8, String(alleIds.length));
     check('Betriebsansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
@@ -184,7 +186,7 @@ function view(buttons) {
     // Ausbau: Schließen wohnt jetzt hier, in Zeile 1.
     const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FU });
     const zeile1 = a.components[0].components.map((b) => b.data.custom_id);
-    check('Ausbau Zeile 1 enthält Schließen', zeile1.includes(`firma|schliessen|0|${FU}`), zeile1.join(' '));
+    check('Ausbau Zeile 1 enthält Schließen', zeile1.includes(`firma|schliessen|${cid}|${FU}`), zeile1.join(' '));
     check('Ausbau hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(a).overflow === undefined, String(render.mapReactions(a).overflow));
 
     // Lager-Ansicht: Titel, vier Knöpfe, Einkaufen aktiv bei Kasse ≥ Tagespreis.
@@ -192,8 +194,8 @@ function view(buttons) {
     check('Lager: Titel beginnt mit 🏬', l.embeds[0].data.title.startsWith('🏬'), l.embeds[0].data.title);
     const lk = l.components[0].components;
     check('Lager: vier Knöpfe', l.components.length === 1 && lk.length === 4, String(lk.length));
-    check('Lager: Einkaufen aktiv (Kasse 100.000 ≥ 340)', lk[0].data.custom_id === `firma|einkaufen|0|${FU}` && lk[0].data.disabled !== true);
-    check('Lager: Voll machen nennt die freien Plätze (280)', lk[1].data.custom_id === `firma|lagervoll|0|${FU}` && lk[1].data.label.includes('(280)'), lk[1].data.label);
+    check('Lager: Einkaufen aktiv (Kasse 100.000 ≥ 340)', lk[0].data.custom_id === `firma|einkaufen|${cid}|${FU}` && lk[0].data.disabled !== true);
+    check('Lager: Voll machen nennt die freien Plätze (280)', lk[1].data.custom_id === `firma|lagervoll|${cid}|${FU}` && lk[1].data.label.includes('(280)'), lk[1].data.label);
     check('Lager: leerer Bestand sagt „leer", nicht „reicht ~0 Tage"',
       l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('leer')
       && !l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value.includes('reicht'), l.embeds[0].data.fields.find((f) => f.name === 'Bestand')?.value);
@@ -249,15 +251,15 @@ function view(buttons) {
     const kFields = kaeuferLager.embeds[0].data.fields.map((f) => f.name);
     check('Käufer-Lager zeigt 🚚 Spediteure', kFields.includes('🚚 Spediteure'), kFields.join(', '));
     const kIds = kaeuferLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
-    check('Käufer-Lager hat den Kauf-Knopf', kIds.includes(`firma|handelkauf|0|${FK}`), kIds.join(' '));
-    const kaufBtn = kaeuferLager.components.flatMap((row) => row.components).find((b) => b.data.custom_id === `firma|handelkauf|0|${FK}`);
+    check('Käufer-Lager hat den Kauf-Knopf', kIds.includes(`firma|handelkauf|${kid}|${FK}`), kIds.join(' '));
+    const kaufBtn = kaeuferLager.components.flatMap((row) => row.components).find((b) => b.data.custom_id === `firma|handelkauf|${kid}|${FK}`);
     check('Kauf-Knopf ist aktiv (Lager frei, Kasse reicht)', kaufBtn.data.disabled !== true);
     check('Käufer-Lager hält das Fluxer-Limit', render.mapReactions(kaeuferLager).overflow === undefined,
       String(render.mapReactions(kaeuferLager).overflow));
 
     const spediLager = await ui.buildFirmaLagerView({ guildId: FG, userId: FT });
     const sIds = spediLager.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
-    check('Spediteur-Lager zeigt „Handel"', sIds.includes(`firma|handel|0|${FT}`), sIds.join(' '));
+    check('Spediteur-Lager zeigt „Handel"', sIds.includes(`firma|handel|${tid}|${FT}`), sIds.join(' '));
     check('Spediteur-Lager hält das Fluxer-Limit', render.mapReactions(spediLager).overflow === undefined,
       String(render.mapReactions(spediLager).overflow));
 
@@ -340,7 +342,7 @@ function view(buttons) {
     const a = await ui.buildFirmaAusbauView({ guildId: FG, userId: FO });
     const aIds = a.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
     const aAktiv = a.components.flatMap((row) => row.components).filter((b) => !b.data.disabled);
-    check('Ausbau Zeile 1 enthält Anteile', a.components[0].components.some((b) => b.data.custom_id === `firma|anteile|0|${FO}`), aIds.join(' '));
+    check('Ausbau Zeile 1 enthält Anteile', a.components[0].components.some((b) => b.data.custom_id === `firma|anteile|${cid}|${FO}`), aIds.join(' '));
     check('Ausbau: 9 Knöpfe, alle aktiv', aIds.length === 9 && aAktiv.length === 9, `${aIds.length} / ${aAktiv.length} aktiv`);
     for (const row of a.components) check('Ausbau: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
     check('Ausbau mit 9 Knöpfen hält das Fluxer-Limit genau (kein Überlauf)',
@@ -370,7 +372,7 @@ function view(buttons) {
       v2Fields['🏷️ Offene Angebote (1)']);
     const v2Ids = v2.components[0].components.map((b) => b.data.custom_id);
     check('Anteile: Knöpfe Anbieten · Zurückziehen(#id) · Firma · Home',
-      v2Ids.join(' ') === `firma|anteilanbieten|0|${FO} firma|anteilweg|${offerId}|${FO} menu|firma|1|${FO} home|${FO}`, v2Ids.join(' '));
+      v2Ids.join(' ') === `firma|anteilanbieten|${cid}|${FO} firma|anteilweg|${offerId}|${FO} firma|oeffnen|${cid}|${FO} home|${FO}`, v2Ids.join(' '));
     check('Anteile: Zurückziehen aktiv', v2.components[0].components[1].data.disabled !== true);
     check('Anteile-Ansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v2).overflow === undefined, String(render.mapReactions(v2).overflow));
     console.log('    ' + v2.embeds[0].data.title);
@@ -458,6 +460,219 @@ function view(buttons) {
     check('Meine Anteile: Feld „Deine Angebote"', mine2.embeds[0].data.fields.some((f) => f.name.startsWith('🏷️ Deine Angebote')));
 
     await company.close(FG, FO, now);
+  }
+
+  console.log('--- Mehrere Firmen: Übersicht, Betrieb, Gründung am Limit (Spec 4: Ansichten) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const level = require('../src/level');
+    const FG = `FR4_T${Date.now()}`;
+    const FU = 'fr_multi';
+    const now = Date.now();
+    // Level 15 erlaubt zwei Firmen (eine je 10 Level, Deckel 5).
+    const setLevel = (lvl) => db.addStats(FG, FU, { xp: level.xpForLevel(lvl) - db.getStats(FG, FU).xp });
+    setLevel(15);
+    const a = (await company.found(FG, FU, 'kiosk', 'Eckladen', now)).company.id;
+
+    // Eine Firma: der Menüeintrag zeigt den Betrieb, nicht die Übersicht.
+    const eine = await buildEntryView('firma', { guildId: FG, userId: FU, page: 1 });
+    check('eine Firma: Menü zeigt den Betrieb', eine.embeds[0].data.title.includes('Eckladen'), eine.embeds[0].data.title);
+    const eineIds = eine.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
+    check('eine Firma (noch eine frei): Zeile 2 hat „Firmen" UND Home',
+      eineIds[eineIds.length - 2] === `firma|firmen|0|${FU}` && eineIds[eineIds.length - 1] === `home|${FU}`,
+      eineIds.join(' '));
+    check('eine Firma: keine Fußzeile „Firma x von y"',
+      !(eine.embeds[0].data.footer?.text ?? '').includes('Firma 1 von'), eine.embeds[0].data.footer?.text);
+
+    const b = (await company.found(FG, FU, 'imbiss', 'Bude', now + 3600e3)).company.id;
+
+    // Übersicht: Titel, je Firma ein Feld und ein Knopf, Gründen am Limit gesperrt.
+    const ueber = await buildEntryView('firma', { guildId: FG, userId: FU, page: 1 });
+    check('zwei Firmen: Menü zeigt die Übersicht', ueber.embeds[0].data.title === '🏢 Deine Firmen (2 von 2)', ueber.embeds[0].data.title);
+    const uFelder = ueber.embeds[0].data.fields;
+    check('Übersicht: je Firma ein Feld', uFelder.length === 2, uFelder.map((f) => f.name).join(', '));
+    check('Übersicht: Feld nennt Branche, Stufe, Kasse und Prognose',
+      uFelder[0].value.includes('Kiosk, Stufe 0') && uFelder[0].value.includes('Kasse') && uFelder[0].value.includes('Prognose'),
+      uFelder[0].value);
+    check('Übersicht: die aktive Firma ist markiert', uFelder[1].name.endsWith('· aktiv') && !uFelder[0].name.endsWith('· aktiv'),
+      `${uFelder[0].name} / ${uFelder[1].name}`);
+    const uIds = ueber.components.map((row) => row.components.map((btn) => btn.data.custom_id));
+    check('Übersicht: Knopf je Firma (älteste zuerst), dann Gründen und Home',
+      uIds[0].join(' ') === `firma|oeffnen|${a}|${FU} firma|oeffnen|${b}|${FU}`
+      && uIds[1].join(' ') === `firma|gruenden|0|${FU} home|${FU}`, JSON.stringify(uIds));
+    check('Übersicht: Gründen ist am Limit gesperrt',
+      ueber.components[1].components[0].data.disabled === true);
+    for (const row of ueber.components) check('Übersicht: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Übersicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(ueber).overflow === undefined,
+      String(render.mapReactions(ueber).overflow));
+    console.log('    ' + ueber.embeds[0].data.title);
+    for (const f of uFelder) console.log(`    [${f.name}] ${f.value.replace(/\n/g, ' | ')}`);
+
+    // Betriebsansicht: Fußzeile zählt mit, die Knöpfe tragen die Firmen-ID, „Firmen" statt Home.
+    const vA = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: a });
+    check('Betrieb A: richtige Firma', vA.embeds[0].data.title.includes('Eckladen'), vA.embeds[0].data.title);
+    check('Betrieb A: Fußzeile „· Firma 1 von 2"', vA.embeds[0].data.footer.text.includes('· Firma 1 von 2'), vA.embeds[0].data.footer.text);
+    const aIds = vA.components.map((row) => row.components.map((btn) => btn.data.custom_id));
+    check('Betrieb A: Zeile 1 trägt die Firmen-ID',
+      aIds[0].join(' ') === `firma|werbung|${a}|${FU} firma|anpacken|${a}|${FU} firma|entnehmen|${a}|${FU} firma|einzahlen|${a}|${FU}`,
+      aIds[0].join(' '));
+    check('Betrieb A: Zeile 2 Personal · Ausbau · Lager · Firmen · Home',
+      aIds[1].join(' ') === `firma|personal|0|${FU} firma|ausbau|${a}|${FU} firma|lager|${a}|${FU} firma|firmen|0|${FU} home|${FU}`,
+      aIds[1].join(' '));
+    for (const row of vA.components) check('Betrieb A: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Betrieb A hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(vA).overflow === undefined,
+      String(render.mapReactions(vA).overflow));
+
+    const vB = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: b });
+    check('Betrieb B: richtige Firma und Fußzeile „· Firma 2 von 2"',
+      vB.embeds[0].data.title.includes('Bude') && vB.embeds[0].data.footer.text.includes('· Firma 2 von 2'),
+      `${vB.embeds[0].data.title} / ${vB.embeds[0].data.footer.text}`);
+
+    // Gründungsansicht am Limit: Hinweis auf das Level, Branchenknöpfe gesperrt.
+    const g = await ui.buildFirmaFoundView({ guildId: FG, userId: FU });
+    check('Gründung am Limit: Beschreibung nennt den Ist-Stand „Du führst 2 von 2 Firmen (Level 15)"',
+      g.embeds[0].data.description.includes('**Du führst 2 von 2** Firmen (Level 15)')
+      && !g.embeds[0].data.description.includes('**Firma 2 von 2**'), g.embeds[0].data.description);
+    const gLimit = g.embeds[0].data.fields.find((f) => f.name === '🏢 Limit erreicht');
+    check('Gründung am Limit: Hinweis „ab Level 20"',
+      gLimit?.value.includes('**2 von 2**') && gLimit.value.includes('**Level 20**'), gLimit?.value);
+    check('Gründung am Limit: Branchenknöpfe gesperrt',
+      g.components[1].components.every((btn) => btn.data.disabled === true));
+    check('Gründung: Rückweg zur Übersicht',
+      g.components[0].components.some((btn) => btn.data.custom_id === `firma|firmen|0|${FU}`),
+      g.components[0].components.map((btn) => btn.data.custom_id).join(' '));
+    check('Gründungsansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(g).overflow === undefined,
+      String(render.mapReactions(g).overflow));
+
+    // Ein Level mehr: die dritte darf gegründet werden.
+    setLevel(20);
+    const g2 = await ui.buildFirmaFoundView({ guildId: FG, userId: FU });
+    check('Level 20: „Firma 3 von 3 (Level 20)", Branchen wieder frei',
+      g2.embeds[0].data.description.includes('**Firma 3 von 3** (Level 20)')
+      && g2.components[1].components.every((btn) => btn.data.disabled !== true), g2.embeds[0].data.description);
+    const ueber2 = await ui.buildFirmenView({ guildId: FG, userId: FU });
+    check('Level 20: Übersicht „2 von 3", Gründen frei',
+      ueber2.embeds[0].data.title === '🏢 Deine Firmen (2 von 3)'
+      && ueber2.components[1].components[0].data.disabled !== true, ueber2.embeds[0].data.title);
+
+    await company.close(FG, FU, now, a);
+    await company.close(FG, FU, now, b);
+  }
+
+  console.log('--- Mehrere Firmen: Vorfall, Schließen-Bestätigung und veraltete Knöpfe (Review) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const level = require('../src/level');
+    const buttons = require('../src/buttons').buttons;
+    const FG = `FR4_R${Date.now()}`;
+    const FU = 'fr_review';
+    const now = Date.now();
+    db.addStats(FG, FU, { xp: level.xpForLevel(20) - db.getStats(FG, FU).xp });
+    const a = (await company.found(FG, FU, 'kiosk', 'Eckladen', now)).company.id;
+    const b = (await company.found(FG, FU, 'imbiss', 'Bude', now + 3600e3)).company.id;
+
+    /** Ein Klick auf einen Knopf: sammelt Ansicht, Hinweise und Modale. */
+    const klick = async (aktion, arg) => {
+      const rec = { views: [], notes: [], modals: [] };
+      await buttons.firma({
+        guildId: FG,
+        user: { id: FU },
+        deferUpdate: async () => {},
+        editReply: async (v) => { rec.views.push(v); return v; },
+        reply: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        showModal: async (m) => { rec.modals.push(m); },
+      }, [aktion, arg]);
+      return rec;
+    };
+    const idsOf = (v) => v.components.flatMap((row) => row.components.map((btn) => btn.data.custom_id));
+
+    // (i) Der Vorfall hängt an A – in der Ansicht von B hat er nichts zu suchen.
+    db.clearEvents(FG, FU);
+    db.insertEvent({ guildId: FG, userId: FU, kind: 'wasserschaden', platform: 'company',
+      refId: a, createdAt: now, expiresAt: now + 24 * 3600e3 });
+    const vorfallA = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: a });
+    check('Vorfall: A zeigt das Feld', vorfallA.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
+      vorfallA.embeds[0].data.fields.map((f) => f.name).join(', '));
+    check('Vorfall: A hat den Knopf', idsOf(vorfallA).includes(`vorfall|${FU}`), idsOf(vorfallA).join(' '));
+    const vorfallB = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: b });
+    check('Vorfall: B zeigt KEIN Vorfall-Feld', !vorfallB.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
+      vorfallB.embeds[0].data.fields.map((f) => f.name).join(', '));
+    check('Vorfall: B hat KEINEN Vorfall-Knopf', !idsOf(vorfallB).includes(`vorfall|${FU}`), idsOf(vorfallB).join(' '));
+    check('Vorfall: B behält den Rückweg (Firmen und Home)',
+      idsOf(vorfallB).includes(`firma|firmen|0|${FU}`) && idsOf(vorfallB).includes(`home|${FU}`), idsOf(vorfallB).join(' '));
+    for (const row of vorfallA.components) check('Vorfall: A hat höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Vorfall: A hält das Fluxer-Limit', render.mapReactions(vorfallA).overflow === undefined,
+      String(render.mapReactions(vorfallA).overflow));
+    check('Vorfall: B hält das Fluxer-Limit', render.mapReactions(vorfallB).overflow === undefined,
+      String(render.mapReactions(vorfallB).overflow));
+    db.clearEvents(FG, FU);
+
+    // (i-b) „NPC einstellen" trägt Seite UND Firma (`<seite>-<id>`): Die
+    // Personalseite von A darf nicht in B einstellen, nur weil zwischendurch B
+    // aktiv geworden ist. Vorher rief der Knopf `hireNpc` ohne ID – der NPC
+    // landete still in der aktiven Firma.
+    company.setActive(FG, FU, a);
+    const personalA = await ui.buildFirmaStaffView({ guildId: FG, userId: FU });
+    check('Personal: der NPC-Knopf trägt Seite und Firma',
+      idsOf(personalA).includes(`firma|npc|1-${a}|${FU}`), idsOf(personalA).join(' '));
+    check('Personal: A hält das Fluxer-Limit', render.mapReactions(personalA).overflow === undefined,
+      String(render.mapReactions(personalA).overflow));
+    company.setActive(FG, FU, b);                      // der Spieler wechselt zwischendurch
+    const npcKlick = await klick('npc', `1-${a}`);
+    check('NPC: eingestellt wird in der Firma der Personalseite (A), nicht in der aktiven (B)',
+      db.companyStaff(a).length === 1 && db.companyStaff(b).length === 0,
+      `A ${db.companyStaff(a).length} / B ${db.companyStaff(b).length}`);
+    check('NPC: die Ansicht danach zeigt dieselbe Firma (A)',
+      (npcKlick.views[0]?.embeds[0].data.title ?? '').includes('Eckladen'),
+      npcKlick.views[0]?.embeds[0].data.title);
+    check('NPC: A ist danach auch die aktive Firma', company.activeCompanyId(FG, FU) === a,
+      String(company.activeCompanyId(FG, FU)));
+
+    // (ii) Die Schließen-Bestätigung trägt die Firmen-ID – und trifft sie auch
+    // dann, wenn zwischendurch eine andere Firma aktiv geworden ist.
+    const dialog = await klick('schliessen', String(a));
+    const ja = dialog.views[0].components[0].components[0].data;
+    check('Schließen: Bestätigung trägt die Firmen-ID', ja.custom_id === `firma|schliessen|ja-${a}|${FU}`, ja.custom_id);
+    check('Schließen: Dialog nennt die Firma', dialog.views[0].embeds[0].data.title.includes('Eckladen'),
+      dialog.views[0].embeds[0].data.title);
+    company.setActive(FG, FU, b);                      // der Spieler wechselt zwischendurch
+    await klick('schliessen', `ja-${a}`);
+    check('Schließen: genau die bestätigte Firma ist zu',
+      db.getCompany(a).status === 'closed' && db.getCompany(b).status === 'open',
+      `${db.getCompany(a).status} / ${db.getCompany(b).status}`);
+
+    // (iii) Veralteter Knopf: die ID löst nicht mehr auf – nichts passiert.
+    await company.deposit(FG, FU, 100_000, now + 2 * 3600e3, b);
+    const kasseB = db.getCompany(b).kasse;
+    const alt = await klick('werbung', String(a));
+    check('Veralteter Knopf: Hinweis „gibt es nicht mehr"',
+      alt.notes.some((n) => String(n).includes('Diese Firma gibt es nicht mehr')), JSON.stringify(alt.notes));
+    check('Veralteter Knopf: die aktive Firma bleibt unberührt', db.getCompany(b).kasse === kasseB,
+      `${db.getCompany(b).kasse} statt ${kasseB}`);
+    check('Veralteter Knopf: die Übersicht kommt zurück',
+      (alt.views[0]?.embeds[0].data.title ?? '').startsWith('🏢 Deine Firmen'), alt.views[0]?.embeds[0].data.title);
+    const altModal = await klick('entnehmen', String(a));
+    check('Veralteter Knopf: auch ein Modal-Knopf wird abgewiesen',
+      altModal.modals.length === 0 && altModal.notes.some((n) => String(n).includes('gibt es nicht mehr')),
+      JSON.stringify(altModal.notes));
+    const altOeffnen = await klick('oeffnen', String(a));
+    check('Veralteter Knopf: „Öffnen" zeigt nicht die aktive Firma',
+      !(altOeffnen.views[0]?.embeds[0].data.title ?? '').includes('Bude')
+      && altOeffnen.notes.some((n) => String(n).includes('gibt es nicht mehr')),
+      `${altOeffnen.views[0]?.embeds[0].data.title} / ${JSON.stringify(altOeffnen.notes)}`);
+
+    // (iv) Auch der NPC-Knopf einer inzwischen geschlossenen Firma wird
+    // abgewiesen statt umgeleitet – A ist seit (ii) zu.
+    const npcAlt = await klick('npc', `1-${a}`);
+    check('NPC: veralteter Knopf wird abgewiesen',
+      npcAlt.notes.some((n) => String(n).includes('Diese Firma gibt es nicht mehr')), JSON.stringify(npcAlt.notes));
+    check('NPC: die aktive Firma bekommt kein Personal untergeschoben',
+      db.companyStaff(b).length === 0, String(db.companyStaff(b).length));
+
+    await company.close(FG, FU, now + 3 * 3600e3, b);
   }
 
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');

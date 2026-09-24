@@ -570,10 +570,29 @@ db.exec(`
     trade_today        INTEGER NOT NULL DEFAULT 0,   -- … gelieferte Einheiten an diesem Tag
     trade_units        INTEGER NOT NULL DEFAULT 0,   -- gelieferte Einheiten gesamt
     trade_profit       INTEGER NOT NULL DEFAULT 0,   -- verdiente Spanne gesamt
-    last_payout        INTEGER NOT NULL DEFAULT 0    -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
+    last_payout        INTEGER NOT NULL DEFAULT 0,   -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
+    profit_ema         REAL    NOT NULL DEFAULT 0,   -- Firmenwert (Stück 4): gleitender Tagesgewinn (7 Tage)
+    -- … und was seit dem letzten abgerechneten Tag in ECHTZEIT aus der Kasse
+    -- ging oder hineinkam (Werbung, Prämie, Vorfall-Kasse). Wird im nächsten
+    -- abgerechneten Tag in profit_ema verrechnet und dann auf 0 gesetzt.
+    profit_pending     INTEGER NOT NULL DEFAULT 0
   );
-  CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open
-    ON companies (guild_id, owner_id) WHERE status = 'open';
+  -- Stück 4: mehrere offene Firmen je Spieler. Der frühere eindeutige Index
+  -- (eine offene Firma je Inhaber) fällt deshalb weg; gesucht wird weiter
+  -- nach (Server, Inhaber, Status).
+  DROP INDEX IF EXISTS idx_companies_owner_open;
+  CREATE INDEX IF NOT EXISTS idx_companies_owner
+    ON companies (guild_id, owner_id, status);
+  -- Auf welche Firma sich eine Aktion ohne ausdrückliche ID bezieht: die
+  -- zuletzt gewählte oder gegründete. Reiner Komfort – fehlt die Zeile oder
+  -- zeigt sie auf eine geschlossene Firma, gilt die älteste offene.
+  CREATE TABLE IF NOT EXISTS company_active (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    company_id INTEGER NOT NULL,
+    at         INTEGER NOT NULL,
+    PRIMARY KEY (guild_id, user_id)
+  );
 `);
 // `companies` ist auf diesem Branch schon vorher live gelaufen – lokale
 // Datenbanken haben die Tabelle also unter Umständen noch ohne `closed_why`.
@@ -608,6 +627,14 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     ['trade_profit', 'INTEGER NOT NULL DEFAULT 0'],
     // Anteile (Stück 3c): letzte Ausschüttung (Entnahme/Auszahlung) je 1000 Anteile.
     ['last_payout', 'INTEGER NOT NULL DEFAULT 0'],
+    // Firmenwert (Stück 4): gleitender Tagesgewinn aus dem Betrieb (EMA über 7
+    // Tage, wie die Nachfrage). 0 heißt „noch nichts gemessen" – dann ist die
+    // Firma ihre Substanz wert, nicht mehr.
+    ['profit_ema', 'REAL NOT NULL DEFAULT 0'],
+    // Aufgelaufene Betriebsausgaben aus der Echtzeit (Werbung, Prämie,
+    // Vorfall-Kasse), bis der nächste abgerechnete Tag sie in `profit_ema`
+    // verrechnet – sonst zählte der Ertragswert nur den Umsatz, den sie kaufen.
+    ['profit_pending', 'INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
@@ -882,11 +909,18 @@ db.exec(`
     effect     TEXT    NOT NULL DEFAULT '', -- angewandte Wirkung als JSON
     created_at INTEGER NOT NULL,
     expires_at INTEGER NOT NULL,
-    decided_at INTEGER
+    decided_at INTEGER,
+    ref_id     INTEGER NOT NULL DEFAULT 0  -- woran der Vorfall hängt (Stück 4: die Firma)
   );
   CREATE INDEX IF NOT EXISTS idx_creator_events
     ON creator_events (guild_id, user_id, status);
 `);
+// Stück 4: Ein Firmen-Vorfall gehört zu EINER Firma – seit es mehrere je
+// Spieler gibt, reicht die User-ID nicht mehr. Spalte nachrüsten statt
+// Migration (wie überall hier).
+if (!db.prepare('PRAGMA table_info(creator_events)').all().some((c) => c.name === 'ref_id')) {
+  db.exec('ALTER TABLE creator_events ADD COLUMN ref_id INTEGER NOT NULL DEFAULT 0');
+}
 
 // Sponsorenverträge: Eine Marke zahlt für eine vereinbarte Zahl von Beiträgen
 // innerhalb einer Frist. Wer liefert, kassiert; wer die Frist reißt, zahlt
@@ -1843,8 +1877,16 @@ const stmt = {
        stock, stock_cost, stock_seeded)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1) RETURNING *`),
   getCompany: db.prepare('SELECT * FROM companies WHERE id = ?'),
-  getOpenCompany: db.prepare(
-    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'`),
+  openCompaniesOf: db.prepare(
+    `SELECT * FROM companies WHERE guild_id = ? AND owner_id = ? AND status = 'open'
+     ORDER BY founded_at, id`),
+  getActiveCompany: db.prepare(
+    'SELECT * FROM company_active WHERE guild_id = ? AND user_id = ?'),
+  setActiveCompany: db.prepare(
+    `INSERT INTO company_active (guild_id, user_id, company_id, at) VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET company_id = excluded.company_id, at = excluded.at`),
+  clearActiveCompany: db.prepare(
+    'DELETE FROM company_active WHERE guild_id = ? AND user_id = ?'),
   openCompanies: db.prepare(
     `SELECT * FROM companies WHERE guild_id = ? AND status = 'open' ORDER BY founded_at`),
   saveCompany: db.prepare(
@@ -1853,7 +1895,8 @@ const stmt = {
        status = ?, closed_at = ?, closed_why = ?,
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
        wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?,
-       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?
+       trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?,
+       profit_ema = ?, profit_pending = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -1862,6 +1905,7 @@ const stmt = {
      ORDER BY closed_at DESC LIMIT 1`),
   deleteCompany: db.prepare('DELETE FROM companies WHERE id = ?'),
   clearCompanies: db.prepare('DELETE FROM companies WHERE guild_id = ?'),
+  clearActiveCompaniesOfGuild: db.prepare('DELETE FROM company_active WHERE guild_id = ?'),
   insertStaff: db.prepare(
     `INSERT INTO company_staff (company_id, kind, user_id, name, hired_at)
      VALUES (?, ?, ?, ?, ?) RETURNING *`),
@@ -1975,6 +2019,15 @@ const stmt = {
    * Jeder, der irgendetwas BESITZT – auch ohne einen Cent auf dem Konto.
    * Gebraucht fürs Vermögens-Ranking: Wer 50.000 in Fundstücken liegen hat,
    * gehört dort hin, selbst wenn sein Geldbeutel leer ist.
+   *
+   * Seit Stück 4 zählen auch Firmen: ein Inhaber mit einer ausgebauten Firma
+   * und ein reiner Anteilshalter haben oft weder Auto noch Sammlung – ohne die
+   * beiden letzten Zweige stünden ausgerechnet die Reichsten nicht in der
+   * Liste. Anteilszeilen zählen auch mit 0 Anteilen, solange noch eine
+   * Ausschüttung aussteht (die ist Geld, das ihnen gehört) – Anteile an einer
+   * geschlossenen Firma dagegen nicht mehr: sie sind wertlos und hielten den
+   * Halter sonst für immer in der Kandidatenliste der Rangliste, wo jeder
+   * Name ein `getBalance` gegen `MAX_LOOKUPS` kostet.
    */
   assetOwners: db.prepare(
     `SELECT inv.user_id AS user_id FROM inventory inv JOIN items i ON i.id = inv.item_id
@@ -1982,7 +2035,12 @@ const stmt = {
      UNION
      SELECT user_id FROM market_holdings WHERE guild_id = ? AND shares > 0
      UNION
-     SELECT user_id FROM storage_loot WHERE guild_id = ?`),
+     SELECT user_id FROM storage_loot WHERE guild_id = ?
+     UNION
+     SELECT owner_id FROM companies WHERE guild_id = ? AND status = 'open'
+     UNION
+     SELECT cs.user_id FROM company_shares cs JOIN companies c ON c.id = cs.company_id
+      WHERE c.guild_id = ? AND (cs.pending > 0 OR (cs.shares > 0 AND c.status = 'open'))`),
 
   // --- Einkommens-Cooldowns (!daily …) ---
   getClaim: db.prepare(
@@ -2152,8 +2210,8 @@ const stmt = {
 
   // --- Vorfälle mit Entscheidung ---
   insertEvent: db.prepare(
-    `INSERT INTO creator_events (guild_id, user_id, kind, platform, status, created_at, expires_at)
-     VALUES (?, ?, ?, ?, 'open', ?, ?) RETURNING *`),
+    `INSERT INTO creator_events (guild_id, user_id, kind, platform, status, created_at, expires_at, ref_id)
+     VALUES (?, ?, ?, ?, 'open', ?, ?, ?) RETURNING *`),
   getEvent: db.prepare('SELECT * FROM creator_events WHERE guild_id = ? AND id = ?'),
   openEvent: db.prepare(
     `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status = 'open'
@@ -3597,8 +3655,9 @@ function topCreatorTotal(guildId, limit = 10) {
 // ------------------------------------------------- Vorfälle (Entscheidungen)
 
 /** Legt einen offenen Vorfall an. */
-function insertEvent({ guildId, userId, kind, platform = '', createdAt, expiresAt }) {
-  return stmt.insertEvent.get(guildId, String(userId), kind, platform, createdAt, expiresAt);
+function insertEvent({ guildId, userId, kind, platform = '', createdAt, expiresAt, refId = 0 }) {
+  return stmt.insertEvent.get(guildId, String(userId), kind, platform, createdAt, expiresAt,
+    Number(refId) || 0);
 }
 
 function getEvent(guildId, id) {
@@ -3946,8 +4005,25 @@ function insertCompany({ guildId, ownerId, branch, name, now = Date.now(), stock
   return stmt.insertCompany.get(guildId, String(ownerId), branch, name, now, now, stock, stockCost);
 }
 function getCompany(id) { return stmt.getCompany.get(Number(id)) ?? null; }
-function getOpenCompany(guildId, ownerId) {
-  return stmt.getOpenCompany.get(guildId, String(ownerId)) ?? null;
+
+/** Alle offenen Firmen eines Spielers – älteste zuerst (Stück 4). */
+function openCompaniesOf(guildId, ownerId) {
+  return stmt.openCompaniesOf.all(guildId, String(ownerId));
+}
+
+/** Die gemerkte Firma eines Spielers, oder null. */
+function getActiveCompany(guildId, userId) {
+  return stmt.getActiveCompany.get(guildId, String(userId)) ?? null;
+}
+
+/** Merkt sich, welche Firma zuletzt gewählt oder gegründet wurde. */
+function setActiveCompany(guildId, userId, companyId, at = Date.now()) {
+  stmt.setActiveCompany.run(guildId, String(userId), Number(companyId), at);
+}
+
+/** Vergisst die gemerkte Firma (z. B. weil sie geschlossen wurde). */
+function clearActiveCompany(guildId, userId) {
+  stmt.clearActiveCompany.run(guildId, String(userId));
 }
 function openCompanies(guildId) { return stmt.openCompanies.all(guildId); }
 /** Schreibt die Firma in EINER Anweisung fort. */
@@ -3962,6 +4038,11 @@ function saveCompany(c) {
     c.stock ?? 0, c.stock_cost ?? 0, c.stock_seeded ? 1 : 0,
     c.trade_day ?? '', c.trade_today ?? 0, c.trade_units ?? 0, c.trade_profit ?? 0,
     Math.round(c.last_payout ?? 0),
+    // Der gleitende Gewinn ist bewusst KEINE ganze Zahl: gerundet wäre die EMA
+    // bei kleinen Firmen sofort tot (0,4 → 0).
+    Number(c.profit_ema ?? 0) || 0,
+    // Die Echtzeit-Ausgaben sind dagegen ganze Beträge (Kassenbuchungen).
+    Math.round(Number(c.profit_pending ?? 0) || 0),
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */
@@ -3978,6 +4059,7 @@ function clearCompanies(guildId) {
     stmt.deleteSharesOfCompany.run(c.id);
   }
   stmt.clearCompanies.run(guildId);
+  stmt.clearActiveCompaniesOfGuild.run(guildId);   // gemerkte aktive Firma wäre sonst verwaist
 }
 function insertStaff({ companyId, kind, userId = '', name = '', now = Date.now() }) {
   return stmt.insertStaff.get(Number(companyId), kind, String(userId), name, now);
@@ -4140,7 +4222,8 @@ function walletTop(guildId, limit = 50) {
 
 /** IDs aller Spieler mit Autos, Immobilien, Wertpapieren oder Fundstücken. */
 function assetOwners(guildId) {
-  return stmt.assetOwners.all(guildId, guildId, guildId).map((r) => String(r.user_id));
+  return stmt.assetOwners.all(guildId, guildId, guildId, guildId, guildId)
+    .map((r) => String(r.user_id));
 }
 
 // --------------------------------------------------- Einkommens-Cooldowns
@@ -4187,7 +4270,8 @@ module.exports = {
   addNews, listNews, purgeNews, clearMarket,
   setRelayWebhook, getRelayWebhook, deleteRelayWebhook, allRelayWebhooks,
   RELAY_PAIR_TTL_MS, setRelayPair, relayPairFor, clearRelayPairs,
-  insertCompany, getCompany, getOpenCompany, openCompanies, saveCompany, lastClosedCompany,
+  insertCompany, getCompany, openCompanies, saveCompany, lastClosedCompany,
+  openCompaniesOf, getActiveCompany, setActiveCompany, clearActiveCompany,
   deleteCompany, clearCompanies, insertStaff, companyStaff, staffById, staffByUser, saveStaff,
   deleteStaff, deleteStaffOfCompany, clearEmploymentByJob,
   setCompanyStufe, companyExtras, addCompanyExtra, deleteCompanyExtra, deleteExtrasOfCompany,

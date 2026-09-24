@@ -155,6 +155,9 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     guildId, userId,
     kind: picked.id,
     platform: domain === 'music' ? 'music' : domain === 'company' ? 'company' : (picked.platform ?? ''),
+    // Firmen (Stück 4): der Vorfall gehört zu EINER Firma – der Aufrufer
+    // (company.settle) gibt sie in `size.companyId` mit.
+    refId: Number(size?.companyId) || 0,
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
@@ -270,7 +273,10 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
  */
 async function applyCompany(guildId, userId, row, effect, now, ignored, random) {
   const company = require('./company');
-  const ctx = company.fresh(guildId, userId, now, random);
+  // Stück 4: der Vorfall hängt an einer bestimmten Firma (`ref_id`); ältere
+  // Zeilen ohne ID treffen weiter die aktive Firma des Spielers.
+  const cid = row.ref_id || null;
+  const ctx = company.fresh(guildId, userId, now, random, cid);
   const leer = { kasse: 0, refund: 0, auslastung: 0, quit: [], lock: 0, umsatz: null, days: 0,
     wages: null, werbung: 0, staffRank: null, sell: false, sold: null, gone: true, text: effect.text };
   if (!ctx) return leer;
@@ -281,12 +287,19 @@ async function applyCompany(guildId, userId, row, effect, now, ignored, random) 
   for (const s of r.quit) db.deleteStaff(s.id);
   for (const s of r.staff) db.saveStaff(s);
   const d = decision(row.kind);
-  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`, r.done.kasse + r.done.refund);
+  const kasse = r.done.kasse + r.done.refund;     // netto, wie in der Chronik
+  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`, kasse);
+  // Der Vorfall wirkt in Echtzeit, nicht in einem Abrechnungstag – seine
+  // Kassenwirkung würde sonst am Ertragswert vorbeilaufen (Stück 4). Sie
+  // läuft über `profit_pending` in den nächsten abgerechneten Tag; in der
+  // Abrechnung selbst zählt `settle` die Ereignisse direkt (kein Doppelzählen,
+  // denn dort geht der Weg nicht über `applyCompany`).
+  if (kasse) r.company.profit_pending = (r.company.profit_pending ?? 0) + kasse;
   db.saveCompany(r.company);
 
   let sold = null;
   if (effect.sell) {
-    const s = await company.sell(guildId, userId, now);
+    const s = await company.sell(guildId, userId, now, c.id);
     sold = s.ok ? { payout: s.payout, paid: s.paid, shared: s.shared } : null;
   }
   return { ...r.done, sold, gone: false, text: effect.text };

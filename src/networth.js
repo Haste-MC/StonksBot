@@ -10,7 +10,7 @@ const db = require('./db');
  * und die **Sammlung aus den Auktionen** kam nirgends vor – obwohl dort bei
  * manchen 50.000 liegen. Deshalb steht die Rechnung ab jetzt nur noch hier.
  *
- *     Vermögen = Bargeld + Bank + Autos + Immobilien + Depot + Sammlung
+ *     Vermögen = Bargeld + Bank + Autos + Immobilien + Depot + Sammlung + Firmen
  *
  * Alle Bestandteile außer dem Geld liegen synchron in SQLite (§7) – die
  * Rechnung kostet also keine API-Abfrage. Nur das Guthaben selbst kommt bei
@@ -25,18 +25,26 @@ const PARTS = [
   { key: 'realty', label: 'Immobilien', emoji: '🏠' },
   { key: 'depot', label: 'Depot', emoji: '📈' },
   { key: 'collection', label: 'Sammlung', emoji: '🏺' },
+  { key: 'company', label: 'Firmen', emoji: '🏢' },
 ];
 
 /**
  * Alles, was jemand BESITZT – ohne Bargeld und Bank. Synchron und billig.
- * @returns {{garage,realty,depot,collection,total}}
+ * @returns {{garage,realty,depot,collection,company,total}}
  */
 function assetsOf(guildId, userId) {
   const garage = db.garageValue(guildId, userId) || 0;
   const realty = db.propertyValue(guildId, userId) || 0;
   const depot = Math.round(require('./wallstreet').portfolio(guildId, userId).value || 0);
   const collection = db.lootSummary(guildId, userId).value || 0;
-  return { garage, realty, depot, collection, total: garage + realty + depot + collection };
+  // Firmen (Stück 4): Substanz und Ertragswert der eigenen Betriebe plus
+  // gehaltene Anteile. Spät gebunden – company.js zieht die halbe Welt nach
+  // (Börse, Entscheidungen), und das Vermögen wird überall gerechnet.
+  const company = require('./company').worthOf(guildId, userId).total || 0;
+  return {
+    garage, realty, depot, collection, company,
+    total: garage + realty + depot + collection + company,
+  };
 }
 
 /** IDs aller Spieler, die irgendetwas besitzen (auch ohne Geld). */

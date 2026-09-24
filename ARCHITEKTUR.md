@@ -841,6 +841,105 @@ aller Buchungen": Gründung, zwei Verkäufe des Inhabers, Einzahlung, Entnahme
 (2.000 + 1.000 + 750) − 17.091 noch nicht abgeholt** – Konto für Konto von
 Hand nachgerechnet (O 20.142.818, A 4.875.000, B 4.841.341).
 
+**Mehrere Firmen und Firmenwert (seit 1.38.0, Stück 4):** Zwei Änderungen, die
+zusammengehören – ein Spieler darf mehrere Firmen führen, und was sie wert
+sind, zählt zum Vermögen. *(A) Limit am Konto-Level.* Der alte Unique-Index
+„eine offene Firma je Spieler" ist weg; `company.maxCompanies(level) =
+clamp(1, 5, 1 + floor(level / 10))` (`COMPANIES_PER_LEVEL` 10,
+`COMPANIES_MAX` 5):
+
+| Level | 0–9 | 10–19 | 20–29 | 30–39 | ab 40 |
+|---|---|---|---|---|---|
+| offene Firmen | 1 | 2 | 3 | 4 | 5 |
+
+`found` lehnt darüber mit `reason: 'limit'` ab (`{ have, max, level, nextAt }`);
+jede Inhaber-Aktion nimmt eine optionale `companyId`, ohne sie gilt die aktive
+Firma (`company_active`, Rückfall auf die älteste offene). Der Menüeintrag
+„Firma" führt ab zwei Firmen auf eine Übersicht, die Betriebsansicht zeigt
+„Firma 2 von 3". Eine Anstellung bleibt es trotzdem nur eine, und die Sperre
+„ein offener Vorfall je Spieler" gilt über alle Firmen zusammen – mehrere
+Firmen sind mehr Kapital, nicht mehr Zeit. *(B) Der Wert.* `company.valueOf`
+= **Substanz** (gekaufte Stufen und Extras + Kasse + Lager zum Einstand; der
+Gründungspreis zählt nicht, wie beim Schließen) + **Ertragswert**
+(`max(0, round(profit_ema × ERTRAG_FAKTOR))`, `ERTRAG_FAKTOR` 30). `profit_ema`
+ist ein 7-Tage-EMA des Tagesgewinns **aus dem Betrieb**, den `settle` je
+abgerechnetem Tag fortschreibt: NPC-Umsatz − Löhne − verbrauchte Ware zum
+Einstand ± Kassenwirkung der Ereignisse, dazu über `profit_pending` die
+Werbung, die Prämie und die Kassenwirkung eines Vorfalls (Task 3: sonst wäre
+der Ertragswert über die eigene Kasse käuflich – bezahlen kostet Substanz
+1 : 1, der gekaufte Mehrumsatz zählte dreißigfach). Einzahlung, Entnahme,
+Wareneinkauf, Anteilskäufe und Ausschüttungen zählen nicht in die EMA:
+Einzahlen hebt nur die Substanz, um genau den Betrag, der vom Konto abging
+(§3, Test „Einzahlung ist vermögensneutral"). *Verteilung:* Der Inhaber trägt
+`valueOf × sharesOf().owner / 1000`, jeder Halter `valueOf × shares / 1000`
+plus sein noch nicht abgeholtes `pending` (3c). `networth.PARTS` hat dafür den
+Posten 🏢 Firmen (`company.worthOf`, synchron, ohne Abrechnung – Hinsehen darf
+nichts ändern), `db.assetOwners` findet auch reine Firmenbesitzer, und die
+Ranglisten-Fußzeile nennt „🏢 Firmen: X % des Vermögens der Top 10" über die
+angezeigten Zeilen.
+
+**Gemessen** (365 Tage, fester Würfel, `firmenlauf` im Messskript, Auszug in
+`docs/messungen/2026-09-24-firmenwert.txt`; Zeile „Firmenwert am Ende" je
+Branche, Werte mit Ereignissen): Ein **Kern-Kiosk** ist am Jahresende
+**16.368** wert (Substanz 4.750 = Kasse 1.750 + Lager 3.000, Ertragswert
+11.618 aus `profit_ema` 387), eine **Kern-Spedition 1.246.950** (Substanz
+150.440, Ertragswert 1.096.510), eine **Kern-Baufirma 661.574**. Voll
+ausgebaut: **Spedition 61.448.038** (Substanz 50.046.200, davon 49,8 Mio
+Ausbau, Ertragswert 11.401.838), **Baufirma 88.498.718** (Substanz
+74.985.160, Ertragswert 13.513.558), Café 8.192.261, Kiosk 1.361.745. Die
+Spanne zwischen der kleinsten und der größten Firma ist damit **1 : 5.400** –
+und bei den ausgebauten Firmen ist der größere Teil **Substanz** (Café 62 %,
+Spedition 81 %, Baufirma 85 %), also bezahltes Kapital, das **im Betrieb
+steckt** – beim freiwilligen Schließen kommen nur Kasse und Lager zurück, der
+Ausbau nur beim Übernahme-Verkauf (`sell`); der Ertragswert ist der kleinere
+Teil. Die Rangliste bewegt sich dadurch für Kern-Firmen kaum, für Endgame-Firmen dagegen stark:
+Eine voll ausgebaute Baufirma trägt mit 88,5 Mio so viel zum Vermögen bei wie
+**239 Tage Musik+Creator** (369.752/Tag im selben Lauf) – sie hat aber auch
+74,7 Mio Ausbau gekostet, und genau die stehen als Substanz darin.
+**Handprüfung** (Kiosk Kern ohne Ereignisse): eingeschwungener Tag
+2 × 3 Schichten × 250 × 1,5 = 2.250 Umsatz − 900 Löhne − 6 × 50 Ware = 1.050;
+Werbung 1.250 alle 3 Tage fällt über `profit_pending` in denselben Tag
+(−200 statt +1.050); am Laufende (letzte Kampagne einen Tag her) wiegen die
+Werbetage `(1/7)(6/7) / (1 − (6/7)³)` = 0,3308 → 1.050 − 1.250 × 0,3308 =
+**636,5**, gemessen `profit_ema` **636,61**, Ertragswert 30 × 636,61 =
+**19.098** – die EMA aus den Tagesbuchungen von Hand nachgerechnet ergibt
+denselben Wert. Der Ertragswert ist damit **nicht** 30 × Median/Tag (das wären
+69.930): Der Median ist der Kassen-Tagesgewinn *mit* den vier Anpacken-
+Schichten des Inhabers (+1.300/Tag) und *ohne* die Werbung (ein Quantil trifft
+einen Tag ohne Kampagne), die EMA ist genau umgekehrt geschnitten – Probe:
+2.350 (Kassentag) − 1.300 − 413,5 = 636,5. **Ehrliche Grenzen:** (1) Die
+Abrechnung ist faul (§4) – eine liegengelassene Firma behält ihren letzten
+Wert, bis jemand hinsieht; die Rangliste zeigt also den Stand der letzten
+Abrechnung, nicht den von heute. (2) Wer länger als `MAX_SETTLE_DAYS` (30
+Tage) weg war, verliert die älteren Tage; die EMA steht so lange still und
+springt danach mit den nachgeholten Tagen. (3) **Spieler-Schichten zählen
+nicht in die EMA** – eine Firma, die vor allem vom Anpacken des Inhabers und
+von Spieler-Angestellten lebt, ist im Ertragswert systematisch zu niedrig
+bewertet (beim Kiosk um 1.300 von 2.350 am Tag, also mehr als die Hälfte).
+Das ist gewollt: Bewertet wird, was die Firma ohne ihren Inhaber abwirft.
+(4) **Die Substanz ist kein Liquidationserlös.** `close` zahlt nur
+`max(0, Kasse + Lager zum Einstand)` aus; der Ausbau (`invested`) kommt allein
+beim Übernahme-Verkauf (`sell`) zurück. Gemessen an einem Café auf Stufe 5 mit
+`invested` **4.020.000**: Auszahlung beim freiwilligen Schließen **23.940**.
+Der Wert in der Rangliste ist der eines laufenden Betriebs, nicht der, den ein
+Aufgeben einbringt. (5) **Der ×30-Hebel wirkt auch auf befristete Ereignisse.**
+Ein Großauftrag (`umsatz ×1,15` über 5 Tage) hebt den angezeigten Wert eines
+Kern-Cafés um rund **44.000**, während er tatsächlich nur rund **13.600** Kasse
+einbringt; die Überzeichnung klingt mit 6/7 je Abrechnungstag wieder ab und
+zahlt nie etwas aus. (6) **Die Großhandels-Spanne (3b) hebt die Summe aller
+Vermögen** um genau diese Spanne: Der Käufer bucht die Ware zum eigenen
+Einstand ins Lager, der Verkäufer hat den Aufschlag schon in der Kasse. Gedeckelt
+ist das durch die Handels-Decke – gemessen **680 je Tag und Firmenpaar**.
+
+**Kein Rückweg.** Der alte Unique-Index `idx_companies_owner_open` („höchstens
+eine offene Firma je Spieler") fällt beim Start (`DROP INDEX IF EXISTS` in
+`src/db.js`). Sobald ein Spieler zwei offene Firmen hat, kann diese Datenbank
+nicht mehr auf einen älteren Stand zurück: Das
+`CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open` der alten Version
+läuft beim Start gegen die vorhandenen Duplikate, und der Serverstart bricht an
+der Index-Erstellung ab. Ein Rollback muss vorher die überzähligen Firmen der
+betroffenen Spieler schließen oder löschen.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,
