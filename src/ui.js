@@ -1040,7 +1040,10 @@ async function buildFirmaFoundView({ guildId, userId, klasse = 'klein' }) {
       'Deine eigene Firma: Personal einstellen, Kasse im Plus halten, Gewinn entnehmen – und '
       + 'mit dem Gewinn **ausbauen**. NPCs kosten jeden Tag Lohn, Spieler nur für gearbeitete '
       + 'Schichten. Läuft die Kasse **14 Tage** im Minus, ist die Firma insolvent.\n\n'
-      + `**Firma ${Math.min(open.length + 1, max)} von ${max}** (Level ${level})\n\n`
+      // Am Limit zählt der Ist-Stand („Du führst 2 von 2"); darunter die, die es würde.
+      + (amLimit
+        ? `**Du führst ${open.length} von ${max}** Firmen (Level ${level})\n\n`
+        : `**Firma ${open.length + 1} von ${max}** (Level ${level})\n\n`)
       + `**${k.emoji} ${k.label}** – _${k.blurb}_`);
 
   if (amLimit) {
@@ -1111,6 +1114,15 @@ const COMPANIES_PER_PAGE = 4;
  */
 async function buildFirmenView({ guildId, userId, page = 1 }) {
   const company = require('./company');
+  // §4 faule Abrechnung: `status` rechnet je Firma ab und kann sie dabei in die
+  // Insolvenz schicken. Deshalb erst der Durchgang, dann die Liste für Titel und
+  // Knöpfe – sonst bekäme eine gerade geschlossene Firma noch einen Knopf und
+  // zählte im „N von M" mit.
+  const stati = new Map();
+  for (const c of company.companiesOf(guildId, userId)) {
+    const s = company.status(guildId, userId, Date.now(), c.id);
+    if (s) stati.set(c.id, s);
+  }
   const list = company.companiesOf(guildId, userId);
   if (!list.length) return buildFirmaFoundView({ guildId, userId });
   const symbol = await getSymbol(guildId);
@@ -1136,8 +1148,8 @@ async function buildFirmenView({ guildId, userId, page = 1 }) {
       : `Du kannst noch **${max - list.length}** gründen (Level ${level}).`);
 
   for (const c of shown) {
-    // Der Stand je Firma – `status` rechnet dabei ab, was fällig ist (§4).
-    const s = company.status(guildId, userId, Date.now(), c.id);
+    // Der Stand je Firma – oben schon abgerechnet (§4).
+    const s = stati.get(c.id);
     if (!s) continue;
     const warn = [];
     // Der Vorfall hängt an einer Firma (`ref_id`); Altbestand ohne ID zählt zur aktiven.
@@ -1192,6 +1204,12 @@ async function buildFirmaView({ guildId, userId, companyId = null }) {
   const platz = list.findIndex((c) => c.id === cid) + 1;
   const level = require('./perks').levelOf(guildId, userId);
   const mehr = list.length < company.maxCompanies(level);
+  // Der Vorfall hängt am Spieler, gehört aber einer Firma (`ref_id`). Ohne den
+  // Filter stünde der Vorfall von Firma A auch in der Ansicht von B – und
+  // verdrängte dort den Rückweg. Altbestand ohne ID zählt zur aktiven Firma.
+  const aktiv = company.activeCompanyId(guildId, userId);
+  const vorfall = s.incident && (s.incident.ref_id ? s.incident.ref_id === cid : cid === aktiv)
+    ? s.incident : null;
 
   const embed = new EmbedBuilder()
     .setTitle(`${s.branch.emoji} ${s.company.name}`)
@@ -1246,10 +1264,10 @@ async function buildFirmaView({ guildId, userId, companyId = null }) {
       value: `Der Betrieb steht still – noch **${fmt(s.closedMs)}**. Löhne laufen weiter.`,
     });
   }
-  if (s.incident) {
+  if (vorfall) {
     embed.addFields({
       name: '⚠️ Vorfall',
-      value: `**${s.incident.decision.emoji} ${s.incident.decision.title}** – noch **${fmt(s.incident.remainingMs)}**. `
+      value: `**${vorfall.decision.emoji} ${vorfall.decision.title}** – noch **${fmt(vorfall.remainingMs)}**. `
         + 'Entscheiden über den Knopf ⚠️ Vorfall.',
     });
   }
@@ -1313,14 +1331,18 @@ async function buildFirmaView({ guildId, userId, companyId = null }) {
       // Schließen wohnt im Ausbau (Fluxer: höchstens 8 Reaktionen je Ansicht).
       new ButtonBuilder().setCustomId(`firma|lager|${cid}|${userId}`)
         .setLabel('Lager').setEmoji('🏬').setStyle(ButtonStyle.Primary),
-      // Ein Knopf für den Rückweg: Vorfall hat Vorrang, dann die Übersicht
-      // (mehrere Firmen oder noch eine frei), sonst das Hauptmenü.
-      s.incident
-        ? new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)
-        : list.length > 1 || mehr
-          ? new ButtonBuilder().setCustomId(`firma|firmen|0|${userId}`)
-            .setLabel('Firmen').setEmoji('🏢').setStyle(ButtonStyle.Secondary)
-          : homeButton(userId)),
+      // Der Rückweg: „Firmen" führt in die Übersicht (mehrere Firmen oder noch
+      // eine frei), sonst direkt nach Hause. Ist Platz in der Zeile, kommt Home
+      // zusätzlich dazu (5 Knöpfe = Fluxer-Budget 9); ein Vorfall dieser Firma
+      // nimmt den Platz und verdrängt Home, nie den Weg zurück.
+      ...(vorfall
+        ? [new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)]
+        : []),
+      ...(list.length > 1 || mehr
+        ? [new ButtonBuilder().setCustomId(`firma|firmen|0|${userId}`)
+          .setLabel('Firmen').setEmoji('🏢').setStyle(ButtonStyle.Secondary),
+        ...(vorfall ? [] : [homeButton(userId)])]
+        : [homeButton(userId)])),
   ];
   return { embeds: [embed], components: rows };
 }

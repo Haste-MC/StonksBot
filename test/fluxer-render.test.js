@@ -131,8 +131,9 @@ function view(buttons) {
       chronik.includes('-1.425)') && chronik.includes('Gute Bewertung.') && !chronik.includes('Gute Bewertung. ('), chronik);
     const [row1, row2] = v.components.map((row) => row.components);
     check('Werbung und Anpacken sind bei Schließung gesperrt', row1[0].data.disabled === true && row1[1].data.disabled === true);
-    check('letzter Knopf der zweiten Zeile ist der Vorfall', row2[row2.length - 1].data.custom_id === `vorfall|${FU}`,
-      row2[row2.length - 1].data.custom_id);
+    const row2Ids = row2.map((b) => b.data.custom_id);
+    check('zweite Zeile hat den Vorfall UND einen Rückweg',
+      row2Ids.includes(`vorfall|${FU}`) && row2Ids[row2Ids.length - 1] === `home|${FU}`, row2Ids.join(' '));
     // Nicht die (immer wahre) Länge nach dem Abschneiden prüfen, sondern dass nichts abgeschnitten wurde.
     check('Firmenansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
 
@@ -478,8 +479,9 @@ function view(buttons) {
     const eine = await buildEntryView('firma', { guildId: FG, userId: FU, page: 1 });
     check('eine Firma: Menü zeigt den Betrieb', eine.embeds[0].data.title.includes('Eckladen'), eine.embeds[0].data.title);
     const eineIds = eine.components.flatMap((row) => row.components.map((b) => b.data.custom_id));
-    check('eine Firma (noch eine frei): Zeile 2 endet mit „Firmen"',
-      eineIds[eineIds.length - 1] === `firma|firmen|0|${FU}`, eineIds.join(' '));
+    check('eine Firma (noch eine frei): Zeile 2 hat „Firmen" UND Home',
+      eineIds[eineIds.length - 2] === `firma|firmen|0|${FU}` && eineIds[eineIds.length - 1] === `home|${FU}`,
+      eineIds.join(' '));
     check('eine Firma: keine Fußzeile „Firma x von y"',
       !(eine.embeds[0].data.footer?.text ?? '').includes('Firma 1 von'), eine.embeds[0].data.footer?.text);
 
@@ -515,9 +517,10 @@ function view(buttons) {
     check('Betrieb A: Zeile 1 trägt die Firmen-ID',
       aIds[0].join(' ') === `firma|werbung|${a}|${FU} firma|anpacken|${a}|${FU} firma|entnehmen|${a}|${FU} firma|einzahlen|${a}|${FU}`,
       aIds[0].join(' '));
-    check('Betrieb A: Zeile 2 Personal · Ausbau · Lager · Firmen',
-      aIds[1].join(' ') === `firma|personal|0|${FU} firma|ausbau|${a}|${FU} firma|lager|${a}|${FU} firma|firmen|0|${FU}`,
+    check('Betrieb A: Zeile 2 Personal · Ausbau · Lager · Firmen · Home',
+      aIds[1].join(' ') === `firma|personal|0|${FU} firma|ausbau|${a}|${FU} firma|lager|${a}|${FU} firma|firmen|0|${FU} home|${FU}`,
       aIds[1].join(' '));
+    for (const row of vA.components) check('Betrieb A: höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
     check('Betrieb A hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(vA).overflow === undefined,
       String(render.mapReactions(vA).overflow));
 
@@ -528,8 +531,9 @@ function view(buttons) {
 
     // Gründungsansicht am Limit: Hinweis auf das Level, Branchenknöpfe gesperrt.
     const g = await ui.buildFirmaFoundView({ guildId: FG, userId: FU });
-    check('Gründung am Limit: Beschreibung nennt „Firma 2 von 2 (Level 15)"',
-      g.embeds[0].data.description.includes('**Firma 2 von 2** (Level 15)'), g.embeds[0].data.description);
+    check('Gründung am Limit: Beschreibung nennt den Ist-Stand „Du führst 2 von 2 Firmen (Level 15)"',
+      g.embeds[0].data.description.includes('**Du führst 2 von 2** Firmen (Level 15)')
+      && !g.embeds[0].data.description.includes('**Firma 2 von 2**'), g.embeds[0].data.description);
     const gLimit = g.embeds[0].data.fields.find((f) => f.name === '🏢 Limit erreicht');
     check('Gründung am Limit: Hinweis „ab Level 20"',
       gLimit?.value.includes('**2 von 2**') && gLimit.value.includes('**Level 20**'), gLimit?.value);
@@ -554,6 +558,92 @@ function view(buttons) {
 
     await company.close(FG, FU, now, a);
     await company.close(FG, FU, now, b);
+  }
+
+  console.log('--- Mehrere Firmen: Vorfall, Schließen-Bestätigung und veraltete Knöpfe (Review) ---');
+  {
+    const ui = require('../src/ui');
+    const company = require('../src/company');
+    const level = require('../src/level');
+    const buttons = require('../src/buttons').buttons;
+    const FG = `FR4_R${Date.now()}`;
+    const FU = 'fr_review';
+    const now = Date.now();
+    db.addStats(FG, FU, { xp: level.xpForLevel(20) - db.getStats(FG, FU).xp });
+    const a = (await company.found(FG, FU, 'kiosk', 'Eckladen', now)).company.id;
+    const b = (await company.found(FG, FU, 'imbiss', 'Bude', now + 3600e3)).company.id;
+
+    /** Ein Klick auf einen Knopf: sammelt Ansicht, Hinweise und Modale. */
+    const klick = async (aktion, arg) => {
+      const rec = { views: [], notes: [], modals: [] };
+      await buttons.firma({
+        guildId: FG,
+        user: { id: FU },
+        deferUpdate: async () => {},
+        editReply: async (v) => { rec.views.push(v); return v; },
+        reply: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { rec.notes.push(v.content ?? v); return v; },
+        showModal: async (m) => { rec.modals.push(m); },
+      }, [aktion, arg]);
+      return rec;
+    };
+    const idsOf = (v) => v.components.flatMap((row) => row.components.map((btn) => btn.data.custom_id));
+
+    // (i) Der Vorfall hängt an A – in der Ansicht von B hat er nichts zu suchen.
+    db.clearEvents(FG, FU);
+    db.insertEvent({ guildId: FG, userId: FU, kind: 'wasserschaden', platform: 'company',
+      refId: a, createdAt: now, expiresAt: now + 24 * 3600e3 });
+    const vorfallA = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: a });
+    check('Vorfall: A zeigt das Feld', vorfallA.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
+      vorfallA.embeds[0].data.fields.map((f) => f.name).join(', '));
+    check('Vorfall: A hat den Knopf', idsOf(vorfallA).includes(`vorfall|${FU}`), idsOf(vorfallA).join(' '));
+    const vorfallB = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: b });
+    check('Vorfall: B zeigt KEIN Vorfall-Feld', !vorfallB.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
+      vorfallB.embeds[0].data.fields.map((f) => f.name).join(', '));
+    check('Vorfall: B hat KEINEN Vorfall-Knopf', !idsOf(vorfallB).includes(`vorfall|${FU}`), idsOf(vorfallB).join(' '));
+    check('Vorfall: B behält den Rückweg (Firmen und Home)',
+      idsOf(vorfallB).includes(`firma|firmen|0|${FU}`) && idsOf(vorfallB).includes(`home|${FU}`), idsOf(vorfallB).join(' '));
+    for (const row of vorfallA.components) check('Vorfall: A hat höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));
+    check('Vorfall: A hält das Fluxer-Limit', render.mapReactions(vorfallA).overflow === undefined,
+      String(render.mapReactions(vorfallA).overflow));
+    check('Vorfall: B hält das Fluxer-Limit', render.mapReactions(vorfallB).overflow === undefined,
+      String(render.mapReactions(vorfallB).overflow));
+    db.clearEvents(FG, FU);
+
+    // (ii) Die Schließen-Bestätigung trägt die Firmen-ID – und trifft sie auch
+    // dann, wenn zwischendurch eine andere Firma aktiv geworden ist.
+    const dialog = await klick('schliessen', String(a));
+    const ja = dialog.views[0].components[0].components[0].data;
+    check('Schließen: Bestätigung trägt die Firmen-ID', ja.custom_id === `firma|schliessen|ja-${a}|${FU}`, ja.custom_id);
+    check('Schließen: Dialog nennt die Firma', dialog.views[0].embeds[0].data.title.includes('Eckladen'),
+      dialog.views[0].embeds[0].data.title);
+    company.setActive(FG, FU, b);                      // der Spieler wechselt zwischendurch
+    await klick('schliessen', `ja-${a}`);
+    check('Schließen: genau die bestätigte Firma ist zu',
+      db.getCompany(a).status === 'closed' && db.getCompany(b).status === 'open',
+      `${db.getCompany(a).status} / ${db.getCompany(b).status}`);
+
+    // (iii) Veralteter Knopf: die ID löst nicht mehr auf – nichts passiert.
+    await company.deposit(FG, FU, 100_000, now + 2 * 3600e3, b);
+    const kasseB = db.getCompany(b).kasse;
+    const alt = await klick('werbung', String(a));
+    check('Veralteter Knopf: Hinweis „gibt es nicht mehr"',
+      alt.notes.some((n) => String(n).includes('Diese Firma gibt es nicht mehr')), JSON.stringify(alt.notes));
+    check('Veralteter Knopf: die aktive Firma bleibt unberührt', db.getCompany(b).kasse === kasseB,
+      `${db.getCompany(b).kasse} statt ${kasseB}`);
+    check('Veralteter Knopf: die Übersicht kommt zurück',
+      (alt.views[0]?.embeds[0].data.title ?? '').startsWith('🏢 Deine Firmen'), alt.views[0]?.embeds[0].data.title);
+    const altModal = await klick('entnehmen', String(a));
+    check('Veralteter Knopf: auch ein Modal-Knopf wird abgewiesen',
+      altModal.modals.length === 0 && altModal.notes.some((n) => String(n).includes('gibt es nicht mehr')),
+      JSON.stringify(altModal.notes));
+    const altOeffnen = await klick('oeffnen', String(a));
+    check('Veralteter Knopf: „Öffnen" zeigt nicht die aktive Firma',
+      !(altOeffnen.views[0]?.embeds[0].data.title ?? '').includes('Bude')
+      && altOeffnen.notes.some((n) => String(n).includes('gibt es nicht mehr')),
+      `${altOeffnen.views[0]?.embeds[0].data.title} / ${JSON.stringify(altOeffnen.notes)}`);
+
+    await company.close(FG, FU, now + 3 * 3600e3, b);
   }
 
   console.log('--- Zuordnung übersteht einen Neustart (liegt in der DB) ---');

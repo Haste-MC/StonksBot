@@ -2067,8 +2067,21 @@ Object.assign(buttons, {
     // Stück 4: Wo `arg` frei ist, trägt es die Firmen-ID (0 = die aktive). Die
     // ID wird geprüft (eigene, offene Firma) und *vor* der Aktion aktiv gesetzt –
     // auch vor einem Modal, dessen Handler später nur die aktive Firma kennt.
-    const fid = FIRMA_ID_AKTIONEN.has(aktion) && Number(arg) > 0
-      && company.ownCompany(guildId, userId, Number(arg)) ? Number(arg) : null;
+    // Beim Schließen steckt die ID hinter dem „ja-" der Bestätigung.
+    const schliessenJa = aktion === 'schliessen' && String(arg ?? '').startsWith('ja-');
+    const rohId = schliessenJa ? String(arg).slice(3) : arg;
+    // „Genannt" heißt: der Knopf trug eine ID (nicht 0/leer). Löst sie nicht mehr
+    // auf, ist der Knopf veraltet (Firma geschlossen oder insolvent) – dann darf
+    // die Aktion NICHT auf die aktive Firma durchschlagen (sonst gibt eine alte
+    // Werbung das Geld einer anderen Firma aus).
+    const genannt = FIRMA_ID_AKTIONEN.has(aktion) && Number(rohId) > 0;
+    const fid = genannt && company.ownCompany(guildId, userId, Number(rohId)) ? Number(rohId) : null;
+    if (genannt && !fid) {
+      await interaction.deferUpdate();
+      await interaction.editReply(await buildFirmenView({ guildId, userId }));
+      await interaction.followUp({ content: '❌ Diese Firma gibt es nicht mehr.', flags: MessageFlags.Ephemeral }).catch(() => {});
+      return;
+    }
     if (fid) company.setActive(guildId, userId, fid);
 
     // „Gründen" ohne Branche (Knopf der Übersicht) führt auf die Branchenseiten.
@@ -2254,9 +2267,14 @@ Object.assign(buttons, {
       if (note) await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
       return;
     } else if (aktion === 'schliessen') {
-      if (arg !== 'ja') {
+      if (!schliessenJa) {
         // Der Dialog nennt, was verloren geht: Gründung UND Ausbau (Stufen + Extras).
-        const s = company.status(guildId, userId);
+        const s = company.status(guildId, userId, Date.now(), fid);
+        if (!s) {
+          await interaction.editReply(await buildFirmenView({ guildId, userId }));
+          await interaction.followUp({ content: '🏢 Du hast keine Firma.', flags: MessageFlags.Ephemeral }).catch(() => {});
+          return;
+        }
         const investiert = s ? s.invested : 0;
         const extras = s ? s.extras.filter((e) => e.owned).length : 0;
         const ausbau = investiert > 0
@@ -2270,14 +2288,16 @@ Object.assign(buttons, {
           ? ` ${(s.anteile.total - s.anteile.owner) / 10} % davon gehen an ${halter} Anteilseigner.`
           : '';
         return interaction.editReply(buildConfirmView({
-          title: '🔒 Firma schließen?',
+          // Die Bestätigung trägt die Firmen-ID (wie `ausbauen|ja-<id>`), sonst
+          // träfe sie die Firma, die beim Klick gerade aktiv ist.
+          title: `🔒 **${s.company.name}** wirklich schließen?`,
           text: `Die Kasse${lager} wird ausgezahlt, das Personal geht, Ausbau und Gründung sind weg${ausbau}.${anteile} Sicher?`,
           color: 0xe74c3c,
-          yesId: `firma|schliessen|ja|${userId}`,
+          yesId: `firma|schliessen|ja-${s.company.id}|${userId}`,
           yesLabel: 'Ja, schließen',
           yesEmoji: '🔒',
           yesStyle: ButtonStyle.Danger,
-          cancelId: fid ? `firma|oeffnen|${fid}|${userId}` : ID.menu('firma', 1, userId),
+          cancelId: `firma|oeffnen|${s.company.id}|${userId}`,
           userId,
         }));
       }
