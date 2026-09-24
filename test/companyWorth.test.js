@@ -280,6 +280,231 @@ const start = () => new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS
       `${zurueck.total} vs ${vorher.total}`);
   }
 
+  // =========================================================================
+  //  Nachtrag: der Ertragswert zählt auch, was in Echtzeit aus der Kasse geht
+  // =========================================================================
+  //
+  // Vorher zählte `profit_ema` nur, was im Tagesschritt von `settle` passiert
+  // (NPC-Umsatz − Löhne − Ware ± Ereignis). Werbung, Prämie und die
+  // Kassenwirkung eines Vorfalls gingen daran vorbei – der Umsatz, den sie
+  // kaufen, zählte aber. Damit war der Firmenwert für Geld aus der eigenen
+  // Kasse käuflich (§3). `profit_pending` sammelt diese Beträge und der
+  // nächste abgerechnete Tag verrechnet sie.
+
+  console.log('--- §3: Werbung ist Aufwand, kein Hebel auf den Ertragswert ---');
+  {
+    const G = `CW_G${Date.now()}`;
+    const U = 'cw-g';
+    konten.set(U, 50_000_000);
+    const t0 = start();
+    const id = (await company.found(G, U, 'cafe', 'Werbecafé', t0)).company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < b.slots; i++) db.insertStaff({ companyId: id, kind: 'npc', name: `N${i}`, now: t0 });
+    // Kasse groß genug, damit nichts an der Sperre scheitert; EMA bei 0 starten.
+    db.saveCompany({ ...db.getCompany(id), kasse: 1_000_000, profit_ema: 0 });
+
+    // Grundlinie: fünf abgerechnete Tage ohne Ereignis (Würfel 0 → „none"),
+    // damit die Auslastung aus dem Startwert heraus ist und der Betrieb trägt.
+    for (let d = 1; d <= 5; d++) company.settle(id, t0 + d * DAY_MS, () => 0);
+    const emaVor = db.getCompany(id).profit_ema;
+    const wertVor = company.valueOf(id);
+    check('Grundlinie: es wurde gewirtschaftet', emaVor > 0, String(emaVor));
+
+    // Handrechnung: Werbung kostet WERBUNG_COST_SHARE des Gründungspreises,
+    // Café 120.000 × 0,05 = 6.000.
+    const kosten = 6_000;
+    check('Werbung kostet 6.000', Math.round(b.price * data.WERBUNG_COST_SHARE) === kosten,
+      String(Math.round(b.price * data.WERBUNG_COST_SHARE)));
+    const kasseVorWerbung = db.getCompany(id).kasse;
+    const a = await company.advertise(G, U, t0 + 5 * DAY_MS + 1000, id);
+    check('Werbung gebucht', a.ok && a.cost === kosten, JSON.stringify(a));
+    const nachWerbung = db.getCompany(id);
+    check('Kasse −6.000', nachWerbung.kasse === kasseVorWerbung - kosten,
+      `${kasseVorWerbung} → ${nachWerbung.kasse}`);
+    check('profit_pending merkt sich −6.000', nachWerbung.profit_pending === -kosten,
+      String(nachWerbung.profit_pending));
+    check('… und der Ertragswert steigt davon nicht sofort',
+      db.getCompany(id).profit_ema === emaVor, String(db.getCompany(id).profit_ema));
+
+    // Der nächste abgerechnete Tag: sein Tagesgewinn trägt die Werbekosten.
+    const vorTag = db.getCompany(id);
+    const out = company.settle(id, t0 + 6 * DAY_MS, () => 0);
+    const nachTag = db.getCompany(id);
+    check('genau ein Tag, kein Ereignis', out.days === 1 && out.news.length === 0,
+      JSON.stringify({ days: out.days, news: out.news }));
+    const lager = vorTag.stock_cost - nachTag.stock_cost;        // Entnahme zum Ø-Preis
+    const betrieb = out.umsatz - out.loehne - lager - out.ware.cost;
+    // Handrechnung: profit_ema = emaVor × 6/7 + (Betrieb − Werbekosten) / 7.
+    const erwartet = emaVor * 6 / 7 + (betrieb - kosten) / 7;
+    check('profit_ema = alte EMA × 6/7 + (Tagesbetrieb − 6.000) / 7',
+      nah(nachTag.profit_ema, erwartet), `${nachTag.profit_ema} vs ${erwartet}`);
+    check('profit_pending ist danach leer', nachTag.profit_pending === 0,
+      String(nachTag.profit_pending));
+
+    // Der Hebel, den es vorher gab: ohne die Verrechnung stünde die EMA um
+    // kosten/7 = 857,142857… höher, der Ertragswert also um
+    // round(6.000 / 7 × 30) = round(25.714,2857…) = 25.714 mehr – für 6.000
+    // aus der eigenen Kasse, alle drei Tage wiederholbar.
+    const ohneFix = emaVor * 6 / 7 + betrieb / 7;
+    check('ohne Verrechnung wäre die EMA um genau 6.000/7 höher',
+      nah(ohneFix - erwartet, kosten / 7), String(ohneFix - erwartet));
+    const hebel = Math.round(ohneFix * data.ERTRAG_FAKTOR) - Math.round(erwartet * data.ERTRAG_FAKTOR);
+    check('das wären 25.714 Firmenwert gewesen', hebel === 25_714, String(hebel));
+
+    // Und der gemessene Ertragswert: genau round(erwartet × 30), und ohne die
+    // Verrechnung stünden dort 25.714 mehr.
+    const wertNach = company.valueOf(id);
+    const ohneFixWert = Math.max(0, Math.round(ohneFix * data.ERTRAG_FAKTOR));
+    check('Ertragswert = round(profit_ema × 30)',
+      wertNach.earnings === Math.max(0, Math.round(erwartet * data.ERTRAG_FAKTOR)),
+      String(wertNach.earnings));
+    check('ohne die Verrechnung wären es genau 25.714 mehr',
+      ohneFixWert - wertNach.earnings === 25_714, `${ohneFixWert} vs ${wertNach.earnings}`);
+    console.log(`     … Ertragswert-Zuwachs des Werbetags: ${wertNach.earnings - wertVor.earnings}`
+      + ` (ohne die Verrechnung: ${ohneFixWert - wertVor.earnings})`);
+  }
+
+  console.log('--- Prämie senkt den Tagesgewinn des nächsten Tages ---');
+  {
+    const G = `CW_H${Date.now()}`;
+    const U = 'cw-h';
+    const P = 'cw-h-mitarbeiter';
+    konten.set(U, 50_000_000);
+    konten.set(P, 0);
+    const t0 = start();
+    const id = (await company.found(G, U, 'kiosk', 'Prämienladen', t0)).company.id;
+    for (const n of ['Ali', 'Anja']) db.insertStaff({ companyId: id, kind: 'npc', name: n, now: t0 });
+    const mit = db.insertStaff({ companyId: id, kind: 'player', userId: P, name: 'Pia', now: t0 });
+    db.saveCompany({ ...db.getCompany(id), kasse: 500_000, profit_ema: 0 });
+
+    // Zwei gleiche Tage – der zweite bekommt die Prämie. Der Betrieb ist in
+    // beiden Tagen derselbe (gleiche Belegschaft, Auslastung fast im Ziel),
+    // deshalb wird der Vergleich über die Handrechnung geführt, nicht über
+    // den Unterschied der beiden Tagesgewinne.
+    company.settle(id, t0 + DAY_MS, () => 0);
+    const emaVor = db.getCompany(id).profit_ema;
+
+    const praemie = 20_000;
+    const kasseVor = db.getCompany(id).kasse;
+    const r = await company.bonus(G, U, mit.id, praemie, t0 + DAY_MS + 1000, id);
+    check('Prämie gezahlt', r.ok && r.amount === praemie, JSON.stringify(r));
+    check('Kasse −20.000', db.getCompany(id).kasse === kasseVor - praemie,
+      `${kasseVor} → ${db.getCompany(id).kasse}`);
+    check('profit_pending −20.000', db.getCompany(id).profit_pending === -praemie,
+      String(db.getCompany(id).profit_pending));
+
+    const vorTag = db.getCompany(id);
+    const out = company.settle(id, t0 + 2 * DAY_MS, () => 0);
+    const nachTag = db.getCompany(id);
+    const lager = vorTag.stock_cost - nachTag.stock_cost;
+    const betrieb = out.umsatz - out.loehne - lager - out.ware.cost;
+    // Der Tagesgewinn ist der Betrieb MINUS der Prämie – genau 20.000 weniger.
+    const mitPraemie = emaVor * 6 / 7 + (betrieb - praemie) / 7;
+    const ohnePraemie = emaVor * 6 / 7 + betrieb / 7;
+    check('Tagesgewinn ist um genau die Prämie kleiner',
+      nah(nachTag.profit_ema, mitPraemie)
+      && nah((ohnePraemie - mitPraemie) * 7, praemie),
+      `${nachTag.profit_ema} vs ${mitPraemie}`);
+    check('profit_pending zurückgesetzt', nachTag.profit_pending === 0,
+      String(nachTag.profit_pending));
+  }
+
+  console.log('--- Vorfall in Echtzeit: einmal aufgelaufen, einmal verrechnet ---');
+  {
+    const decisions = require('../src/decisions');
+    const G = `CW_I${Date.now()}`;
+    const U = 'cw-i';
+    konten.set(U, 100_000_000);
+    const t0 = start();
+    const H = 60 * 60 * 1000;
+    const seq = (...v) => { let i = 0; return () => (i < v.length ? v[i++] : 0.5); };
+    const id = (await company.found(G, U, 'cafe', 'Vorfallcafé', t0)).company.id;
+    const b = company.branch('cafe');
+    for (let i = 0; i < b.slots; i++) db.insertStaff({ companyId: id, kind: 'npc', name: `V${i}`, now: t0 });
+    db.saveCompany({ ...db.getCompany(id), kasse: 2_000_000, profit_ema: 0 });
+    for (let d = 1; d <= 5; d++) company.settle(id, t0 + d * DAY_MS, () => 0);
+    const emaVor = db.getCompany(id).profit_ema;
+    check('Grundlinie: es wurde gewirtschaftet', emaVor > 0, String(emaVor));
+
+    // `settle` würfelt selbst Vorfälle (Würfel 0 → Treffer) – für die
+    // Handrechnung soll genau EINER wirken, also erst aufräumen.
+    db.clearEvents(G, U);
+    // Wie in test/companyEvents.test.js: Würfel 0,01 → Vorfall, 0 → erster
+    // zulässiger (gesundheitsamt); Option „beheben" kostet 1 × Decke.
+    const row = decisions.roll(G, U, { groesse: 0, days: 1, npc: b.slots, companyId: id },
+      t0 + 5 * DAY_MS + H, seq(0.01, 0), 'company');
+    check('Vorfall gewürfelt', row?.kind === 'gesundheitsamt', JSON.stringify(row?.kind));
+    const decke = company.ceilingOf(b).net;
+    const kasseVor = db.getCompany(id).kasse;
+    const res = await decisions.choose(G, U, row.id, 'beheben', t0 + 5 * DAY_MS + 2 * H, seq(0.5));
+    check('beheben kostet 1 × Decke aus der Kasse',
+      res.ok && res.effect.kasse === -decke && db.getCompany(id).kasse === kasseVor - decke,
+      JSON.stringify(res.effect));
+    check('… und läuft genau einmal in profit_pending auf',
+      db.getCompany(id).profit_pending === -decke, String(db.getCompany(id).profit_pending));
+    check('der Ertragswert reagiert erst mit dem nächsten Tag',
+      db.getCompany(id).profit_ema === emaVor, String(db.getCompany(id).profit_ema));
+
+    const vorTag = db.getCompany(id);
+    const out = company.settle(id, t0 + 6 * DAY_MS, () => 0);
+    const nachTag = db.getCompany(id);
+    const lager = vorTag.stock_cost - nachTag.stock_cost;
+    const betrieb = out.umsatz - out.loehne - lager - out.ware.cost;
+    check('Vorfallkosten stecken im Tagesgewinn',
+      nah(nachTag.profit_ema, emaVor * 6 / 7 + (betrieb - decke) / 7),
+      `${nachTag.profit_ema} vs ${emaVor * 6 / 7 + (betrieb - decke) / 7}`);
+    check('profit_pending leer', nachTag.profit_pending === 0, String(nachTag.profit_pending));
+
+    // Zweite Abrechnung direkt danach: der Vorfall darf nicht noch einmal zählen.
+    const emaNachTag = nachTag.profit_ema;
+    const vorTag2 = db.getCompany(id);
+    const out2 = company.settle(id, t0 + 7 * DAY_MS, () => 0);
+    const nachTag2 = db.getCompany(id);
+    const lager2 = vorTag2.stock_cost - nachTag2.stock_cost;
+    const betrieb2 = out2.umsatz - out2.loehne - lager2 - out2.ware.cost;
+    check('zweiter Tag: nur Betrieb, kein zweiter Abzug',
+      nah(nachTag2.profit_ema, emaNachTag * 6 / 7 + betrieb2 / 7),
+      `${nachTag2.profit_ema} vs ${emaNachTag * 6 / 7 + betrieb2 / 7}`);
+  }
+
+  console.log('--- Ein langer Rückstand verdünnt die Werbung nicht ---');
+  {
+    const G = `CW_J${Date.now()}`;
+    const U = 'cw-j';
+    konten.set(U, 50_000_000);
+    const t0 = start();
+    const id = (await company.found(G, U, 'kiosk', 'Rückstandsladen', t0)).company.id;
+    // Ohne Personal: kein Umsatz, keine Löhne, keine Ware – der Tagesgewinn
+    // ist damit exakt das, was aufgelaufen ist. Handrechnung möglich.
+    db.saveCompany({ ...db.getCompany(id), kasse: 100_000, profit_ema: 0, profit_pending: -7_000 });
+    const out = company.settle(id, t0 + 3 * DAY_MS, () => 0);
+    check('drei Tage abgerechnet, kein Ereignis', out.days === 3 && out.news.length === 0,
+      JSON.stringify({ days: out.days, news: out.news }));
+    // Tag 1: 0 × 6/7 + (−7.000)/7 = −1.000. Tag 2: −1.000 × 6/7 = −857,142857…
+    // Tag 3: × 6/7 = −734,693877…
+    const erwartet = -7_000 / 7 * Math.pow(6 / 7, 2);
+    check('nur der erste Tag trägt die 7.000, danach zerfällt die EMA',
+      nah(db.getCompany(id).profit_ema, erwartet),
+      `${db.getCompany(id).profit_ema} vs ${erwartet}`);
+    check('… und das sind −734,693877…', nah(erwartet, -734.6938775510203, 1e-9), String(erwartet));
+    check('profit_pending ist verbraucht', db.getCompany(id).profit_pending === 0,
+      String(db.getCompany(id).profit_pending));
+
+    // §3 (Gegenprobe): Einzahlen, Entnehmen und Wareneinkauf laufen NICHT über
+    // profit_pending – sie sind Kapital bzw. Vorrat, kein Aufwand des Tages.
+    await company.deposit(G, U, 50_000, t0 + 3 * DAY_MS + 1000, id);
+    check('Einzahlung läuft nicht auf', db.getCompany(id).profit_pending === 0,
+      String(db.getCompany(id).profit_pending));
+    await company.withdraw(G, U, 10_000, t0 + 3 * DAY_MS + 2000, id);
+    check('Entnahme läuft nicht auf', db.getCompany(id).profit_pending === 0,
+      String(db.getCompany(id).profit_pending));
+    db.saveCompany({ ...db.getCompany(id), stock: 10 });   // Platz im Lager schaffen
+    const bs = await company.buyStock(G, U, 5, t0 + 3 * DAY_MS + 3000, id);
+    check('Wareneinkauf geglückt', bs.ok, JSON.stringify(bs));
+    check('… und läuft nicht auf (er steckt schon in stock_cost)',
+      db.getCompany(id).profit_pending === 0, String(db.getCompany(id).profit_pending));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

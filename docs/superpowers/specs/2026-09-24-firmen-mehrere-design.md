@@ -111,6 +111,34 @@ nicht). Ertragswert = `max(0, round(profit_ema × 30))` – negative Gewinne
 zählen nicht (eine Firma im Minus ist nicht negativ wert, sie ist ihre
 Substanz wert).
 
+**Abgrenzung (`profit_pending`).** Nicht jeder Betriebsaufwand fällt in
+einem Abrechnungstag an: Werbung, Prämie und die Kassenwirkung eines
+Vorfalls gehen in **Echtzeit** aus der Kasse, der Umsatz, den sie kaufen,
+entsteht aber in den Tagen danach. Zählte nur der Umsatz, wäre der
+Ertragswert für Geld aus der eigenen Kasse käuflich. Deshalb gibt es die
+Spalte `companies.profit_pending INTEGER NOT NULL DEFAULT 0`: jede
+Kassenbewegung des **Betriebs** außerhalb des Tagesschritts addiert ihren
+vorzeichenbehafteten Betrag darauf, und der **erste** abgerechnete Tag des
+nächsten Laufs schlägt ihn auf seinen `tagesgewinn` und setzt die Spalte auf
+0 (nicht verteilt über alle nachgeholten Tage – eine lange Abwesenheit soll
+die Werbung nicht verdünnen).
+
+Es zählen darauf:
+
+- `advertise` – die Werbekosten (−),
+- `bonus` – die Prämie (−; schlägt die Buchung fehl, wird sie zurückgelegt),
+- `decisions.applyCompany` – die Kassenwirkung des Vorfall-Ausgangs
+  (`done.kasse + done.refund`, also derselbe Nettobetrag wie in der Chronik).
+
+Es zählen **nicht** darauf: `deposit` und `withdraw` (Kapital, keine
+Leistung), `buyStock` und `buyFromTrader` (Ware landet in `stock_cost` und
+wird dem Tag berechnet, der sie verbraucht – sonst doppelt), Anteilskäufe
+und Ausschüttungen (Umbuchungen zwischen Spielern), die Auszahlung bei
+`close`/`sell` (die Firma endet dort) und das Gründungslager
+(Erstausstattung, schon in `stock_cost`). Die leichten Ereignisse **im**
+Tagesschritt laufen weiter direkt über `tagEreignis` – sie kommen nie über
+`applyCompany`, also gibt es kein Doppelzählen.
+
 **Firmenwert** = Substanz + Ertragswert. Verteilung: Der Inhaber hält
 `sharesOf().owner / 1000`, jeder Halter seinen Anteil. Dazu beim Halter sein
 `pending` (schon verdiente, nicht abgeholte Ausschüttung).
@@ -153,7 +181,10 @@ unverändert; Entnahme desselben Betrags → unverändert.
   (6/7)^7) = 1.320 → Ertragswert 39.600), Verteilung bei 200 verkauften
   Anteilen (Inhaber 80 %, Halter 20 % + pending), Einzahlung/Entnahme
   vermögensneutral, geschlossene Firmen zählen nicht, `assetOwners` findet
-  reine Firmenbesitzer, negative `profit_ema` → Ertragswert 0.
+  reine Firmenbesitzer, negative `profit_ema` → Ertragswert 0; dazu der
+  Nachtrag unten: Werbung, Prämie und Vorfall-Kasse laufen über
+  `profit_pending` in den nächsten abgerechneten Tag, `profit_pending` wird
+  dabei genau einmal verbraucht, Einzahlung/Entnahme/Wareneinkauf nicht.
 - Messung: `firmenlauf` gibt am Ende den Firmenwert aus (Substanz, Ertrag,
   Summe) – eine Kern-Baufirma nach 365 Tagen und eine voll ausgebaute; §15
   nennt die Zahlen, damit klar ist, wie stark Firmen die Rangliste bewegen.
@@ -170,3 +201,39 @@ dessen `CREATE UNIQUE INDEX IF NOT EXISTS idx_companies_owner_open` gegen
 die vorhandenen Duplikate läuft. Ein Rollback muss also vorher die
 überzähligen Firmen der betroffenen Spieler schließen (oder löschen), sonst
 bricht der Serverstart der alten Version an der Index-Erstellung ab.
+
+## Nachtrag 2026-09-24: Ertragswert ohne Werbe-Hebel
+
+**Der Fehler.** Die erste Fassung von Stück 4 zählte für `profit_ema` nur,
+was im Tagesschritt von `settle` passiert: NPC-Umsatz − Löhne − Ware ±
+Kassenwirkung des leichten Ereignisses. Alles, was **außerhalb** dieser
+Schleife aus der Kasse geht, war unsichtbar – der Umsatz, den es kauft,
+zählte aber voll. Weil `earnings = profit_ema × 30` ist, war der Firmenwert
+damit über die eigene Kasse käuflich, und zwar einseitig: bezahlen kostet
+nur Substanz (1 : 1), der gekaufte Mehrumsatz zahlt dreißigfach.
+
+**Gemessen** (Café Stufe 5, voll besetzt, eingeschwungene Grundlinie, eine
+Werbung für 6.000 aus der Kasse, danach ein abgerechneter Tag):
+
+| | Firmenwert gesamt | davon Ertragswert |
+|---|---|---|
+| vorher (ohne Verrechnung) | **+55.876** | **+24.406** |
+| nachher (mit `profit_pending`) | **+30.162** | **−1.308** |
+
+Die Differenz ist exakt `round(6.000 / 7 × 30) = 25.714`: die Werbekosten
+fehlten in der EMA. Der Reviewer hat denselben Effekt an einer anderen
+Grundlinie mit **+54.346 Firmenwert, davon +47.926 Ertragswert** gemessen –
+die Höhe hängt daran, wie weit die Auslastung noch vom Ziel entfernt ist,
+der Hebel selbst nicht. Wiederholbar war das alle drei Tage
+(`WERBUNG_DAYS = 3`). Dasselbe galt für `bonus` (`src/company.js`) und für
+die Kassenwirkung eines Vorfalls, die `decisions.applyCompany` in Echtzeit
+anwendet.
+
+**Der Fix.** Neue Spalte `companies.profit_pending` (CREATE, PRAGMA-Nachrüstung,
+`saveCompany`). `advertise` (−Kosten), `bonus` (−Prämie) und
+`applyCompany` (`done.kasse + done.refund`) buchen ihren Betrag darauf; der
+erste abgerechnete Tag des nächsten Laufs addiert ihn auf seinen
+`tagesgewinn` und leert die Spalte. Abgrenzung siehe „Teil 2", Absatz
+**Abgrenzung (`profit_pending`)**. Nach dem Fix bleibt die Werbung ein
+Geschäft, wenn sie sich rechnet – aber sie ist kein Hebel mehr, sondern
+Aufwand, der gegen den Mehrumsatz antritt, den er kauft (§3).

@@ -571,7 +571,11 @@ db.exec(`
     trade_units        INTEGER NOT NULL DEFAULT 0,   -- gelieferte Einheiten gesamt
     trade_profit       INTEGER NOT NULL DEFAULT 0,   -- verdiente Spanne gesamt
     last_payout        INTEGER NOT NULL DEFAULT 0,   -- Anteile (Stück 3c): letzte Ausschüttung je 1000 Anteile
-    profit_ema         REAL    NOT NULL DEFAULT 0    -- Firmenwert (Stück 4): gleitender Tagesgewinn (7 Tage)
+    profit_ema         REAL    NOT NULL DEFAULT 0,   -- Firmenwert (Stück 4): gleitender Tagesgewinn (7 Tage)
+    -- … und was seit dem letzten abgerechneten Tag in ECHTZEIT aus der Kasse
+    -- ging oder hineinkam (Werbung, Prämie, Vorfall-Kasse). Wird im nächsten
+    -- abgerechneten Tag in profit_ema verrechnet und dann auf 0 gesetzt.
+    profit_pending     INTEGER NOT NULL DEFAULT 0
   );
   -- Stück 4: mehrere offene Firmen je Spieler. Der frühere eindeutige Index
   -- (eine offene Firma je Inhaber) fällt deshalb weg; gesucht wird weiter
@@ -627,6 +631,10 @@ if (!db.prepare('PRAGMA table_info(companies)').all().some((c) => c.name === 'st
     // Tage, wie die Nachfrage). 0 heißt „noch nichts gemessen" – dann ist die
     // Firma ihre Substanz wert, nicht mehr.
     ['profit_ema', 'REAL NOT NULL DEFAULT 0'],
+    // Aufgelaufene Betriebsausgaben aus der Echtzeit (Werbung, Prämie,
+    // Vorfall-Kasse), bis der nächste abgerechnete Tag sie in `profit_ema`
+    // verrechnet – sonst zählte der Ertragswert nur den Umsatz, den sie kaufen.
+    ['profit_pending', 'INTEGER NOT NULL DEFAULT 0'],
   ]) {
     if (!have.has(column)) db.exec(`ALTER TABLE companies ADD COLUMN ${column} ${definition}`);
   }
@@ -1888,7 +1896,7 @@ const stmt = {
        news = ?, closed_until = ?, umsatz_boost = ?, umsatz_boost_until = ?,
        wage_factor = ?, wage_factor_until = ?, stock = ?, stock_cost = ?, stock_seeded = ?,
        trade_day = ?, trade_today = ?, trade_units = ?, trade_profit = ?, last_payout = ?,
-       profit_ema = ?
+       profit_ema = ?, profit_pending = ?
      WHERE id = ?`),
   // Die zuletzt geschlossene Firma eines Spielers – für den Insolvenz-Hinweis
   // in der Gründungsansicht (buildFirmaFoundView).
@@ -4030,6 +4038,8 @@ function saveCompany(c) {
     // Der gleitende Gewinn ist bewusst KEINE ganze Zahl: gerundet wäre die EMA
     // bei kleinen Firmen sofort tot (0,4 → 0).
     Number(c.profit_ema ?? 0) || 0,
+    // Die Echtzeit-Ausgaben sind dagegen ganze Beträge (Kassenbuchungen).
+    Math.round(Number(c.profit_pending ?? 0) || 0),
     Number(c.id));
 }
 /** Die zuletzt geschlossene Firma eines Spielers, oder null. */

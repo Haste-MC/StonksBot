@@ -287,7 +287,14 @@ async function applyCompany(guildId, userId, row, effect, now, ignored, random) 
   for (const s of r.quit) db.deleteStaff(s.id);
   for (const s of r.staff) db.saveStaff(s);
   const d = decision(row.kind);
-  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`, r.done.kasse + r.done.refund);
+  const kasse = r.done.kasse + r.done.refund;     // netto, wie in der Chronik
+  r.company.news = company.pushNews(r.company, now, `${d?.emoji ?? '⚠️'} ${effect.text}`, kasse);
+  // Der Vorfall wirkt in Echtzeit, nicht in einem Abrechnungstag – seine
+  // Kassenwirkung würde sonst am Ertragswert vorbeilaufen (Stück 4). Sie
+  // läuft über `profit_pending` in den nächsten abgerechneten Tag; in der
+  // Abrechnung selbst zählt `settle` die Ereignisse direkt (kein Doppelzählen,
+  // denn dort geht der Weg nicht über `applyCompany`).
+  if (kasse) r.company.profit_pending = (r.company.profit_pending ?? 0) + kasse;
   db.saveCompany(r.company);
 
   let sold = null;

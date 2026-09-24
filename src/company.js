@@ -572,6 +572,18 @@ function settle(companyId, now = Date.now(), random = Math.random) {
     // Firmenwert ist nur eine Anzeige über gemessenem Betrieb).
     let tagUmsatz = 0, tagLohn = 0, tagWare = 0, tagEreignis = 0;
 
+    // Was zwischen zwei Abrechnungen in Echtzeit aus der Kasse ging, ist
+    // Betriebsaufwand und gehört in dieselbe Messung wie der Umsatz, den es
+    // kauft (`profit_pending`, siehe `advertise`/`bonus`/`decisions.applyCompany`).
+    // Es trifft den ERSTEN abgerechneten Tag des Laufs – nicht verteilt über
+    // alle nachgeholten Tage: eine lange Abwesenheit soll die Werbung nicht
+    // verdünnen. Danach ist der Topf leer.
+    let tagOffen = 0;
+    if (d === 0 && (cur.profit_pending ?? 0) !== 0) {
+      tagOffen = Math.round(cur.profit_pending);
+      cur.profit_pending = 0;
+    }
+
     // 1. Auslastung bewegt sich aufs Ziel zu. Werbung zählt am Tag ihres Ablaufs
     //    noch mit (>=): drei bezahlte Tage sind drei Abrechnungen, auch wenn sie
     //    genau zum Tick gekauft wurde.
@@ -628,7 +640,7 @@ function settle(companyId, now = Date.now(), random = Math.random) {
     // Der gleitende Tagesgewinn (EMA über 7 Tage, wie die Nachfrage an der
     // Börse): profit_ema = profit_ema × 6/7 + tagesgewinn / 7. Vor der
     // Minus-Uhr, damit auch der letzte Tag einer Insolvenz noch zählt.
-    const tagesgewinn = tagUmsatz - tagLohn - tagWare + tagEreignis;
+    const tagesgewinn = tagUmsatz - tagLohn - tagWare + tagEreignis + tagOffen;
     cur.profit_ema = (cur.profit_ema ?? 0) * 6 / 7 + tagesgewinn / 7;
     // Unbezahlt heißt: Am Tagesende ist die Kasse im Minus – für alle gleich.
     for (const s of staff) if (s.kind === 'npc') s.unpaid_days = cur.kasse < 0 ? s.unpaid_days + 1 : 0;
@@ -785,7 +797,13 @@ async function advertise(guildId, userId, now = Date.now(), companyId = null) {
   const time = useTime(guildId, userId, data.TIME_WERBUNG, now);
   if (!time.ok) return { ok: false, reason: time.reason, need: data.TIME_WERBUNG, ...time };
   const until = now + data.WERBUNG_DAYS * DAY_MS;
-  db.saveCompany({ ...c, kasse: c.kasse - cost, werbung_until: until });
+  // Die Werbung ist Betriebsaufwand der Tage, die sie kauft: sie läuft über
+  // `profit_pending` in den Ertragswert (Stück 4). Ohne das zählte nur der
+  // Mehrumsatz – und der Firmenwert wäre für 6.000 aus der Kasse käuflich.
+  // Ware (`buyStock`) steht dagegen NICHT hier: sie landet in `stock_cost`
+  // und wird dem Tag berechnet, der sie verbraucht.
+  db.saveCompany({ ...c, kasse: c.kasse - cost, werbung_until: until,
+    profit_pending: (c.profit_pending ?? 0) - cost });
   return { ok: true, cost, until, time };
 }
 
@@ -928,14 +946,17 @@ async function bonus(guildId, userId, staffId, amount, now = Date.now(), company
   const value = Math.floor(Number(amount) || 0);
   if (value <= 0) return { ok: false, reason: 'amount' };
   if (value > c.kasse) return { ok: false, reason: 'kasse', kasse: c.kasse };
-  db.saveCompany({ ...c, kasse: c.kasse - value });
+  // Wie die Werbung: eine Prämie ist Personalaufwand des Betriebs und zählt
+  // über `profit_pending` in den Ertragswert (Stück 4).
+  db.saveCompany({ ...c, kasse: c.kasse - value, profit_pending: (c.profit_pending ?? 0) - value });
   try {
     await changeCash(guildId, s.user_id, value, `Prämie: ${c.name}`, { kind: 'company' });
     return { ok: true, amount: value, staff: s };
   } catch (err) {
     // Buchung fehlgeschlagen -> Kasse frisch lesen und den Betrag zurücklegen (wie bei `found`).
     const current = db.getCompany(c.id);
-    db.saveCompany({ ...current, kasse: current.kasse + value });
+    db.saveCompany({ ...current, kasse: current.kasse + value,
+      profit_pending: (current.profit_pending ?? 0) + value });
     return { ok: false, reason: 'payment', error: err.message };
   }
 }
