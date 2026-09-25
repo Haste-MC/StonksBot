@@ -245,3 +245,63 @@ Zusagen oder Draht 50; Konzert-Anfrage erst ab Draht 20.
 
 **Docs:** ARCHITEKTUR §15 (Kontakte als Reichweiten-Hebel mit Messzahl),
 Patchnotes 1.39.0, Menüeintrag in der Registry.
+
+---
+
+## Addendum nach der Messung (2026-09-25)
+
+Gemessen wurde wie in „§3, Messung, Tests" vorgesehen: ein Jahreslauf
+Musik+Creator mit und ohne Kontaktpflege, gleicher Würfel, 2 h/Tag in Kontakte
+statt in eine Aktion – dazu derselbe Vergleich für den reinen Creator.
+Aufruf, Aufbau, Handrechnung und Rohausgabe stehen in
+`docs/messungen/2026-09-25-kontakte.txt`; der Abschnitt im Messskript heißt
+`--nur=kontakte`.
+
+**Das Ergebnis widerspricht der Erwartung der Spec – in die andere Richtung.**
+Erwartet war „ein Zuwachs im niedrigen zweistelligen Prozentbereich".
+Gemessen (10 Läufe à 365 Tage, Median je Tag):
+
+| | ohne Kontakte | mit Kontakten | Differenz |
+|---|---|---|---|
+| Musik + Creator | 372.788/Tag | 308.437/Tag | **−17,3 %** (gepaart je Seed −13,7 %) |
+| nur Creator | 334.254/Tag | 279.969/Tag | **−16,2 %** (gepaart je Seed −14,8 %) |
+
+Zusagenquote 7,4 % bzw. 8,0 % aller Anfragen (65,6 % bleiben unbeantwortet);
+durchschnittlicher Schubfaktor bei einer Veröffentlichung **mit** Schub 1,34
+(größter 2,80), über alle Veröffentlichungen gemittelt 1,05.
+
+**Konsequenz: Es wurde nichts gesenkt.** Der Auslöser der Spec („liegt es über
++50 %, `0,6` in der Basis oder die Schubfaktoren senken und neu messen") ist
+nicht erreicht. Die Basis `0,6` und alle Schubfaktoren stehen unverändert; am
+Verhalten des Spiels hat diese Messung nichts geändert.
+
+**Zwei Befunde, die die Spec so nicht vorgesehen hatte:**
+
+1. **Die zwei Stunden sind der ganze Preis.** Sie kosten gezählte 14,9 % der
+   Kanalaktionen am Tag (12,56 → 10,69; reiner Creator 16,16 → 15,03, −7,0 %),
+   weil der Tag ohnehin an der Energie-Wand endet. Die Musikseite bleibt fast
+   unberührt (0,95 Veröffentlichungen am Tag in beiden Läufen); die ganze
+   Differenz sitzt in den Followern (2,59 Mio gegen 1,59 Mio) und wächst über
+   das Jahr. Kontakte sind damit eine **Ausgabe mit Streuung**, keine Quelle –
+   was §3 genau so wollte, nur deutlicher als gedacht.
+
+2. **Der Konzert-Schub auf der Creator-Seite ist der schwächste im Spiel.**
+   Die Wirkungstabelle der Spec kennt für `konzert` nur die Musikseite
+   („Hörer für die Gage"). `contacts.request` ersetzt den dort wirkungslosen
+   Faktor 1 auf der Creator-Seite durch `min(4, 1 + 3 × Stärke)` über 7 Tage –
+   sonst wäre ein gemeinsames Event für einen reinen Creator ein Schub ohne
+   Wirkung. Gemessen: Ø Faktor **1,05** (größter 1,18) über 512 verbrauchte
+   Schübe, beim reinen Creator Ø 1,04 über 590. Ein Spieler, der nach
+   Chance × Nutzen wählt, nimmt sie **nie**: Das Feature auf derselben Seite
+   hat den größeren Faktor (`1 + 5 × Stärke`) *und* die bessere Chance
+   (Schwierigkeit −0,10 gegen −0,20), und die Bühne verlangt zusätzlich
+   Draht ≥ 20. Die Zahlen stammen deshalb aus einem dritten Messlauf, der die
+   Bühne erzwingt, sobald sie möglich ist („Konzert-Vorrang" im Messskript).
+
+**Offen für 5b/5c:** Ob die Kontakte eine attraktivere Zeitverwendung werden
+sollen, ist eine Balancing-Entscheidung des Nutzers, keine Folge dieser
+Messung. Drei Hebel wären möglich, keiner davon ist umgesetzt: die zwei Stunden
+senken, die Sperre nach „ignoriert" verkürzen, oder die Wirkung von einer
+einzelnen Aktion auf einen Zeitraum ausdehnen – der dritte wäre der einzige,
+der die Rangfolge der Geldquellen wirklich verschiebt, und er bräuchte eine
+neue Decke (§3).
