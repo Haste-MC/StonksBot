@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.40.0',
+    date: '2026-09-26',
+    title: '🔥 Beef und Disstracks',
+    lines: [
+      '🔥 **Stachel jemanden an.** In der Kontaktansicht steht bei jedem Musiker ein neuer Knopf „Anstacheln". Der Abend kostet dich zwei Stunden, ob er anspringt oder nicht, und auf dem Knopf steht, wie wahrscheinlich es ist: Auf Augenhöhe steigt gut jeder Zweite ein, beim Weltstar fast keiner – wer arrogant oder launisch ist, lässt sich leichter reizen, wer kollegial ist, winkt ab. Springt er nicht an, stehst du mit deiner Zeile allein da (ein Zwanzigstel Hype und Draht weg). Mehr als zwei Fronten gehen nicht.',
+      '🎤 **Der Disstrack ist die fünfte Veröffentlichungsart** – nur bei offenem Beef, und immer gegen den, mit dem es gerade brennt. Er schlägt dreimal so hart ein wie eine Single und hält am wenigsten von allen: viel Lärm, wenig Bleibendes. Das Publikum belohnt die Größe des Gegners und die Hitze des Streits, nicht deine Wut – ein Disstrack gegen einen, der viel größer ist als du, holt bei voller Hitze bis zum 2,5-fachen Publikum.',
+      '🙃 **Wer nach unten tritt, wird ausgelacht.** Gegen jemanden, der viel kleiner ist als du, geht der Track nach hinten los: halbes Publikum, ein Fünftel Hype weg, zwei Prozent deiner Hörer – und die Runde geht an ihn. In der Messung ist das dem Dauerstreiter bei knapp 3 von 10 Disstracks passiert, weil er irgendwann nur noch Kleinere übrig hatte.',
+      '⚔️ **Er schlägt zurück, ein bis drei Tage später** – einmal je Schlag, und nur solange es richtig brennt. Das nimmt Hype und Hörer, je größer er ist, desto mehr. Solange der Beef läuft, macht seine Szene dicht: Wer dieselbe Sprache und dasselbe Genre hat wie er, antwortet dir schlechter, und mit ihm selbst geht gar nichts mehr – keine Reaktion, keine Erwähnung, kein Feature, keine gemeinsame Bühne.',
+      '🏆 **Ende, Sieg, Frieden.** Ohne Nachschub ist die Sache nach ein paar Tagen durch, und dann zählt, wer mehr Runden geholt hat: Der Sieg gibt dir eine Woche lang mehr Hype, die Niederlage nimmt sie. Frieden anbieten geht, sobald es abgekühlt ist – das hebt den Draht deutlich, aber nie ins Plus: Streit anfangen ist keine Abkürzung zum Partner.',
+      '📏 **Und wer groß wird, wird angezählt** – auch von Leuten, mit denen du nie gesprochen hast: Nach einer Chart-Platzierung kann jemand aus deiner Nähe (Genre, Größe) von selbst anfangen, und dann stehst du 0:1 hinten. **Das ist die einzige Zahl, die hier wirklich zählt:** Wer das aussitzt, verliert jeden dieser Beefs. Gemessen über ein Jahr (10 Läufe, fester Würfel) kostet das Aussitzen **16,9 %** deiner Einnahmen, als reiner Musiker ohne Kanäle sogar **28,5 %**. Zurückschlagen holt das wieder rein (+21,5 % bzw. +49,8 % gegenüber dem, der schluckt) – aber reicher als vorher wird niemand: gegen „wie bisher" sind es +0,9 % bzw. +7,1 %, also nichts. Der Dauerstreiter zahlt es mit Hörern: 587.277 gegen 114.390 am Jahresende. Beef ist Farbe und Schadensbegrenzung, kein Geschäftsmodell.',
+    ],
+  },
+  {
     version: '1.39.0',
     date: '2026-09-25',
     title: '🤝 Kontakte',

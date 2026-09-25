@@ -358,3 +358,87 @@ und in §15 fortgeschrieben.
   Kooperations-Knöpfe mit Grund `beef`, Disstrack-Knopf nur bei offenem Beef,
   Friedensknopf nur unter Hitze 30, `overflow === undefined` in beiden neuen
   Zuständen der Kontaktansicht.
+
+## Addendum nach der Messung (2026-09-26)
+
+Gemessen mit `scripts/messung-geldquellen.js --nur=beef`; die vollständige
+Ausgabe, der Aufbau und eine von Hand nachgerechnete Einzelprüfung stehen in
+`docs/messungen/2026-09-26-beef.txt`. Drei Läufe: `10 365 --nur=beef` und
+zweimal derselbe Lauf mit `--diss-aufmerk=0.75` bzw. `--diss-aufmerk=0`.
+
+**Die Zahlen** (10 Läufe à 365 Tage, fester Würfel, Beefwürfe auf einem eigenen
+Strom; „wie bisher" ist der Lauf ohne jeden Beef, „passiv" derselbe Spieler, der
+angezählt wird und nie antwortet):
+
+| | Musik+Creator | nur Musik |
+|---|---|---|
+| wie bisher | 372.788/Tag | 104.965/Tag |
+| passiv (angezählt, nie geantwortet) | 309.694 (−16,9 %, gepaart −14,1 %) | 75.051 (−28,5 %, gepaart −23,4 %) |
+| Beef-Spielweise | 376.192 (+0,9 %, gepaart −0,6 %) | 112.427 (+7,1 %, gepaart +15,4 %) |
+| Beef-Spielweise gegen passiv | +21,5 % (gepaart +15,5 %) | +49,8 % (gepaart +55,1 %) |
+| Kontrolle: ohne Beef, Album statt Single | 2.590.231 (+594,8 %) | 2.806.466 (+2573,7 %) |
+
+Einstiegsquote 25,0 % bei Ø gewürfelter Chance 21,1 % · Häme-Quote 28,2 % ·
+Siegquote **0,0 %** über 718 Abrechnungen · Ø Aufmerksamkeitsfaktor über alle
+Disstracks **0,908** (unter 1, weil die Häme-Fälle fest 0,50 zahlen) · Ø Wucht
+0,051 · Disstracks 0,95/Tag = 98,9 % aller Veröffentlichungen · Kosten an
+Aktionen 12,56 → 12,52 am Tag, Hörer 587.277 → 114.390, Hype 1,14 → 0,86.
+
+**Die Erwartung der Spec ist eingetreten:** eine Umverteilung, kein Zuwachs. Die
+Beef-Spielweise ist gegen „wie bisher" bei Musik+Creator nicht von null zu
+unterscheiden (5 von 10 Seeds im Plus); was messbar bleibt, ist der Preis des
+Aussitzens.
+
+**`DISS_AUFMERK` wurde NICHT gesenkt.** Der Auslöser des Plans („über +25 %")
+ist gegen „wie bisher" mit +15,4 % nicht erreicht. Gesenkt und neu gemessen
+wurde trotzdem, weil die Differenz gegen den passiven Spieler darüber liegt:
+Bei 0,75 steigt sie sogar (nur Musik gepaart +22,5 % gegen „wie bisher" statt
++15,4 %), und bei 0,00 – Aufmerksamkeit konstant 1,0 – liegt die Spielweise noch
++22,4 % bzw. +40,6 % über dem passiven Spieler. Der Faktor ist bei dieser
+Streuung kein Stellrad. Was den Unterschied trägt, ist der
+Veröffentlichungsplatz: `spike` 3,0 des Disstracks gegen 1,0 der Single, und
+`spike` zählt im Buzz zweimal (`audience` und `buzz = audience × 9 × spike`).
+
+**Vier Stellen, an denen die Spec ergänzt oder widerlegt wurde:**
+
+1. **Der §3-Satz der Spec ist zu kurz.** „Die Hörer, die bleiben, hängen an
+   `growth`, nicht am Spike" stimmt so nicht: Der Spike trägt den Buzz, Buzz wird
+   zum selben Satz je Abruf bezahlt wie die stetigen Hörer, und die gewonnenen
+   Hörer sind `audience × … × growth`, also ebenfalls vom Spike abhängig. Dass
+   der Disstrack trotzdem kein Geldrucker ist, liegt nicht an seinem `growth`,
+   sondern daran, dass ihm eine bessere Veröffentlichung gegenübersteht: Die
+   Kontrollvariante „Album statt Single" verdient das Sechs- bzw.
+   Sechsundzwanzigfache, ganz ohne Beef.
+2. **Die Aufmerksamkeit ist in der Praxis ein Abzug, kein Gewinn.** Der
+   Spec-Fall (×2,5 gegen einen tausendmal Größeren bei voller Hitze) kommt für
+   einen gewachsenen Spieler nicht vor: Ø Wucht 0,051, Häme in 28,2 % der Fälle,
+   Ø Faktor 0,908. Die Formel ist unverändert richtig, ihr Anwendungsbereich war
+   zu optimistisch beschrieben.
+3. **Das Bonusfenster hat in der Messung nie einen Sieg ausgezahlt.** Alle 718
+   Abrechnungen gingen 0:1 aus, und keine abgerechnete Front war eine, in die der
+   Spieler einen Disstrack gesteckt hatte: `zielFor` nimmt die heißeste Front,
+   und wer sie täglich auf `HITZE_MAX` hält, rechnet sie nie ab; abgerechnet wird
+   die zweite, unbeachtete Front aus `anzaehlen` – mit 0:1. Das ist keine
+   Abweichung im Code (die Spec beschreibt beide Teile korrekt), aber eine Lücke
+   in der Spec: Sie hat den Fall „zwei Fronten, eine davon dauerhaft heiß" nicht
+   durchdacht. `BONUS_SIEG` 1,25 ist damit in 2 × 3.650 simulierten Tagen nicht
+   ein Mal wirksam geworden.
+4. **Drei Ergänzungen im Code, die die Spec nicht nennt** (alle aus Stück 2 und 3,
+   an ihrer Stelle im Code begründet): `settle` läuft als Schritt 0 jeder
+   Beef-Aktion und in `music.publish`/`music.show`, damit die faule Abrechnung
+   (§4) nicht verloren geht; `anstacheln` lehnt mit dem neuen Grund `zu_frisch`
+   ab, solange das Bonusfenster eines abgerechneten Beefs mit demselben Kontakt
+   noch läuft (die Tabelle hat nur eine Zeile je Kontakt, ein neuer Beef würde
+   den eben verdienten Bonus mitreißen); und `anzaehlen` schließt dieselben
+   frischen Kontakte aus demselben Grund aus. Zahlen wurden dabei keine geändert:
+   `src/data/beef.js` steht unverändert auf den Werten dieser Spec.
+
+**Eine Anmerkung zum §3-Nachweis in den Tests:** Die §3-Prüfung in
+`test/musicEvents.test.js` („mit Ereignissen: Median höchstens 10 % über ohne")
+ist einseitig – sie deckt genau das ab, was ihre Beschriftung sagt (eine
+Obergrenze, keine Bandbreite), und würde einen Einbruch nach unten nicht
+bemerken. Für den Beef ist das ohne Folgen, weil dieser Test keinen Beef fährt;
+der Nachweis für 5b ist die Messung oben, und dort steht der Einbruch nach unten
+ausdrücklich in der Tabelle (passiver Spieler). Geändert wurde die Prüfung
+nicht: Sie hält, was sie behauptet, und eine zweite Schranke ohne eine gemessene
+Grundlage wäre eine geratene Zahl.

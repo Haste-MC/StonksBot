@@ -1,0 +1,562 @@
+Messung Beef und Disstracks (Stück 5b: der Streit mit anderen Künstlern) – Lauf vom 2026-09-26.
+Aufrufe (drei Läufe, drei getrennte DATA_DIR, parallel gefahren):
+
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef --diss-aufmerk=0.75
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef --diss-aufmerk=0
+
+(Der Abschnitt steht nicht im vollen Lauf – er verdoppelt die Karriere-Läufe; `--nur=beef` fährt
+genau ihn. Die zweite und dritte Zeile sind die im Plan vorgesehene Gegenmessung mit gesenktem
+`DISS_AUFMERK`; `--diss-aufmerk=N` überschreibt den Wert für einen Lauf, damit die Gegenmessung eine
+Kommandozeile ist und keine Änderung an `src/data/beef.js`. Die Tabellen der Strategie-Suchphase sind
+unten weggelassen, sonst ist die Ausgabe aller drei Läufe vollständig und unverändert. Die
+Handprüfung kommt aus demselben Skript mit `… 1 45 --nur=beef --trace=beef`, das jedes Anstacheln und
+jeden Disstrack als JSON-Zeile auf stderr schreibt.)
+
+Die eine Frage: Was bringt der Beef, wenn ein Spieler ihn als Spielweise fährt – und ist er ein
+Geldrucker (§3)?
+
+==================== AUFBAU ====================
+
+Zwei Archetypen – **Musik+Creator** und **nur Musik**; der reine Creator hat keinen Disstrack und
+kommt deshalb nicht vor. Je Archetyp VIER Varianten über 10 Läufe à 365 Tage, Start heute 6:00 Uhr,
+vorwärts:
+
+  ohne Beef                      wie vor 1.40.0: kein Anstacheln, kein Disstrack – und auch
+                                 niemand, der von selbst anzählt
+  passiv                         das Spiel, wie es ist, gespielt von einem, der die drei Knöpfe nie
+                                 drückt: Er wird angezählt und schluckt es
+  aktiv (Beef-Spielweise)        anstacheln, sobald keine Front offen ist (Ziel nach
+                                 `einstiegOf × wuchtOf`), Disstrack, sobald ein Titel da und die
+                                 Veröffentlichungssperre durch ist, kein Frieden
+  ohne Beef, Album statt Single  KEINE Beef-Variante, sondern die zweite Vergleichsgrundlage:
+                                 derselbe Spieler ohne jeden Beef, der aber auf sechs Titel wartet
+                                 und ein Album bringt
+
+**Warum es drei Beef-Varianten braucht und nicht zwei.** `music.publish` zählt einen Spieler nach
+jeder Chart-Platzierung von selbst an (`beef.anzaehlen`, 6 % je Platzierung) – dagegen kann er sich
+nicht entscheiden. Wer nie antwortet, steht in jedem dieser Beefs bei 0:1 und verliert ihn bei der
+Abrechnung, und eine Niederlage nimmt sieben Tage lang Hype (`BONUS_NIEDERLAGE` 0,85). „Ich lasse
+das" ist deshalb NICHT dasselbe wie „es gibt keinen Beef". Zwei Varianten hätten die beiden Dinge
+gegeneinander verrechnet; hier steht jede Differenz mit ihrer Vergleichsgrundlage.
+
+**Warum die vierte Variante dazugehört.** Der Buzz einer Veröffentlichung trägt `spike` ZWEIMAL:
+einmal über `audience` und ein zweites Mal in `buzz = audience × 9 × spike` (`src/music.js`), und
+Buzz wird zum selben Satz je Abruf bezahlt wie die stetigen Hörer. Je aufgenommenem Titel heißt das
+Single 1,0² = 1,00 · EP 2,6²/3 = 2,25 · Album 5,5²/6 = 5,04 – und Disstrack 3,0²/1 = 9,00. Gegen den
+täglichen Single-Griff, den der simulierte Spieler bisher macht, sieht deshalb JEDE hohe
+`spike`-Art gut aus, auch ohne jeden Beef. Ohne diese Variante wäre die gemessene Beef-Differenz zum
+Teil nur der Abstand zu einer schwachen Spielweise, und ein Balancing gegen schlechtes Spiel wäre
+wertlos.
+
+Damit die Differenz den Beef misst und nichts sonst:
+
+ * Alle vier Varianten fahren DIESELBE Strategie. Sie wird je Archetyp einmal gesucht (Suchphase
+   ohne Beef, 3 Läufe à 180 Tage) und dann festgehalten – sonst misst man die Strategiewahl.
+   Gefunden: Musik+Creator „Follower zuerst +1B +K", nur Musik „Ertrag je Zeit +0B".
+ * Alle vier Varianten fahren DENSELBEN Würfel `rng(1000 + i)` für Musik, Kanäle, Ereignisse und
+   Vorfälle – derselbe Generator und dieselben Seeds wie im Kontaktlauf (Stück 5a).
+ * Alle Beefwürfe laufen über einen DRITTEN Würfel `rng(701000 + i)`: Einstieg, Häme, Kontertage,
+   das Angezähltwerden und der Disstrack selbst. Auch die Variante „ohne Beef" zieht den
+   Anzähl-Wurf aus diesem Strom (und wirft ihn weg) – sonst hätte sie einen Wurf weniger im
+   Hauptstrom und wäre ab der ersten Chart-Platzierung ein anderer Musiklauf als die anderen drei.
+ * Jede Variante bekommt eigene Welten und eigene Konten.
+ * Gezählt wird nur, was das Spiel selbst gemeldet hat: die Rückgabewerte von `beef.anstacheln` und
+   `beef.diss` und die Ereignisse aus `beef.settle`. Das Skript rechnet keine Einstiegschance, keine
+   Wucht und keine Aufmerksamkeit nach.
+
+Zwei Kontrollen stehen in jeder Ausgabe, weil eine stille Null ein Fehler ist und kein Ergebnis:
+„ohne Beef" muss ohne einen einzigen Beef, Gegenschlag und ohne eine Abrechnung durchlaufen, und
+„passiv" muss angezählt werden, aber nie selbst schlagen. Beide sind in allen drei Läufen ✔.
+
+==================== HANDPRÜFUNG: EIN TAG, EIN SEED, EINE ANFRAGE ====================
+
+Gerechnet wird gegen `src/beef.js` und `src/data/beef.js`, nicht gegen das Skript. Der Fall kommt aus
+`… 1 45 --nur=beef --trace=beef` (Seed 1000, Beefwürfe rng(701000)); der Lauf ist wiederholbar, zwei
+Aufrufe waren zeilengleich.
+
+Trace-Zeile 3 (Anstacheln) und 4 (Disstrack), unverändert:
+
+  {"datum":"2026-09-28","was":"anstacheln","kontakt":"karaokeken","trait":"launisch","meine":45,
+   "seine":24000,"chance":0.10494718957209856,"wucht":0.7940056808582895,
+   "wertDerWahl":0.08332866471035809,"ein":true}
+  {"datum":"2026-09-29","was":"diss","kontakt":"karaokeken","trait":"launisch","meine":45,
+   "seine":24000,"genre":"pop","genrefaktor":0.7692307692307692,"hitzeVor":19,
+   "wucht":0.7940056808582895,"haeme":false,"aufmerksamkeit":1.5451154385892485,
+   "audienceFactor":1.5451154385892485,"audience":463,"gained":58,"position":0,"hitzeNach":49,
+   "runden":"1:0"}
+
+Der Gegner ist „Karaoke-Kaiser Ken" (`karaokeken`, 24.000 Hörer Reichweite, Charakterzug
+`launisch`) aus `src/data/contacts.js`; der Spieler hat an diesem Tag 45 Hörer und macht Pop.
+
+(a) Einstiegschance, `beef.einstiegOf` mit `EINSTIEG_BASIS 0,55`, `EINSTIEG_STEIGUNG 0,25`,
+    `BEEF_TRAIT.launisch +0,15`:
+
+      v        = log10(max(100, 45) / max(1, 24000)) = log10(100/24000) = −2,380211241711606
+      einstieg = 0,55 + 0,25 × (−2,380211241711606) + 0,15 = 0,10494718957209856
+      Skript:                                                0.10494718957209856   ✔ gleich
+
+    (Die Untergrenze `max(100, meine)` greift hier: 45 Hörer werden wie 100 gerechnet.)
+
+(b) Wucht, `beef.wuchtOf`:
+
+      wucht = log10(1 + 24000 / max(100, 45)) / 3 = log10(241) / 3 = 0,7940056808582895
+      Skript:                                                       0.7940056808582895   ✔ gleich
+
+    Das Produkt, nach dem der simulierte Spieler sein Ziel wählt, ist damit
+    0,10494718957209856 × 0,7940056808582895 = 0,08332866471035809 – das Skript meldet
+    `wertDerWahl` 0.08332866471035809   ✔ gleich
+
+(c) Aufmerksamkeit am Tag darauf, `beef.aufmerksamkeitOf` mit `DISS_AUFMERK 1,5`,
+    `genrefaktor = risk/1,3 = 1/1,3` (Pop) und der Hitze zum Zeitpunkt des Disstracks:
+
+      Hitze: `HITZE_ANSTACHELN` 25 am 28.09., `HITZE_COOL_PRO_TAG` 6 → nach einem Tag 25 − 6 = 19.
+      Das Skript meldet `hitzeVor` 19   ✔ gleich
+
+      aufmerksamkeit = 1 + 1,5 × 0,7940056808582895 × (1/1,3) × (0,5 + 0,5 × 19/100)
+                     = 1 + 1,5 × 0,6107736006602227 × 0,595
+                     = 1,545115438589249
+      Skript:          1.5451154385892485   ✔ gleich (15 Stellen; der Rest ist Gleitkomma-Rauschen)
+
+    Derselbe Wert steht in `audienceFactor`, wird also genau so an `music.publish` übergeben.
+
+(d) Gegenprobe zum Vorzeichen: `HITZE_DISS` 30 → 19 + 30 = 49, das Skript meldet `hitzeNach` 49 ✔,
+    und die Runde geht ohne Häme an den Spieler (`runden` „1:0") ✔.
+
+Nichts davon ist ein Mittelwert: vier Zahlen eines einzelnen Tages, von Hand aus den Konstanten
+nachgerechnet und stellengleich mit dem, womit das Spiel gewürfelt hat. Erst danach stehen die
+abgeleiteten Zahlen unten.
+
+==================== ROHAUSGABE LAUF 1: DISS_AUFMERK 1,50 (Standard) ====================
+
+--- Beef (Stück 5b: ohne Beef · passiv · Beef-Spielweise · ohne Beef mit Album – 10 Läufe à 365 Tage) ---
+
+  DISS_AUFMERK 1,50 (Standard aus src/data/beef.js), HAEME_AUDIENCE 0,50, BONUS_SIEG 1,25, BONUS_NIEDERLAGE 0,85, Disstrack growth 0,4 gegen Single 1,0
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 1,50
+    ohne Beef (vor 1.40)   372.788/Tag   [357.680 … 382.808]   2.593.286 Follower, 587.277 Hörer · Hype 1,14 · Energie Ø 12 %
+    passiv (geschluckt)    309.694/Tag   [298.336 … 326.723]   2.296.659 Follower, 374.845 Hörer · Hype 1,03 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane −16,9 % · je Seed (gepaart) Median −14,1 %, Spanne −28,6 % … +1,8 %, 1 von 10 Seeds im Plus
+      je Seed: −17,4 % · −1,2 % · −28,6 % · −4,3 % · −23,6 % · −0,6 % · −16,3 % · −26,3 % · +1,8 % · −11,8 %
+    aktiv (Beef-Spielweise)   376.192/Tag   [337.289 … 386.754]   2.586.166 Follower, 114.390 Hörer · Hype 0,86 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane +0,9 % · je Seed (gepaart) Median −0,6 %, Spanne −10,0 % … +38,0 %, 5 von 10 Seeds im Plus
+      je Seed: −1,7 % · −5,9 % · +0,9 % · +7,1 % · −5,1 % · −5,0 % · +18,1 % · +38,0 % · +0,5 % · −10,0 %
+      gegen „passiv": Mediane +21,5 % · je Seed (gepaart) Median +15,5 %, Spanne −4,7 % … +87,2 %, 7 von 10 Seeds im Plus
+      je Seed: +19,0 % · −4,7 % · +41,4 % · +12,0 % · +24,3 % · −4,5 % · +41,2 % · +87,2 % · −1,3 % · +2,1 %
+    ohne Beef, Album statt Single 2.590.231/Tag   [2.164.465 … 3.211.089]   3.956.389 Follower, 10.206.525 Hörer · Hype 1,13 · Energie Ø 10 %
+      gegen „ohne Beef": Mediane +594,8 % · je Seed (gepaart) Median +646,3 %, Spanne +352,3 % … +875,8 %, 10 von 10 Seeds im Plus
+      je Seed: +749,5 % · +586,1 % · +706,5 % · +815,2 % · +391,7 % · +505,0 % · +875,8 % · +530,0 % · +352,3 % · +829,5 %
+      gegen „ohne Beef, Album": Mediane −85,5 % · je Seed (gepaart) Median −86,9 %, Spanne −90,3 % … −77,8 %, 0 von 10 Seeds im Plus
+      je Seed: −88,4 % · −86,3 % · −87,5 % · −88,3 % · −80,7 % · −84,3 % · −87,9 % · −78,1 % · −77,8 % · −90,3 %
+      Quellen ohne Beef:              Merch 214.364/Tag (58 %) · Tantiemen 84.087/Tag (23 %) · Twitch 38.102/Tag (10 %) · Konzert 12.839/Tag (3 %) · YouTube 12.276/Tag (3 %) · Instagram 5.794/Tag (2 %) · Vorfall -3.439/Tag (-1 %)
+      Quellen passiv:                 Merch 201.293/Tag (65 %) · Tantiemen 55.833/Tag (18 %) · Twitch 35.561/Tag (11 %) · YouTube 11.648/Tag (4 %) · Konzert 10.075/Tag (3 %) · Instagram 5.746/Tag (2 %) · Vorfall -4.414/Tag (-1 %)
+      Quellen aktiv:                  Merch 210.140/Tag (56 %) · Tantiemen 104.654/Tag (28 %) · Twitch 37.478/Tag (10 %) · YouTube 12.234/Tag (3 %) · Konzert 6.325/Tag (2 %) · Instagram 5.981/Tag (2 %) · Vorfall 560/Tag (0 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.240.731/Tag (87 %) · Merch 274.530/Tag (11 %) · Konzert 76.669/Tag (3 %) · Twitch 54.389/Tag (2 %) · YouTube 15.857/Tag (1 %) · Instagram 7.830/Tag (0 %) · Vorfall -13.429/Tag (-1 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" +0,9 %, gepaart gegen „ohne Beef" −0,6 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +21,5 % (Mediane gegen „passiv") → nicht erreicht, DISS_AUFMERK unverändert
+      Tagesleistung Ø/Tag: ohne Beef 12,56 Kanalaktionen · 0,95 Veröffentlichungen · 0,23 Konzerte → passiv 12,57 · 0,95 · 0,22 → aktiv 12,52 · 0,96 · 0,23 → Album 13,43 · 0,16 · 0,23 (aktiv gegen ohne Beef: −0,3 % Kanalaktionen, +1,7 % Veröffentlichungen)
+      davon Disstracks: 0,95/Tag – 98,9 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 197
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 194: Sieg 0 (Siegquote 0,0 %) · Niederlage 194 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 194 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 194×
+    aktiv:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 171
+      Disstracks 3.479 (0,95/Tag) · Häme 982 (Häme-Quote 28,2 %) · kein Disstrack möglich an: kein_titel 129, sperre 2
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,908 (kleinster 0,500, größter 1,785) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,068 (kleinster 1,009, größter 1,785)
+      Ø Wucht beim Disstrack: Ø 0,051 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,7 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,19 (höchstens 2)
+      Gegenschläge 1.251 · Abrechnungen 169: Sieg 0 (Siegquote 0,0 %) · Niederlage 169 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 169 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 169×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 197, Abrechnungen 194, eigene Disstracks 0 (so gewollt ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 1,50
+    ohne Beef (vor 1.40)   104.965/Tag   [91.249 … 110.608]   853.612 Follower, 579.842 Hörer · Hype 1,09 · Energie Ø 100 %
+    passiv (geschluckt)     75.051/Tag   [68.024 … 89.268]   669.996 Follower, 441.920 Hörer · Hype 1,13 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane −28,5 % · je Seed (gepaart) Median −23,4 %, Spanne −35,3 % … +6,7 %, 1 von 10 Seeds im Plus
+      je Seed: −19,1 % · −21,1 % · −24,1 % · +6,7 % · −35,3 % · −22,6 % · −21,4 % · −31,5 % · −26,4 % · −32,3 %
+    aktiv (Beef-Spielweise)   112.427/Tag   [106.406 … 143.502]   954.186 Follower, 128.657 Hörer · Hype 0,92 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane +7,1 % · je Seed (gepaart) Median +15,4 %, Spanne −9,4 % … +85,0 %, 8 von 10 Seeds im Plus
+      je Seed: +54,0 % · −9,4 % · +18,6 % · +12,2 % · +25,9 % · −9,0 % · +85,0 % · +40,3 % · +6,0 % · +4,1 %
+      gegen „passiv": Mediane +49,8 % · je Seed (gepaart) Median +55,1 %, Spanne +5,1 % … +135,5 %, 10 von 10 Seeds im Plus
+      je Seed: +90,4 % · +14,7 % · +56,3 % · +5,1 % · +94,6 % · +17,5 % · +135,5 % · +105,0 % · +44,1 % · +53,8 %
+    ohne Beef, Album statt Single 2.806.466/Tag   [2.091.000 … 3.819.848]   3.370.868 Follower, 12.804.789 Hörer · Hype 1,20 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane +2573,7 % · je Seed (gepaart) Median +2823,5 %, Spanne +1306,5 % … +4038,9 %, 10 von 10 Seeds im Plus
+      je Seed: +3447,4 % · +1502,9 % · +2856,4 % · +2790,6 % · +1306,5 % · +4038,9 % · +1847,9 % · +2770,0 % · +3183,0 % · +3630,9 %
+      gegen „ohne Beef, Album": Mediane −96,0 % · je Seed (gepaart) Median −95,8 %, Spanne −97,8 % … −90,5 %, 0 von 10 Seeds im Plus
+      je Seed: −95,7 % · −94,3 % · −96,0 % · −96,1 % · −91,0 % · −97,8 % · −90,5 % · −95,1 % · −96,8 % · −97,2 %
+      Quellen ohne Beef:              Tantiemen 88.894/Tag (85 %) · Konzert 14.152/Tag (13 %) · Vorfall -659/Tag (-1 %)
+      Quellen passiv:                 Tantiemen 66.853/Tag (89 %) · Konzert 12.233/Tag (16 %) · Vorfall -546/Tag (-1 %)
+      Quellen aktiv:                  Tantiemen 116.652/Tag (104 %) · Konzert 7.244/Tag (6 %) · Vorfall -141/Tag (0 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.885.938/Tag (103 %) · Konzert 89.548/Tag (3 %) · Vorfall -51.927/Tag (-2 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" +7,1 %, gepaart gegen „ohne Beef" +15,4 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +55,1 % (gepaart gegen „passiv") → ERREICHT, DISS_AUFMERK senken und neu messen
+      Tagesleistung Ø/Tag: ohne Beef 0,00 Kanalaktionen · 0,95 Veröffentlichungen · 0,22 Konzerte → passiv 0,00 · 0,95 · 0,22 → aktiv 0,00 · 0,97 · 0,23 → Album 0,00 · 0,16 · 0,23 (aktiv gegen ohne Beef: −100,0 % Kanalaktionen, +1,8 % Veröffentlichungen)
+      davon Disstracks: 0,96/Tag – 98,9 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 196
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 193: Sieg 0 (Siegquote 0,0 %) · Niederlage 193 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 193 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 193×
+    aktiv:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 164
+      Disstracks 3.494 (0,96/Tag) · Häme 1.039 (Häme-Quote 29,7 %) · kein Disstrack möglich an: kein_titel 117
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,894 (kleinster 0,500, größter 1,820) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,061 (kleinster 1,008, größter 1,820)
+      Ø Wucht beim Disstrack: Ø 0,046 (kleinster 0,007, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,18 (höchstens 2)
+      Gegenschläge 1.199 · Abrechnungen 162: Sieg 0 (Siegquote 0,0 %) · Niederlage 162 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 162 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 162×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 196, Abrechnungen 193, eigene Disstracks 0 (so gewollt ✔)
+
+==================== ROHAUSGABE LAUF 2: DISS_AUFMERK 0,75 (Gegenmessung des Plans) ====================
+
+--- Beef (Stück 5b: ohne Beef · passiv · Beef-Spielweise · ohne Beef mit Album – 10 Läufe à 365 Tage) ---
+
+  DISS_AUFMERK 0,75 (über --diss-aufmerk gesetzt), HAEME_AUDIENCE 0,50, BONUS_SIEG 1,25, BONUS_NIEDERLAGE 0,85, Disstrack growth 0,4 gegen Single 1,0
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,75
+    ohne Beef (vor 1.40)   372.788/Tag   [357.680 … 382.808]   2.593.286 Follower, 587.277 Hörer · Hype 1,14 · Energie Ø 12 %
+    passiv (geschluckt)    309.694/Tag   [298.336 … 326.723]   2.296.659 Follower, 374.845 Hörer · Hype 1,03 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane −16,9 % · je Seed (gepaart) Median −14,1 %, Spanne −28,6 % … +1,8 %, 1 von 10 Seeds im Plus
+      je Seed: −17,4 % · −1,2 % · −28,6 % · −4,3 % · −23,6 % · −0,6 % · −16,3 % · −26,3 % · +1,8 % · −11,8 %
+    aktiv (Beef-Spielweise)   377.506/Tag   [366.515 … 384.745]   2.372.386 Follower, 113.062 Hörer · Hype 0,80 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane +1,3 % · je Seed (gepaart) Median +0,4 %, Spanne −24,1 % … +38,5 %, 6 von 10 Seeds im Plus
+      je Seed: +0,6 % · +16,7 % · +0,2 % · +38,5 % · −3,4 % · +2,8 % · +21,8 % · −1,0 % · −8,3 % · −24,1 %
+      gegen „passiv": Mediane +21,9 % · je Seed (gepaart) Median +24,1 %, Spanne −13,9 % … +45,6 %, 8 von 10 Seeds im Plus
+      je Seed: +21,7 % · +18,0 % · +40,4 % · +44,7 % · +26,5 % · +3,5 % · +45,6 % · +34,4 % · −9,9 % · −13,9 %
+    ohne Beef, Album statt Single 2.590.231/Tag   [2.164.465 … 3.211.089]   3.956.389 Follower, 10.206.525 Hörer · Hype 1,13 · Energie Ø 10 %
+      gegen „ohne Beef": Mediane +594,8 % · je Seed (gepaart) Median +646,3 %, Spanne +352,3 % … +875,8 %, 10 von 10 Seeds im Plus
+      je Seed: +749,5 % · +586,1 % · +706,5 % · +815,2 % · +391,7 % · +505,0 % · +875,8 % · +530,0 % · +352,3 % · +829,5 %
+      gegen „ohne Beef, Album": Mediane −85,4 % · je Seed (gepaart) Median −84,6 %, Spanne −91,8 % … −79,7 %, 0 von 10 Seeds im Plus
+      je Seed: −88,2 % · −83,0 % · −87,6 % · −84,9 % · −80,4 % · −83,0 % · −87,5 % · −84,3 % · −79,7 % · −91,8 %
+      Quellen ohne Beef:              Merch 214.364/Tag (58 %) · Tantiemen 84.087/Tag (23 %) · Twitch 38.102/Tag (10 %) · Konzert 12.839/Tag (3 %) · YouTube 12.276/Tag (3 %) · Instagram 5.794/Tag (2 %) · Vorfall -3.439/Tag (-1 %)
+      Quellen passiv:                 Merch 201.293/Tag (65 %) · Tantiemen 55.833/Tag (18 %) · Twitch 35.561/Tag (11 %) · YouTube 11.648/Tag (4 %) · Konzert 10.075/Tag (3 %) · Instagram 5.746/Tag (2 %) · Vorfall -4.414/Tag (-1 %)
+      Quellen aktiv:                  Merch 216.302/Tag (57 %) · Tantiemen 101.291/Tag (27 %) · Twitch 36.934/Tag (10 %) · YouTube 12.523/Tag (3 %) · Konzert 6.123/Tag (2 %) · Instagram 6.073/Tag (2 %) · Vorfall -2.668/Tag (-1 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.240.731/Tag (87 %) · Merch 274.530/Tag (11 %) · Konzert 76.669/Tag (3 %) · Twitch 54.389/Tag (2 %) · YouTube 15.857/Tag (1 %) · Instagram 7.830/Tag (0 %) · Vorfall -13.429/Tag (-1 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" +1,3 %, gepaart gegen „ohne Beef" +0,4 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +24,1 % (gepaart gegen „passiv") → nicht erreicht, DISS_AUFMERK unverändert
+      Tagesleistung Ø/Tag: ohne Beef 12,56 Kanalaktionen · 0,95 Veröffentlichungen · 0,23 Konzerte → passiv 12,57 · 0,95 · 0,22 → aktiv 12,51 · 0,96 · 0,23 → Album 13,43 · 0,16 · 0,23 (aktiv gegen ohne Beef: −0,4 % Kanalaktionen, +1,8 % Veröffentlichungen)
+      davon Disstracks: 0,95/Tag – 98,9 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 197
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 194: Sieg 0 (Siegquote 0,0 %) · Niederlage 194 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 194 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 194×
+    aktiv:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 186
+      Disstracks 3.482 (0,95/Tag) · Häme 924 (Häme-Quote 26,5 %) · kein Disstrack möglich an: kein_titel 126, sperre 2
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,893 (kleinster 0,500, größter 1,401) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,035 (kleinster 1,004, größter 1,401)
+      Ø Wucht beim Disstrack: Ø 0,053 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,6 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,21 (höchstens 2)
+      Gegenschläge 1.192 · Abrechnungen 183: Sieg 0 (Siegquote 0,0 %) · Niederlage 183 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 183 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 183×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 197, Abrechnungen 194, eigene Disstracks 0 (so gewollt ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,75
+    ohne Beef (vor 1.40)   104.965/Tag   [91.249 … 110.608]   853.612 Follower, 579.842 Hörer · Hype 1,09 · Energie Ø 100 %
+    passiv (geschluckt)     75.051/Tag   [68.024 … 89.268]   669.996 Follower, 441.920 Hörer · Hype 1,13 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane −28,5 % · je Seed (gepaart) Median −23,4 %, Spanne −35,3 % … +6,7 %, 1 von 10 Seeds im Plus
+      je Seed: −19,1 % · −21,1 % · −24,1 % · +6,7 % · −35,3 % · −22,6 % · −21,4 % · −31,5 % · −26,4 % · −32,3 %
+    aktiv (Beef-Spielweise)   116.523/Tag   [101.039 … 134.006]   977.316 Follower, 121.092 Hörer · Hype 0,85 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane +11,0 % · je Seed (gepaart) Median +22,5 %, Spanne −13,5 % … +65,1 %, 6 von 10 Seeds im Plus
+      je Seed: +49,5 % · −12,3 % · +42,5 % · +15,7 % · +29,4 % · −13,5 % · +65,1 % · +36,5 % · −6,9 % · −3,2 %
+      gegen „passiv": Mediane +55,3 % · je Seed (gepaart) Median +63,9 %, Spanne +8,4 % … +110,1 %, 10 von 10 Seeds im Plus
+      je Seed: +84,8 % · +11,1 % · +87,9 % · +8,4 % · +99,9 % · +11,7 % · +110,1 % · +99,4 % · +26,5 % · +43,0 %
+    ohne Beef, Album statt Single 2.806.466/Tag   [2.091.000 … 3.819.848]   3.370.868 Follower, 12.804.789 Hörer · Hype 1,20 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane +2573,7 % · je Seed (gepaart) Median +2823,5 %, Spanne +1306,5 % … +4038,9 %, 10 von 10 Seeds im Plus
+      je Seed: +3447,4 % · +1502,9 % · +2856,4 % · +2790,6 % · +1306,5 % · +4038,9 % · +1847,9 % · +2770,0 % · +3183,0 % · +3630,9 %
+      gegen „ohne Beef, Album": Mediane −95,8 % · je Seed (gepaart) Median −95,5 %, Spanne −97,9 % … −90,8 %, 0 von 10 Seeds im Plus
+      je Seed: −95,8 % · −94,5 % · −95,2 % · −96,0 % · −90,8 % · −97,9 % · −91,5 % · −95,2 % · −97,2 % · −97,4 %
+      Quellen ohne Beef:              Tantiemen 88.894/Tag (85 %) · Konzert 14.152/Tag (13 %) · Vorfall -659/Tag (-1 %)
+      Quellen passiv:                 Tantiemen 66.853/Tag (89 %) · Konzert 12.233/Tag (16 %) · Vorfall -546/Tag (-1 %)
+      Quellen aktiv:                  Tantiemen 114.258/Tag (98 %) · Konzert 6.916/Tag (6 %) · Vorfall -225/Tag (0 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.885.938/Tag (103 %) · Konzert 89.548/Tag (3 %) · Vorfall -51.927/Tag (-2 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" +11,0 %, gepaart gegen „ohne Beef" +22,5 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +63,9 % (gepaart gegen „passiv") → ERREICHT, DISS_AUFMERK senken und neu messen
+      Tagesleistung Ø/Tag: ohne Beef 0,00 Kanalaktionen · 0,95 Veröffentlichungen · 0,22 Konzerte → passiv 0,00 · 0,95 · 0,22 → aktiv 0,00 · 0,97 · 0,22 → Album 0,00 · 0,16 · 0,23 (aktiv gegen ohne Beef: −100,0 % Kanalaktionen, +2,2 % Veröffentlichungen)
+      davon Disstracks: 0,96/Tag – 98,8 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 196
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 193: Sieg 0 (Siegquote 0,0 %) · Niederlage 193 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 193 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 193×
+    aktiv:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 162
+      Disstracks 3.504 (0,96/Tag) · Häme 1.017 (Häme-Quote 29,0 %) · kein Disstrack möglich an: kein_titel 104, sperre 3
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,879 (kleinster 0,500, größter 1,413) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,034 (kleinster 1,004, größter 1,413)
+      Ø Wucht beim Disstrack: Ø 0,050 (kleinster 0,007, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,18 (höchstens 2)
+      Gegenschläge 1.181 · Abrechnungen 161: Sieg 0 (Siegquote 0,0 %) · Niederlage 161 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 161 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 161×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 196, Abrechnungen 193, eigene Disstracks 0 (so gewollt ✔)
+
+==================== ROHAUSGABE LAUF 3: DISS_AUFMERK 0,00 (Gegenprobe: Faktor ganz aus) ====================
+
+--- Beef (Stück 5b: ohne Beef · passiv · Beef-Spielweise · ohne Beef mit Album – 10 Läufe à 365 Tage) ---
+
+  DISS_AUFMERK 0,00 (über --diss-aufmerk gesetzt), HAEME_AUDIENCE 0,50, BONUS_SIEG 1,25, BONUS_NIEDERLAGE 0,85, Disstrack growth 0,4 gegen Single 1,0
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,00
+    ohne Beef (vor 1.40)   372.788/Tag   [357.680 … 382.808]   2.593.286 Follower, 587.277 Hörer · Hype 1,14 · Energie Ø 12 %
+    passiv (geschluckt)    309.694/Tag   [298.336 … 326.723]   2.296.659 Follower, 374.845 Hörer · Hype 1,03 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane −16,9 % · je Seed (gepaart) Median −14,1 %, Spanne −28,6 % … +1,8 %, 1 von 10 Seeds im Plus
+      je Seed: −17,4 % · −1,2 % · −28,6 % · −4,3 % · −23,6 % · −0,6 % · −16,3 % · −26,3 % · +1,8 % · −11,8 %
+    aktiv (Beef-Spielweise)   351.536/Tag   [337.334 … 437.919]   2.202.911 Follower, 110.416 Hörer · Hype 0,73 · Energie Ø 12 %
+      gegen „ohne Beef": Mediane −5,7 % · je Seed (gepaart) Median +0,3 %, Spanne −16,3 % … +34,4 %, 5 von 10 Seeds im Plus
+      je Seed: +28,3 % · +6,0 % · +16,7 % · +34,4 % · −11,0 % · −14,8 % · +24,6 % · −5,5 % · −16,3 % · −10,0 %
+      gegen „passiv": Mediane +13,5 % · je Seed (gepaart) Median +22,4 %, Spanne −17,8 % … +63,6 %, 8 von 10 Seeds im Plus
+      je Seed: +55,3 % · +7,2 % · +63,6 % · +40,5 % · +16,6 % · −14,2 % · +49,0 % · +28,3 % · −17,8 % · +2,0 %
+    ohne Beef, Album statt Single 2.590.231/Tag   [2.164.465 … 3.211.089]   3.956.389 Follower, 10.206.525 Hörer · Hype 1,13 · Energie Ø 10 %
+      gegen „ohne Beef": Mediane +594,8 % · je Seed (gepaart) Median +646,3 %, Spanne +352,3 % … +875,8 %, 10 von 10 Seeds im Plus
+      je Seed: +749,5 % · +586,1 % · +706,5 % · +815,2 % · +391,7 % · +505,0 % · +875,8 % · +530,0 % · +352,3 % · +829,5 %
+      gegen „ohne Beef, Album": Mediane −86,4 % · je Seed (gepaart) Median −85,2 %, Spanne −90,3 % … −81,5 %, 0 von 10 Seeds im Plus
+      je Seed: −84,9 % · −84,6 % · −85,5 % · −85,3 % · −81,9 % · −85,9 % · −87,2 % · −85,0 % · −81,5 % · −90,3 %
+      Quellen ohne Beef:              Merch 214.364/Tag (58 %) · Tantiemen 84.087/Tag (23 %) · Twitch 38.102/Tag (10 %) · Konzert 12.839/Tag (3 %) · YouTube 12.276/Tag (3 %) · Instagram 5.794/Tag (2 %) · Vorfall -3.439/Tag (-1 %)
+      Quellen passiv:                 Merch 201.293/Tag (65 %) · Tantiemen 55.833/Tag (18 %) · Twitch 35.561/Tag (11 %) · YouTube 11.648/Tag (4 %) · Konzert 10.075/Tag (3 %) · Instagram 5.746/Tag (2 %) · Vorfall -4.414/Tag (-1 %)
+      Quellen aktiv:                  Merch 231.448/Tag (66 %) · Tantiemen 88.193/Tag (25 %) · Twitch 39.347/Tag (11 %) · YouTube 12.999/Tag (4 %) · Instagram 6.541/Tag (2 %) · Konzert 5.585/Tag (2 %) · Vorfall -3.014/Tag (-1 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.240.731/Tag (87 %) · Merch 274.530/Tag (11 %) · Konzert 76.669/Tag (3 %) · Twitch 54.389/Tag (2 %) · YouTube 15.857/Tag (1 %) · Instagram 7.830/Tag (0 %) · Vorfall -13.429/Tag (-1 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" −5,7 %, gepaart gegen „ohne Beef" +0,3 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +22,4 % (gepaart gegen „passiv") → nicht erreicht, DISS_AUFMERK unverändert
+      Tagesleistung Ø/Tag: ohne Beef 12,56 Kanalaktionen · 0,95 Veröffentlichungen · 0,23 Konzerte → passiv 12,57 · 0,95 · 0,22 → aktiv 12,53 · 0,97 · 0,22 → Album 13,43 · 0,16 · 0,23 (aktiv gegen ohne Beef: −0,2 % Kanalaktionen, +2,4 % Veröffentlichungen)
+      davon Disstracks: 0,96/Tag – 98,9 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 197
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 194: Sieg 0 (Siegquote 0,0 %) · Niederlage 194 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 194 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 194×
+    aktiv:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 164
+      Disstracks 3.504 (0,96/Tag) · Häme 907 (Häme-Quote 25,9 %) · kein Disstrack möglich an: kein_titel 105, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,871 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,062 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,6 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,18 (höchstens 2)
+      Gegenschläge 1.206 · Abrechnungen 162: Sieg 0 (Siegquote 0,0 %) · Niederlage 162 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 162 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 162×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 197, Abrechnungen 194, eigene Disstracks 0 (so gewollt ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,00
+    ohne Beef (vor 1.40)   104.965/Tag   [91.249 … 110.608]   853.612 Follower, 579.842 Hörer · Hype 1,09 · Energie Ø 100 %
+    passiv (geschluckt)     75.051/Tag   [68.024 … 89.268]   669.996 Follower, 441.920 Hörer · Hype 1,13 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane −28,5 % · je Seed (gepaart) Median −23,4 %, Spanne −35,3 % … +6,7 %, 1 von 10 Seeds im Plus
+      je Seed: −19,1 % · −21,1 % · −24,1 % · +6,7 % · −35,3 % · −22,6 % · −21,4 % · −31,5 % · −26,4 % · −32,3 %
+    aktiv (Beef-Spielweise)   102.061/Tag   [99.586 … 123.889]   877.086 Follower, 129.909 Hörer · Hype 0,86 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane −2,8 % · je Seed (gepaart) Median +12,4 %, Spanne −18,4 % … +51,7 %, 6 von 10 Seeds im Plus
+      je Seed: +44,4 % · −18,4 % · +10,8 % · +14,0 % · +20,5 % · −12,2 % · +51,7 % · +21,7 % · −1,5 % · −8,5 %
+      gegen „passiv": Mediane +36,0 % · je Seed (gepaart) Median +40,6 %, Spanne +3,4 % … +93,2 %, 10 von 10 Seeds im Plus
+      je Seed: +78,5 % · +3,4 % · +46,0 % · +6,9 % · +86,2 % · +13,4 % · +93,2 % · +77,8 % · +33,9 % · +35,2 %
+    ohne Beef, Album statt Single 2.806.466/Tag   [2.091.000 … 3.819.848]   3.370.868 Follower, 12.804.789 Hörer · Hype 1,20 · Energie Ø 100 %
+      gegen „ohne Beef": Mediane +2573,7 % · je Seed (gepaart) Median +2823,5 %, Spanne +1306,5 % … +4038,9 %, 10 von 10 Seeds im Plus
+      je Seed: +3447,4 % · +1502,9 % · +2856,4 % · +2790,6 % · +1306,5 % · +4038,9 % · +1847,9 % · +2770,0 % · +3183,0 % · +3630,9 %
+      gegen „ohne Beef, Album": Mediane −96,4 % · je Seed (gepaart) Median −96,0 %, Spanne −97,9 % … −91,4 %, 0 von 10 Seeds im Plus
+      je Seed: −95,9 % · −94,9 % · −96,3 % · −96,1 % · −91,4 % · −97,9 % · −92,2 % · −95,8 % · −97,0 % · −97,5 %
+      Quellen ohne Beef:              Tantiemen 88.894/Tag (85 %) · Konzert 14.152/Tag (13 %) · Vorfall -659/Tag (-1 %)
+      Quellen passiv:                 Tantiemen 66.853/Tag (89 %) · Konzert 12.233/Tag (16 %) · Vorfall -546/Tag (-1 %)
+      Quellen aktiv:                  Tantiemen 106.931/Tag (105 %) · Konzert 6.564/Tag (6 %) · Vorfall -192/Tag (0 %)
+      Quellen ohne Beef, Album:       Tantiemen 2.885.938/Tag (103 %) · Konzert 89.548/Tag (3 %) · Vorfall -51.927/Tag (-2 %)
+      Auslöser „über +25 %" (Plan, Task 5): Mediane gegen „ohne Beef" −2,8 %, gepaart gegen „ohne Beef" +12,4 % – das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")
+      größte Differenz überhaupt: +40,6 % (gepaart gegen „passiv") → ERREICHT, DISS_AUFMERK senken und neu messen
+      Tagesleistung Ø/Tag: ohne Beef 0,00 Kanalaktionen · 0,95 Veröffentlichungen · 0,22 Konzerte → passiv 0,00 · 0,95 · 0,22 → aktiv 0,00 · 0,97 · 0,22 → Album 0,00 · 0,16 · 0,23 (aktiv gegen ohne Beef: −100,0 % Kanalaktionen, +2,1 % Veröffentlichungen)
+      davon Disstracks: 0,96/Tag – 98,9 % aller Veröffentlichungen der aktiven Variante
+    passiv:
+      Anstacheln: 0 bezahlte Versuche in 3.650 Tagen (0,00/Tag) · Einstieg 0 (Einstiegsquote – (0 Fälle)) · Blamage 0 (– (0 Fälle)) · Ø gewürfelte Einstiegschance –
+      ohne Zeitkosten abgelehnt (vor der Buchung): keine
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 196
+      Disstracks 0 (0,00/Tag) · Häme 0 (Häme-Quote – (0 Fälle)) · kein Disstrack möglich an: keine
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: keiner · ohne die Häme-Fälle (die zahlen fest 0,50): keiner
+      Ø Wucht beim Disstrack: keiner · Ø Hitze beim Disstrack: keiner
+      Ø offene Fronten im Moment des Disstracks: – (höchstens 2)
+      Gegenschläge 0 · Abrechnungen 193: Sieg 0 (Siegquote 0,0 %) · Niederlage 193 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 193 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 193×
+    aktiv:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 171
+      Disstracks 3.504 (0,96/Tag) · Häme 952 (Häme-Quote 27,2 %) · kein Disstrack möglich an: kein_titel 106, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,864 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,055 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,6 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,19 (höchstens 2)
+      Gegenschläge 1.205 · Abrechnungen 170: Sieg 0 (Siegquote 0,0 %) · Niederlage 170 (100,0 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 170 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 0:1 170×
+      KONTROLLE „ohne Beef": kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔
+      KONTROLLE „passiv": angezählt 196, Abrechnungen 193, eigene Disstracks 0 (so gewollt ✔)
+
+==================== WAS DABEI HERAUSKAM ====================
+
+(0) **Zwei Kontrollen vorweg.** Die Zeile „ohne Beef" des Archetyps Musik+Creator ist Zahl für Zahl
+    die Zeile „ohne Kontakte" desselben Archetyps aus dem Kontaktlauf von 5a – 372.788/Tag,
+    Quartile [357.680 … 382.808], 2.593.286 Follower, 587.277 Hörer, Energie Ø 12 %
+    (`docs/messungen/2026-09-25-kontakte.txt`, Zeile 192; hier steht zusätzlich der Hype, den jene
+    Zeile nicht ausgibt). Für „nur Musik" dasselbe: 104.965/Tag, [91.249 … 110.608], 853.612
+    Follower, 579.842 Hörer. Dieselben Seeds, dieselbe Strategie, dieselbe Welt – die
+    Vergleichsgrundlage dieser Messung ist die von 5a und keine neue. Und die Zeilen „ohne Beef",
+    „passiv" und „Album" sind in allen DREI Läufen zeichengleich, weil `DISS_AUFMERK` nur den
+    Disstrack berührt; das ist die Wiederholbarkeitsprobe.
+
+(1) **Die Beef-Spielweise ist gegen „wie bisher" ein Nullsummenspiel.** Musik+Creator 376.192/Tag
+    gegen 372.788/Tag: **+0,9 %** im Median, **−0,6 %** gepaart je Seed, 5 von 10 Seeds im Plus,
+    Spanne −10,0 % … +38,0 %. Nur Musik 112.427 gegen 104.965: **+7,1 %** im Median, **+15,4 %**
+    gepaart, 8 von 10 Seeds im Plus, Spanne −9,4 % … +85,0 %. Das ist genau, was die Spec erwartet
+    hat („eine Umverteilung, kein Zuwachs"), und der Auslöser des Plans („über +25 %") ist mit
+    keiner dieser vier Zahlen erreicht.
+
+(2) **Die eigentliche Zahl gehört dem passiven Spieler.** Wer die drei Knöpfe nie drückt, wird
+    trotzdem angezählt (`ANZAEHL_CHANCE` 6 % je Chart-Platzierung; gemessen 197 bzw. 196
+    Anzählungen in 3.650 Tagen) und verliert jeden dieser Beefs, weil er bei 0:1 anfängt und nie
+    eine Runde holt. Das kostet Musik+Creator **−16,9 %** im Median und **−14,1 %** gepaart (nur 1
+    von 10 Seeds im Plus, Spanne −28,6 % … +1,8 %) und den reinen Musiker **−28,5 %** bzw.
+    **−23,4 %** gepaart (1 von 10, Spanne −35,3 % … +6,7 %). Gegen diesen Spieler ist die
+    Beef-Spielweise dann **+21,5 %** (Median) bzw. **+15,5 %** (gepaart) und beim reinen Musiker
+    **+49,8 %** bzw. **+55,1 %** besser. Anders gesagt: Der Beef ist keine Einnahme, sondern eine
+    Rechnung, die man bezahlen kann, indem man zurückschlägt.
+
+(3) **Der Sieg hat in dieser Messung NIE gezahlt.** 194 + 169 + 193 + 162 = 718 Abrechnungen im
+    ersten Lauf, davon 718 Niederlagen und **0 Siege**; jede einzelne ging **0:1** aus, und von den
+    Fronten, in die der aktive Spieler je einen Disstrack gesteckt hat, wurde **keine einzige**
+    abgerechnet (0 von 169 bzw. 0 von 162). Das ist keine stille Null, sondern die Mechanik:
+    `beef.zielFor` nimmt die heißeste Front, und wer sie jeden Tag mit einem Disstrack auf
+    `HITZE_MAX` hält (Ø Hitze beim Disstrack 95,7 bzw. 95,5), rechnet sie im ganzen Jahr nicht ab.
+    Abgerechnet wird die ZWEITE Front, die `beef.anzaehlen` nebenbei aufgemacht hat und die
+    unbeachtet auskühlt – mit 0:1 und `BONUS_NIEDERLAGE` 0,85 (Ø offene Fronten im Moment des
+    Disstracks 1,19 bzw. 1,18 von höchstens 2). `BONUS_SIEG` 1,25 ist in 2 × 3.650 simulierten
+    Tagen nicht ein Mal ausgezahlt worden, und der Hype des aktiven Spielers steht am Jahresende bei
+    0,86 bzw. 0,92 gegen 1,14 bzw. 1,09 ohne Beef. Der Sieg ist damit nicht widerlegt – er wird in
+    `test/beef.test.js` in allen drei Ausgängen durchgerechnet –, aber DIESE Spielweise sieht ihn
+    nie, und das ist eine Eigenschaft des Bonusfensters, nicht des Zufalls.
+
+(4) **Die Aufmerksamkeit ist für den großen Spieler kein Gewinn, sondern ein Abzug.** Ø Wucht beim
+    Disstrack 0,051 (Musik+Creator) und 0,046 (nur Musik): Wer eine halbe Million Hörer hat, tritt
+    fast nur nach unten. Entsprechend die Häme-Quote **28,2 %** bzw. **29,7 %**, und der
+    durchschnittliche Aufmerksamkeitsfaktor über ALLE Disstracks liegt bei **0,908** bzw. **0,894** –
+    also UNTER 1, weil die Häme-Fälle fest `HAEME_AUDIENCE` 0,50 zahlen. Ohne die Häme-Fälle bleiben
+    Ø 1,068 bzw. 1,061. Der Fall aus der Spec (×2,5 gegen einen tausendmal Größeren bei voller
+    Hitze) kommt in dieser Spielweise nicht vor; der größte gemessene Faktor war 1,785 bzw. 1,820.
+
+(5) **Gesenktes `DISS_AUFMERK` ändert daran wenig – und nicht einmal in eine Richtung** (Läufe 2
+    und 3, alles andere gleich):
+
+      DISS_AUFMERK   aktiv Musik+Creator                 aktiv nur Musik                    Ø Aufmerksamkeit
+      1,50           376.192/Tag  (−0,6 % / +15,5 %)     112.427/Tag  (+15,4 % / +55,1 %)    0,908 / 0,894
+      0,75           377.506/Tag  (+0,4 % / +24,1 %)     116.523/Tag  (+22,5 % / +63,9 %)    0,893 / 0,879
+      0,00           351.536/Tag  (+0,3 % / +22,4 %)     102.061/Tag  (+12,4 % / +40,6 %)    0,871 / 0,864
+                     (Prozente: gepaart je Seed gegen „ohne Beef" / gegen „passiv")
+
+    Bei 0,00 ist die Aufmerksamkeit konstant 1,0, der Disstrack also eine reine
+    `spike`-3,0-Veröffentlichung – und die Spielweise liegt noch immer +22,4 % bzw. +40,6 % (gepaart)
+    über dem passiven Spieler. Zwischen 1,50 und 0,75 dreht das Vorzeichen bei „nur Musik" sogar
+    nach oben (+15,4 % → +22,5 %): Bei dieser Streuung ist der Faktor kein Stellrad, sondern Rauschen.
+    Was den Unterschied trägt, ist nicht die Aufmerksamkeit, sondern dass der Disstrack jeden Tag den
+    Veröffentlichungsplatz bekommt – 98,9 % aller Veröffentlichungen der aktiven Variante sind
+    Disstracks – und dass er `spike` 3,0 hat, während er eine Single (1,0) ersetzt.
+
+(6) **Die Veröffentlichungspolitik ist ein viel größerer Hebel als der ganze Beef – und sie hat
+    nichts mit ihm zu tun.** Derselbe Spieler, ohne jeden Beef, der auf sechs Titel wartet und ein
+    Album bringt, verdient **+594,8 %** (Musik+Creator: 2.590.231/Tag) bzw. **+2573,7 %** (nur Musik:
+    2.806.466/Tag) mehr als der tägliche Single-Griff, 10 von 10 Seeds, und die Beef-Spielweise liegt
+    **85,5 %** bzw. **96,0 %** DARUNTER (0 von 10 Seeds darüber). Der Grund steht oben im Aufbau:
+    Buzz trägt `spike` zweimal, und das Album hat 5,5 gegen 3,0 des Disstracks – bei 6 Titeln statt
+    einem, aber mit `growth` 2,4 statt 0,4, und die Hörer tragen sich selbst weiter (10,2 bzw. 12,8
+    Mio Hörer am Jahresende gegen 114.390 bzw. 128.657 der Beef-Spielweise). Für §3 heißt das: Der
+    Disstrack öffnet keine neue Quelle und hebt keine Decke. Für die Rangfolge der Geldquellen heißt
+    es, dass die bisherigen Messungen die Spielweise „jeden Tag die Single, die fertig ist" messen
+    und nicht die beste – ein Befund über das Messskript und die Musik, nicht über den Beef.
+
+(7) **Was die zwei Stunden gekostet haben, ist gezählt und klein.** Musik+Creator: 12,56 → 12,52
+    Kanalaktionen am Tag (**−0,3 %**) und 0,95 → 0,96 Veröffentlichungen (**+1,7 %**); nur Musik hat
+    keine Kanalaktionen, 0,95 → 0,97 Veröffentlichungen (+1,8 %). Der Grund: Anstacheln kam in 3.650
+    Tagen nur 40 bzw. 39 Mal zustande (0,01/Tag) – der Spieler steckt fast immer schon in einem Beef,
+    den `anzaehlen` aufgemacht hat, und der Disstrack kostet dieselben zwei Stunden wie die Single,
+    die er ersetzt. Bezahlt wird nicht mit Zeit, sondern mit Hörern und Hype: 587.277 → 114.390 bzw.
+    579.842 → 128.657 Hörer am Jahresende, Hype 1,14 → 0,86 bzw. 1,09 → 0,92 (Gegenschläge nehmen
+    `KONTER_HOERER` × Wucht und Hype, die Häme 2 % der Hörer und ein Fünftel Hype, die Niederlage
+    sieben Tage lang 0,85 – gemessen 1.251 bzw. 1.199 Gegenschläge).
+
+(8) **Einstieg.** Von den bezahlten Anstachel-Versuchen endeten **25,0 %** bzw. **25,6 %** im
+    Einstieg, bei einer Ø gewürfelten Einstiegschance von **21,1 %** bzw. **21,2 %**; 33 bzw. 31
+    weitere Versuche wurden vor der Zeitbuchung als `gesperrt` abgewiesen und haben nichts gekostet.
+
+==================== EHRLICHE GRENZEN ====================
+
+(a) **Die Streuung ist größer als der Effekt sauber trägt.** Je Seed (gepaart, aktiv gegen „ohne
+    Beef"): Musik+Creator −10,0 % … +38,0 % bei 5 von 10 Seeds im Plus – das ist NICHT von null zu
+    unterscheiden, und mehr als „es kostet nichts und bringt nichts" darf man aus der Zeile nicht
+    lesen. Nur Musik −9,4 % … +85,0 % bei 8 von 10 im Plus: Richtung gestützt, Größe nicht. Sauber
+    ist nur der passive Spieler (1 von 10 Seeds im Plus, beide Archetypen) und der Abstand zur
+    Album-Spielweise (0 von 10 darüber). Wer genauere Größen will, braucht mehr Seeds.
+
+(b) **Gemessen ist eine Spielweise, und zwar ausdrücklich die teure, nicht die kluge:** jeden Tag
+    ein Disstrack auf die heißeste Front, kein Frieden, keine Rücksicht auf die zweite Front. Nicht
+    gemessen sind: der Spieler, der Frieden anbietet (der Draht ist bei `FRIEDEN_DECKEL` −10
+    gedeckelt, und es kostet zwei weitere Stunden); der Spieler, der nach zwei gewonnenen Runden
+    aufhört und auskühlen lässt – genau der würde die Siege sehen, die diese Messung nie sieht; und
+    die Kombination „Album horten UND Disstrack", die nach (5) und (6) die stärkste Spielweise wäre.
+    Diese drei Zahlen gibt es nicht und sie stehen deshalb auch nirgends.
+
+(c) **Ein Eingriff des Messwerkzeugs:** Der Anzähl-Wurf (`beef.anzaehlen`) läuft in ALLEN Varianten
+    auf dem Beefwürfel statt auf dem Hauptstrom. Im Spiel zieht er aus demselben Strom wie die
+    Veröffentlichung, die ihn auslöst. Das verändert keine Wahrscheinlichkeit, nur welche Zahl an
+    welcher Stelle steht – aber ohne diesen Umweg wäre „ohne Beef" ab der ersten Chart-Platzierung
+    ein anderer Musiklauf und die ganze Differenz zur Hälfte ein anderer Würfel.
+
+(d) **Der reine Creator fehlt** – er hat keinen Disstrack. Für ihn ist der Beef nicht gemessen, weil
+    es ihn dort nicht gibt.
+
+(e) **Alles hängt an `ANZAEHL_CHANCE` (6 % je Chart-Platzierung).** Ein Spieler, der nie chartet,
+    sieht nie einen fremden Beef; über ihn sagt diese Messung nichts. Umgekehrt: Wer viel chartet,
+    bekommt mehr Fronten, als er beantworten kann – genau daraus entsteht (3).
+
+(f) **Die Messung ist eine reine Geldfrage.** Was der Beef an Spielgefühl, Meldungen und Texten
+    bringt, misst sie nicht – und das war auch nie ihr Argument.
+

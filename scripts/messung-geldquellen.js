@@ -32,6 +32,7 @@
  *          node scripts/messung-geldquellen.js 10 365 --stunden=8
  *          node scripts/messung-geldquellen.js 10 365 --nur=nachfrage
  *          node scripts/messung-geldquellen.js 10 365 --nur=kontakte
+ *          node scripts/messung-geldquellen.js 10 365 --nur=beef
  *          node scripts/messung-geldquellen.js stufenprobe [würfe]
  *              – Gegenprobe: der gerechnete erwartete Stufenfaktor gegen die
  *                gewürfelte `contacts.stufeVon` (läuft in Sekunden).
@@ -63,6 +64,8 @@ const company = require('../src/company');
 const companyData = require('../src/data/companies');
 const contacts = require('../src/contacts');
 const contactsData = require('../src/data/contacts');
+const beef = require('../src/beef');
+const beefData = require('../src/data/beef');
 
 const DAY = 24 * 60 * 60 * 1000;
 /** `--ohne-ereignisse`: Musik und Firmen ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
@@ -85,15 +88,32 @@ const MARATHON = process.argv.includes('--marathon');
  * Löhne, Ware, Lager, Kasse). `--trace=handel:<spedition|baufirma>:<mit|ohne>` dasselbe für
  * eine Seite des Handelslaufs (Stück 3b: `kauf.handel/preis/ersparnis`, `spanne`).
  * `--trace=kontakte` gibt jede Kontaktanfrage des Kontaktlaufs (Stück 5a) als JSON-Zeile aus.
+ * `--trace=beef` gibt jedes Anstacheln und jeden Disstrack des Beeflaufs (Stück 5b) als
+ * JSON-Zeile aus – die Grundlage der Handprüfung (Einstiegschance, Wucht, Aufmerksamkeit).
  */
 const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('--trace='.length) || null;
 /**
  * `--nur=<abschnitt>`: nur einen Abschnitt fahren.
  *   `nachfrage` Nachfrage-Drift (Stück 3c) – billig, der Rest braucht Minuten.
  *   `kontakte`  Kontaktpflege mit und ohne (Stück 5a) – zwei Archetypen, je drei Varianten.
+ *   `beef`      Beef und Disstracks (Stück 5b) – zwei Archetypen, je vier Varianten
+ *               (ohne Beef · passiv · Beef-Spielweise · ohne Beef, aber Album statt Single).
  */
 const NUR = (process.argv.find((a) => a.startsWith('--nur=')) ?? '').slice('--nur='.length) || null;
+/**
+ * `--diss-aufmerk=<N>`: `DISS_AUFMERK` (Stück 5b, Standard 1,5) für diesen Lauf
+ * überschreiben. Der Plan zu 5b sieht vor, den Wert zu senken, falls die
+ * Beef-Spielweise über +25 % einbringt – mit diesem Schalter ist die
+ * Gegenmessung eine Kommandozeile und keine Änderung an der Datendatei, und
+ * beide Läufe stehen mit ihrem Aufruf im Messbericht. `src/beef.js` liest den
+ * Wert bei jedem Aufruf aus dem Datenmodul, also greift das Überschreiben.
+ */
+const DISS_AUFMERK_ARG = process.argv.find((a) => a.startsWith('--diss-aufmerk=')) ?? null;
+const DISS_AUFMERK = DISS_AUFMERK_ARG === null ? null : Number(DISS_AUFMERK_ARG.slice('--diss-aufmerk='.length));
 const de = (n) => Math.round(n).toLocaleString('de-DE');
+// 0 ist ausdrücklich erlaubt: `aufmerksamkeit` ist dann konstant 1,0 – die
+// Gegenprobe, ob der Faktor überhaupt der Hebel ist.
+if (DISS_AUFMERK !== null && Number.isFinite(DISS_AUFMERK) && DISS_AUFMERK >= 0) beefData.DISS_AUFMERK = DISS_AUFMERK;
 
 // ------------------------------------------------------------------ Würfel
 
@@ -322,16 +342,53 @@ async function kanaltag(G, U, strat, now, rand, stunden = STUNDEN) {
  * immer ins Studio geht, spielt NIE ein Konzert – obwohl eines bei 194.661
  * Hörern 54.245 zahlt gegen 27.610 Tantiemen am Tag. An Konzerttagen bleibt
  * das Studio deshalb zu.
+ *
+ * `horten` und `beefTag` gehören zum Beeflauf (Stück 5b) und sind unten an
+ * ihrer Stelle erklärt: die Veröffentlichungspolitik („Album statt täglicher
+ * Single") und der Beefschritt zwischen Studio und Veröffentlichung.
  */
-function musiktag(G, U, now, rand, konzertZuerst = false) {
+function musiktag(G, U, now, rand, konzertZuerst = false, horten = false, beefTag = null) {
   if (konzertZuerst) {
     const vor = music.status(G, U, now);
-    if (vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS) return vor;
+    if (vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS) {
+      // Auch am Konzerttag wird gestritten: Die zwei Stunden des Beefs kommen
+      // aus demselben Budget, aber nicht aus dem Studio, das heute zu bleibt.
+      if (beefTag) beefTag(now + 1e5);
+      return music.status(G, U, now + 2e5);
+    }
   }
   music.record(G, U, now, rand, musikOpts);
-  const s = music.status(G, U, now + 1e6);
+  /*
+   * Der Beeftag steht ZWISCHEN Studio und Veröffentlichung, und das ist keine
+   * Feinheit, sondern die gemessene Spielweise: „Disstrack, sobald ein Titel da
+   * und die Veröffentlichungssperre durch ist". Stand er davor, sah er nur den
+   * Titel von gestern – und weil die Veröffentlichung von gestern den
+   * aufgebraucht hat, kam er fast nie dazu (gemessen 0,18 Disstracks am Tag
+   * statt 0,8). Hier nimmt der Disstrack den Veröffentlichungsplatz des Tages,
+   * den sonst Single, EP oder Album gehabt hätte; genau darin sitzt sein Preis.
+   */
+  if (beefTag) beefTag(now + 1.4e6);
+  const s = music.status(G, U, now + 1.5e6);
   if (s.songs >= 1 && s.releaseMs <= 0) {
-    music.publish(G, U, s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single', now + 2e6, rand, musikOpts);
+    /*
+     * `horten`: warten, bis sechs Titel liegen, und dann ein Album – statt
+     * jeden Tag die Single, die gerade fertig ist.
+     *
+     * Das ist keine Spielerei, sondern die Vergleichsgrundlage des Beeflaufs
+     * (Stück 5b). Der Buzz einer Veröffentlichung wächst mit `spike` ZWEIMAL
+     * (`audience` trägt ihn einmal, `buzz = audience × 9 × spike` ein zweites
+     * Mal), und Buzz wird zum selben Satz je Abruf bezahlt wie die stetigen
+     * Hörer. Je aufgenommenem Titel heißt das: Single 1,0² = 1,00, EP
+     * 2,6²/3 = 2,25, Album 5,5²/6 = 5,04 – und Disstrack 3,0²/1 = 9,00.
+     * Gegen den täglichen Single-Griff sieht deshalb JEDE hohe `spike`-Art gut
+     * aus, auch ohne jeden Beef. Ohne diese Variante wäre die gemessene
+     * Beef-Differenz zum Teil nur der Abstand zu einer schwachen Spielweise –
+     * und ein Balancing gegen schlechtes Spiel wäre wertlos (siehe Kopf).
+     */
+    const art = horten
+      ? (s.songs >= 6 ? 'album' : null)
+      : (s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single');
+    if (art) music.publish(G, U, art, now + 2e6, rand, musikOpts);
   }
   return music.status(G, U, now + 3e6);
 }
@@ -656,6 +713,20 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    * Würfel statt der Kontakte.
    */
   const kontaktRand = rng(seed + 500_000);
+  /*
+   * DRITTER Würfel für den Beef (Stück 5b), aus demselben Grund wie der
+   * Kontaktwürfel: Anstacheln, Disstrack und das Angezähltwerden dürfen den
+   * Musik- und Kanalstrom nicht verschieben, sonst wäre die Differenz zur
+   * Hälfte ein anderer Würfel.
+   *
+   * Er hängt auch dann am Zähler, wenn die Beef-Spielweise „aus" ist: Die
+   * Hülle um `beef.anzaehlen` zieht ihren Wurf IMMER aus diesem Strom (siehe
+   * dort). Nur so sehen alle drei Varianten denselben Hauptstrom – sonst wäre
+   * schon die Variante „ohne Beef" ein anderer Lauf als die anderen zwei,
+   * weil `music.publish` bei jeder Chart-Platzierung einen Wurf mehr zieht.
+   */
+  const beefRand = rng(seed + 700_000);
+  if (bz) bz.rand = beefRand;
   ausruesten(G, U);
   await home.setHome(G, U, 'de');
   if (musik) music.setup(G, U, 'pop', music.PERSONAS[0].id);
@@ -691,7 +762,14 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
      */
     if (strat.kontakte && !ruhetag) kontakttag(G, U, now + 15e4, kontaktRand, strat.kontaktVorrang ?? null);
     if (musik && !ruhetag) {
-      const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
+      /*
+       * Zwei Stunden Beef (Stück 5b) aus demselben 24-h-Budget wie alles
+       * andere. Der Schritt liegt IM Musiktag zwischen Studio und
+       * Veröffentlichung (siehe `musiktag`), weil die gemessene Spielweise den
+       * Disstrack bringt, sobald ein Titel da und die Sperre durch ist.
+       */
+      const beefHook = strat.beef === 'aktiv' ? (jetzt) => beeftag(G, U, jetzt, beefRand) : null;
+      const s = musiktag(G, U, now + 2e5, rand, strat.konzert, strat.horten === true, beefHook);
       if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
         await music.show(G, U, now + 4e6, rand, musikOpts);
       }
@@ -759,6 +837,10 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
     quellen: quellen[U] ?? {},
     follower: db.allCreator(G, U).reduce((s, r) => s + r.followers, 0),
     hoerer: musik ? Math.round(music.status(G, U, now).listeners ?? 0) : 0,
+    // Der Hype am Ende: Der Ausgang eines Beefs zahlt AUSSCHLIESSLICH über ihn
+    // (§15), deshalb steht er neben den Hörern. Für alles andere ist er nur
+    // ein zusätzliches Feld, das kein Aufrufer lesen muss.
+    hype: musik ? music.status(G, U, now).hype : 0,
     energie: energieSumme / Math.max(1, tage),
     erreicht,
   };
@@ -1855,6 +1937,497 @@ async function kontaktlauf(laeufe, tage) {
   }
 }
 
+// ---------------------------------------------------------------- Beef (5b)
+
+/**
+ * ===========================================================================
+ *  BEEF ALS SPIELWEISE
+ * ===========================================================================
+ *
+ * Gemessen wird eine einzige Frage: Was bringt der Beef (Stück 5b), wenn ein
+ * Spieler ihn als Spielweise fährt – jeden Tag anstacheln, sobald keine Front
+ * offen ist, und einen Disstrack veröffentlichen, sobald ein Titel da und die
+ * Veröffentlichungssperre durch ist?
+ *
+ * Der Aufbau ist der des Kontaktlaufs aus 5a (`kontaktlauf`), mit einem
+ * Unterschied, der aus dem Code kommt und nicht aus einer Entscheidung:
+ *
+ *   **Es gibt drei Varianten, nicht zwei.** `music.publish` zählt einen
+ *   Spieler nach jeder Chart-Platzierung von selbst an (`beef.anzaehlen`) –
+ *   dagegen kann er sich nicht entscheiden. Wer nie antwortet, steht in jedem
+ *   dieser Beefs bei 0:1 und verliert ihn bei der Abrechnung, und eine
+ *   Niederlage nimmt sieben Tage lang Hype (`BONUS_NIEDERLAGE` 0,85). Die
+ *   Spielweise „ich lasse das" ist deshalb NICHT dasselbe wie „es gibt keinen
+ *   Beef", und ein Lauf, der nur zwei Varianten vergleicht, verrechnet die
+ *   beiden Dinge gegeneinander:
+ *
+ *     aus      wie vor 1.40.0: kein Anstacheln, kein Disstrack, und auch
+ *              niemand, der von selbst anzählt.
+ *     passiv   das Spiel, wie es ist, gespielt von einem, der die drei Knöpfe
+ *              nie drückt: Er wird angezählt und schluckt es.
+ *     aktiv    die gemessene Spielweise: anstacheln + Disstrack, kein Frieden.
+ *
+ * Damit die Differenz den Beef misst und nichts sonst:
+ *
+ *  • Alle drei Varianten fahren DIESELBE Strategie (einmal gesucht, dann fest)
+ *    und denselben Würfel `rng(1000 + i)` für Musik, Kanäle, Ereignisse und
+ *    Vorfälle – dieselben Seeds wie im Kontaktlauf.
+ *  • Alle Beefwürfe laufen über einen DRITTEN Würfel `rng(701000 + i)`:
+ *    Einstieg, Häme, Kontertage, das Angezähltwerden und der Disstrack selbst.
+ *    Auch die Variante „aus" zieht den Anzähl-Wurf aus diesem Strom (sie wirft
+ *    ihn weg) – sonst hätte sie einen Wurf weniger im Hauptstrom und wäre ab
+ *    der ersten Chart-Platzierung ein anderer Musiklauf.
+ *  • Jede Variante bekommt eigene Welten und eigene Konten.
+ *
+ * Gezählt wird ausschließlich, was das Spiel selbst gemeldet hat: die
+ * Rückgabewerte von `beef.anstacheln` und `beef.diss` und die Ereignisse aus
+ * `beef.settle`. Das Skript rechnet keine Einstiegschance, keine Wucht und
+ * keine Aufmerksamkeit nach – es nimmt die Zahlen, mit denen gewürfelt wurde.
+ */
+
+/** Zähler des laufenden Beeflaufs – `null`, solange nicht gemessen wird. */
+let bz = null;
+
+function neuerBeefZaehler(spielweise) {
+  return {
+    spielweise,                     // 'aus' | 'passiv' | 'aktiv'
+    rand: null,                     // der Beefwürfel des laufenden Seeds
+    // Anstacheln
+    einstieg: 0, blamage: 0, chancen: [],
+    anstachelAb: {},                // Grund -> Anzahl
+    // Disstrack
+    disse: 0, haeme: 0, dissAb: {},
+    aufmerksamkeit: [],             // Faktor je Disstrack (die Häme-Fälle mit 0,5 dabei)
+    aufmerksamkeitOhneHaeme: [],
+    wucht: [], hitzeBeiDiss: [],
+    offenBeiDiss: [],               // offene Fronten im Moment des Disstracks
+    // Fremder Anlass und Ausgang
+    angezaehlt: 0, konter: 0,
+    ende: { sieg: 0, niederlage: 0, unentschieden: 0 },
+    /*
+     * Der erste Lauf hat für die aktive Spielweise eine Siegquote von 0,0 %
+     * über 136 Abrechnungen gemeldet – eine Null, die erklärt werden muss.
+     * Deshalb wird hier festgehalten, WELCHE Beefs überhaupt abgerechnet
+     * werden: `gedisst` merkt jede Front, in die dieser Spieler mindestens
+     * einen Disstrack gesteckt hat (Welt + Kontakt, damit sich die Läufe nicht
+     * sehen), `endeGedisst` zählt die Abrechnungen solcher Fronten, und
+     * `endeRunden` hält den Rundenstand jeder Abrechnung fest.
+     */
+    gedisst: new Set(),
+    endeGedisst: { sieg: 0, niederlage: 0, unentschieden: 0 },
+    endeRunden: {},                 // "ich:er" -> Anzahl
+  };
+}
+
+/**
+ * Die Hüllen. Beide zählen nur, wenn `bz` gesetzt ist, und geben sonst
+ * unverändert weiter – die gemessene Welt bleibt die echte.
+ *
+ * `anzaehlen` bekommt dabei den BEEFWÜRFEL statt des Hauptstroms. Das ist der
+ * einzige Eingriff dieses Laufs in das Spiel, und er ist nötig: `publish` ruft
+ * `anzaehlen` als letzten Wurf, also verschiebt der Wurf innerhalb der
+ * Veröffentlichung nichts – aber alles, was danach aus demselben Strom kommt.
+ * Ohne diesen Umweg wäre die Variante „aus" (die nicht anzählt) ab der ersten
+ * Chart-Platzierung ein anderer Musiklauf als „passiv" und „aktiv", und die
+ * Differenz wäre zur Hälfte ein anderer Würfel.
+ */
+const echtAnzaehlen = beef.anzaehlen;
+beef.anzaehlen = (g, u, now, random = Math.random) => {
+  if (!bz) return echtAnzaehlen(g, u, now, random);
+  if (bz.spielweise === 'aus') return null;
+  const r = echtAnzaehlen(g, u, now, bz.rand ?? random);
+  if (r) bz.angezaehlt++;
+  return r;
+};
+
+/**
+ * `beef.settle` meldet Gegenschlag und Abrechnung – gezählt wird hier.
+ *
+ * ACHTUNG, und deshalb steht die Zählung zweimal im Skript: `anstacheln`,
+ * `diss` und `frieden` rufen in src/beef.js die LOKALE Funktion `settle`, nicht
+ * den Export. Diese Hülle sieht also nur die Aufrufe von außen (`music.publish`
+ * und `music.show`). Was bei einem Anstacheln oder Disstrack fällig wird, kommt
+ * dort als `vorher` zurück und wird an der Aufrufstelle gezählt (`zaehleEnden`).
+ * Doppelt zählt nichts: `settle` meldet ein Ereignis genau einmal, weil es es
+ * beim Melden auch schreibt.
+ */
+const echtBeefSettle = beef.settle;
+beef.settle = (g, u, now, random = Math.random) => {
+  const ev = echtBeefSettle(g, u, now, random);
+  if (bz) zaehleEnden(g, ev);
+  return ev;
+};
+
+/** Gegenschläge und Abrechnungen aus einer Ereignisliste in den Zähler. */
+function zaehleEnden(guildId, ereignisse) {
+  if (!bz) return;
+  for (const e of ereignisse ?? []) {
+    if (e.art === 'konter') bz.konter++;
+    else if (e.art === 'ende') {
+      bz.ende[e.status] = (bz.ende[e.status] ?? 0) + 1;
+      const stand = `${e.rundenIch}:${e.rundenEr}`;
+      bz.endeRunden[stand] = (bz.endeRunden[stand] ?? 0) + 1;
+      if (bz.gedisst.has(`${guildId}|${e.contactId}`)) {
+        bz.endeGedisst[e.status] = (bz.endeGedisst[e.status] ?? 0) + 1;
+      }
+    }
+  }
+}
+
+/**
+ * Ein Beeftag: zwei Stunden in den Streit.
+ *
+ * Die Spielweise ist die aus dem Plan, und sie ist absichtlich die TEURE,
+ * nicht die kluge:
+ *
+ *  1. Läuft ein Beef, kommt der Disstrack – sobald ein Titel da und die
+ *     Veröffentlichungssperre durch ist. Er bekommt damit immer den
+ *     Veröffentlichungsplatz des Tages, den sonst Single, EP oder Album gehabt
+ *     hätten (`growth` 0,4 gegen 1,0 bis 2,4). Genau darin sitzt der Preis.
+ *  2. Läuft keiner, wird angestachelt. Das Ziel ist das höchste
+ *     `einstiegOf × wuchtOf` – der beste Kompromiss aus „er steigt ein" und
+ *     „er ist groß genug, dass es sich lohnt". Beide Funktionen kommen aus
+ *     src/beef.js; das Skript rechnet sie nicht nach.
+ *  3. Frieden wird NIE angeboten. Er kostet zwei weitere Stunden und nimmt dem
+ *     Beef den Ausgang; wer ihn anbietet, spielt vorsichtiger als die
+ *     gemessene Spielweise.
+ *
+ * Abgelehnte Versuche kosten nichts, solange sie vor der Zeitbuchung
+ * scheitern (`gesperrt`, `zu_frisch`, `laeuft_schon`) – dann wird der nächste
+ * Kandidat probiert. An der Zeit scheitert der Tag ganz.
+ */
+function beeftag(G, U, now, rand) {
+  const s = music.status(G, U, now);
+  if (!s.started) return null;
+
+  // Erst die faule Abrechnung (§4): Ein ausgekühlter Beef steht bis dahin
+  // weiter als offen in der Tabelle und wäre hier eine Front, die es nicht
+  // mehr gibt. Über die Hülle gezählt.
+  beef.settle(G, U, now, rand);
+  const offen = beef.offeneBeefs(G, U, now);
+
+  // 1. Der Disstrack.
+  if (offen.length) {
+    const ziel = beef.zielFor(G, U, now);
+    if (!ziel) {
+      // Kann nach `offen.length` nicht passieren – gezählt wird es trotzdem,
+      // damit es nicht als stille Null durchgeht, wenn sich `zielFor` ändert.
+      bz.dissAb.kein_ziel = (bz.dissAb.kein_ziel ?? 0) + 1;
+      return null;
+    }
+    if (s.songs < 1 || s.releaseMs > 0) {
+      const grund = s.songs < 1 ? 'kein_titel' : 'sperre';
+      bz.dissAb[grund] = (bz.dissAb[grund] ?? 0) + 1;
+      return null;
+    }
+    const hitzeVor = ziel.hitze;
+    const r = beef.diss(G, U, ziel.contact_id, now, rand);
+    zaehleEnden(G, r.vorher);
+    if (!r.ok) {
+      bz.dissAb[r.reason] = (bz.dissAb[r.reason] ?? 0) + 1;
+      return r;
+    }
+    bz.disse++;
+    bz.gedisst.add(`${G}|${ziel.contact_id}`);
+    bz.offenBeiDiss.push(offen.length);
+    bz.aufmerksamkeit.push(r.beef.aufmerksamkeit);
+    bz.wucht.push(r.beef.wucht);
+    bz.hitzeBeiDiss.push(hitzeVor);
+    if (r.beef.haeme) bz.haeme++;
+    else bz.aufmerksamkeitOhneHaeme.push(r.beef.aufmerksamkeit);
+    if (TRACE === 'beef') {
+      console.error(JSON.stringify({
+        datum: new Date(now).toISOString().slice(0, 10), was: 'diss',
+        kontakt: ziel.contact_id, trait: ziel.contact?.trait ?? null,
+        meine: Math.round(s.listeners), seine: ziel.contact?.reach ?? null,
+        genre: s.genre?.id ?? null, genrefaktor: beef.genrefaktorOf(music.genre(s.genre?.id)?.risk),
+        hitzeVor, wucht: r.beef.wucht, haeme: r.beef.haeme,
+        aufmerksamkeit: r.beef.aufmerksamkeit,
+        audienceFactor: r.audienceFactor, audience: r.audience,
+        gained: r.gained, position: r.position, hitzeNach: r.beef.hitze,
+        runden: `${r.beef.rundenIch}:${r.beef.rundenEr}`,
+      }));
+    }
+    return r;
+  }
+
+  // 2. Anstacheln. Die Reihenfolge ist Einstieg × Wucht, die besten acht
+  //    werden probiert – mehr kann ein Tag nicht kosten, weil der erste
+  //    Versuch, der die Zeit bucht, den Tag beendet.
+  const meine = Math.max(100, s.listeners || 0);
+  const kandidaten = contactsData.CONTACTS
+    .filter((c) => c.reach > 0)
+    .map((c) => ({
+      c,
+      wert: beef.einstiegOf({ meine, seine: c.reach, trait: c.trait })
+        * beef.wuchtOf({ meine, seine: c.reach }),
+    }))
+    .sort((a, b) => b.wert - a.wert)
+    .slice(0, 8);
+
+  for (const k of kandidaten) {
+    const r = beef.anstacheln(G, U, k.c.id, now, rand);
+    zaehleEnden(G, r.vorher);
+    if (r.ok) {
+      bz.chancen.push(r.chance);
+      if (r.ein) bz.einstieg++; else bz.blamage++;
+      if (TRACE === 'beef') {
+        console.error(JSON.stringify({
+          datum: new Date(now).toISOString().slice(0, 10), was: 'anstacheln',
+          kontakt: k.c.id, trait: k.c.trait,
+          meine: Math.round(s.listeners), seine: k.c.reach,
+          chance: r.chance, wucht: beef.wuchtOf({ meine, seine: k.c.reach }),
+          wertDerWahl: k.wert, ein: r.ein,
+        }));
+      }
+      return r;
+    }
+    bz.anstachelAb[r.reason] = (bz.anstachelAb[r.reason] ?? 0) + 1;
+    // Vor der Zeitbuchung gescheitert: Der Abend ist noch da, also der nächste.
+    if (r.reason === 'gesperrt' || r.reason === 'zu_frisch' || r.reason === 'laeuft_schon') continue;
+    return r;                          // Zeit, Wand oder Seite: der Tag ist durch
+  }
+  return null;
+}
+
+/** Eine Variante des Beeflaufs über alle Seeds; beide Zähler kommen mit. */
+async function beefvariante(kennungBasis, musik, strat, laeufe, tage, spielweise) {
+  kz = neuerZaehler();                 // Kanalaktionen, Veröffentlichungen, Konzerte
+  bz = neuerBeefZaehler(spielweise);
+  const geld = [];
+  const hoerer = [];
+  const follower = [];
+  const hype = [];
+  const energie = [];
+  const summe = {};                    // Geld je Quelle, damit die Differenz eine Adresse hat
+  let zaehler;
+  let beefZaehler;
+  try {
+    for (let i = 0; i < laeufe; i++) {
+      const kennung = `${kennungBasis}_${i}`;
+      const r = await karriere(welt(kennung), `fx:${kennung}`, { musik, strat }, tage, 1000 + i);
+      geld.push(r.geld);
+      hoerer.push(r.hoerer);
+      follower.push(r.follower);
+      hype.push(r.hype);
+      energie.push(r.energie);
+      for (const [k, v] of Object.entries(r.quellen)) summe[k] = (summe[k] ?? 0) + v;
+    }
+  } finally {
+    // Auch wenn ein Lauf abbricht: Die Zähler müssen weg, sonst zählen die
+    // Hüllen in jeden folgenden Lauf hinein.
+    zaehler = kz; kz = null;
+    beefZaehler = bz; bz = null;
+  }
+  return {
+    geld, zaehler, beefZaehler,
+    median: median(geld), q25: quantil(geld, 0.25), q75: quantil(geld, 0.75),
+    hoerer: median(hoerer), follower: median(follower), hype: median(hype),
+    energie: energie.reduce((a, b) => a + b, 0) / Math.max(1, energie.length),
+    quellen: Object.fromEntries(Object.entries(summe)
+      .map(([k, v]) => [k, v / Math.max(1, laeufe)]).sort((a, b) => b[1] - a[1])),
+  };
+}
+
+/** Die Zählerzeilen einer Beef-Variante – roh, ohne Rundung auf schöne Zahlen. */
+function beefZeilen(z, tage, laeufe) {
+  const out = [];
+  const n = tage * laeufe;
+  const quote = (a, b) => (b ? `${komma((a / b) * 100, 1)} %` : '– (0 Fälle)');
+  const liste = (o) => Object.entries(o).map(([k, v]) => `${k} ${de(v)}`).join(', ') || 'keine';
+  const versuche = z.einstieg + z.blamage;
+  out.push(`Anstacheln: ${de(versuche)} bezahlte Versuche in ${de(n)} Tagen (${komma(versuche / n, 2)}/Tag) · ` +
+    `Einstieg ${de(z.einstieg)} (Einstiegsquote ${quote(z.einstieg, versuche)}) · ` +
+    `Blamage ${de(z.blamage)} (${quote(z.blamage, versuche)}) · ` +
+    `Ø gewürfelte Einstiegschance ${z.chancen.length ? komma(mittel(z.chancen) * 100, 1) + ' %' : '–'}`);
+  out.push(`ohne Zeitkosten abgelehnt (vor der Buchung): ${liste(z.anstachelAb)}`);
+  out.push(`von selbst angezählt (nach einer Chart-Platzierung, ${komma(beefData.ANZAEHL_CHANCE * 100, 0)} % je Platzierung): ${de(z.angezaehlt)}`);
+  out.push(`Disstracks ${de(z.disse)} (${komma(z.disse / n, 2)}/Tag) · ` +
+    `Häme ${de(z.haeme)} (Häme-Quote ${quote(z.haeme, z.disse)}) · ` +
+    `kein Disstrack möglich an: ${liste(z.dissAb)}`);
+  const f = (a, k = 3) => (a.length ? `Ø ${komma(mittel(a), k)} (kleinster ${komma(Math.min(...a), k)}, größter ${komma(Math.max(...a), k)})` : 'keiner');
+  out.push(`Ø Aufmerksamkeitsfaktor über ALLE Disstracks: ${f(z.aufmerksamkeit)} · ` +
+    `ohne die Häme-Fälle (die zahlen fest ${komma(beefData.HAEME_AUDIENCE)}): ${f(z.aufmerksamkeitOhneHaeme)}`);
+  out.push(`Ø Wucht beim Disstrack: ${f(z.wucht)} · Ø Hitze beim Disstrack: ${f(z.hitzeBeiDiss, 1)}`);
+  out.push(`Ø offene Fronten im Moment des Disstracks: ${z.offenBeiDiss.length ? komma(mittel(z.offenBeiDiss)) : '–'} ` +
+    `(höchstens ${beefData.BEEFS_MAX})`);
+  const ausgaenge = z.ende.sieg + z.ende.niederlage + z.ende.unentschieden;
+  out.push(`Gegenschläge ${de(z.konter)} · Abrechnungen ${de(ausgaenge)}: ` +
+    `Sieg ${de(z.ende.sieg)} (Siegquote ${quote(z.ende.sieg, ausgaenge)}) · ` +
+    `Niederlage ${de(z.ende.niederlage)} (${quote(z.ende.niederlage, ausgaenge)}) · ` +
+    `Unentschieden ${de(z.ende.unentschieden)} (${quote(z.ende.unentschieden, ausgaenge)})`);
+  const g = z.endeGedisst.sieg + z.endeGedisst.niederlage + z.endeGedisst.unentschieden;
+  out.push(`davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: ${de(g)} von ${de(ausgaenge)} ` +
+    `(Sieg ${de(z.endeGedisst.sieg)} · Niederlage ${de(z.endeGedisst.niederlage)} · Unentschieden ${de(z.endeGedisst.unentschieden)}) – ` +
+    `der Rest wurde nie beantwortet und geht mit 0:1 aus`);
+  out.push(`Rundenstand bei der Abrechnung: ${Object.entries(z.endeRunden)
+    .sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${de(v)}×`).join(' · ') || 'keine'}`);
+  return out;
+}
+
+/**
+ * Stück 5b: Was der Beef bringt.
+ *
+ * Zwei Archetypen – Musik+Creator und nur Musik; der reine Creator hat keinen
+ * Disstrack und kommt deshalb nicht vor. Je Archetyp drei Varianten (aus,
+ * passiv, aktiv) mit demselben Würfel und derselben Strategie. Die Strategie
+ * wird je Archetyp EINMAL gesucht (ohne Beef) und dann für alle Varianten
+ * festgehalten – sonst misst man die Strategiewahl.
+ */
+async function beeflauf(laeufe, tage) {
+  const paare = [
+    { titel: 'Musik+Creator', musik: true, kennung: 'beef_beides' },
+    // Der reine Musiker: dieselbe Messung ohne Kanalprogramm. Bei ihm gibt es
+    // keine Füllaktionen, die die zwei Stunden verdrängen könnten – der Preis
+    // des Beefs ist dort allein der Veröffentlichungsplatz.
+    { titel: 'nur Musik', musik: true, kennung: 'beef_musik', kanaele: false },
+  ];
+
+  for (const a of paare) {
+    const alle = a.kanaele === false
+      ? strategien(true).filter((s) => s.name.startsWith('Ertrag je Zeit +0B'))
+        .map((s) => ({ ...s, kanaele: false }))
+      : strategien(a.musik);
+    let strat;
+    if (STRATEGIE && alle.some((s) => s.name === STRATEGIE)) {
+      strat = alle.find((s) => s.name === STRATEGIE);
+    } else {
+      /*
+       * Die Suchphase läuft OHNE Beef – wie die Suchphase des Kontaktlaufs ohne
+       * Kontakte läuft: gesucht wird in der Welt der Vergleichsgrundlage, sonst
+       * bekommt die Grundlage eine Strategie, die für eine andere Welt gewählt
+       * wurde, und die Differenz enthält die Strategiewahl.
+       *
+       * Ein Zähler mit `spielweise: 'aus'` genügt dafür: Die Hülle um
+       * `beef.anzaehlen` gibt dann null zurück, ohne zu würfeln. Ohne ihn liefe
+       * die Suche mit lebendigem Anzählen, und für „Musik+Creator" kam dabei
+       * eine ANDERE Strategie heraus als im Kontaktlauf („+K" statt ohne) –
+       * die Zeile „ohne Beef" wäre dann nicht mehr zeilengleich mit „ohne
+       * Kontakte" aus 5a, obwohl beide dasselbe messen.
+       */
+      bz = neuerBeefZaehler('aus');
+      let such;
+      try {
+        such = await durchlauf(`${a.kennung}_suche`, a.musik, Math.max(2, Math.min(3, laeufe)),
+          Math.min(tage, 180), alle, true);
+      } finally {
+        bz = null;
+      }
+      strat = alle.find((s) => s.name === such.strategie);
+    }
+    console.log(`  ${a.titel}: Strategie "${strat.name}" (Suche ohne Beef, wie in 5a), ${laeufe} Läufe à ${tage} Tage, ` +
+      `Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK ${komma(beefData.DISS_AUFMERK, 2)}`);
+
+    const aus = await beefvariante(`${a.kennung}_aus`, a.musik, { ...strat, beef: false }, laeufe, tage, 'aus');
+    const passiv = await beefvariante(`${a.kennung}_passiv`, a.musik, { ...strat, beef: 'passiv' }, laeufe, tage, 'passiv');
+    const aktiv = await beefvariante(`${a.kennung}_aktiv`, a.musik, { ...strat, beef: 'aktiv' }, laeufe, tage, 'aktiv');
+    /*
+     * Die vierte Variante ist KEINE Beef-Variante, sondern die zweite
+     * Vergleichsgrundlage: derselbe Spieler ohne jeden Beef, der aber auf sechs
+     * Titel wartet und ein Album bringt (`horten`, siehe `musiktag`). Ohne sie
+     * misst „aktiv gegen aus" zum Teil nur den Abstand zwischen einer hohen und
+     * einer niedrigen `spike`-Art – der Disstrack ist die höchste `spike`-Art je
+     * Titel im Spiel, und das Album die höchste, die es ohne Beef gibt.
+     */
+    const album = await beefvariante(`${a.kennung}_album`, a.musik,
+      { ...strat, beef: false, horten: true }, laeufe, tage, 'aus');
+
+    const zeile = (was, r) => `    ${was.padEnd(20)}${de(r.median / tage).padStart(10)}/Tag   ` +
+      `[${de(r.q25 / tage)} … ${de(r.q75 / tage)}]   ${de(r.follower)} Follower` +
+      (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '') +
+      ` · Hype ${komma(r.hype)} · Energie Ø ${Math.round(r.energie * 100)} %`;
+    /*
+     * Gepaart auswerten: Je Seed läuft in allen Varianten derselbe Würfel, das
+     * Verhältnis je Seed ist damit die ehrlichere Zahl – es steht neben dem
+     * Verhältnis der Mediane, nicht an seiner Stelle. Die Spanne steht dabei,
+     * weil sie im Kontaktlauf größer war als der Effekt und hier größer sein
+     * kann als dort.
+     */
+    const paarweise = (r, basis) => r.geld.map((g, i) => g / Math.max(1, basis.geld[i]));
+    const diffzeile = (r, basis, wasBasis) => {
+      const p = paarweise(r, basis);
+      const rauf = p.filter((x) => x > 1).length;
+      return `      gegen „${wasBasis}": Mediane ${prozent(r.median / Math.max(1, basis.median) - 1)} · ` +
+        `je Seed (gepaart) Median ${prozent(median(p) - 1)}, ` +
+        `Spanne ${prozent(Math.min(...p) - 1)} … ${prozent(Math.max(...p) - 1)}, ` +
+        `${rauf} von ${p.length} Seeds im Plus\n` +
+        `      je Seed: ${p.map((x) => prozent(x - 1)).join(' · ')}`;
+    };
+
+    console.log(zeile('ohne Beef (vor 1.40)', aus));
+    console.log(zeile('passiv (geschluckt)', passiv));
+    console.log(diffzeile(passiv, aus, 'ohne Beef'));
+    console.log(zeile('aktiv (Beef-Spielweise)', aktiv));
+    console.log(diffzeile(aktiv, aus, 'ohne Beef'));
+    console.log(diffzeile(aktiv, passiv, 'passiv'));
+    console.log(zeile('ohne Beef, Album statt Single', album));
+    console.log(diffzeile(album, aus, 'ohne Beef'));
+    console.log(diffzeile(aktiv, album, 'ohne Beef, Album'));
+    const quellenzeile = (was, r) => `      Quellen ${was.padEnd(24)}` + (Object.entries(r.quellen)
+      .filter(([, v]) => Math.abs(v) > 1)
+      .map(([k, v]) => `${k} ${de(v / tage)}/Tag (${Math.round((v / Math.max(1, r.median)) * 100)} %)`).join(' · ') || 'keine');
+    console.log(quellenzeile('ohne Beef:', aus));
+    console.log(quellenzeile('passiv:', passiv));
+    console.log(quellenzeile('aktiv:', aktiv));
+    console.log(quellenzeile('ohne Beef, Album:', album));
+
+    /*
+     * Der Auslöser aus dem PLAN (docs/superpowers/plans/2026-09-25-beef.md,
+     * Task 5; die Spec nennt ihn ebenfalls, aber die Zahl gehört dem Plan):
+     * Liegt die Differenz über +25 %, wird `DISS_AUFMERK` gesenkt und neu
+     * gemessen.
+     *
+     * „Die Differenz" ist im Plan die zwischen „wie bisher" und „mit
+     * Beef-Spielweise" – das ist die Zeile gegen „ohne Beef". Weil sich das
+     * auch als „gegen denselben Spieler, der nur nicht zurückschlägt" lesen
+     * lässt und diese Zahl deutlich größer ist, steht sie daneben, und jede
+     * Zahl wird mit ihrer Vergleichsgrundlage benannt. Wer den Auslöser prüft,
+     * soll sehen, WELCHE Differenz ihn erreicht hat.
+     */
+    const kandidatenAusloeser = [
+      ['Mediane gegen „ohne Beef"', aktiv.median / Math.max(1, aus.median) - 1],
+      ['gepaart gegen „ohne Beef"', median(paarweise(aktiv, aus)) - 1],
+      ['Mediane gegen „passiv"', aktiv.median / Math.max(1, passiv.median) - 1],
+      ['gepaart gegen „passiv"', median(paarweise(aktiv, passiv)) - 1],
+    ];
+    const groesste = kandidatenAusloeser.reduce((a, b) => (b[1] > a[1] ? b : a));
+    console.log(`      Auslöser „über +25 %" (Plan, Task 5): ` +
+      `${kandidatenAusloeser.slice(0, 2).map(([k, v]) => `${k} ${prozent(v)}`).join(', ')} – ` +
+      `das ist die Differenz, die der Plan meint („wie bisher" gegen „mit Beef-Spielweise")`);
+    console.log(`      größte Differenz überhaupt: ${prozent(groesste[1])} (${groesste[0]}) → ` +
+      `${groesste[1] > 0.25 ? 'ERREICHT, DISS_AUFMERK senken und neu messen' : 'nicht erreicht, DISS_AUFMERK unverändert'}`);
+
+    // Was die zwei Stunden gekostet haben – gezählt, nicht überschlagen.
+    const l = (r) => leistung(r.zaehler, tage, laeufe);
+    const la = l(aus); const lp = l(passiv); const lk = l(aktiv); const lal = l(album);
+    console.log(`      Tagesleistung Ø/Tag: ohne Beef ${komma(la.akte)} Kanalaktionen · ${komma(la.publishes)} Veröffentlichungen · ${komma(la.shows)} Konzerte` +
+      ` → passiv ${komma(lp.akte)} · ${komma(lp.publishes)} · ${komma(lp.shows)}` +
+      ` → aktiv ${komma(lk.akte)} · ${komma(lk.publishes)} · ${komma(lk.shows)}` +
+      ` → Album ${komma(lal.akte)} · ${komma(lal.publishes)} · ${komma(lal.shows)}` +
+      ` (aktiv gegen ohne Beef: ${prozent(lk.akte / Math.max(1e-9, la.akte) - 1)} Kanalaktionen, ${prozent(lk.publishes / Math.max(1e-9, la.publishes) - 1)} Veröffentlichungen)`);
+    console.log(`      davon Disstracks: ${komma(aktiv.beefZaehler.disse / (tage * laeufe))}/Tag – ` +
+      `${komma((aktiv.beefZaehler.disse / Math.max(1, aktiv.zaehler.publishes)) * 100, 1)} % aller Veröffentlichungen der aktiven Variante`);
+
+    console.log(`    passiv:`);
+    for (const z of beefZeilen(passiv.beefZaehler, tage, laeufe)) console.log(`      ${z}`);
+    console.log(`    aktiv:`);
+    for (const z of beefZeilen(aktiv.beefZaehler, tage, laeufe)) console.log(`      ${z}`);
+
+    // Stille Nullen sind Fehler, nicht Ergebnisse: Die Variante „aus" MUSS
+    // leer sein, die beiden anderen dürfen es nicht.
+    const b = aus.beefZaehler;
+    const leer = !b.einstieg && !b.blamage && !b.disse && !b.angezaehlt && !b.konter
+      && !b.ende.sieg && !b.ende.niederlage && !b.ende.unentschieden;
+    console.log(`      KONTROLLE „ohne Beef": ${leer ? 'kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔'
+      : `NICHT LEER – ${JSON.stringify({ ...b, rand: undefined, gedisst: b.gedisst.size })}`}`);
+    const p = passiv.beefZaehler;
+    console.log(`      KONTROLLE „passiv": angezählt ${de(p.angezaehlt)}, Abrechnungen ` +
+      `${de(p.ende.sieg + p.ende.niederlage + p.ende.unentschieden)}, eigene Disstracks ${de(p.disse)} ` +
+      `(${p.angezaehlt > 0 && p.disse === 0 ? 'so gewollt ✔' : 'FEHLER – passiv heißt: angezählt werden, aber nie selbst schlagen'})`);
+    console.log();
+  }
+}
+
 /** Für Prüf- und Kontrollläufe importierbar (test/…, Handprüfung): nur als Hauptprogramm messen. */
 module.exports = { firmenlauf, handelslauf, karriere, kanaltag, strategien, welt, main };
 
@@ -1882,6 +2455,17 @@ async function main() {
     for (const l of passungsblock()) console.log(l);
     console.log();
     await kontaktlauf(LAEUFE, TAGE);
+    return;
+  }
+
+  if (NUR === 'beef') {
+    console.log(`\n--- Beef (Stück 5b: ohne Beef · passiv · Beef-Spielweise · ohne Beef mit Album – ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
+    console.log(`  DISS_AUFMERK ${komma(beefData.DISS_AUFMERK, 2)}` +
+      `${DISS_AUFMERK_ARG ? ' (über --diss-aufmerk gesetzt)' : ' (Standard aus src/data/beef.js)'}` +
+      `, HAEME_AUDIENCE ${komma(beefData.HAEME_AUDIENCE)}, BONUS_SIEG ${komma(beefData.BONUS_SIEG)}, ` +
+      `BONUS_NIEDERLAGE ${komma(beefData.BONUS_NIEDERLAGE)}, Disstrack growth ${komma(music.release('diss').growth, 1)} ` +
+      `gegen Single ${komma(music.release('single').growth, 1)}\n`);
+    await beeflauf(LAEUFE, TAGE);
     return;
   }
 
