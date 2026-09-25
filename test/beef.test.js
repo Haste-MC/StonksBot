@@ -201,6 +201,11 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       nah(db.getArtist(G, U, t0).hype, music.HYPE_MIN), String(db.getArtist(G, U, t0).hype));
     check('Ohne begonnene Karriere: not_started',
       music.applyBeefTreffer(G, 'bOhne', { hype: 0.8 }, t0).reason === 'not_started');
+    // Genre ohne Persona ist eine halbe Zeile – publish und show zählen sie
+    // nicht als Karriere, der Beef-Treffer darf es auch nicht.
+    db.saveArtist(G, 'bHalb', { ...db.getArtist(G, 'bHalb', t0), genre: 'hiphop', persona: '' });
+    check('Halbe Künstlerzeile (Genre ohne Persona): not_started',
+      music.applyBeefTreffer(G, 'bHalb', { hype: 0.8 }, t0).reason === 'not_started');
   }
 
   console.log('--- Anstacheln ---');
@@ -371,8 +376,11 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     const f3 = beef.frieden(G, U, klein3.id, t0);
     check('Über Hitze 30 nimmt er keinen Frieden an',
       f3.ok === false && f3.reason === 'zu_heiss' && nah(f3.hitze, 55), JSON.stringify(f3.reason));
-    check('Auch der abgelehnte Friedensversuch kostet den Abend',
-      creator.budget(G, U, t0).left === zeitVor - data.BEEF_TIME);
+    // Zu heiß ist eine Voraussetzung wie die Sperre bei einer Anfrage, kein
+    // Ergebnis: Sie wird VOR der Zeitbuchung geprüft.
+    check('Der abgelehnte Friedensversuch kostet den Abend nicht',
+      creator.budget(G, U, t0).left === zeitVor,
+      `${creator.budget(G, U, t0).left} statt ${zeitVor}`);
     check('Ohne Beef gibt es nichts zu befrieden',
       beef.frieden(G, U, anders.id, t0).reason === 'kein_beef');
   }
@@ -417,6 +425,87 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       JSON.stringify(d.requests.map((r) => [r.id, r.grund])));
     check('Ein anderer Kontakt bleibt erreichbar',
       contacts.detail(G, U, anders.id, t0).requests.some((r) => r.moeglich));
+
+    // Ein alter Knopf darf den Grund nicht umgehen: Was detail sperrt, weist
+    // request ab – und zwar vor der Zeitbuchung.
+    const zeitVor = creator.budget(G, U, t0).left;
+    const abgewiesen = contacts.request(G, U, klein.id, 'shoutout', t0, () => 0.0001);
+    check('contacts.request weist bei offenem Beef ab',
+      abgewiesen.ok === false && abgewiesen.reason === 'beef', JSON.stringify(abgewiesen.reason));
+    check('Die abgewiesene Anfrage kostet keine Zeit',
+      creator.budget(G, U, t0).left === zeitVor && db.getContact(G, U, klein.id) === null,
+      JSON.stringify({ zeit: creator.budget(G, U, t0).left, vor: zeitVor }));
+    check('Ohne Beef geht dieselbe Anfrage durch',
+      contacts.request(G, U, anders.id, 'shoutout', t0, () => 0.0001).ok === true);
+  }
+
+  console.log('--- Der Beef rechnet immer auf der Musikseite ---');
+  {
+    // Drake macht beides. Wer einen großen Kanal hat, bekommt von
+    // contacts.detail die Creator-Seite gemeldet – für den Streit zählen
+    // trotzdem Hörer gegen Musik-Reichweite.
+    const beides = cdata.byId('drake');
+    async function konter(u, followers) {
+      const U = await musiker(u, 10_000);
+      if (followers) db.addCreatorFollowers(G, U, 'youtube', followers, 1, t0);
+      db.saveBeef(G, U, beides.id, {
+        hitze: 55, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
+        konter_at: t0 - 1000, angefangen: t0, status: 'offen', bonus_until: 0,
+      });
+      return { U, ev: beef.settle(G, U, t0, () => 0.5)[0] };
+    }
+    const ohne = await konter('bB', 0);
+    const mit = await konter('bC', 500_000);
+    check('Der Kanal ist größer als die Hörerzahl',
+      contacts.detail(G, mit.U, beides.id, t0).seite === 'creator',
+      contacts.detail(G, mit.U, beides.id, t0).seite);
+    check('Der große Kanal ändert die Wucht des Gegenschlags nicht',
+      ohne.ev && mit.ev && nah(ohne.ev.wucht, mit.ev.wucht) && nah(mit.ev.wucht, 1),
+      JSON.stringify({ ohne: ohne.ev?.wucht, mit: mit.ev?.wucht }));
+    check('Und damit auch nicht, was der Treffer kostet',
+      nah(db.getArtist(G, mit.U, t0).hype, 0.75)
+      && db.getArtist(G, mit.U, t0).listeners === 9000,
+      JSON.stringify({ h: db.getArtist(G, mit.U, t0).hype, l: db.getArtist(G, mit.U, t0).listeners }));
+
+    const U = await musiker('bD', 10_000);
+    db.addCreatorFollowers(G, U, 'youtube', 500_000, 1, t0);
+    const r = beef.anstacheln(G, U, beides.id, t0, immer);
+    check('Mit großem Kanal steigt man trotzdem in den Beef ein',
+      r.ok === true && r.ein === true, JSON.stringify(r.reason ?? r.ein));
+  }
+
+  console.log('--- Der Gegenschlag eines verschwundenen Gegners ---');
+  {
+    const U = await musiker('bE', 10_000);
+    db.saveBeef(G, U, 'gibtsnichtmehr', {
+      hitze: 55, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: t0 - 1000, angefangen: t0, status: 'offen', bonus_until: 0,
+    });
+    const ev = beef.settle(G, U, t0, () => 0.5);
+    check('Ein Gegner ohne Katalogzeile schlägt nicht zurück',
+      ev.length === 0 && db.beefRow(G, U, 'gibtsnichtmehr').konter_at === 0,
+      JSON.stringify(ev.map((e) => e.art)));
+    check('Und kostet weder Hype noch Hörer',
+      nah(db.getArtist(G, U, t0).hype, 1) && db.getArtist(G, U, t0).listeners === 10_000);
+  }
+
+  console.log('--- Ausgekühlte Beefs blockieren nicht ---');
+  {
+    const U = await musiker('bF', 10_000);
+    for (const c of [klein, klein2]) {
+      db.saveBeef(G, U, c.id, { hitze: 30, runden_ich: 0, runden_er: 0, last_hit: t0,
+        last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
+    }
+    const t5 = t0 + 5 * 86_400_000;   // 5 Tage × 6 Punkte = 30 → Hitze 0
+    // Niemand hat dazwischen eine Ansicht geöffnet: anstacheln rechnet selbst ab.
+    const r = beef.anstacheln(G, U, klein3.id, t5, immer);
+    check('Der dritte Beef geht, sobald die alten ausgekühlt sind',
+      r.ok === true && r.ein === true, JSON.stringify(r.reason ?? r.ein));
+    check('Die beiden alten sind dabei abgerechnet worden',
+      db.beefRow(G, U, klein.id).status === 'unentschieden'
+      && db.beefRow(G, U, klein2.id).status === 'unentschieden'
+      && beef.offeneBeefs(G, U, t5).length === 1,
+      JSON.stringify(beef.offeneBeefs(G, U, t5).map((b) => b.contact_id)));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

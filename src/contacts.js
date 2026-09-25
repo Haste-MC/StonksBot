@@ -407,6 +407,13 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
   const seite = seiteFuer(contact, ich, requestId);
   if (!seite) return { ok: false, reason: 'seite', contact, request: r };
 
+  // Solange ein Beef mit ihm offen ist, ist jede Zusammenarbeit zwecklos –
+  // derselbe Grund, den `detail` meldet, hier als Riegel gegen einen alten
+  // Knopf. Er steht wie dort vor Draht und Sperre und vor der Zeitbuchung.
+  if (require('./beef').offenerBeef(guildId, userId, contact.id, now)) {
+    return { ok: false, reason: 'beef', contact, request: r };
+  }
+
   const zeilen = db.contactsOf(guildId, userId);
   const row = zeilen.find((z) => z.contact_id === contact.id) ?? null;
   const draht = drahtJetzt(row, now);

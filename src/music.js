@@ -590,7 +590,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
  */
 function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);
-  if (!row.genre) return { ok: false, reason: 'not_started' };
+  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
   const verloren = Math.round(row.listeners * clamp(0, 1, hoererAnteil));
   const listeners = Math.max(0, row.listeners - verloren);
   db.saveArtist(guildId, userId, {

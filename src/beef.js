@@ -5,8 +5,9 @@
  *
  * Hier steht, was ein Streit mit einem anderen Künstler wert ist – und sonst
  * nichts: kein Discord, kein Zufall außer dem, der hereingereicht wird, und in
- * DIESER ersten Hälfte auch keine Datenbank (die kommt erst beim zweiten
- * Banner dazu). Dadurch lässt sich jede Zahl einzeln nachrechnen und testen.
+ * DIESER ersten Hälfte auch kein einziger Blick in die Datenbank – das `db`
+ * unten ist allein für die zweite Hälfte ab dem zweiten Banner da. Dadurch
+ * lässt sich jede Zahl einzeln nachrechnen und testen.
  *
  *   traitBonus        was der Charakterzug am Einstieg dreht
  *   einstiegOf        steigt er überhaupt ein? (die Umkehrung von 5a)
@@ -146,6 +147,25 @@ function offeneBeefs(guildId, userId, now = Date.now()) {
 }
 
 /**
+ * Die Zahlen, mit denen ein Beef rechnet – immer die der Musikseite.
+ *
+ * `contacts.detail` meldet bei einem Kontakt, der beides macht, die LEITSEITE:
+ * Wer mehr Follower als Hörer hat, bekommt dort `creator` und damit die
+ * Creator-Zahlen. Für einen Streit wäre das falsch – er würde mal mit den
+ * Hörern und mal mit den Followern rechnen, je nachdem, was gerade größer
+ * ist, und ein wachsender Kanal würde die Wucht MITTEN im laufenden Beef
+ * verschieben. Ein Beef ist von vorn bis hinten eine Sache unter Musikern,
+ * also holt er sich seine beiden Zahlen selbst: meine Hörer gegen seine
+ * Reichweite als Musiker. Null heißt: Einer von beiden macht keine Musik.
+ */
+function musikLage(guildId, userId, contact, now = Date.now()) {
+  if (!contact?.reach) return null;
+  const m = require('./music').status(guildId, userId, now);
+  if (!m.started) return null;
+  return { meine: m.listeners, seine: contact.reach };
+}
+
+/**
  * Jemanden anstacheln.
  *
  * Die Reihenfolge ist hier die halbe Miete und dieselbe wie bei einer Anfrage
@@ -156,16 +176,21 @@ function offeneBeefs(guildId, userId, now = Date.now()) {
 function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.random) {
   const contacts = require('./contacts');
 
+  // 0. Erst aufräumen: Ein Beef, dessen Hitze längst durch ist, steht bis zur
+  //    Abrechnung weiter als offen in der Tabelle und würde hier als Front
+  //    mitzählen. Die Abrechnung ist faul (§4), also holen wir sie nach,
+  //    bevor wir zählen – geschrieben wird dabei nur, was ohnehin fällig war.
+  settle(guildId, userId, now, random);
+
   // 1. Kennen wir ihn überhaupt?
   const d = contacts.detail(guildId, userId, contactId, now);
   if (!d) return { ok: false, reason: 'unknown' };
 
-  // 2. Beef ist eine Sache unter Musikern: Ich brauche die Musikseite, er
+  // 2. Beef ist eine Sache unter Musikern: Ich brauche eine Musikkarriere, er
   //    eine Reichweite als Musiker. Auf der Creator-Seite gibt es keinen
   //    Disstrack, also auch keinen Streit.
-  if (d.seite !== 'musik' || !d.contact.reach) {
-    return { ok: false, reason: 'seite', contact: d.contact };
-  }
+  const lage = musikLage(guildId, userId, d.contact, now);
+  if (!lage) return { ok: false, reason: 'seite', contact: d.contact };
 
   // 3. Mit ihm läuft schon etwas.
   if (offenerBeef(guildId, userId, contactId, now)) {
@@ -189,8 +214,7 @@ function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.
   if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
 
   // 7. Der Wurf.
-  const chance = einstiegOf({
-    meine: d.meineReichweite, seine: d.seineReichweite, trait: d.contact.trait });
+  const chance = einstiegOf({ ...lage, trait: d.contact.trait });
   const ein = random() < chance;
 
   // 8. Schreiben – und zwar erst jetzt.
@@ -253,10 +277,11 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
     if (konterAt > 0 && now >= konterAt) {
       konterAt = 0;          // genau einmal, egal wie es ausgeht (§9)
       bewegt = true;
-      if (hitze >= data.HITZE_KONTER_MIN) {
-        const d = contacts.detail(guildId, userId, row.contact_id, now);
-        const wucht = wuchtOf({
-          seine: d?.seineReichweite ?? 0, meine: d?.meineReichweite ?? 0 });
+      // Ohne Gegner im Katalog (oder ohne Karriere) gäbe es nur Schreibvorgänge
+      // ohne Wirkung – dann geht der Schlag ins Leere wie unter der Mindesthitze.
+      const lage = gegner ? musikLage(guildId, userId, gegner, now) : null;
+      if (hitze >= data.HITZE_KONTER_MIN && lage) {
+        const wucht = wuchtOf(lage);
         const treffer = require('./music').applyBeefTreffer(guildId, userId, {
           hype: 1 - data.KONTER_HYPE * wucht,
           hoererAnteil: data.KONTER_HOERER * wucht,
@@ -267,12 +292,12 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
         const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_KONTER, now);
         lastHit = now;
         ereignisse.push({
-          contactId: row.contact_id, art: 'konter', contact: gegner ?? null,
+          contactId: row.contact_id, art: 'konter', contact: gegner,
           wucht, runde, treffer, draht, hitze, rundenIch, rundenEr,
-          text: gegner ? textFor(gegner.trait, 'konter', gegner.name, random) : '',
+          text: textFor(gegner.trait, 'konter', gegner.name, random),
         });
       }
-      // Sonst: unter HITZE_KONTER_MIN verfällt der Schlag. Nur konter_at = 0.
+      // Sonst verfällt der Schlag. Nur konter_at = 0.
     }
 
     // 3. Ist die Hitze durch? Dann wird abgerechnet.
@@ -326,7 +351,8 @@ function szeneMalus(guildId, userId, contact, now = Date.now()) {
     const gegner = require('./data/contacts').byId(b.contact_id);
     if (!gegner) continue;
     const szene = gegner.id === contact.id
-      || (gegner.language === contact.language && gegner.genre === contact.genre);
+      || (gegner.language === contact.language
+        && Boolean(gegner.genre) && gegner.genre === contact.genre);
     if (!szene) continue;
     max = Math.max(max, data.SZENE_MALUS * (b.hitze / 100));
   }
@@ -343,20 +369,28 @@ function szeneMalus(guildId, userId, contact, now = Date.now()) {
  */
 function frieden(guildId, userId, contactId, now = Date.now(), random = Math.random) {
   const contacts = require('./contacts');
+
+  // Erst die faule Abrechnung nachholen (§4), damit ein längst ausgekühlter
+  // Beef hier als das dasteht, was er ist.
+  settle(guildId, userId, now, random);
+
   const d = contacts.detail(guildId, userId, contactId, now);
   if (!d) return { ok: false, reason: 'unknown' };
 
   const row = db.beefRow(guildId, userId, contactId);
   if (!row) return { ok: false, reason: 'kein_beef', contact: d.contact };
 
+  // Zu heiß ist eine Voraussetzung wie die Sperre bei einer Anfrage, kein
+  // Ergebnis: Sie steht VOR der Zeitbuchung. Wer es zu früh versucht, hat den
+  // Abend noch.
+  const hitze = hitzeJetzt(row, now);
+  if (hitze >= data.HITZE_FRIEDEN_MAX) {
+    return { ok: false, reason: 'zu_heiss', hitze, contact: d.contact };
+  }
+
   // Auch die Versöhnung kostet den Abend – gebucht vor jedem Schreiben.
   const zeit = require('./creator').useTime(guildId, userId, data.BEEF_TIME, now);
   if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
-
-  const hitze = hitzeJetzt(row, now);
-  if (hitze >= data.HITZE_FRIEDEN_MAX) {
-    return { ok: false, reason: 'zu_heiss', hitze, contact: d.contact, zeit };
-  }
 
   db.saveBeef(guildId, userId, contactId, {
     ...row, hitze: 0, konter_at: 0, last_cool: now,
