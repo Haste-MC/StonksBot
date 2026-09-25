@@ -274,6 +274,12 @@ async function settleMusic(guildId, userId) {
       'du bist wieder frei.');
   }
 
+  // 5b, §4: Der Beef rechnet NACH den Tantiemen ab – die gehören noch der Zeit
+  // davor, und ein Gegenschlag darf sie nicht nachträglich kleiner machen. Im
+  // Text steht er trotzdem vorn: Er ist das Laute, alles andere ist Buchhaltung.
+  const streit = settleBeef(guildId, userId);
+  if (streit) lines.unshift(streit);
+
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -634,6 +640,21 @@ function mitBeef(events, note) {
   return vor ? `${vor}\n${note}` : note;
 }
 
+/**
+ * Die faule Beef-Abrechnung (§4) für einen Weg, der sonst keine mitbringt –
+ * und ihr Text.
+ *
+ * Gegenschlag und Abrechnung kosten Hype und Hörer. Gebucht werden dürfen sie
+ * überall, GEMELDET werden können sie nur hier: Eine Ansicht hat keinen
+ * Rückkanal, also rechnet der Handler ab und hängt das Ergebnis an seine
+ * Meldung. Ohne diesen Umweg fällt der Gegenschlag beim Öffnen einer Ansicht
+ * still – der Spieler sieht nur kleinere Zahlen und erfährt nie, warum.
+ * Ist nichts fällig, wird nichts geschrieben und `null` zurückgegeben.
+ */
+function settleBeef(guildId, userId, now = Date.now()) {
+  return beefNote(require('./beef').settle(guildId, userId, now)) || null;
+}
+
 /** Die Drahtbewegung, wie `contacts.moveDraht` sie meldet. */
 function beefDraht(d) {
   if (!d) return null;
@@ -778,10 +799,15 @@ const buttons = {
     // Die Firma rechnet verfallene Vorfälle ab (§4) – derselbe Weg wie beim Studio.
     const firma = entryId === 'firma'
       ? await settleFirma(gid(interaction), uid(interaction)) : null;
+    // 5b: Die Kontaktliste zeigt 🔥 je Beef – abrechnen und melden gehört
+    // hierher, nicht in die Ansicht. Beim Studio steckt es in `settleMusic`.
+    const streit = entryId === 'kontakte'
+      ? settleBeef(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, studio, firma, nudge].filter(Boolean).join('\n\n') || null;
+    const notice = [news, settled, studio, firma, streit, nudge]
+      .filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -2170,6 +2196,10 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    // 5b, §4: Beim Start gibt es noch keinen Beef – aber dieser Knopf ist auch
+    // der Weg aus einer alten Nachricht (`already_started`), und dann gilt
+    // dasselbe wie überall: abrechnen und melden, nicht in der Ansicht buchen.
+    const streit = settleBeef(guildId, userId);
     const res = require('./music').setup(guildId, userId, genreId, personaId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2179,7 +2209,9 @@ Object.assign(buttons, {
         'Jetzt fehlen nur noch Songs: ab ins 🎙️ Studio.'
       : (res.reason === 'already_started'
         ? 'ℹ️ Deine Karriere läuft schon.' : '❌ Das ging nicht.');
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Eine Studiosession. */
@@ -2193,6 +2225,9 @@ Object.assign(buttons, {
     // §4 faule Abrechnung: der Verfall läuft, wenn gehandelt wird, nicht nur
     // beim Öffnen – sonst blockierte ein liegengebliebener Vorfall den Wurf.
     await require('./decisions').settle(guildId, userId).catch(() => []);
+    // 5b, §4: Der Gegenschlag steht VOR der Session – und er wird gemeldet,
+    // weil die Ansicht ihn nicht mehr selbst bucht.
+    const streit = settleBeef(guildId, userId);
     const res = music.record(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2220,6 +2255,7 @@ Object.assign(buttons, {
       if (res.event?.id === 'equipment') note += `\n💥 Dein **${music.GEAR}** ist hin (🧰 Ausrüstung).`;
       note += incidentNote(res.incident);
     }
+    if (streit) note = `${streit}\n${note}`;
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -2303,6 +2339,9 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    // 5b, §4: wie bei `mstudio` – abrechnen und melden, bevor die Ansicht
+    // die neuen Zahlen zeigt.
+    const streit = settleBeef(guildId, userId);
     const res = require('./music').reveal(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2316,7 +2355,9 @@ Object.assign(buttons, {
         `**+${res.gained.toLocaleString('de-DE')}** Hörer und ein gewaltiger Schub an ` +
         'Abrufen. Zurück geht es jetzt nicht mehr.'
       : (problems[res.reason] ?? '❌ Das ging nicht.');
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /**
@@ -2325,21 +2366,28 @@ Object.assign(buttons, {
    * braucht (§6), ein unbekannter Filter fällt auf „Alle" zurück.
    */
   async kontakte(interaction, [filter, page]) {
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    // 5b, §4: wie bei `kontakt` – erst abrechnen und MELDEN, dann die Liste
+    // bauen. Sonst nimmt ein fälliger Gegenschlag beim Blättern stumm Hype.
+    const note = settleBeef(guildId, userId);
     await interaction.update(await buildKontakteView({
-      guildId: gid(interaction), userId: uid(interaction),
-      filter, page: Number(page) || 1,
+      guildId, userId, filter, page: Number(page) || 1,
     }));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
   },
 
   /** Ein einzelner Kontakt: `kontakt|<id>|<uid>`. */
   async kontakt(interaction, [contactId]) {
     const guildId = gid(interaction);
     const userId = uid(interaction);
-    // 5b, §4: Die Ansicht rechnet den Beef ohnehin ab – wir tun es hier, damit
-    // ein fälliger Gegenschlag auch GEMELDET wird und nicht stumm Hype kostet.
-    const vorher = require('./beef').settle(guildId, userId);
+    // 5b, §4: Hier wird abgerechnet, nicht in der Ansicht – nur hier kann ein
+    // fälliger Gegenschlag auch GEMELDET werden, statt stumm Hype zu kosten.
+    const note = settleBeef(guildId, userId);
     await interaction.update(await buildKontaktView({ guildId, userId, contactId }));
-    const note = beefNote(vorher);
     if (note) {
       await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral })
         .catch(() => {});
@@ -2780,6 +2828,8 @@ Object.assign(buttons, {
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const symbol = await getSymbol(guildId);
+    // 5b, §4: auch hier – die Ansicht rechnet nicht ab, der Handler tut es.
+    const streit = settleBeef(guildId, userId);
     const res = await require('./music').leave(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2788,7 +2838,9 @@ Object.assign(buttons, {
         `⚠️ Das kostet **${money(symbol, res.penalty)}** und einen Teil deiner Hörer – ` +
         'und die Branche erzählt es weiter.'
       : 'ℹ️ Du stehst unter keinem Vertrag.';
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Rangliste der reichsten Staaten. */
@@ -3483,5 +3535,5 @@ module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
   homeNudge, settleMusic, kontaktNote,
   releaseNote, releaseProblem,
-  beefNote, mitBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
+  beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
 };

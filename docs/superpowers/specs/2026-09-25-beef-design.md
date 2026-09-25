@@ -298,7 +298,7 @@ ist genauso lang wie ohne Beef.
 
 ## Anzeige
 
-- **Kontaktansicht des Gegners:** Zeile „🔥 **Beef** · Hitze 62 ▰▰▰▱▱ · Runden
+- **Kontaktansicht des Gegners:** Zeile „🔥 **Beef** · Hitze 62 ▰▰▰▰▱ · Runden
   2:1 · sein Konter kommt in 14 h". Die vier Kooperations-Knöpfe sind
   deaktiviert mit dem neuen Grund `beef` („❌ Solange der Beef läuft, nicht.").
   Neue Knöpfe: **🔥 Disstrack** (nur bei offenem Beef und genug Titeln) und

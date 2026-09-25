@@ -111,7 +111,10 @@ const COMMANDS = [
       await music.settle(guildId, userId).catch(() => null);
       music.settleContracts(guildId, userId);
       await require('../decisions').settle(guildId, userId).catch(() => []);
-      return { view: await ui.buildMusicView({ guildId, userId }) };
+      // 5b, §4: Der fällige Gegenschlag und die Abrechnung gehören gemeldet –
+      // die Ansicht bucht sie nicht mehr selbst (sonst verschwänden sie).
+      const note = require('../buttons').settleBeef(guildId, userId);
+      return { view: await ui.buildMusicView({ guildId, userId }), note };
     },
   },
   {

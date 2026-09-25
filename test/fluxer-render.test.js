@@ -1411,6 +1411,7 @@ function view(buttons) {
     const home = require('../src/home');
     const {
       anstachelnNote, dissNote, friedenNote, beefNote, beefProblem,
+      kontaktNote: kNote5b, releaseNote: rNote5b, buttons: knoepfe5b,
     } = require('../src/buttons');
     const jetzt = Date.now();
     const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
@@ -1666,6 +1667,183 @@ function view(buttons) {
         .startsWith(`🔥 **${gross.name}** hat zurückgeschlagen.`),
       require('../src/buttons').mitBeef(abgelehntPub.beefVorher,
         require('../src/buttons').releaseProblem(abgelehntPub, jetzt)));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Wo der Gegenschlag fällt – und wer ihn ausspricht
+     * -----------------------------------------------------------------------
+     *
+     * Eine ANSICHT darf ihn nicht buchen. Sie hat keinen Rückkanal: Was sie
+     * abrechnet, ist danach weg, ohne dass es jemand gesehen hätte – der
+     * Spieler findet nur kleinere Zahlen und erfährt nie, warum. Geprüft wird
+     * deshalb beides: dass Musik- und Kontaktansicht den fälligen Konter
+     * LIEGEN LASSEN, und dass die Knöpfe, die dorthin führen, ihn melden.
+     */
+    /** Ein Klick auf einen Knopf; zurück kommt der private Hinweis danach. */
+    const klick = async (handler, guildId, userId, args = []) => {
+      const notes = [];
+      await handler({
+        guildId,
+        user: { id: userId },
+        deferUpdate: async () => {},
+        update: async (v) => v,
+        editReply: async (v) => v,
+        reply: async (v) => { notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { notes.push(v.content ?? v); return v; },
+      }, args);
+      return notes.join('\n');
+    };
+
+    const [SG, SU] = await neu();
+    setzeBeef(SG, SU, gross.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const vorAnsicht = db.getArtist(SG, SU, jetzt);
+    await ui.buildMusicView({ guildId: SG, userId: SU });
+    await ui.buildKontakteView({ guildId: SG, userId: SU, page: 1, filter: 'alle' });
+    const nachAnsicht = db.getArtist(SG, SU, jetzt);
+    check('Musik- und Kontaktansicht buchen den fälligen Gegenschlag NICHT',
+      nachAnsicht.listeners === vorAnsicht.listeners
+      && nachAnsicht.hype === vorAnsicht.hype
+      && db.beefRow(SG, SU, gross.id).konter_at === jetzt - 1000,
+      JSON.stringify({
+        hoerer: [vorAnsicht.listeners, nachAnsicht.listeners],
+        hype: [vorAnsicht.hype, nachAnsicht.hype],
+        konterInMs: db.beefRow(SG, SU, gross.id).konter_at - jetzt,
+      }));
+    const musikNote = await klick(knoepfe5b.musik, SG, SU);
+    check('der Knopf 🎵 Musik meldet ihn, statt ihn zu verschlucken',
+      musikNote.includes(`🔥 **${gross.name}** hat zurückgeschlagen.`)
+      && musikNote.includes('📉 Hype −'), musikNote);
+    check('und erst dieser Klick hat ihn wirklich fallen lassen',
+      db.getArtist(SG, SU, jetzt).listeners < vorAnsicht.listeners
+      && db.beefRow(SG, SU, gross.id).konter_at === 0,
+      JSON.stringify({
+        hoerer: db.getArtist(SG, SU, jetzt).listeners,
+        konter: db.beefRow(SG, SU, gross.id).konter_at,
+      }));
+
+    const [LG, LU] = await neu();
+    setzeBeef(LG, LU, gross.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const listeNote = await klick(knoepfe5b.kontakte, LG, LU, ['alle', '1']);
+    check('der Knopf 🤝 Kontakte meldet ihn ebenso',
+      listeNote.includes(`🔥 **${gross.name}** hat zurückgeschlagen.`), listeNote);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Das Nachbeben: abgerechnet, aber das Bonusfenster läuft noch
+     * -----------------------------------------------------------------------
+     *
+     * Der Beef ist durch, wirkt aber weiter auf den Hype – und die Versöhnung
+     * ist dort noch möglich („auch nach dem Ende, solange die Zeile steht").
+     * Anstacheln dagegen weist mit `zu_frisch` ab. Die Ansicht muss genau das
+     * zeigen: die Zeile mit dem AUSGANG, den Friedensknopf, und das Anstacheln
+     * zu. Erst wenn das Fenster durch ist, verschwindet alles.
+     */
+    const [BG, BU] = await neu();
+    setzeBeef(BG, BU, gross.id, {
+      hitze: 0, runden_ich: 2, runden_er: 1, konter_at: 0,
+      status: 'sieg', bonus_until: jetzt + 6 * 86_400_000,
+    });
+    const nachbeben = await ui.buildKontaktView({ guildId: BG, userId: BU, contactId: gross.id });
+    const nbBeschreibung = nachbeben.embeds[0].toJSON().description;
+    check('im Bonusfenster nennt die Zeile den Ausgang, nicht eine Hitze von 0',
+      nbBeschreibung.includes('🔥 **Beef** · Sieg 2:1 · die Straße redet noch 6 Tage')
+      && !nbBeschreibung.includes('Hitze 0'),
+      nbBeschreibung.split('\n').filter((z) => z.includes('Beef')).join(' / '));
+    const nbRow = nachbeben.components[0].toJSON().components;
+    check('der Anstachel-Knopf ist im Bonusfenster deaktiviert',
+      nbRow[4].custom_id === `anstacheln|${gross.id}|${BU}` && nbRow[4].disabled === true,
+      nbRow.map((b) => `${b.custom_id}:${b.disabled}`).join(' | '));
+    check('und einen Disstrack gibt es dort nicht – es läuft kein Beef mehr',
+      !nachbeben.components.some((r) => r.toJSON().components
+        .some((b) => String(b.custom_id).startsWith('diss|'))),
+      nbRow.map((b) => b.custom_id).join(' '));
+    check('die vier Anfragen sind wieder offen begründet, nicht mit dem Beef',
+      !nachbeben.embeds[0].toJSON().fields[0].value.includes('Solange der Beef läuft'),
+      nachbeben.embeds[0].toJSON().fields[0].value);
+    const nbZweite = nachbeben.components[1].toJSON().components;
+    check('der Friedensknopf steht im Bonusfenster da',
+      nbZweite[0].custom_id === `frieden|${gross.id}|${BU}`,
+      nbZweite.map((b) => b.custom_id).join(' '));
+    check('Kontaktansicht im Bonusfenster hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(nachbeben).overflow === undefined,
+      `${render.mapReactions(nachbeben).length} / ${render.mapReactions(nachbeben).overflow}`);
+    // Der Beleg, dass die beiden Knöpfe die Wahrheit sagen: das Modul.
+    check('beef.anstacheln weist im Bonusfenster mit zu_frisch ab',
+      beef.anstacheln(BG, BU, gross.id, jetzt, wuerfel(0)).reason === 'zu_frisch',
+      JSON.stringify(beef.anstacheln(BG, BU, gross.id, jetzt, wuerfel(0)).reason));
+    check('beef.frieden geht dort dagegen wirklich',
+      beef.frieden(BG, BU, gross.id, jetzt, wuerfel(0)).ok === true,
+      JSON.stringify(beef.frieden(BG, BU, gross.id, jetzt, wuerfel(0))?.reason ?? 'ok'));
+
+    // Fenster durch: die Zeile ist weg, und das Anstacheln geht wieder.
+    const [NG, NU] = await neu();
+    setzeBeef(NG, NU, gross.id, {
+      hitze: 0, runden_ich: 2, runden_er: 1, konter_at: 0,
+      status: 'sieg', bonus_until: jetzt - 1000,
+    });
+    const durch = await ui.buildKontaktView({ guildId: NG, userId: NU, contactId: gross.id });
+    check('nach dem Bonusfenster verschwindet der Beef aus der Ansicht',
+      !durch.embeds[0].toJSON().description.includes('🔥 **Beef**')
+      && durch.components[0].toJSON().components[4].disabled !== true,
+      durch.embeds[0].toJSON().description.split('\n').slice(-1).join(''));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die Hinweiszeile der Musikansicht sagt, was der Knopf drüben hergibt
+     * -----------------------------------------------------------------------
+     */
+    const [TG, TU] = await neu();
+    setzeBeef(TG, TU, gross.id, { hitze: 62 });
+    db.saveArtist(TG, TU, { ...db.getArtist(TG, TU, jetzt), songs: 0 });
+    const ohneTitel = await ui.buildMusicView({ guildId: TG, userId: TU });
+    const zeileOhneTitel = ohneTitel.embeds[0].toJSON().fields
+      .find((f) => f.name === '⏳ Heute').value;
+    check('ohne Titel im Kasten verspricht die Musikansicht keinen Disstrack',
+      zeileOhneTitel.includes('🔥 Beef mit')
+      && zeileOhneTitel.includes('– für einen Disstrack fehlt ein Titel'),
+      zeileOhneTitel.split('\n').filter((z) => z.includes('Beef')).join(' / '));
+    db.saveArtist(TG, TU, {
+      ...db.getArtist(TG, TU, jetzt), songs: 4, last_release_at: jetzt,
+    });
+    const inSperre = await ui.buildMusicView({ guildId: TG, userId: TU });
+    const zeileSperre = inSperre.embeds[0].toJSON().fields
+      .find((f) => f.name === '⏳ Heute').value;
+    check('und in der Veröffentlichungssperre sagt sie, wann er geht',
+      /🔥 Beef mit .* – ein Disstrack geht erst in /.test(zeileSperre),
+      zeileSperre.split('\n').filter((z) => z.includes('Beef')).join(' / '));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Kein Streit möglich – dann fällt der fünfte Knopf weg
+     * -----------------------------------------------------------------------
+     * Ein Knopf, der nie angehen kann, ist kein Knopf. Bei einem Kontakt ohne
+     * Musik-Reichweite gibt es nichts zu beefen, also steht dort auch nichts.
+     */
+    const nurCreator = cdata.CONTACTS.find((c) => !c.reach && c.reachCreator > 0);
+    const [PG, PU] = await neu();
+    const ohneStreit = await ui.buildKontaktView({
+      guildId: PG, userId: PU, contactId: nurCreator.id,
+    });
+    const osRow = ohneStreit.components[0].toJSON().components;
+    check('ohne Musik-Reichweite des Kontakts gibt es keinen fünften Knopf',
+      osRow.length === 4 && !osRow.some((b) => String(b.custom_id).startsWith('anstacheln|')),
+      osRow.map((b) => `${b.custom_id}:${b.disabled}`).join(' | '));
+    check('Kontaktansicht ohne Beef-Knopf hält das Fluxer-Limit',
+      render.mapReactions(ohneStreit).overflow === undefined,
+      `${render.mapReactions(ohneStreit).length} / ${render.mapReactions(ohneStreit).overflow}`);
+
+    // --- Die zwei Meldungen, die bisher niemand geprüft hat ----------------
+    check('kontaktNote sagt bei Grund beef dasselbe wie der gesperrte Knopf',
+      kNote5b({ ok: false, reason: 'beef' }, jetzt) === '❌ Solange der Beef läuft, nicht.',
+      kNote5b({ ok: false, reason: 'beef' }, jetzt));
+    const angeNote = rNote5b({
+      release: { emoji: '💿', name: 'Single' },
+      audience: 12_000, listeners: 11_000, listenersBefore: 10_000,
+      angezaehlt: { contact: klein, text: 'Er postet einen Screenshot von dir.' },
+    });
+    check('die Veröffentlichung meldet, wenn dich jemand anzählt',
+      angeNote.includes(`🔥 **${klein.name}** zählt dich an.`)
+      && angeNote.includes('_Er postet einen Screenshot von dir._'), angeNote);
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
