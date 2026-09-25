@@ -1020,6 +1020,41 @@ for (const column of ['last_record_at', 'last_release_at', 'last_show_at']) {
   }
 }
 
+// -------------------------------------------------------------- KONTAKTE
+// Der Draht zu anderen Künstlern (src/contacts.js). Eine Zeile je Spieler und
+// Kontakt, erst ab dem ersten Versuch. `last_move` ist der Zeitpunkt der
+// letzten Drahtbewegung – daraus rechnet contacts.js das Abklingen faul aus,
+// ohne dafür zu schreiben (§4). `ignored_at` trägt die längere Sperre.
+db.exec(`
+  CREATE TABLE IF NOT EXISTS contacts (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    contact_id TEXT    NOT NULL,
+    draht      INTEGER NOT NULL DEFAULT 0,
+    tries      INTEGER NOT NULL DEFAULT 0,
+    yes        INTEGER NOT NULL DEFAULT 0,
+    last_try   INTEGER NOT NULL DEFAULT 0,
+    last_move  INTEGER NOT NULL DEFAULT 0,
+    ignored_at INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, contact_id)
+  );
+
+  -- Was eine Zusage bringt: EIN Schub je Art, der von der nächsten passenden
+  -- Aktion verbraucht (gelesen, angewandt, gelöscht) wird. Kein Stapeln –
+  -- deshalb steckt die Art im Primärschlüssel.
+  CREATE TABLE IF NOT EXISTS contact_boosts (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    kind       TEXT    NOT NULL,          -- release | creator | show
+    factor     REAL    NOT NULL DEFAULT 1,
+    extra      REAL    NOT NULL DEFAULT 0,
+    until      INTEGER NOT NULL,
+    contact_id TEXT    NOT NULL,
+    request_id TEXT    NOT NULL,
+    PRIMARY KEY (guild_id, user_id, kind)
+  );
+`);
+
 // --------------------------------------------------------------- HEISTS
 // Ein Ding ist ein Projekt mit Crew: Der Plan gehört dem Anführer, die
 // Vorbereitungen erledigt jeder, der dabei ist, und am Ende entscheidet ein
@@ -2175,6 +2210,37 @@ const stmt = {
        AND status IN ('done', 'broken')
      ORDER BY id DESC LIMIT ?`),
   clearContracts: db.prepare('DELETE FROM artist_contracts WHERE guild_id = ? AND user_id = ?'),
+
+  // --- Kontakte ---
+  getContact: db.prepare(
+    'SELECT * FROM contacts WHERE guild_id = ? AND user_id = ? AND contact_id = ?'),
+  contactsOf: db.prepare('SELECT * FROM contacts WHERE guild_id = ? AND user_id = ?'),
+  // Eine Anfrage = EINE Anweisung (§7).
+  saveContact: db.prepare(
+    `INSERT INTO contacts (guild_id, user_id, contact_id, draht, tries, yes,
+                           last_try, last_move, ignored_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, contact_id) DO UPDATE SET
+       draht = excluded.draht, tries = excluded.tries, yes = excluded.yes,
+       last_try = excluded.last_try, last_move = excluded.last_move,
+       ignored_at = excluded.ignored_at`),
+  clearContactsOf: db.prepare('DELETE FROM contacts WHERE guild_id = ? AND user_id = ?'),
+
+  boostRow: db.prepare(
+    'SELECT * FROM contact_boosts WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+  getBoost: db.prepare(
+    `SELECT * FROM contact_boosts
+     WHERE guild_id = ? AND user_id = ? AND kind = ? AND until > ?`),
+  setBoost: db.prepare(
+    `INSERT INTO contact_boosts (guild_id, user_id, kind, factor, extra, until,
+                                 contact_id, request_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, kind) DO UPDATE SET
+       factor = excluded.factor, extra = excluded.extra, until = excluded.until,
+       contact_id = excluded.contact_id, request_id = excluded.request_id`),
+  deleteBoost: db.prepare(
+    'DELETE FROM contact_boosts WHERE guild_id = ? AND user_id = ? AND kind = ?'),
+  clearBoosts: db.prepare('DELETE FROM contact_boosts WHERE guild_id = ? AND user_id = ?'),
 
   // --- Creator-Netzwerk ---
   getCreator: db.prepare(
@@ -3595,6 +3661,61 @@ function clearArtist(guildId, userId) {
   stmt.clearContracts.run(guildId, String(userId));
 }
 
+// -------------------------------------------------------------- Kontakte
+
+/** Der Draht zu EINEM Kontakt – null, solange man ihn nie angeschrieben hat. */
+function getContact(guildId, userId, contactId) {
+  return stmt.getContact.get(guildId, String(userId), String(contactId)) ?? null;
+}
+
+/** Alle Drähte eines Spielers (Liste und Türöffner). */
+function contactsOf(guildId, userId) {
+  return stmt.contactsOf.all(guildId, String(userId));
+}
+
+/** Schreibt den Draht in EINER Anweisung fort – legt die Zeile bei Bedarf an. */
+function saveContact(guildId, userId, contactId, c) {
+  stmt.saveContact.run(
+    guildId, String(userId), String(contactId),
+    Math.round(c.draht ?? 0), c.tries ?? 0, c.yes ?? 0,
+    c.last_try ?? 0, c.last_move ?? 0, c.ignored_at ?? 0);
+}
+
+/** Der Schub dieser Art, sofern er noch gilt – abgelaufene zählen nicht. */
+function getBoost(guildId, userId, kind, now = Date.now()) {
+  return stmt.getBoost.get(guildId, String(userId), String(kind), now) ?? null;
+}
+
+/**
+ * Setzt einen Schub. Je Art gibt es genau eine Zeile – Schübe stapeln nicht.
+ *
+ * Der bestehende bleibt nur, wenn er in KEINER Hinsicht schlechter ist als der
+ * neue (Faktor, Extra UND Laufzeit). Damit gewinnt der stärkere, und ein
+ * abgelaufener kann keinen neuen blockieren: Seine Laufzeit liegt hinter der
+ * des neuen, also verliert er.
+ */
+function setBoost(guildId, userId, b) {
+  const factor = b.factor ?? 1;
+  const extra = b.extra ?? 0;
+  const alt = stmt.boostRow.get(guildId, String(userId), String(b.kind));
+  if (alt && alt.factor >= factor && alt.extra >= extra && alt.until >= b.until) return alt;
+  stmt.setBoost.run(
+    guildId, String(userId), String(b.kind), factor, extra, b.until,
+    String(b.contactId ?? ''), String(b.requestId ?? ''));
+  return stmt.boostRow.get(guildId, String(userId), String(b.kind));
+}
+
+/** Verbraucht einen Schub (oder räumt ihn ab). */
+function deleteBoost(guildId, userId, kind) {
+  stmt.deleteBoost.run(guildId, String(userId), String(kind));
+}
+
+/** Löscht Drähte und Schübe eines Spielers (Tests, Admin). */
+function clearContacts(guildId, userId) {
+  stmt.clearContactsOf.run(guildId, String(userId));
+  stmt.clearBoosts.run(guildId, String(userId));
+}
+
 // ------------------------------------------------------- Creator-Netzwerk
 
 /** Eine Plattform eines Spielers – legt sie beim ersten Zugriff an. */
@@ -4255,6 +4376,7 @@ module.exports = {
   getArtist, hasArtist, saveArtist, topArtists, clearArtist,
   insertContract, getContract, openContract, activeContract, setContractStatus,
   contractHistory,
+  getContact, contactsOf, saveContact, getBoost, setBoost, deleteBoost, clearContacts,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,

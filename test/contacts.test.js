@@ -146,6 +146,84 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('Abklingen überschießt nicht', contacts.decay(3, 70) === 0 && contacts.decay(-3, 70) === 0);
   }
 
+  console.log('--- Anfragen und Schübe ---');
+  {
+    const unb = require('../src/unb');
+    unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
+    unb.changeCash = async () => ({ cash: 0, bank: 0, total: 0 });
+    const db = require('../src/db');
+    const music = require('../src/music');
+    const creator = require('../src/creator');
+    const home = require('../src/home');
+    const G = `KONTAKT_T${Date.now()}`;
+    const U = 'k1';
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * 3600e3;
+    const H = 3600e3;
+    const immer = () => 0.0001;     // Chance trifft, Stufe = erste = fluechtig
+    const nie = () => 0.9999;
+
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), listeners: 10_000 });
+
+    const klein = data.CONTACTS.find((c) => c.language === 'deutsch' && c.genre === 'hiphop' && c.reach < 100_000);
+    check('ein kleiner deutscher Rapper im Katalog', Boolean(klein));
+
+    // Liste und Detail
+    const liste = contacts.listFor(G, U, { filter: 'inland', now: t0 });
+    check('Liste Inland: nur deutsche Kontakte, mit Chance', liste.length > 0
+      && liste.every((z) => z.contact.country === 'de' && z.chance > 0 && z.chance <= 0.95));
+    const d = contacts.detail(G, U, klein.id, t0);
+    check('Detail: Musikseite, vier Anfragearten, Konzert gesperrt',
+      d.seite === 'musik' && d.requests.length === 4
+      && d.requests.find((r) => r.id === 'konzert').moeglich === false, JSON.stringify(d.requests?.map((r) => [r.id, r.moeglich])));
+
+    // Erfolgreiche Anfrage: Zeit gebucht, Draht steigt, Schub gesetzt
+    const zeitVor = creator.budget(G, U, t0).left;
+    let r = await contacts.request(G, U, klein.id, 'shoutout', t0, immer);
+    check('Antwort kommt, Zeit ist gebucht (2 h)', r.ok && r.antwort !== 'ignoriert'
+      && creator.budget(G, U, t0).left === zeitVor - 2, JSON.stringify({ r: r.antwort, zeit: creator.budget(G, U, t0).left }));
+    check('Draht bewegt sich nach oben', db.getContact(G, U, klein.id).draht > 0);
+    check('Schub liegt bereit', contacts.activeBoost(G, U, 'release', t0)?.factor > 1);
+
+    // Sperre
+    r = await contacts.request(G, U, klein.id, 'shoutout', t0 + H, immer);
+    check('Sperre 3 Tage', r.ok === false && r.reason === 'gesperrt', JSON.stringify(r));
+    r = await contacts.request(G, U, klein.id, 'shoutout', t0 + 3 * 24 * H + H, immer);
+    check('nach 3 Tagen wieder erlaubt', r.ok, JSON.stringify(r));
+
+    // Ignoriert: Zeit trotzdem weg, Sperre 7 Tage, Draht −1
+    const gross = data.CONTACTS.find((c) => c.reach >= 100_000_000);
+    const drahtVor = db.getContact(G, U, gross.id)?.draht ?? 0;
+    const zeit2 = creator.budget(G, U, t0 + 4 * 24 * H).left;
+    r = await contacts.request(G, U, gross.id, 'feature', t0 + 4 * 24 * H, nie);
+    check('Weltstar ignoriert, Zeit ist trotzdem weg, Draht −1',
+      r.ok && r.antwort === 'ignoriert' && creator.budget(G, U, t0 + 4 * 24 * H).left === zeit2 - 2
+      && db.getContact(G, U, gross.id).draht === drahtVor - 1, JSON.stringify(r));
+    r = await contacts.request(G, U, gross.id, 'feature', t0 + 8 * 24 * H, immer);
+    check('nach Ignorieren 7 Tage Sperre', r.ok === false && r.reason === 'gesperrt');
+
+    // Schub wirkt genau einmal auf die nächste Veröffentlichung
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), songs: 5 });
+    const boost = contacts.activeBoost(G, U, 'release', t0 + 4 * 24 * H);
+    check('Schub noch aktiv', Boolean(boost));
+    const ohne = music.publish(G, U, 'single', t0 + 4 * 24 * H, () => 0.5, { events: false });
+    check('Veröffentlichung nennt den Schub', ohne.ok && ohne.kontakt?.name === klein.name, JSON.stringify(ohne.kontakt));
+    check('Schub ist verbraucht', contacts.activeBoost(G, U, 'release', t0 + 4 * 24 * H) === null);
+
+    // Abgelaufener Schub wirkt nicht
+    db.setBoost(G, U, { kind: 'release', factor: 4, extra: 1, until: t0 - 1, contactId: klein.id, requestId: 'shoutout' });
+    check('abgelaufener Schub zählt nicht', contacts.activeBoost(G, U, 'release', t0) === null);
+
+    // Stärkerer Schub gewinnt, stapelt nicht
+    db.setBoost(G, U, { kind: 'release', factor: 2, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
+    db.setBoost(G, U, { kind: 'release', factor: 3, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
+    check('stärkerer gewinnt', contacts.activeBoost(G, U, 'release', t0).factor === 3);
+    db.setBoost(G, U, { kind: 'release', factor: 2.5, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
+    check('schwächerer verdrängt nicht', contacts.activeBoost(G, U, 'release', t0).factor === 3);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
