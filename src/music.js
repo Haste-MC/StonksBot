@@ -607,8 +607,8 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time };
 
   // Ein zugesagter Auftritt bringt sein Publikum mit – einmal, für diese Gage.
-  // Mehr als die eigene Hörerschaft zählt nicht: Die Gage kann sich dadurch
-  // höchstens verdoppeln (§3).
+  // Mehr als die eigene Hörerschaft zählt nicht. Die Gage wächst deshalb um
+  // höchstens 2^0,7 = +62 %, nicht aufs Doppelte: Sie hängt an Hörer^0,7 (§3).
   const kb = require('./contacts').consumeBoost(guildId, userId, 'show', now);
   const extraHoerer = Math.min(before.listeners, kb?.extra ?? 0);
 
