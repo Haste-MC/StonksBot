@@ -1145,6 +1145,11 @@ function describe(result, money) {
     (p.id === 'twitch' ? ` · ▶️ ${result.views.toLocaleString('de-DE')} Aufrufe` : '') +
     (result.boostUsed > 0 ? ` · 🐦 +${Math.round(result.boostUsed * 100)} % durch deinen Tweet` : ''));
 
+  // Kontakte (5a): Ein verbrauchter Schub gehört ins Ergebnis, sonst sieht der
+  // Spieler nur die Zeile „wirkt auf die nächste Aktion" – und danach nichts.
+  const schub = require('./ui').schubGewirkt(result.kontakt);
+  if (schub) lines.push(schub);
+
   if (result.event) lines.push(result.event.text);
 
   const delta = result.followers - result.followersBefore;

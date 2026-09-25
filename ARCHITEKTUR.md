@@ -971,8 +971,10 @@ Seed gepaart −8,0 %, 7 von 10 Seeds negativ), nur Creator 318.203 statt 334.25
 −25,0 % … +26,9 % ist das dort **nicht von null zu unterscheiden**; als „kostet
 Geld" darf nur die erste Zeile gelesen werden). Die Spec hatte einen Zuwachs im
 niedrigen zweistelligen Prozentbereich erwartet und ein Senken der Basis `0,6`
-oder der Schubfaktoren erst über +50 % vorgesehen – der Auslöser ist klar nicht
-erreicht, nur in die andere Richtung; gesenkt wurde deshalb nichts. Der Grund
+oder der Schubfaktoren für den Fall einer **Verdopplung** vorgesehen; die
+Schwelle „über +50 %" steht nicht in der Spec, sondern im Plan
+(`docs/superpowers/plans/2026-09-25-kontakte.md`, Task 4). Kein Auslöser ist
+erreicht, die Messung zeigt nur in die andere Richtung; gesenkt wurde nichts. Der Grund
 steht in denselben Zählern: 61,3 % der Anfragen bleiben unbeantwortet, die
 **Zusagenquote** liegt bei 7,9 % (nur Creator 9,6 %), und ein Schub trifft nur
 jede sechste Veröffentlichung – dort im Mittel Faktor **1,30** (größter 2,80),
@@ -1032,6 +1034,22 @@ Draht. Die Zahlen oben stammen deshalb aus einem dritten Lauf, der sie erzwingt
 („Konzert-Vorrang" im Messskript) – ohne ihn steht in der Spalte eine Null, und
 eine Null ohne Erklärung ist kein Messwert.
 
+**Beim reinen Musiker kehrt sich das Vorzeichen um.** Wer keine Kanäle
+betreibt, hat keine Füllaktionen, die die zwei Stunden verdrängen könnten: Sein
+Tag endet gar nicht an der Energie-Wand (Ø Energie am Tagesende **100 %** ohne
+und 98 % mit Kontakten), und 0,95 Veröffentlichungen sowie 0,22 Konzerte am Tag
+stehen in beiden Varianten. Gemessen im selben Aufbau (dritter Archetyp „nur
+Musik" in `--nur=kontakte`, 10 Läufe à 365 Tage, dieselben Würfel; Nachtrag in
+`docs/messungen/2026-09-25-kontakte.txt`): **+12,9 %** im Median, gepaart je
+Seed +11,0 %, 7 von 10 Seeds positiv – bei einer Seed-Spanne von −16,4 % …
++55,0 %, die Richtung ist also gestützt, die Größe nicht. Der Schub bei einer
+Veröffentlichung liegt dort bei Ø **1,34** (größter 2,80) über 484 von 3.461,
+und er zahlt fast nur über den Buzz: Die Hörerzahl am Jahresende unterscheidet
+sich um +2,1 %, das Geld um +12,9 % – `publish` multipliziert den
+`audienceFactor`, und `settle` zahlt die laufenden Abrufe **plus** den
+abklingenden Schub der letzten Veröffentlichung. §3 bleibt unberührt: keine
+neue Quelle, keine bewegte Decke.
+
 **Ehrliche Grenzen:** (1) Gemessen ist die Spielweise „**jeden Tag** zwei
 Stunden, bester Kontakt nach Chance × erwartetem Nutzen" – nicht „nur bei guter
 Gelegenheit". Wer die zwei Stunden nur an Tagen ausgibt, an denen Passung und
@@ -1044,10 +1062,14 @@ des simulierten Spielers rechnet den Nutzen EINER Anfrage, nicht den Wert des
 Drahts, den sie aufbaut. (4) Die Messung ist eine reine Geldfrage. Was die
 Kontakte an Spielgefühl, an Freischaltungen (Partner ab drei Zusagen) und als
 Vorbau für 5b/5c bringen, misst sie nicht – und das war auch nie ihr Argument.
-(5) Die Kontakte sind damit **keine** Geldquelle in der Rangfolge oben, sondern
-eine Ausgabe: Sie kosten Zeit und geben Streuung zurück. Wer sie zur Quelle
-machen wollte, müsste an den Decken drehen, nicht an den Faktoren – und genau
-das verbietet §3.
+(5) Für die beiden Archetypen, deren Tag an der Energie-Wand endet, sind die
+Kontakte damit **keine** Geldquelle in der Rangfolge oben, sondern eine
+Ausgabe: Sie kosten Zeit und geben Streuung zurück. Beim reinen Musiker gilt
+dieser Satz nicht (Absatz davor, +12,9 %) – dort kosten die zwei Stunden
+nichts, weil nichts da ist, was sie verdrängen könnten. Eine Quelle wird der
+Schub auch dort nicht: Er bleibt ein Faktor auf eine bestehende Aktion. Wer die
+Kontakte zur Quelle machen wollte, müsste an den Decken drehen, nicht an den
+Faktoren – und genau das verbietet §3.
 
 ### Eine Bremse, nicht zwei
 

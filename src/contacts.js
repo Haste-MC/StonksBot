@@ -4,8 +4,9 @@
  * ===========================================================================
  *
  * Hier steht, was passiert, wenn man jemanden anschreibt – und sonst nichts:
- * keine Datenbank, kein Discord, kein Zufall außer dem, der hereingereicht
- * wird. Dadurch lässt sich jede Zahl einzeln nachrechnen und testen.
+ * kein Discord, kein Zufall außer dem, der hereingereicht wird, und in DIESER
+ * ersten Hälfte auch keine Datenbank (die kommt erst beim zweiten Banner dazu).
+ * Dadurch lässt sich jede Zahl einzeln nachrechnen und testen.
  *
  *   passungOf   wie gut zwei Künstler zueinander passen (Sprache × Genre)
  *   chanceOf    Wurf 1: antwortet er überhaupt?
@@ -470,5 +471,5 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 module.exports = {
   passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
   VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, tuerOeffnerFor,
-  listFor, detail, request, activeBoost, consumeBoost,
+  listFor, detail, request, activeBoost, consumeBoost, LIST_REQUEST,
 };

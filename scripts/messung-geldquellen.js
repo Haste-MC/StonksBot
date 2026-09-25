@@ -696,7 +696,13 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
         await music.show(G, U, now + 4e6, rand, musikOpts);
       }
     }
-    const minuten = ruhetag ? 0 : await kanaltag(G, U, strat, now + 6e6, rand);
+    /*
+     * `kanaele: false` ist der reine Musiker: kein Kanalprogramm, also auch
+     * keine Füllaktionen, die die zwei Kontaktstunden verdrängen könnten.
+     * Genau das ist die Frage, die der dritte Archetyp im Kontaktlauf stellt.
+     */
+    const minuten = (ruhetag || strat.kanaele === false)
+      ? 0 : await kanaltag(G, U, strat, now + 6e6, rand);
     await creator.settle(G, U, now + 20e6);
     await creator.settleMerch(G, U, now + 20e6);
     await creator.settleDeals(G, U, now + 20e6);
@@ -1773,10 +1779,24 @@ async function kontaktlauf(laeufe, tage) {
   const paare = [
     { titel: 'Musik+Creator', musik: true, kennung: 'kontakte_beides' },
     { titel: 'nur Creator', musik: false, kennung: 'kontakte_creator' },
+    // Der reine Musiker: dieselbe Messung ohne Kanalprogramm. Er hat keine
+    // Füllaktionen, die die zwei Stunden verdrängen könnten – bei ihm kostet
+    // die Kontaktpflege also fast nichts, während der Release-Schub der
+    // stärkste der drei ist. Ohne diesen Lauf wäre das eine Vermutung.
+    { titel: 'nur Musik', musik: true, kennung: 'kontakte_musik', kanaele: false },
   ];
 
   for (const a of paare) {
-    const alle = strategien(a.musik);
+    /*
+     * Ohne Kanäle unterscheiden sich die Strategien nur noch im Konzert-Flag:
+     * Reihenfolge und Bindungsstunden betreffen ausschließlich das Kanal-
+     * programm. Gesucht wird deshalb nur zwischen diesen beiden – die 48
+     * Varianten wären 24-mal derselbe Lauf.
+     */
+    const alle = a.kanaele === false
+      ? strategien(true).filter((s) => s.name.startsWith('Ertrag je Zeit +0B'))
+        .map((s) => ({ ...s, kanaele: false }))
+      : strategien(a.musik);
     let strat;
     if (STRATEGIE && alle.some((s) => s.name === STRATEGIE)) {
       strat = alle.find((s) => s.name === STRATEGIE);

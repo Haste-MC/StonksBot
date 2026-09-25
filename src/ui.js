@@ -2742,6 +2742,34 @@ function schubZeile(guildId, userId, kind, now = Date.now()) {
     + `wirkt auf ${SCHUB_ZIEL[kind] ?? 'die nächste Aktion'}, noch ${restZeit(boost.restMs)}`;
 }
 
+/**
+ * Die Gegenzeile dazu: Der Schub ist verbraucht, und das Ergebnis sagt es.
+ *
+ * Ohne die Zeile verschwindet ein gesetzter Schub beim Verbrauch einfach aus
+ * der Ansicht, und der Spieler sieht nie, dass er gewirkt hat. `kontakt` ist
+ * die Nutzlast, die `music.publish`, `music.show` und `creator.act` zurück-
+ * geben. `hoerer` ist die Zahl, die beim Konzert wirklich angekommen ist –
+ * gedeckelt auf die eigene Hörerschaft (§15); der Schub selbst darf mehr
+ * versprechen, als die Deckelung durchlässt, und dann gilt die gedeckelte Zahl.
+ */
+function schubGewirkt(kontakt, hoerer = null) {
+  if (!kontakt || !kontakt.name) return null;
+  if (hoerer !== null) {
+    const n = Math.round(hoerer);
+    // Verbraucht ist er trotzdem – bei einem abgesagten Konzert und bei einem
+    // Schub, von dem nach der Deckelung nichts übrig bleibt. Das gehört gesagt,
+    // sonst verschwindet er lautlos.
+    if (n <= 0) {
+      return `🤝 Der Schub von **${kontakt.name}** ist damit verbraucht – `
+        + 'angekommen ist davon nichts.';
+    }
+    return `🤝 Der Schub von **${kontakt.name}** hat gewirkt: `
+      + `**+${n.toLocaleString('de-DE')}** Hörer im Saal.`;
+  }
+  return `🤝 Der Schub von **${kontakt.name}** hat gewirkt: `
+    + `×${Number(kontakt.factor).toFixed(1).replace('.', ',')} Reichweite.`;
+}
+
 /** Wie der Bereich heißt, über den eine Anfrage läuft (Genre oder Plattform). */
 function kontaktSparte(contact, seite) {
   if (seite === 'creator') {
@@ -2796,7 +2824,12 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
       + `Draht ${drahtBar(z.draht)} ${z.draht} (${DRAHT_STUFEN[z.stufe]}) · `
-      + `Chance ${pct(z.chance)}${gesperrt}`;
+      // Die Chance der Liste ist die EINE Anfrageart, mit der contacts.listFor
+      // rechnet (`LIST_REQUEST`, die neutrale Erwähnung). Ohne den Namen stünde
+      // hier eine Zahl, die einen Klick später in keinem der vier Knöpfe
+      // wiederkehrt – der Knopf dort trägt denselben Kurznamen.
+      + `Chance (${ANFRAGE_KURZ[contacts.LIST_REQUEST] ?? 'Erwähnung'}) `
+      + `${pct(z.chance)}${gesperrt}`;
   });
 
   const embed = new EmbedBuilder()
@@ -5379,7 +5412,7 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN,
+  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };

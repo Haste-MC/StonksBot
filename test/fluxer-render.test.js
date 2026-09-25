@@ -1063,8 +1063,11 @@ function view(buttons) {
     check('Liste heißt „🤝 Kontakte"', lEmbed.title.startsWith('🤝 Kontakte'), lEmbed.title);
     check('Liste nennt die eigene Reichweite', lEmbed.description.includes('10.000') && lEmbed.description.includes('Hörer'),
       lEmbed.description.split('\n')[0]);
-    check('fünf Zeilen mit Draht, Stufe und Chance',
-      lEmbed.description.split('\n').filter((z) => z.includes('Draht ') && z.includes('Chance ')).length === 5,
+    // Die Chance der Liste ist die einer BESTIMMTEN Anfrageart – ohne den
+    // Namen dahinter passt sie zu keiner der vier Zahlen einen Klick später.
+    check('fünf Zeilen mit Draht, Stufe und benannter Chance',
+      lEmbed.description.split('\n')
+        .filter((z) => z.includes('Draht ') && z.includes('Chance (Shoutout) ')).length === 5,
       lEmbed.description);
     const lRows = liste.components.map((r) => r.toJSON().components);
     check('fünf Kontakt-Knöpfe, nummeriert',
@@ -1249,6 +1252,122 @@ function view(buttons) {
     check('die Creator-Ansicht zeigt den laufenden Schub',
       cExtras.includes(`🤝 Shoutout mit *${papaplatte.name}* – wirkt auf die nächste Aktion, noch 48 h`),
       cExtras);
+
+    /*
+     * Und wenn er gewirkt hat? Bis hierher stand der Schub nur in der Ansicht
+     * SOLANGE er lag: Beim Verbrauch verschwand die Zeile, und das Ergebnis
+     * schwieg. Geprüft wird darum die Meldung, die der Knopf wirklich schickt
+     * (`buttons.mpub`, `buttons.mshow`) und der Text, den `creator.describe`
+     * baut – für alle drei Stellen, die einen Schub verbrauchen.
+     */
+    const { buttons: knoepfe } = require('../src/buttons');
+    /** Ein Klick auf einen Knopf; zurück kommt der private Hinweis danach. */
+    const meldung = async (handler, guildId, userId, args = []) => {
+      const notes = [];
+      await handler({
+        guildId,
+        user: { id: userId },
+        deferUpdate: async () => {},
+        editReply: async (v) => v,
+        reply: async (v) => { notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { notes.push(v.content ?? v); return v; },
+      }, args);
+      return notes.join('\n');
+    };
+    /**
+     * Die Ereigniswürfel der Musik laufen in `buttons.mpub`/`mshow` über
+     * `Math.random` – ohne festen Wert könnte ein abgesagtes Konzert
+     * (Gewicht 3) den Test gelegentlich umkippen. 0,01 trifft in `candidates`
+     * immer „none" (Gewicht 110 an erster Stelle).
+     */
+    const ohneEreignis = async (fn) => {
+      const echt = Math.random;
+      Math.random = () => 0.01;
+      try { return await fn(); } finally { Math.random = echt; }
+    };
+
+    // (1) Veröffentlichung: der Faktor-Schub gehört in die Meldung.
+    const KGr = `KON_R_${Date.now()}`;
+    const KUr = 'kon_user_release';
+    await home.setHome(KGr, KUr, 'de');
+    home.setLanguage(KGr, KUr, 'deutsch');
+    music.setup(KGr, KUr, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KGr, KUr, {
+      ...db.getArtist(KGr, KUr, Date.now()), listeners: 10_000, songs: 3,
+    });
+    db.setBoost(KGr, KUr, {
+      kind: 'release', factor: 1.3, extra: 1, until: Date.now() + 48 * 3600e3,
+      contactId: klein.id, requestId: 'shoutout',
+    }, Date.now());
+    const relNote = await ohneEreignis(() => meldung(knoepfe.mpub, KGr, KUr, ['single']));
+    check('die Veröffentlichung meldet den verbrauchten Schub mit Namen und Faktor',
+      relNote.includes(`🤝 Der Schub von **${klein.name}** hat gewirkt: ×1,3 Reichweite.`), relNote);
+    // Ohne Schub steht die Zeile nicht da – sonst wäre sie nur Dekoration.
+    db.saveArtist(KGr, KUr, {
+      ...db.getArtist(KGr, KUr, Date.now()), songs: 3, last_release_at: 0,
+    });
+    const relOhne = await ohneEreignis(() => meldung(knoepfe.mpub, KGr, KUr, ['single']));
+    check('ohne Schub bleibt die Zeile weg', !relOhne.includes('hat gewirkt'), relOhne);
+
+    // (2) Konzert: dort zählen Hörer, keine Faktoren – und zwar die gedeckelten.
+    const KGs = `KON_S_${Date.now()}`;
+    const KUs = 'kon_user_show';
+    await home.setHome(KGs, KUs, 'de');
+    home.setLanguage(KGs, KUs, 'deutsch');
+    music.setup(KGs, KUs, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KGs, KUs, { ...db.getArtist(KGs, KUs, Date.now()), listeners: 50_000 });
+    const nina = cdata.CONTACTS.find((c) => c.id === 'ninachuba');
+    db.setBoost(KGs, KUs, {
+      kind: 'show', factor: 1, extra: 2_000, until: Date.now() + 7 * 24 * 3600e3,
+      contactId: nina.id, requestId: 'konzert',
+    }, Date.now());
+    const showNote = await ohneEreignis(() => meldung(knoepfe.mshow, KGs, KUs, []));
+    check('das Konzert meldet die mitgebrachten Hörer',
+      showNote.includes(`🤝 Der Schub von **${nina.name}** hat gewirkt: **+2.000** Hörer im Saal.`),
+      showNote);
+
+    // Ein abgesagtes Konzert verbraucht den Schub trotzdem (er wird vor dem
+    // Ereigniswürfel gelesen) – dann muss die Meldung genau das sagen.
+    // 0,99 trifft in `candidates('show', 1,3)` den letzten Kandidaten „abgesagt".
+    db.saveArtist(KGs, KUs, {
+      ...db.getArtist(KGs, KUs, Date.now()), listeners: 50_000, last_show_at: 0,
+    });
+    db.setBoost(KGs, KUs, {
+      kind: 'show', factor: 1, extra: 2_000, until: Date.now() + 7 * 24 * 3600e3,
+      contactId: nina.id, requestId: 'konzert',
+    }, Date.now());
+    const echterZufall = Math.random;
+    Math.random = () => 0.99;
+    let abgesagtNote;
+    try { abgesagtNote = await meldung(knoepfe.mshow, KGs, KUs, []); } finally {
+      Math.random = echterZufall;
+    }
+    check('das abgesagte Konzert verschweigt den verbrauchten Schub nicht',
+      abgesagtNote.includes('Abgesagt')
+      && abgesagtNote.includes(`🤝 Der Schub von **${nina.name}** ist damit verbraucht – angekommen ist davon nichts.`),
+      abgesagtNote);
+
+    // (3) Kanalaktion: derselbe Satz, gebaut von creator.describe.
+    const KGa = `KON_A_${Date.now()}`;
+    const KUa = 'kon_user_aktion';
+    await home.setHome(KGa, KUa, 'de');
+    home.setLanguage(KGa, KUa, 'deutsch');
+    db.saveCreator(KGa, KUa, 'instagram', {
+      ...db.getCreator(KGa, KUa, 'instagram'), followers: 5_000,
+      touched_at: jetzt, last_action_at: 0,
+    });
+    db.setBoost(KGa, KUa, {
+      kind: 'creator', factor: 1.2, extra: 1, until: Date.now() + 48 * 3600e3,
+      contactId: papaplatte.id, requestId: 'shoutout',
+    }, Date.now());
+    const akt = await creatorMod.act(KGa, KUa, 'instagram', 'foto', Date.now(), () => 0.5);
+    check('die Kanalaktion verbraucht den Schub',
+      akt.ok && akt.kontakt && akt.kontakt.name === papaplatte.name,
+      JSON.stringify({ ok: akt.ok, reason: akt.reason, kontakt: akt.kontakt }));
+    const aktNote = creatorMod.describe(akt, (n) => `${n}`);
+    check('die Kanalaktion meldet den verbrauchten Schub mit Namen und Faktor',
+      aktNote.includes(`🤝 Der Schub von **${papaplatte.name}** hat gewirkt: ×1,2 Reichweite.`),
+      aktNote);
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

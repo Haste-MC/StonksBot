@@ -287,12 +287,14 @@ den Weltstar also um das 1,43-fache überbewertet. Sie kam auf −17,3 % bzw.
 wird über alle drei Antwortstufen gemittelt, und die Erwartung wird gegen
 200.000 Würfe der echten `stufeVon` gehalten (in der Messdatei abgedruckt).
 
-**Konsequenz: Es wurde nichts gesenkt.** Der Auslöser der Spec („liegt es über
-+50 %, `0,6` in der Basis oder die Schubfaktoren senken und neu messen") ist
-nicht erreicht. Die Basis `0,6` und alle Schubfaktoren stehen unverändert; am
+**Konsequenz: Es wurde nichts gesenkt.** Der Auslöser („liegt es über +50 %,
+`0,6` in der Basis oder die Schubfaktoren senken und neu messen") steht so im
+Plan (`docs/superpowers/plans/2026-09-25-kontakte.md`, Task 4, Step 1), nicht in
+dieser Spec – sie verlangt oben nur „keine Verdopplung". Weder das eine noch das
+andere ist erreicht. Die Basis `0,6` und alle Schubfaktoren stehen unverändert; am
 Verhalten des Spiels hat diese Messung nichts geändert.
 
-**Zwei Befunde, die die Spec so nicht vorgesehen hatte:**
+**Vier Punkte, an denen Bau und Spec auseinandergehen:**
 
 1. **Die zwei Stunden sind der ganze Preis.** Sie kosten gezählte 15,0 % der
    Kanalaktionen am Tag (12,56 → 10,68; reiner Creator 16,16 → 15,02, −7,0 %),
@@ -300,7 +302,10 @@ Verhalten des Spiels hat diese Messung nichts geändert.
    unberührt (0,95 Veröffentlichungen am Tag in beiden Läufen); die Differenz
    sitzt in den Followern (2,59 Mio gegen 1,95 Mio) und wächst über das Jahr.
    Kontakte sind damit eine **Ausgabe mit Streuung**, keine Quelle – was §3
-   genau so wollte, nur deutlicher als gedacht.
+   genau so wollte, nur deutlicher als gedacht. Für den reinen Musiker gilt der
+   Satz nicht: Er hat keine Füllaktion, die verdrängt würde, und kommt im
+   Nachtrag derselben Messung auf **+12,9 %** (Seed-Spanne −16,4 % … +55,0 %);
+   ARCHITEKTUR §15 führt es aus.
 
 2. **Der Konzert-Schub auf der Creator-Seite ist der kleinste der drei Schübe
    auf seiner Seite – wegen der Draht-Schwelle, nicht wegen der Formel.**
@@ -321,6 +326,23 @@ Verhalten des Spiels hat diese Messung nichts geändert.
    (Schwierigkeit −0,10 gegen −0,20) und verlangt keinen Draht. Die Zahlen
    stammen deshalb aus einem dritten Messlauf, der die Bühne erzwingt, sobald
    sie möglich ist („Konzert-Vorrang" im Messskript).
+
+3. **Der Titelzusatz „feat. <Name>" ist nicht gebaut.** Die Wirkungstabelle
+   oben verspricht ihn für `feature`; umgesetzt sind nur der Faktor
+   (`1 + 5 × Stärke`) und der Hype-Zuschlag (`1 + 0,15 × Stärke`).
+   `grep "feat\."` über `src/` findet nichts. Der Grund ist nicht Vergesslich-
+   keit, sondern ein fehlendes Feld: Eine Veröffentlichung hat in diesem Spiel
+   gar keinen Titel, an den sich ein Zusatz hängen ließe – sie ist eine Art
+   (Single, EP, Album), kein Werk mit Namen. Am Geld ändert das nichts, an der
+   Erzählung schon; nachgerüstet wurde es hier bewusst nicht.
+
+4. **Der Konzert-Deckel deckelt das Publikum, nicht die Gage.** Die Tabelle
+   oben sagt „gedeckelt auf das Doppelte der eigenen Gage"; `music.show`
+   deckelt die mitgebrachten Hörer auf die eigene Hörerschaft
+   (`Math.min(before.listeners, kb.extra)`). Weil die Gage an `Hörer^0,7`
+   hängt (`SHOW_EXP`), sind doppelte Hörer **+62 %** auf die Gage, nicht
+   +100 %. Der Code ist damit strenger als die Spec, nicht großzügiger – §15
+   rechnet es so vor, in dieser Liste fehlte es.
 
 **Offen für 5b/5c:** Ob die Kontakte eine attraktivere Zeitverwendung werden
 sollen, ist eine Balancing-Entscheidung des Nutzers, keine Folge dieser

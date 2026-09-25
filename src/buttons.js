@@ -23,7 +23,7 @@ const {
   buildFirmaView, buildFirmenView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
   buildKontakteView, buildKontaktView, frist, restZeit, drahtBar,
-  DRAHT_STUFEN, SCHUB_ZIEL_DEIN,
+  DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -2068,6 +2068,10 @@ Object.assign(buttons, {
         `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · ` +
         `Hörer: **${res.listeners.toLocaleString('de-DE')}** ` +
         `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+      // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
+      // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
+      const schub = schubGewirkt(res.kontakt);
+      if (schub) note += `\n${schub}`;
       if (res.position) note += `\n🏆 **Charts: Platz ${res.position}** – _${res.text}_`;
       if (res.spill > 0) {
         note += `\n🔗 Deine Kanäle wachsen mit: **+${res.spill}** je Plattform.`;
@@ -2113,10 +2117,18 @@ Object.assign(buttons, {
       } else note = '🎤 Starte zuerst deine Karriere.';
     } else if (res.cancelled) {
       note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
+      // Der Schub wurde vor dem Ereigniswürfel verbraucht (src/music.js) – er
+      // ist also weg, auch wenn das Konzert ausfällt.
+      const schub = schubGewirkt(res.kontakt, 0);
+      if (schub) note += `\n${schub}`;
     } else {
       note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
         (res.cut > 0 ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : '') +
         `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
+      // Kontakte (5a): Was der zugesagte Auftritt an Publikum mitgebracht hat –
+      // `extraHoerer` ist die gedeckelte Zahl, die wirklich für die Gage zählte.
+      const schub = schubGewirkt(res.kontakt, res.extraHoerer ?? 0);
+      if (schub) note += `\n${schub}`;
       if (res.event) note += `\n${res.event.text}`;
     }
     if (res.ok) note += incidentNote(res.incident);

@@ -257,8 +257,9 @@ Landbonus ist +0,05; ohne diese Angabe ist keine der Zahlen nachrechenbar):
    ist das bei einer Seed-Spanne von −25,0 % … +26,9 % **nicht mehr von null zu unterscheiden**:
    Diese Messung sagt dort nicht „Kontakte schaden", sondern „hier misst sie nichts Verlässliches
    mehr". Für Musik+Creator bleibt die Richtung stabil. Die Spec hatte einen Zuwachs im niedrigen
-   zweistelligen Prozentbereich erwartet und als Auslöser für ein Senken der Faktoren „über +50 %"
-   gesetzt – der Auslöser ist klar nicht erreicht. Es wurde NICHTS gesenkt: 0,6 in der Basis und
+   zweistelligen Prozentbereich erwartet und als Auslöser für ein Senken „keine Verdopplung"
+   gesetzt; die Zahl „über +50 %" steht im Plan (Task 4, Step 1), nicht in der Spec – erreicht ist
+   keine der beiden Schwellen. Es wurde NICHTS gesenkt: 0,6 in der Basis und
    alle Schubfaktoren stehen unverändert.
 
 2. **Warum.** Die zwei Stunden kosten gezählte 15,0 % der Kanalaktionen (12,56 → 10,68 am Tag) bzw.
@@ -337,3 +338,112 @@ Landbonus ist +0,05; ohne diese Angabe ist keine der Zahlen nachrechenbar):
 (6) Die Kontakte sind in dieser Messung eine reine Geldfrage. Was sie an Spielgefühl,
     Freischaltungen (Partner ab drei Zusagen) und an Vorarbeit für 5b/5c bringen, misst niemand
     hier – und es war auch nie das Argument für sie.
+
+
+===========================================================================================
+NACHTRAG (derselbe Tag): DER REINE MUSIKER – DER ARCHETYP, DEM DIE ZWEI STUNDEN FAST NICHTS
+KOSTEN
+===========================================================================================
+
+Warum überhaupt ein dritter Lauf: Die beiden oben gemessenen Archetypen enden BEIDE am Abend an der
+Energie-Wand (Ø Energie am Tagesende 12 %/14 % bzw. 8 %/4 %). Genau deshalb verdrängen die zwei
+Kontaktstunden dort 15,0 % bzw. 7,0 % der Kanalaktionen – der Preis der Kontaktpflege ist in beiden
+Fällen eine verdrängte Aktion. Ein reiner Musiker hat diese Füllaktionen nicht: Studio (3 h) und
+Release (2 h) hängen an einer Sperre von rund einem Tag, er kommt auf 0,95 Veröffentlichungen am Tag
+und lässt den Rest des Tages liegen. Bei ihm sollten die zwei Stunden also fast nichts kosten,
+während der Release-Schub der stärkste der drei ist (Ø 1,30 oben). Das war bis hierher eine
+Vermutung und stand als solche nirgends – sie ist jetzt gemessen.
+
+Aufruf: rm -rf .testdata-musik && DATA_DIR=.testdata-musik node scripts/messung-geldquellen.js 10 365 --nur=kontakte
+
+Am Skript geändert (mehr nicht): `karriere` lässt das Kanalprogramm aus, wenn die Strategie
+`kanaele: false` trägt, und `kontaktlauf` hat einen dritten Archetyp „nur Musik" (musik: true,
+kanaele: false). Seine Strategie wird nur zwischen den beiden Spielweisen gesucht, die sich ohne
+Kanäle überhaupt noch unterscheiden (Konzert ja/nein) – Reihenfolge und Bindungsstunden betreffen
+ausschließlich das Kanalprogramm, die 48 Varianten wären 24-mal derselbe Lauf.
+
+KONTROLLE: Derselbe Aufruf fährt die beiden alten Archetypen mit. Sie kommen Zahl für Zahl auf die
+Werte oben (Musik+Creator 372.788 → 341.705, −8,3 %, gepaart −8,0 %; nur Creator 334.254 → 318.203,
+−4,8 %, gepaart −1,8 %; auch alle Zähler- und Seed-Zeilen gleich). Die Änderung am Skript hat die
+bestehende Messung also nicht angefasst, und der Lauf ist auf dieser Maschine reproduzierbar.
+
+-------------------------------------- ROHAUSGABE -----------------------------------------
+(Suchphase des dritten Archetyps und sein vollständiger Block, unverändert)
+
+    Ertrag je Zeit +0B             Median    6.627.284     230.288 Follower    239.498 Hörer   Energie Ø 100 %
+    Ertrag je Zeit +0B +K          Median    4.209.057     144.496 Follower    152.911 Hörer   Energie Ø 100 %
+  nur Musik: Strategie "Ertrag je Zeit +0B", 10 Läufe à 365 Tage, Würfel rng(1000+i), Kontaktwürfe rng(501000+i)
+    ohne Kontakte        104.965/Tag   [91.249 … 110.608]   853.612 Follower, 579.842 Hörer · Energie Ø 100 %
+    mit Kontakten        118.525/Tag   [94.880 … 124.711]   980.578 Follower, 592.138 Hörer · Energie Ø 98 %
+      Differenz der Mediane +12,9 % · je Seed (gepaart) Median +11,0 %, Spanne −16,4 % … +55,0 %
+      je Seed: +12,5 % · −0,7 % · +7,4 % · +44,5 % · −4,8 % · +22,3 % · +10,5 % · −16,4 % · +11,5 % · +55,0 %
+      Tagesleistung Ø/Tag: ohne 0,00 Kanalaktionen · 0,95 Veröffentlichungen · 0,22 Konzerte → mit 0,00 · 0,95 · 0,22 (−100,0 % Kanalaktionen)
+      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 108 (3,0 %) · echte Antwort 194 (5,3 %) · flüchtig 673 (18,4 %) · ignoriert 2675 (73,3 %)
+      nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 0
+      Antworten mit Schub-Versuch 975 · davon wirklich geschrieben 949 (26 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 484, creator 0, show 0 (geschrieben minus verbraucht = 465 verfallen oder überschrieben)
+      Ø Schubfaktor bei Veröffentlichungen: Ø 1,34 (größter 2,80) über 484 von 3.461 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
+      Ø Schubfaktor bei Creator-Aktionen: keiner über 0 von 0 Aktionen → über ALLE Aktionen Ø 1,00
+      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 0 von 812 Konzerten verbraucht
+      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 0 verbraucht, keiner
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): release/reaktion Ø 1,34 (größter 2,80) über 484
+      je Seite und Anfrageart: musik/reaktion 2107× (Zusage 1,9 %) · creator/reaktion 1278× (Zusage 2,3 %) · creator/feature 265× (Zusage 14,7 %)
+      Kontrolle: im Lauf ohne Kontaktpflege 0 Versuche und 0 Schübe ✔
+    Konzert-Vorrang (nur zur Messung des Konzert-Schubs, keine Spielempfehlung):
+    mit Konzert-Vorrang   117.248/Tag   [94.139 … 123.711]   974.942 Follower, 590.686 Hörer · Energie Ø 98 %
+      Differenz der Mediane +11,7 % · je Seed (gepaart) Median +9,5 %, Spanne −16,5 % … +55,2 %
+      je Seed: +11,1 % · −0,1 % · +6,2 % · +44,7 % · −4,5 % · +22,5 % · +10,0 % · −16,5 % · +9,0 % · +55,2 %
+      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 93 (2,5 %) · echte Antwort 192 (5,3 %) · flüchtig 657 (18,0 %) · ignoriert 2708 (74,2 %)
+      nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 0
+      Antworten mit Schub-Versuch 942 · davon wirklich geschrieben 911 (31 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 495, creator 0, show 1 (geschrieben minus verbraucht = 415 verfallen oder überschrieben)
+      Ø Schubfaktor bei Veröffentlichungen: Ø 1,33 (größter 2,80) über 495 von 3.461 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
+      Ø Schubfaktor bei Creator-Aktionen: keiner über 0 von 0 Aktionen → über ALLE Aktionen Ø 1,00
+      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 1 von 812 Konzerten verbraucht
+      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 0 verbraucht, keiner
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): release/reaktion Ø 1,33 (größter 2,80) über 495 · show/konzert Ø 1,00 (größter 1,00) über 1
+      je Seite und Anfrageart: musik/reaktion 2110× (Zusage 1,9 %) · creator/reaktion 1245× (Zusage 2,2 %) · creator/feature 139× (Zusage 7,2 %) · creator/konzert 137× (Zusage 10,9 %) · musik/konzert 19× (Zusage 0,0 %)
+
+==================== WAS DAS HEISST ====================
+
+1. **Beim reinen Musiker dreht sich das Vorzeichen um: +12,9 % im Median** (gepaart je Seed +11,0 %,
+   7 von 10 Seeds positiv), statt −8,3 % bei Musik+Creator und −4,8 % beim reinen Creator. Damit
+   liegt er als einziger Archetyp in dem Bereich, den die Spec ursprünglich für alle erwartet hatte
+   („Zuwachs im niedrigen zweistelligen Prozentbereich").
+
+2. **Warum: Er zahlt den Preis nicht.** Seine Energie am Tagesende liegt bei Ø 100 % ohne und 98 %
+   mit Kontakten – er steht gar nicht an der Wand, und die zwei Stunden verdrängen nichts:
+   0,95 Veröffentlichungen und 0,22 Konzerte am Tag in BEIDEN Varianten, 0,00 Kanalaktionen sowieso.
+   Dem fast kostenlosen Einsatz steht der stärkste der drei Schübe gegenüber: Ø 1,34 (größter 2,80)
+   über 484 von 3.461 Veröffentlichungen, über ALLE Veröffentlichungen Ø 1,05.
+
+3. **Wo das Geld herkommt – nicht aus bleibenden Hörern.** Die Hörerzahl am Jahresende unterscheidet
+   sich kaum (579.842 ohne, 592.138 mit, +2,1 %), das Geld um +12,9 %. Der Faktor greift in
+   `publish` am `audienceFactor` an, und der trägt neben den neuen Hörern vor allem den `buzz`;
+   `settle` zahlt „laufende Abrufe PLUS abklingender Schub der letzten Veröffentlichung"
+   (src/music.js). Der Release-Schub wirkt also überwiegend auf die Tantiemen der nächsten Tage,
+   nicht auf den bleibenden Bestand – §3 bleibt unberührt: neue Quelle ist keine dazugekommen,
+   und die Decke hat sich nicht bewegt.
+
+4. **Die Zusagenquote ist dabei die niedrigste der drei Läufe** (3,0 % gegen 7,9 % bzw. 9,6 %,
+   73,3 % ignoriert): Ein reiner Musiker schreibt fast nur Musiker an, und dort stehen ihm die
+   Weltstars gegenüber. Der Zuwachs kommt also nicht aus vielen Zusagen, sondern daraus, dass die
+   wenigen nichts kosten.
+
+==================== EHRLICHE GRENZEN DIESES NACHTRAGS ====================
+
+(a) Die Streuung ist hier GRÖSSER als der Effekt sauber trägt: je Seed −16,4 % … +55,0 %. Der
+    Median und der gepaarte Median (+12,9 %/+11,0 %) zeigen in dieselbe Richtung und 7 von 10 Seeds
+    auch – „Kontakte lohnen sich für den reinen Musiker" ist damit gestützt, eine genaue Größe des
+    Gewinns ist es NICHT. Wer eine will, braucht mehr Seeds.
+(b) „Nur Musik" heißt: kein Kanalprogramm. Follower hat dieser Spieler trotzdem (853.612 bzw.
+    980.578 im Median) – sie kommen allein aus `SOCIAL_SPILL` der Veröffentlichungen und bringen
+    ohne Aktionen kein Geld. Sie stehen in der Zeile, weil das Skript sie für alle Archetypen
+    ausgibt, nicht weil sie hier etwas bedeuten.
+(c) Der Spieler dieses Laufs schreibt weiter auch Creator-Kontakte an: 1.278 Reaktionen und 265
+    Features über die Creator-Seite gegen 2.107 über die Musikseite. Grund ist `ichFor`: Die
+    Spill-Follower aus den Veröffentlichungen (siehe (b)) sind echte Follower, also hat er formal
+    eine Creator-Seite. Jeder Schub, den er sich dort holt, ist verloren – er macht nie eine
+    Kanalaktion, und die Zählung zeigt es: 949 Schübe geschrieben, davon 484 als `release`
+    verbraucht, `creator` 0, 465 verfallen oder überschrieben. Ein Spieler, der nur Musik-Anfragen
+    stellt, stünde damit besser da als dieser hier – gemessen ist er nicht.
+(d) Alles andere aus der Liste oben gilt unverändert, insbesondere (1): Gemessen ist „jeden Tag
+    zwei Stunden", nicht „nur bei guter Gelegenheit".
