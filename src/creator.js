@@ -498,7 +498,7 @@ function rollDonations(viewers, factor, random) {
  */
 function simulate(state, p, fmt, ctx = {}) {
   const {
-    cross = 0, community = 0, boost = 0, energy = 1, kontakt = 1,
+    cross = 0, community = 0, boost = 0, energy = 1, kontakt = 1, kontaktHype = 1,
     idleDays: idle = 0, random = Math.random,
     market = { pool: 1, speed: 1, money: 1, deal: 1 },
   } = ctx;
@@ -547,7 +547,10 @@ function simulate(state, p, fmt, ctx = {}) {
 
   const result = {
     platform: p.id, format: fmt.id,
-    followers, subs: startSubs, hype: clamp(HYPE_MIN, HYPE_MAX, state.hype * 0.7 + roll * 0.3),
+    followers, subs: startSubs,
+    // Ein Feature schiebt neben dem Publikum auch den Hype an (wie bei
+    // music.publish) – `kontaktHype` ist der Zuschlag aus der Zusage.
+    hype: clamp(HYPE_MIN, HYPE_MAX, (state.hype * 0.7 + roll * 0.3) * kontaktHype),
     audience, gained, lost, lostToIdle, spill, spillLoss,
     stock: state.stock ?? 0,
     views: audience, money: 0, ads: 0, donations: 0, donationList: [], subIncome: 0,
@@ -866,7 +869,8 @@ async function act(
   const energy = time.factor;            // in simulate heißt der Faktor weiterhin `energy`
 
   const sim = simulate(own, p, fmt, {
-    cross, community, boost, energy, kontakt: kb?.factor ?? 1,
+    cross, community, boost, energy,
+    kontakt: kb?.factor || 1, kontaktHype: kb?.extra || 1,
     idleDays: idleDays(own.touched_at || own.last_action_at, now),
     random,
   });

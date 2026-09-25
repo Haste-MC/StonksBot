@@ -537,7 +537,10 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     buzz,
     best_chart: best,
     peak_listeners: Math.max(row.peak_listeners, Math.round(listeners)),
-    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1) * (kb?.extra ?? 1)),
+    // `extra` ist hier der Hype-Zuschlag eines Features. Auf der `show`-Art
+    // zählt `extra` Hörer und fängt bei 0 an – darum `|| 1` statt `?? 1`,
+    // sonst risse eine Zeile ohne Zuschlag den Hype auf HYPE_MIN herunter.
+    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1) * (kb?.extra || 1)),
     last_action_at: now, last_release_at: now, touched_at: now,
     paid_through: row.paid_through || now,
   });

@@ -3689,20 +3689,41 @@ function getBoost(guildId, userId, kind, now = Date.now()) {
 /**
  * Setzt einen Schub. Je Art gibt es genau eine Zeile – Schübe stapeln nicht.
  *
- * Der bestehende bleibt nur, wenn er in KEINER Hinsicht schlechter ist als der
- * neue (Faktor, Extra UND Laufzeit). Damit gewinnt der stärkere, und ein
- * abgelaufener kann keinen neuen blockieren: Seine Laufzeit liegt hinter der
- * des neuen, also verliert er.
+ * Es gewinnt der STÄRKERE, nicht der jüngere. Verglichen wird erst `factor`,
+ * bei Gleichstand `extra`. Das passt zu allen Arten, denn INNERHALB einer Art
+ * misst immer dieselbe Kennzahl die Stärke: bei `release`/`creator` der
+ * Faktor (`extra` ist dort nur der kleine Hype-Zuschlag), bei `show` allein
+ * `extra` (die mitgebrachten Hörer – der Faktor ist dort stets 1). So kann
+ * ein `extra`-Schub nie einen stärkeren `factor`-Schub verdrängen.
+ *
+ * Ein abgelaufener alter Schub (`until <= now`) zählt nicht und wird immer
+ * ersetzt. Bei gleicher Stärke bleibt der alte stehen; der neue verlängert
+ * dann höchstens noch das Fenster (`until = max`).
+ *
+ * Zurück kommt `{ row, neu }`: `neu` sagt, ob der NEUE Schub geschrieben
+ * wurde – nur dann steht in `row` der Kontakt dieser Anfrage.
  */
-function setBoost(guildId, userId, b) {
+function setBoost(guildId, userId, b, now = Date.now()) {
   const factor = b.factor ?? 1;
   const extra = b.extra ?? 0;
   const alt = stmt.boostRow.get(guildId, String(userId), String(b.kind));
-  if (alt && alt.factor >= factor && alt.extra >= extra && alt.until >= b.until) return alt;
-  stmt.setBoost.run(
-    guildId, String(userId), String(b.kind), factor, extra, b.until,
-    String(b.contactId ?? ''), String(b.requestId ?? ''));
-  return stmt.boostRow.get(guildId, String(userId), String(b.kind));
+  const gilt = Boolean(alt) && alt.until > now;
+  const staerker = !gilt || factor > alt.factor
+    || (factor === alt.factor && extra > alt.extra);
+
+  if (staerker) {
+    stmt.setBoost.run(
+      guildId, String(userId), String(b.kind), factor, extra, b.until,
+      String(b.contactId ?? ''), String(b.requestId ?? ''));
+    return { row: stmt.boostRow.get(guildId, String(userId), String(b.kind)), neu: true };
+  }
+  // Gleich stark: der alte bleibt, sein Fenster reicht aber so weit wie nötig.
+  if (factor === alt.factor && extra === alt.extra && b.until > alt.until) {
+    stmt.setBoost.run(
+      guildId, String(userId), String(b.kind), alt.factor, alt.extra, b.until,
+      alt.contact_id, alt.request_id);
+  }
+  return { row: stmt.boostRow.get(guildId, String(userId), String(b.kind)), neu: false };
 }
 
 /** Verbraucht einen Schub (oder räumt ihn ab). */

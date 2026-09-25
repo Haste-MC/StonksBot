@@ -742,6 +742,25 @@ const PLAN_MIX = [['twitter', 'ankuendigung'], ['twitch', 'gaming'], ['twitch', 
       && creator.merchPerDay(1_000_000, 100) > creator.merchPerDay(100_000, 100));
   }
 
+  console.log('--- Schub aus einer Zusage ---');
+  {
+    // Ein Feature bringt zweierlei mit: Publikum (`kontakt`) und Hype
+    // (`kontaktHype`) – genau wie bei music.publish. Ohne Zusage ändert sich
+    // nichts, denn beide Faktoren stehen dann auf 1.
+    const pl = creator.platform('twitch');
+    const fo = creator.format('twitch', 'gaming');
+    const state = { followers: 50_000, subs: 0, hype: 1, stock: 0 };
+    const lauf = (ctx) => creator.simulate(state, pl, fo, { random: () => 0.5, ...ctx });
+
+    const ohne = lauf({});
+    const mit = lauf({ kontakt: 3, kontaktHype: 1.6 });
+    check('der Schub hebt das Publikum', mit.audience > ohne.audience,
+      `${de(ohne.audience)} -> ${de(mit.audience)}`);
+    check('und den Hype dazu', mit.hype > ohne.hype, `${ohne.hype} -> ${mit.hype}`);
+    check('ohne Zusage bleibt alles beim Alten',
+      lauf({ kontakt: 1, kontaktHype: 1 }).hype === ohne.hype);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

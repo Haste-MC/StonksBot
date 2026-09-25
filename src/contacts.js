@@ -438,12 +438,14 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
     const gesetzt = db.setBoost(guildId, userId, {
       kind, factor: roh.factor, extra: roh.extra, until: now + roh.dauerMs,
       contactId: contact.id, requestId,
-    });
+    }, now);
+    const zeile = gesetzt.row;
     boost = {
-      kind, factor: gesetzt.factor, extra: gesetzt.extra, until: gesetzt.until,
-      restMs: Math.max(0, gesetzt.until - now),
+      kind, factor: zeile.factor, extra: zeile.extra, until: zeile.until,
+      restMs: Math.max(0, zeile.until - now),
       // Ein stärkerer Schub derselben Art bleibt liegen – gestapelt wird nie.
-      neu: gesetzt.contact_id === contact.id && gesetzt.request_id === requestId,
+      // `neu` sagt darum die Wahrheit nur, wenn db.setBoost auch geschrieben hat.
+      neu: gesetzt.neu,
     };
   }
 

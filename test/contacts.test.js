@@ -213,15 +213,35 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('Schub ist verbraucht', contacts.activeBoost(G, U, 'release', t0 + 4 * 24 * H) === null);
 
     // Abgelaufener Schub wirkt nicht
-    db.setBoost(G, U, { kind: 'release', factor: 4, extra: 1, until: t0 - 1, contactId: klein.id, requestId: 'shoutout' });
+    db.setBoost(G, U, { kind: 'release', factor: 4, extra: 1, until: t0 - 1, contactId: klein.id, requestId: 'shoutout' }, t0);
     check('abgelaufener Schub zählt nicht', contacts.activeBoost(G, U, 'release', t0) === null);
 
     // Stärkerer Schub gewinnt, stapelt nicht
-    db.setBoost(G, U, { kind: 'release', factor: 2, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
-    db.setBoost(G, U, { kind: 'release', factor: 3, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
+    db.setBoost(G, U, { kind: 'release', factor: 2, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
+    db.setBoost(G, U, { kind: 'release', factor: 3, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
     check('stärkerer gewinnt', contacts.activeBoost(G, U, 'release', t0).factor === 3);
-    db.setBoost(G, U, { kind: 'release', factor: 2.5, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' });
+    db.setBoost(G, U, { kind: 'release', factor: 2.5, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
     check('schwächerer verdrängt nicht', contacts.activeBoost(G, U, 'release', t0).factor === 3);
+
+    // Der StÄRKERE gewinnt, nicht der jüngere: ein laufendes Feature lässt sich
+    // von einem später gesendeten Shoutout nicht verdrängen, obwohl der länger läuft.
+    const stark = db.setBoost(G, U,
+      { kind: 'release', factor: 6, extra: 1.9, until: t0 + 72 * H, contactId: klein.id, requestId: 'feature' }, t0);
+    check('starker Schub wird gesetzt', stark.neu === true && stark.row.factor === 6);
+    const spaet = t0 + 25 * H;
+    const schwach = db.setBoost(G, U,
+      { kind: 'release', factor: 1.5, extra: 1, until: spaet + 48 * H, contactId: gross.id, requestId: 'shoutout' }, spaet);
+    const noch = contacts.activeBoost(G, U, 'release', spaet);
+    check('schwächerer mit späterem Ende verdrängt den starken nicht',
+      schwach.neu === false && noch.factor === 6 && noch.requestId === 'feature'
+      && noch.until === t0 + 72 * H, JSON.stringify({ neu: schwach.neu, f: noch.factor, r: noch.requestId }));
+
+    // Gleich stark: der alte bleibt stehen, sein Fenster reicht aber weiter.
+    const gleich = db.setBoost(G, U,
+      { kind: 'release', factor: 6, extra: 1.9, until: t0 + 96 * H, contactId: gross.id, requestId: 'shoutout' }, spaet);
+    check('gleich stark verlängert nur das Fenster',
+      gleich.neu === false && gleich.row.until === t0 + 96 * H
+      && gleich.row.request_id === 'feature', JSON.stringify(gleich));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
