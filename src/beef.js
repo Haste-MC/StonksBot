@@ -105,7 +105,7 @@ function textFor(trait, lage, name, random = Math.random) {
   const zeilen = data.LINES[trait]?.[lage] ?? [];
   if (!zeilen.length) return '';
   return zeilen[Math.min(zeilen.length - 1, Math.floor(random() * zeilen.length))]
-    .replace('{name}', name);
+    .replaceAll('{name}', name);
 }
 
 module.exports = {

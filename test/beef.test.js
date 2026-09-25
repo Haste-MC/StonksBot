@@ -77,6 +77,7 @@ check('Diss ohne Häme: Runde für mich', beef.rundeNachDiss(false) === 'ich');
 check('Diss mit Häme: Runde für ihn', beef.rundeNachDiss(true) === 'er');
 check('Konter eines Großen zählt', beef.rundeNachKonter(0.5) === 'er');
 check('Konter eines Winzlings wirkt lächerlich', beef.rundeNachKonter(0.1) === 'ich');
+check('Konter genau an der Grenze (0,2) zählt noch als seiner', beef.rundeNachKonter(0.2) === 'er');
 check('2:1 ist ein Sieg', beef.ausgangOf(2, 1) === 'sieg');
 check('1:2 ist eine Niederlage', beef.ausgangOf(1, 2) === 'niederlage');
 check('1:1 ist unentschieden', beef.ausgangOf(1, 1) === 'unentschieden');
@@ -88,11 +89,16 @@ console.log('--- Anzählen ---');
 // Anzählen: wer nah dran ist, wiegt schwerer
 const g1 = beef.anzaehlGewicht({ trait: 'arrogant', meine: 10_000, seine: 10_000, gleichesGenre: true, verwandtesGenre: false });
 const g2 = beef.anzaehlGewicht({ trait: 'kollegial', meine: 10_000, seine: 10_000_000, gleichesGenre: false, verwandtesGenre: false });
+const g3 = beef.anzaehlGewicht({ trait: 'x', meine: 10_000, seine: 10_000, gleichesGenre: false, verwandtesGenre: true });
 check('Der nahe Arrogante wiegt schwerer als der ferne Kollegiale', g1 > g2 * 5, `${g1} / ${g2}`);
+check('Anzählgewicht: gleiches Genre, gleiche Größe, arrogant', nah(g1, 3.6), `${g1}`);
+check('Anzählgewicht: verwandtes Genre, gleiche Größe, Zug ohne Bonus', nah(g3, 2.0), `${g3}`);
+check('Anzählgewicht: fremdes Genre, Gegner tausendfach größer, kollegial', nah(g2, 0.25), `${g2}`);
 
 console.log('--- Zahlen und Aktionen ---');
 check('Zwei Beef-Aktionen mit 2 h',
-  data.BEEF_AKTIONEN.length === 2 && data.BEEF_AKTIONEN.every((a) => a.time === data.BEEF_TIME && a.id && a.name && a.emoji));
+  data.BEEF_AKTIONEN.length === 2 && data.BEEF_AKTIONEN.every((a) => a.time === 2 && a.id && a.name && a.emoji));
+check('Anstacheln kostet zwei Stunden', data.BEEF_TIME === 2);
 check('Anstacheln und Frieden sind die beiden Aktionen',
   data.BEEF_AKTIONEN.map((a) => a.id).join(',') === 'anstacheln,frieden');
 check('Hitze deckelt bei 100', data.HITZE_MAX === 100);

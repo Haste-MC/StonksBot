@@ -262,7 +262,7 @@ const LINES = {
       '{name} baut deinen Namen in den Refrain ein. Falsch betont, mit Absicht.',
     ],
     ende: [
-      '{name} sagt in einem Interview, er wisse gar nicht mehr, worum es ging.',
+      '{name} hakt die Sache in einem Interview ab – das Thema sei vergessen.',
       '{name} hakt die Sache als „Kapitel" ab und spielt wieder das alte Set.',
       '{name} nimmt den Track aus dem Set. Ohne Ankündigung, ohne Erklärung.',
     ],
