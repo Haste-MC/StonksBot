@@ -1821,6 +1821,9 @@ async function buildCreatorView({ guildId, userId }) {
   if (s.boost > 0) {
     extras.push(`🐦 **Promo läuft:** nächste Aktion +${Math.round(s.boost * 100)} % Reichweite`);
   }
+  // Kontakte (5a): die Zusage eines anderen Künstlers schiebt die nächste Aktion an.
+  const kontaktSchub = schubZeile(guildId, userId, 'creator');
+  if (kontaktSchub) extras.push(kontaktSchub);
   if (s.community > 0) {
     extras.push(`💞 **Community:** ${Math.round(s.community)} ` +
       `_(−${Math.round(s.churnCut * 100)} % Schwund in Pausen)_`);
@@ -2409,11 +2412,17 @@ async function buildMusicView({ guildId, userId }) {
     });
   }
 
+  // Kontakte (5a): ein Schub aus einer Zusage wirkt auf die nächste
+  // Veröffentlichung bzw. das nächste Konzert – hier steht, dass er liegt.
+  const schuebe = [schubZeile(guildId, userId, 'release'), schubZeile(guildId, userId, 'show')]
+    .filter(Boolean);
+
   embed.addFields({
     name: '⏳ Heute',
     value: `${zeitEnergieZeile(s.budget)}\n`
       + `Studio ${s.recordMs > 0 ? `in ${require('./income').formatRemaining(s.recordMs)}` : '**frei**'} · `
-      + `Release ${s.releaseMs > 0 ? `in ${require('./income').formatRemaining(s.releaseMs)}` : '**frei**'}`,
+      + `Release ${s.releaseMs > 0 ? `in ${require('./income').formatRemaining(s.releaseMs)}` : '**frei**'}`
+      + (schuebe.length ? `\n${schuebe.join('\n')}` : ''),
   });
 
   embed.setFooter({
@@ -2639,6 +2648,278 @@ async function buildMusicDealView({ guildId, userId }) {
       new ButtonBuilder().setCustomId(`musik|${userId}`)
         .setLabel('Studio').setEmoji('🎵').setStyle(ButtonStyle.Secondary),
       homeButton(userId))],
+  };
+}
+
+// ---------------------------------------------------------------- Kontakte
+//
+// Stück 5a: Wer Musik macht oder streamt, schreibt andere Künstler an. Alle
+// Zahlen kommen fertig aus contacts.js – hier wird nur gezeigt, was dort
+// steht, und nichts gebucht.
+//
+// Zum Reaktionshaushalt (§16, MAX_REACTIONS 9): Auf Fluxer wird JEDER aktive
+// Knopf zu einer Reaktion. Fünf Kontakte + Blättern (◀️ ▶️) + Hauptmenü sind
+// schon acht – für den Filter bleibt genau einer übrig. Vier Filterknöpfe
+// nebeneinander wären elf Reaktionen, also zwei zu viel und ein Überlauf.
+// Darum schaltet EIN Knopf reihum durch die vier Filter; welcher gerade gilt,
+// steht im Titel und in der ersten Zeile.
+
+/** Die vier Filter der Liste, in der Reihenfolge, in der der Knopf durchschaltet. */
+const KONTAKT_FILTER = [
+  { id: 'alle', label: 'Alle', knopf: 'Alle zeigen' },
+  { id: 'inland', label: 'Inland', knopf: 'Nur Inland' },
+  { id: 'sprache', label: 'Meine Sprache', knopf: 'Meine Sprache' },
+  { id: 'international', label: 'International', knopf: 'Nur International' },
+];
+
+/** Beziehungsstufen, wie sie in der Anzeige heißen. */
+const DRAHT_STUFEN = {
+  beef: 'Beef', verstimmt: 'verstimmt', neutral: 'neutral',
+  bekannt: 'bekannt', partner: 'Partner',
+};
+
+/** Kurze Namen der vier Anfragearten – die vollen passen auf keinen Knopf. */
+const ANFRAGE_KURZ = {
+  reaktion: 'Reaktion', shoutout: 'Shoutout', feature: 'Feature', konzert: 'Konzert',
+};
+
+/** Worauf ein Schub wirkt – je Art der Tabelle contact_boosts. */
+const SCHUB_ZIEL = {
+  release: 'die nächste Veröffentlichung',
+  creator: 'die nächste Aktion',
+  show: 'das nächste Konzert',
+};
+
+/** Dasselbe in der Anrede – für die Meldung direkt nach einer Zusage. */
+const SCHUB_ZIEL_DEIN = {
+  release: 'deine nächste Veröffentlichung',
+  creator: 'deine nächste Aktion',
+  show: 'dein nächstes Konzert',
+};
+
+/** Ein Faktor mit zwei Nachkommastellen: „1,00", „0,60", „0,15". */
+const zweistellig = (n) => Number(n).toFixed(2).replace('.', ',');
+
+/** Der Draht als Balken: fünf Felder von 0 bis 100, negativ bleibt leer. */
+function drahtBar(draht) {
+  const n = Math.max(0, Math.min(5, Math.ceil(draht / 20)));
+  return `${'▰'.repeat(n)}${'▱'.repeat(5 - n)}`;
+}
+
+/** Restzeit einer Sperre, grob: „3 Tagen", „5 Stunden", „20 Minuten". */
+function frist(ms) {
+  if (ms >= 24 * 3600e3) {
+    const tage = Math.ceil(ms / (24 * 3600e3));
+    return `${tage} ${tage === 1 ? 'Tag' : 'Tagen'}`;
+  }
+  if (ms >= 3600e3) {
+    const h = Math.round(ms / 3600e3);
+    return `${h} ${h === 1 ? 'Stunde' : 'Stunden'}`;
+  }
+  return `${Math.max(1, Math.round(ms / 60000))} Minuten`;
+}
+
+/**
+ * Restlaufzeit eines Schubs: „48 h", „72 h", darüber „7 Tage".
+ * Die Spec spricht bei Schüben in Stunden (48 h, 72 h) – erst das Konzert
+ * läuft eine Woche, und „168 h" liest niemand.
+ */
+function restZeit(ms) {
+  if (ms >= 96 * 3600e3) return `${Math.round(ms / (24 * 3600e3))} Tage`;
+  if (ms >= 3600e3) return `${Math.round(ms / 3600e3)} h`;
+  return `${Math.max(1, Math.round(ms / 60000))} min`;
+}
+
+/**
+ * Die Zeile über einen laufenden Kontakt-Schub für Musik- und Creator-Ansicht.
+ * Ohne Schub null – die Ansicht lässt die Zeile dann weg.
+ */
+function schubZeile(guildId, userId, kind, now = Date.now()) {
+  const boost = require('./contacts').activeBoost(guildId, userId, kind, now);
+  if (!boost || !boost.contact) return null;
+  return `🤝 ${ANFRAGE_KURZ[boost.requestId] ?? 'Kontakt'} mit *${boost.contact.name}* – `
+    + `wirkt auf ${SCHUB_ZIEL[kind] ?? 'die nächste Aktion'}, noch ${restZeit(boost.restMs)}`;
+}
+
+/** Wie der Bereich heißt, über den eine Anfrage läuft (Genre oder Plattform). */
+function kontaktSparte(contact, seite) {
+  if (seite === 'creator') {
+    return require('./data/creator').PLATFORMS.find((p) => p.id === contact.platform)?.name
+      ?? 'Creator';
+  }
+  return require('./data/music').GENRES.find((g) => g.id === contact.genre)?.name ?? 'Musik';
+}
+
+/** Zurück zur Liste – die Kontaktansicht kennt Filter und Seite nicht (§6). */
+const kontakteZurueck = (userId) =>
+  new ButtonBuilder().setCustomId(`kontakte|alle|1|${userId}`)
+    .setLabel('Zurück').setEmoji('◀️').setStyle(ButtonStyle.Secondary);
+
+/**
+ * Die Liste: wen kann ich anschreiben, wie stehen die Chancen.
+ *
+ * Gezeigt werden fünf je Seite, sortiert kommt die Liste schon aus
+ * contacts.listFor (Gesperrte nach hinten, sonst beste Chance zuerst).
+ */
+async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' }) {
+  const contacts = require('./contacts');
+  const world = require('./data/world');
+  const now = Date.now();
+
+  const aktiv = KONTAKT_FILTER.find((f) => f.id === filter) ?? KONTAKT_FILTER[0];
+  const naechster = KONTAKT_FILTER[(KONTAKT_FILTER.indexOf(aktiv) + 1) % KONTAKT_FILTER.length];
+
+  const alle = contacts.listFor(guildId, userId, { filter: aktiv.id, now });
+  const perPage = 5;
+  const totalPages = Math.max(1, Math.ceil(alle.length / perPage));
+  const p = Math.min(Math.max(1, Number(page) || 1), totalPages);
+  const items = alle.slice((p - 1) * perPage, p * perPage);
+
+  // Beide Seiten mit demselben Maß wie contacts.ichFor: die Creator-Seite
+  // zählt nur mit echten Followern – `status().total` hat einen Musik-Boden
+  // und stünde sonst auch bei jemandem, der nie gestreamt hat.
+  const m = require('./music').status(guildId, userId, now);
+  const c = require('./creator').status(guildId, userId, now);
+  const hatKanal = c.platforms.some((pl) => pl.followers > 0);
+  const reichweite = [
+    m.started ? `🎵 **${m.listeners.toLocaleString('de-DE')}** Hörer` : null,
+    hatKanal ? `📡 **${c.total.toLocaleString('de-DE')}** Follower` : null,
+  ].filter(Boolean);
+
+  const zeilen = items.map((z, i) => {
+    const land = world.COUNTRIES.find((x) => x.id === z.contact.country);
+    const reach = z.seite === 'creator' ? z.contact.reachCreator : z.contact.reach;
+    const gesperrt = z.gesperrtBis > now
+      ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
+    return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
+      + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
+      + `Draht ${drahtBar(z.draht)} ${z.draht} (${DRAHT_STUFEN[z.stufe]}) · `
+      + `Chance ${pct(z.chance)}${gesperrt}`;
+  });
+
+  const embed = new EmbedBuilder()
+    .setTitle(`🤝 Kontakte · ${aktiv.label}`)
+    .setColor(0x1abc9c)
+    .setDescription(
+      (reichweite.length
+        ? `Deine Reichweite: ${reichweite.join(' · ')}`
+        : 'Noch keine Reichweite – fang erst mit 🎵 **Musik** oder einem 📡 **Kanal** an.')
+      + `\n🔎 Filter: **${aktiv.label}** · eine Anfrage kostet ⏱️ 2 Stunden\n\n`
+      + (zeilen.length ? zeilen.join('\n')
+        : '_Hier ist gerade niemand, den du anschreiben könntest._'));
+
+  embed.setFooter({
+    text: `${alle.length} ${alle.length === 1 ? 'Kontakt' : 'Kontakte'} · `
+      + '🔎 schaltet durch: Alle → Inland → Meine Sprache → International',
+  });
+
+  const rows = [];
+  if (items.length) {
+    rows.push(new ActionRowBuilder().addComponents(...items.map((z, i) =>
+      new ButtonBuilder()
+        .setCustomId(`kontakt|${z.contact.id}|${userId}`)
+        .setLabel(`${i + 1}. ${z.contact.name}`.slice(0, 40))
+        .setEmoji(z.contact.emoji)
+        .setStyle(z.gesperrtBis > now ? ButtonStyle.Secondary : ButtonStyle.Primary))));
+  }
+
+  const seite = (n) => `kontakte|${aktiv.id}|${n}|${userId}`;
+  rows.push(new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(seite(p - 1))
+      .setLabel('Zurück').setEmoji('◀️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p <= 1),
+    new ButtonBuilder().setCustomId('noop').setLabel(`${p} / ${totalPages}`)
+      .setStyle(ButtonStyle.Secondary).setDisabled(true),
+    new ButtonBuilder().setCustomId(seite(p + 1))
+      .setLabel('Weiter').setEmoji('▶️')
+      .setStyle(ButtonStyle.Secondary).setDisabled(p >= totalPages),
+    new ButtonBuilder().setCustomId(`kontakte|${naechster.id}|1|${userId}`)
+      .setLabel(naechster.knopf).setEmoji('🔎').setStyle(ButtonStyle.Secondary),
+    homeButton(userId)));
+
+  return { embeds: [embed], components: rows };
+}
+
+/**
+ * Ein einzelner Kontakt: wer er ist, wie ihr steht, was du fragen kannst.
+ *
+ * Die vier Knöpfe tragen die Chance im Namen – man soll sehen, was ein
+ * Versuch wert ist, bevor er zwei Stunden kostet.
+ */
+async function buildKontaktView({ guildId, userId, contactId }) {
+  const contacts = require('./contacts');
+  const world = require('./data/world');
+  const now = Date.now();
+
+  const d = contacts.detail(guildId, userId, contactId, now);
+  // §6: Eine veraltete Knopf-ID darf nichts Falsches öffnen – lieber abweisen.
+  if (!d) {
+    return {
+      embeds: [new EmbedBuilder().setTitle('🤝 Kontakte').setColor(0x95a5a6)
+        .setDescription('❌ Diesen Kontakt gibt es nicht (mehr).')],
+      components: [new ActionRowBuilder().addComponents(
+        kontakteZurueck(userId), homeButton(userId))],
+    };
+  }
+
+  const c = d.contact;
+  const seite = d.seite ?? (c.kind === 'creator' ? 'creator' : 'musik');
+  const land = world.COUNTRIES.find((x) => x.id === c.country);
+  const gesperrt = d.gesperrtBis > now;
+
+  const kopf = [
+    `_${c.blurb}_`,
+    '',
+    `🌍 ${land?.flag ?? '🌍'} ${c.language} · ${kontaktSparte(c, seite)} · `
+      + `Reichweite ${short(d.seineReichweite)}`,
+    `🤝 Draht ${drahtBar(d.draht)} ${d.draht} (${DRAHT_STUFEN[d.stufe]}) · `
+      + `${d.tries} ${d.tries === 1 ? 'Versuch' : 'Versuche'}, `
+      + `${d.yes} ${d.yes === 1 ? 'Zusage' : 'Zusagen'}`,
+    `🎯 Passung ${pct(d.passung)} _(Sprache ×${zweistellig(d.sprachfaktor)} · `
+      + `${seite === 'creator' ? 'Plattform' : 'Genre'} ×${zweistellig(d.genrefaktor)})_`,
+  ];
+  if (d.seite) {
+    kopf.push(`${d.seite === 'creator' ? '📡' : '🎵'} Läuft über deine `
+      + `${d.seite === 'creator' ? 'Creator-Seite' : 'Musikseite'} · `
+      + `deine Reichweite ${short(d.meineReichweite)}`);
+  } else {
+    kopf.push('❌ Dafür fehlt dir die passende Karriere.');
+  }
+  if (d.partner) kopf.push('⭐ Fester Partner – das öffnet Türen im Umfeld.');
+  if (d.tuerOeffner > 0) {
+    kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in seinem Umfeld.`);
+  }
+  if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
+
+  const grundText = (r) => ({
+    seite: '🔒 passende Karriere fehlt',
+    draht: `🔒 Draht ${r.minDraht} nötig`,
+    gesperrt: '🔒 gesperrt',
+  }[r.grund] ?? `Chance **${pct(r.chance)}**`);
+
+  const embed = new EmbedBuilder()
+    .setTitle(`${c.emoji} ${c.name}`)
+    .setColor(gesperrt ? 0x95a5a6 : 0x1abc9c)
+    .setDescription(kopf.join('\n'))
+    .addFields({
+      name: '✉️ Worum du bitten kannst',
+      value: d.requests.map((r) =>
+        `${r.emoji} **${r.name}** · ⏱️ ${r.time} h · ${grundText(r)}`).join('\n'),
+    })
+    .setFooter({ text: 'Jeder Versuch kostet zwei Stunden – auch wenn nie eine Antwort kommt.' });
+
+  return {
+    embeds: [embed],
+    components: [
+      new ActionRowBuilder().addComponents(...d.requests.map((r) =>
+        new ButtonBuilder()
+          .setCustomId(`kanfrage|${c.id}-${r.id}|${userId}`)
+          .setLabel(`${ANFRAGE_KURZ[r.id] ?? r.id} ${pct(r.chance)}`)
+          .setEmoji(r.emoji)
+          .setStyle(r.id === 'feature' ? ButtonStyle.Success : ButtonStyle.Secondary)
+          .setDisabled(!r.moeglich))),
+      new ActionRowBuilder().addComponents(kontakteZurueck(userId), homeButton(userId)),
+    ],
   };
 }
 
@@ -5095,6 +5376,8 @@ module.exports = {
   buildInboxView, buildProfileView, buildTitleView, buildLeaderboardView, buildTreasuryView,
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
+  buildKontakteView, buildKontaktView,
+  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };

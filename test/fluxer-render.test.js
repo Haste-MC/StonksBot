@@ -1033,6 +1033,145 @@ function view(buttons) {
   check('und kommt beim Handler an', answered.answer === '500', JSON.stringify(answered));
   check('die Frage ist danach zu', prompt.pending() === 0, String(prompt.pending()));
 
+  console.log('--- Kontakte (Spec 5a: Anzeige) ---');
+  /*
+   * Die Anzeige der Kontakte hat eine harte Grenze: Auf Fluxer wird jeder
+   * aktive Knopf zu einer Reaktion, und mehr als neun gibt es nicht (§16).
+   * Fünf Kontakte + Blättern + Hauptmenü sind acht – der Filter darf also
+   * genau ein Knopf sein. Deshalb wird hier auf JEDER der drei Ansichten
+   * geprüft, dass nichts abgeschnitten wird (`overflow === undefined`).
+   */
+  {
+    const ui = require('../src/ui');
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const { kontaktNote } = require('../src/buttons');
+    const KG = `KON_T${Date.now()}`;
+    const KU = 'kon_user';
+    const jetzt = Date.now();
+    // Ein deutscher Rapper mit 10.000 Hörern – damit hat er eine Musikseite,
+    // aber keine Creator-Seite, und die Liste ist voll.
+    await home.setHome(KG, KU, 'de');
+    home.setLanguage(KG, KU, 'deutsch');
+    music.setup(KG, KU, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG, KU, { ...db.getArtist(KG, KU, jetzt), listeners: 10_000 });
+
+    const liste = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 1, filter: 'alle' });
+    const lEmbed = liste.embeds[0].toJSON();
+    check('Liste heißt „🤝 Kontakte"', lEmbed.title.startsWith('🤝 Kontakte'), lEmbed.title);
+    check('Liste nennt die eigene Reichweite', lEmbed.description.includes('10.000') && lEmbed.description.includes('Hörer'),
+      lEmbed.description.split('\n')[0]);
+    check('fünf Zeilen mit Draht, Stufe und Chance',
+      lEmbed.description.split('\n').filter((z) => z.includes('Draht ') && z.includes('Chance ')).length === 5,
+      lEmbed.description);
+    const lRows = liste.components.map((r) => r.toJSON().components);
+    check('fünf Kontakt-Knöpfe, nummeriert',
+      lRows[0].length === 5 && lRows[0].every((b, i) => b.label.startsWith(`${i + 1}. `)
+        && b.custom_id.startsWith('kontakt|')), lRows[0].map((b) => b.label).join(' | '));
+    check('Seiten, Filter und Hauptmenü in einer Zeile',
+      lRows[1].map((b) => b.custom_id).join(' ') === `kontakte|alle|0|${KU} noop kontakte|alle|2|${KU} kontakte|inland|1|${KU} home|${KU}`,
+      lRows[1].map((b) => b.custom_id).join(' '));
+    check('auf Seite 1 ist „Zurück" gesperrt', lRows[1][0].disabled === true);
+    check('Liste hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(liste).overflow === undefined, String(render.mapReactions(liste).overflow));
+
+    // Der Filterknopf schaltet reihum – vier Knöpfe nebeneinander sprengten
+    // den Reaktionshaushalt, erreichbar bleiben trotzdem alle vier Filter.
+    const inland = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 1, filter: 'inland' });
+    const iEmbed = inland.embeds[0].toJSON();
+    check('Filter Inland zeigt nur deutsche Kontakte',
+      iEmbed.description.split('\n').filter((z) => z.startsWith('**')).every((z) => z.includes('🇩🇪')),
+      iEmbed.description);
+    check('der Filterknopf schaltet weiter zu „Meine Sprache"',
+      inland.components[1].toJSON().components.some((b) => b.custom_id === `kontakte|sprache|1|${KU}`));
+    check('Filter-Ansicht hält das Fluxer-Limit',
+      render.mapReactions(inland).overflow === undefined, String(render.mapReactions(inland).overflow));
+
+    // Blättern: Seite 2 zeigt andere Kontakte, beide Pfeile sind offen.
+    const seite2 = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 2, filter: 'alle' });
+    const knopf = (v, i) => v.components[0].toJSON().components[i].custom_id;
+    check('Seite 2 zeigt andere Kontakte', knopf(seite2, 0) !== knopf(liste, 0),
+      `${knopf(seite2, 0)} vs ${knopf(liste, 0)}`);
+    const s2nav = seite2.components[1].toJSON().components;
+    check('auf Seite 2 gehen beide Pfeile', s2nav[0].disabled !== true && s2nav[2].disabled !== true);
+    check('Seite 2 hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(seite2).overflow === undefined,
+      `${render.mapReactions(seite2).length} / ${render.mapReactions(seite2).overflow}`);
+    // Seite 99 gibt es nicht – sie darf nicht leer sein (alte Knopf-IDs, §6).
+    const seite99 = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 99, filter: 'alle' });
+    check('Seite 99 landet auf der letzten Seite',
+      seite99.components[0].toJSON().components.length > 0);
+
+    // Kontaktansicht: die Konzert-Anfrage braucht Draht 20 und ist gesperrt.
+    const klein = cdata.CONTACTS.find((c) => c.id === 'lilpfand');
+    const kontakt = await ui.buildKontaktView({ guildId: KG, userId: KU, contactId: klein.id });
+    const kEmbed = kontakt.embeds[0].toJSON();
+    check('Kontaktansicht zeigt Blurb, Sprache, Genre und Reichweite',
+      kEmbed.description.includes(klein.blurb) && kEmbed.description.includes('🇩🇪 deutsch · Hip-Hop')
+      && kEmbed.description.includes('Reichweite'), kEmbed.description);
+    check('Draht, Historie und Passung stehen da',
+      kEmbed.description.includes('🤝 Draht ▱▱▱▱▱ 0 (neutral) · 0 Versuche, 0 Zusagen')
+      && kEmbed.description.includes('🎯 Passung 100 %'), kEmbed.description);
+    const kRow = kontakt.components[0].toJSON().components;
+    check('vier Anfrage-Knöpfe mit Prozent im Namen',
+      kRow.length === 4 && kRow.every((b) => / \d+ %$/.test(b.label)), kRow.map((b) => b.label).join(' | '));
+    check('das Konzert ist ohne Draht 20 gesperrt',
+      kRow[3].custom_id === `kanfrage|${klein.id}-konzert|${KU}` && kRow[3].disabled === true,
+      JSON.stringify(kRow[3]));
+    check('Grund steht auch im Text', kEmbed.fields[0].value.includes('Draht 20 nötig'),
+      kEmbed.fields[0].value);
+    check('Zurück und Hauptmenü', kontakt.components[1].toJSON().components
+      .map((b) => b.custom_id).join(' ') === `kontakte|alle|1|${KU} home|${KU}`);
+    check('Kontaktansicht hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(kontakt).overflow === undefined, String(render.mapReactions(kontakt).overflow));
+    const alt = await ui.buildKontaktView({ guildId: KG, userId: KU, contactId: 'gibtsnichtmehr' });
+    check('eine veraltete Knopf-ID öffnet nichts Falsches (§6)',
+      alt.embeds[0].toJSON().description.includes('gibt es nicht'),
+      alt.embeds[0].toJSON().description);
+
+    // Antwortmeldung: Zusage (Würfel trifft, zweiter Wurf landet auf „zusage").
+    const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
+    const zusage = contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1, 0.9, 0));
+    check('der Wurf ergibt eine Zusage', zusage.ok && zusage.antwort === 'zusage',
+      JSON.stringify({ ok: zusage.ok, antwort: zusage.antwort }));
+    const zNote = kontaktNote(zusage, jetzt);
+    check('Meldung: Stufe, Text des Kontakts, Schub, Draht und Sperre',
+      zNote.includes('Zusage!') && zNote.includes(zusage.text)
+      && /🤝 Wirkt auf deine nächste Veröffentlichung: ×\d+,\d, noch 48 h/.test(zNote)
+      && zNote.includes('🤝 Draht ▰▱▱▱▱ **12** (+12,')
+      && zNote.includes('Wieder erreichbar in 3 Tagen'), zNote);
+
+    // Schub-Zeile in der Musikansicht.
+    const studio = await ui.buildMusicView({ guildId: KG, userId: KU });
+    const heute = studio.embeds[0].toJSON().fields.find((f) => f.name === '⏳ Heute').value;
+    check('die Musikansicht zeigt den laufenden Schub',
+      heute.includes(`🤝 Shoutout mit *${klein.name}* – wirkt auf die nächste Veröffentlichung, noch 48 h`),
+      heute);
+
+    // Antwortmeldung: ignoriert – kein Schub, aber sieben Tage Sperre.
+    const star = cdata.CONTACTS.find((c) => c.reach >= 100_000_000);
+    const nein = contacts.request(KG, KU, star.id, 'feature', jetzt, wuerfel(0.999));
+    check('der Weltstar sagt nichts zu', nein.ok && nein.antwort === 'ignoriert',
+      JSON.stringify({ ok: nein.ok, antwort: nein.antwort, reason: nein.reason }));
+    const nNote = kontaktNote(nein, jetzt);
+    check('Meldung ohne Schub, mit Sperre von sieben Tagen',
+      !nNote.includes('Wirkt auf') && nNote.includes('Wieder erreichbar in 7 Tagen')
+      && nNote.includes('(-1,'), nNote);
+
+    // Fehlerfälle – Wortlaut aus der Spec.
+    check('gesperrt: „Melde dich in … wieder."',
+      kontaktNote(contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1)), jetzt)
+        === '⏳ Melde dich in 3 Tagen wieder.');
+    check('zu wenig Draht nennt die nötige Zahl',
+      kontaktNote(contacts.request(KG, KU, 'ninachuba', 'konzert', jetzt, wuerfel(0.1)), jetzt)
+        === '🤝 Dafür kennt ihr euch noch nicht gut genug (Draht 20 nötig).');
+    check('unbekannter Kontakt wird abgewiesen statt verwechselt',
+      kontaktNote(contacts.request(KG, KU, 'gibtsnichtmehr', 'shoutout', jetzt, wuerfel(0.1)), jetzt)
+        .includes('gibt es nicht'));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

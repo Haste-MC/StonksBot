@@ -119,6 +119,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildMusicView(ctx),
   },
   {
+    id: 'kontakte',
+    group: 'work',
+    label: 'Kontakte',
+    emoji: '🤝',
+    description: 'Andere Künstler anschreiben',
+    style: 'secondary',
+    build: (ctx) => ui.buildKontakteView(ctx),
+  },
+  {
     id: 'gear',
     group: 'work',
     label: 'Ausrüstung',
