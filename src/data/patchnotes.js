@@ -18,6 +18,19 @@
  */
 module.exports = [
   {
+    version: '1.39.0',
+    date: '2026-09-25',
+    title: '🤝 Kontakte',
+    lines: [
+      '🤝 **Schreib andere Künstler an.** Neuer Menüeintrag „Kontakte": eine Liste bekannter Musikerinnen, Musiker und Creator – gefiltert nach Inland, deiner Sprache oder international. Jede Anfrage kostet zwei Stunden deines Tages, danach ist derselbe Kontakt drei Tage dicht; wer dich ignoriert hat, sieben. Die zwei Stunden sind auch dann weg, wenn nie eine Antwort kommt – der Abend ist hin.',
+      '💬 **Vier Bitten, drei Antwortstufen.** Du kannst um eine Reaktion bitten, um eine Erwähnung, um eine gemeinsame Sache – und ab „bekannt" um einen gemeinsamen Auftritt. Zurück kommt ein flüchtiges Emoji, eine echte Antwort oder eine Zusage, jeweils im Ton des Kontakts. Wie wahrscheinlich das ist, steht als Prozentzahl auf dem Knopf: deine Reichweite gegen seine, Sprache, Land, Genre, dein Hype, sein Charakter und euer bisheriger Draht zählen alle mit.',
+      '🔗 **Der Draht wächst – und kühlt ab.** Eine Zusage bringt zwölf Punkte, eine echte Antwort sechs, ein Emoji zwei; wer zu oft nervt, verliert welche. Ohne Kontakt kühlt die Beziehung um zwei Punkte je Woche ab. Ab 20 bist du „bekannt" (die gemeinsame Bühne wird möglich), ab 50 „Partner" – und wer in einem Land oder Genre schon Partner hat, wird dort auch bei anderen eher durchgestellt.',
+      '🚀 **Was eine Antwort bringt.** Sie schiebt genau EINE nächste Sache an: deine nächste Veröffentlichung oder Kanalaktion erreicht mehr Publikum, ein zugesagter Auftritt bringt sein Publikum zu EINER Gage mit (höchstens so viele Hörer, wie du selbst hast). Danach ist der Schub weg – er hält sich nicht auf Vorrat, zwei Schübe derselben Art stapeln nicht (der stärkere bleibt liegen), und keine Obergrenze im Spiel wird dadurch höher.',
+      '🌍 **Passung entscheidet über alles.** Gleiche Sprache und gleiches Genre zählen voll, Englisch dazwischen gut die Hälfte, alles andere fast nichts – bei Creatorn zählt statt des Genres die Plattform. Bei sonst gleichem Gegenüber heißt das: Wer zu dir passt, schreibt weit öfter zurück als jeder Zweite (63,7 %) und schiebt deine nächste Veröffentlichung um gut die Hälfte mehr Publikum an; wer nicht zu dir passt, antwortet nur jedem Dritten – und sein Ja ist kaum noch zu spüren. Ein deutscher Rapper mit 500.000 Hörern landet beim J-Pop-Weltstar in Japan bei 2,0 %, der Untergrenze: fremde Sprache, fremdes Genre, anderes Land und ein Gegenüber, das dreißigmal so groß ist.',
+      '⏳ **Zeit ist der Preis, und der ist echt.** Gemessen über ein Jahr (10 Läufe, fester Würfel): Wer als Musiker mit Kanal jeden Tag zwei Stunden in Kontakte steckt statt in eine Aktion, nimmt am Ende 341.705 am Tag ein statt 372.788 – **8,3 % weniger**. Gut sechs von zehn Anfragen bleiben unbeantwortet, und die zwei Stunden fehlen jeden Tag im Kanalprogramm. (Wer nur Kanäle macht, liegt 4,8 % darunter – so wenig, dass die Messung es nicht sauber von null trennen kann.) Kontakte sind Würze, kein Job: Schreib jemanden an, wenn die Chance gut steht und die Passung stimmt, nicht aus Gewohnheit.',
+    ],
+  },
+  {
     version: '1.38.0',
     date: '2026-09-24',
     title: '🏢 Firmen: mehrere und wertvoll',

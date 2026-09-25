@@ -22,6 +22,8 @@ const {
   buildLanguageView, buildLanguageConfirm, money, faktor, buildConfirmView,
   buildFirmaView, buildFirmenView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
+  buildKontakteView, buildKontaktView, frist, restZeit, drahtBar,
+  DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -459,6 +461,67 @@ async function shiftResult(interaction, result) {
   }
 
   return { embeds: [embed] };
+}
+
+/**
+ * ===========================================================================
+ *  KONTAKTE – die Meldung nach einer Anfrage
+ * ===========================================================================
+ *
+ * Alles, was `contacts.request` zurückgibt, in einen ephemeren Text: die
+ * Stufe der Antwort, der Satz des Kontakts, der gesetzte Schub, die
+ * Drahtbewegung und die Sperre. Gebucht wird hier nichts mehr.
+ */
+const KONTAKT_ANTWORT = {
+  zusage: { emoji: '🤝', titel: 'Zusage!' },
+  echt: { emoji: '💬', titel: 'Eine echte Antwort.' },
+  fluechtig: { emoji: '👍', titel: 'Nur ein kurzes Zeichen.' },
+  // „ignoriert" heißt im Modell: keine Zusage. Die Texte dazu (LINES[...].nein)
+  // sind Absagen – ein Titel „Keine Antwort" würde ihnen widersprechen.
+  ignoriert: { emoji: '🚫', titel: 'Keine Zusage.' },
+};
+
+function kontaktNote(res, now = Date.now()) {
+  if (!res.ok) {
+    if (res.reason === 'gesperrt') return `⏳ Melde dich in ${frist(res.remainingMs)} wieder.`;
+    if (res.reason === 'draht') {
+      return `🤝 Dafür kennt ihr euch noch nicht gut genug (Draht ${res.need} nötig).`;
+    }
+    if (res.reason === 'seite') return '❌ Dafür fehlt dir die passende Karriere.';
+    if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
+    // `no_time` heißt nicht erschöpft, sondern: der Tag ist voll. Genau so
+    // steht es auch bei Studio, Release und Konzert.
+    if (res.reason === 'no_time') {
+      return `😴 Eine Anfrage kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
+    }
+    if (res.reason === 'unknown') return '❌ Diesen Kontakt gibt es nicht (mehr).';
+    return '❌ Das ging nicht.';
+  }
+
+  const stufe = KONTAKT_ANTWORT[res.antwort] ?? KONTAKT_ANTWORT.ignoriert;
+  const zeilen = [`${stufe.emoji} **${res.contact.name}** – ${stufe.titel}`];
+  if (res.text) zeilen.push(`_${res.text}_`);
+
+  if (res.boost && res.boost.neu === false) {
+    // Gestapelt wird nie: Ein mindestens gleich starker Schub derselben Art
+    // läuft schon, dieser hier verpufft. Das gehört gesagt, nicht verschwiegen.
+    zeilen.push('🤝 Ein mindestens gleich starker Schub läuft schon – dieser hier wirkt nicht.');
+  } else if (res.boost && res.boost.kind === 'show') {
+    zeilen.push(`🤝 Wirkt auf ${SCHUB_ZIEL_DEIN.show}: `
+      + `**+${Math.round(res.boost.extra).toLocaleString('de-DE')}** Hörer für die Gage, `
+      + `noch ${restZeit(res.boost.restMs)}`);
+  } else if (res.boost) {
+    zeilen.push(`🤝 Wirkt auf ${SCHUB_ZIEL_DEIN[res.boost.kind] ?? 'deine nächste Aktion'}: `
+      + `×${res.boost.factor.toFixed(1).replace('.', ',')}, noch ${restZeit(res.boost.restMs)}`);
+  }
+
+  zeilen.push(`🤝 Draht ${drahtBar(res.draht)} **${res.draht}** `
+    + `(${res.delta >= 0 ? '+' : ''}${res.delta}, ${DRAHT_STUFEN[res.stufe]})`);
+  if (res.partnerNeu) zeilen.push('⭐ Ihr seid ab jetzt feste Partner.');
+  zeilen.push(`⏳ Wieder erreichbar in ${frist(res.gesperrtBis - now)} `
+    + `· ⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
+
+  return zeilen.join('\n');
 }
 
 function parseId(customId) {
@@ -2005,6 +2068,10 @@ Object.assign(buttons, {
         `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · ` +
         `Hörer: **${res.listeners.toLocaleString('de-DE')}** ` +
         `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+      // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
+      // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
+      const schub = schubGewirkt(res.kontakt);
+      if (schub) note += `\n${schub}`;
       if (res.position) note += `\n🏆 **Charts: Platz ${res.position}** – _${res.text}_`;
       if (res.spill > 0) {
         note += `\n🔗 Deine Kanäle wachsen mit: **+${res.spill}** je Plattform.`;
@@ -2050,10 +2117,18 @@ Object.assign(buttons, {
       } else note = '🎤 Starte zuerst deine Karriere.';
     } else if (res.cancelled) {
       note = `${res.event.text}\n_Keine Gage, kein Publikum – aber die Tour-Pause läuft._`;
+      // Der Schub wurde vor dem Ereigniswürfel verbraucht (src/music.js) – er
+      // ist also weg, auch wenn das Konzert ausfällt.
+      const schub = schubGewirkt(res.kontakt, 0);
+      if (schub) note += `\n${schub}`;
     } else {
       note = `🎤 _${res.text}_\n💰 **${money(symbol, res.amount)}**` +
         (res.cut > 0 ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : '') +
         `\n👂 **+${res.gained.toLocaleString('de-DE')}** Hörer, die dich live gesehen haben.`;
+      // Kontakte (5a): Was der zugesagte Auftritt an Publikum mitgebracht hat –
+      // `extraHoerer` ist die gedeckelte Zahl, die wirklich für die Gage zählte.
+      const schub = schubGewirkt(res.kontakt, res.extraHoerer ?? 0);
+      if (schub) note += `\n${schub}`;
       if (res.event) note += `\n${res.event.text}`;
     }
     if (res.ok) note += incidentNote(res.incident);
@@ -2079,6 +2154,45 @@ Object.assign(buttons, {
         'Abrufen. Zurück geht es jetzt nicht mehr.'
       : (problems[res.reason] ?? '❌ Das ging nicht.');
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+  },
+
+  /**
+   * Die Kontaktliste: blättern und den Filter weiterschalten.
+   * `kontakte|<filter>|<seite>|<uid>` – die ID trägt alles, was die Ansicht
+   * braucht (§6), ein unbekannter Filter fällt auf „Alle" zurück.
+   */
+  async kontakte(interaction, [filter, page]) {
+    await interaction.update(await buildKontakteView({
+      guildId: gid(interaction), userId: uid(interaction),
+      filter, page: Number(page) || 1,
+    }));
+  },
+
+  /** Ein einzelner Kontakt: `kontakt|<id>|<uid>`. */
+  async kontakt(interaction, [contactId]) {
+    await interaction.update(await buildKontaktView({
+      guildId: gid(interaction), userId: uid(interaction), contactId,
+    }));
+  },
+
+  /**
+   * Jemanden anschreiben: `kanfrage|<kontakt>-<anfrage>|<uid>`.
+   *
+   * Getrennt wird am LETZTEN Bindestrich – die vier Anfrage-IDs haben keinen,
+   * eine Kontakt-ID dürfte irgendwann einen bekommen.
+   */
+  async kanfrage(interaction, [arg]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const trenner = String(arg ?? '').lastIndexOf('-');
+    const contactId = trenner > 0 ? String(arg).slice(0, trenner) : String(arg ?? '');
+    const requestId = trenner > 0 ? String(arg).slice(trenner + 1) : '';
+
+    const res = require('./contacts').request(guildId, userId, contactId, requestId);
+    await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
+    await interaction.followUp({ content: kontaktNote(res), flags: MessageFlags.Ephemeral })
+      .catch(() => {});
   },
 
   /** Firma: Aktionen des Inhabers. */
@@ -3138,5 +3252,5 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge, settleMusic,
+  homeNudge, settleMusic, kontaktNote,
 };

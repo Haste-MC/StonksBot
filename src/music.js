@@ -502,6 +502,11 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     : useTime(guildId, userId, type.time, now);
   if (!time.ok) return { ok: false, reason: time.reason, need: type.time, release: type, ...time };
 
+  // Ein Schub aus einer Zusage wirkt auf GENAU diese Veröffentlichung: gelesen,
+  // angewandt, gelöscht (src/contacts.js). Erst hier, damit ein abgebrochener
+  // Versuch – kein Titel, Sperre, keine Zeit – ihn nicht verbraucht.
+  const kb = require('./contacts').consumeBoost(guildId, userId, 'release', now);
+
   const market = marketOf(guildId, userId);
   const g = genre(row.genre);
   const p = persona(row.persona);
@@ -516,7 +521,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const sim = simulateRelease(row, {
     type, genre: g, persona: p, market, idol,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
-    audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor,
+    audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor * (kb?.factor ?? 1),
   });
 
   const { audience, gained, lost, listeners, buzz, position } = sim;
@@ -532,7 +537,10 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     buzz,
     best_chart: best,
     peak_listeners: Math.max(row.peak_listeners, Math.round(listeners)),
-    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1)),
+    // `extra` ist hier der Hype-Zuschlag eines Features. Auf der `show`-Art
+    // zählt `extra` Hörer und fängt bei 0 an – darum `|| 1` statt `?? 1`,
+    // sonst risse eine Zeile ohne Zuschlag den Hype auf HYPE_MIN herunter.
+    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1) * (kb?.extra || 1)),
     last_action_at: now, last_release_at: now, touched_at: now,
     paid_through: row.paid_through || now,
   });
@@ -563,6 +571,11 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     spill, spilled, offer, time,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
     incident,
+    kontakt: kb ? {
+      id: kb.contact?.id ?? '', name: kb.contact?.name ?? '',
+      request: kb.request?.name ?? kb.requestId,
+      requestId: kb.requestId, factor: kb.factor, extra: kb.extra,
+    } : null,
     songsLeft: row.songs - type.songs,
     text: charted
       ? pick(data.CHART_NEWS, random).replace('{platz}', String(position))
@@ -593,6 +606,12 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   const time = useTime(guildId, userId, SHOW_TIME, now);
   if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time };
 
+  // Ein zugesagter Auftritt bringt sein Publikum mit – einmal, für diese Gage.
+  // Mehr als die eigene Hörerschaft zählt nicht. Die Gage wächst deshalb um
+  // höchstens 2^0,7 = +62 %, nicht aufs Doppelte: Sie hängt an Hörer^0,7 (§3).
+  const kb = require('./contacts').consumeBoost(guildId, userId, 'show', now);
+  const extraHoerer = Math.min(before.listeners, kb?.extra ?? 0);
+
   const g = genre(row.genre);
   const p = persona(row.persona);
   const contract = db.activeContract(guildId, userId);
@@ -602,7 +621,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   const event = events ? rollMusicEvent('show', g, random) : NO_EVENT;
   const quality = (0.75 + random() * 0.6) * time.factor;   // Gage und Zuwachs hängen daran
   const gross = Math.round(
-    Math.pow(before.listeners, SHOW_EXP) * SHOW_PAY
+    Math.pow(before.listeners + extraHoerer, SHOW_EXP) * SHOW_PAY
     * market.scene * market.deal * g.live * p.live * quality
     * (idol ? idol.liveBonus : 1)
     * (event.pay ?? 1));
@@ -635,7 +654,12 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   return {
     ok: true, gross, cut, amount: net, gained, quality, factor: time.factor, genre: g,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
-    incident, cancelled,
+    incident, cancelled, extraHoerer,
+    kontakt: kb ? {
+      id: kb.contact?.id ?? '', name: kb.contact?.name ?? '',
+      request: kb.request?.name ?? kb.requestId,
+      requestId: kb.requestId, extra: kb.extra,
+    } : null,
     text: pick(data.SHOWS, random), balance, time,
     listeners: Math.round(before.listeners + gained),
   };

@@ -1033,6 +1033,343 @@ function view(buttons) {
   check('und kommt beim Handler an', answered.answer === '500', JSON.stringify(answered));
   check('die Frage ist danach zu', prompt.pending() === 0, String(prompt.pending()));
 
+  console.log('--- Kontakte (Spec 5a: Anzeige) ---');
+  /*
+   * Die Anzeige der Kontakte hat eine harte Grenze: Auf Fluxer wird jeder
+   * aktive Knopf zu einer Reaktion, und mehr als neun gibt es nicht (§16).
+   * Fünf Kontakte + Blättern + Hauptmenü sind acht – der Filter darf also
+   * genau ein Knopf sein. Deshalb wird hier auf JEDER der drei Ansichten
+   * geprüft, dass nichts abgeschnitten wird (`overflow === undefined`).
+   */
+  {
+    const ui = require('../src/ui');
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const { kontaktNote } = require('../src/buttons');
+    const KG = `KON_T${Date.now()}`;
+    const KU = 'kon_user';
+    const jetzt = Date.now();
+    // Ein deutscher Rapper mit 10.000 Hörern – damit hat er eine Musikseite,
+    // aber keine Creator-Seite, und die Liste ist voll.
+    await home.setHome(KG, KU, 'de');
+    home.setLanguage(KG, KU, 'deutsch');
+    music.setup(KG, KU, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG, KU, { ...db.getArtist(KG, KU, jetzt), listeners: 10_000 });
+
+    const liste = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 1, filter: 'alle' });
+    const lEmbed = liste.embeds[0].toJSON();
+    check('Liste heißt „🤝 Kontakte"', lEmbed.title.startsWith('🤝 Kontakte'), lEmbed.title);
+    check('Liste nennt die eigene Reichweite', lEmbed.description.includes('10.000') && lEmbed.description.includes('Hörer'),
+      lEmbed.description.split('\n')[0]);
+    // Die Chance der Liste ist die einer BESTIMMTEN Anfrageart – ohne den
+    // Namen dahinter passt sie zu keiner der vier Zahlen einen Klick später.
+    check('fünf Zeilen mit Draht, Stufe und benannter Chance',
+      lEmbed.description.split('\n')
+        .filter((z) => z.includes('Draht ') && z.includes('Chance (Shoutout) ')).length === 5,
+      lEmbed.description);
+    const lRows = liste.components.map((r) => r.toJSON().components);
+    check('fünf Kontakt-Knöpfe, nummeriert',
+      lRows[0].length === 5 && lRows[0].every((b, i) => b.label.startsWith(`${i + 1}. `)
+        && b.custom_id.startsWith('kontakt|')), lRows[0].map((b) => b.label).join(' | '));
+    check('Seiten, Filter und Hauptmenü in einer Zeile',
+      lRows[1].map((b) => b.custom_id).join(' ') === `kontakte|alle|0|${KU} noop kontakte|alle|2|${KU} kontakte|inland|1|${KU} home|${KU}`,
+      lRows[1].map((b) => b.custom_id).join(' '));
+    check('auf Seite 1 ist „Zurück" gesperrt', lRows[1][0].disabled === true);
+    check('Liste hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(liste).overflow === undefined, String(render.mapReactions(liste).overflow));
+
+    // Der Filterknopf schaltet reihum – vier Knöpfe nebeneinander sprengten
+    // den Reaktionshaushalt, erreichbar bleiben trotzdem alle vier Filter.
+    const inland = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 1, filter: 'inland' });
+    const iEmbed = inland.embeds[0].toJSON();
+    check('Filter Inland zeigt nur deutsche Kontakte',
+      iEmbed.description.split('\n').filter((z) => z.startsWith('**')).every((z) => z.includes('🇩🇪')),
+      iEmbed.description);
+    check('der Filterknopf schaltet weiter zu „Meine Sprache"',
+      inland.components[1].toJSON().components.some((b) => b.custom_id === `kontakte|sprache|1|${KU}`));
+    check('Filter-Ansicht hält das Fluxer-Limit',
+      render.mapReactions(inland).overflow === undefined, String(render.mapReactions(inland).overflow));
+
+    // Blättern: Seite 2 zeigt andere Kontakte, beide Pfeile sind offen.
+    const seite2 = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 2, filter: 'alle' });
+    const knopf = (v, i) => v.components[0].toJSON().components[i].custom_id;
+    check('Seite 2 zeigt andere Kontakte', knopf(seite2, 0) !== knopf(liste, 0),
+      `${knopf(seite2, 0)} vs ${knopf(liste, 0)}`);
+    const s2nav = seite2.components[1].toJSON().components;
+    check('auf Seite 2 gehen beide Pfeile', s2nav[0].disabled !== true && s2nav[2].disabled !== true);
+    check('Seite 2 hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(seite2).overflow === undefined,
+      `${render.mapReactions(seite2).length} / ${render.mapReactions(seite2).overflow}`);
+    // Seite 99 gibt es nicht – sie darf nicht leer sein (alte Knopf-IDs, §6).
+    const seite99 = await ui.buildKontakteView({ guildId: KG, userId: KU, page: 99, filter: 'alle' });
+    check('Seite 99 landet auf der letzten Seite',
+      seite99.components[0].toJSON().components.length > 0);
+
+    // Kontaktansicht: die Konzert-Anfrage braucht Draht 20 und ist gesperrt.
+    const klein = cdata.CONTACTS.find((c) => c.id === 'lilpfand');
+    const kontakt = await ui.buildKontaktView({ guildId: KG, userId: KU, contactId: klein.id });
+    const kEmbed = kontakt.embeds[0].toJSON();
+    check('Kontaktansicht zeigt Blurb, Sprache, Genre und Reichweite',
+      kEmbed.description.includes(klein.blurb) && kEmbed.description.includes('🇩🇪 deutsch · Hip-Hop')
+      && kEmbed.description.includes('Reichweite'), kEmbed.description);
+    check('Draht, Historie und Passung stehen da',
+      kEmbed.description.includes('🤝 Draht ▱▱▱▱▱ 0 (neutral) · 0 Versuche, 0 Zusagen')
+      && kEmbed.description.includes('🎯 Passung 100 %'), kEmbed.description);
+    const kRow = kontakt.components[0].toJSON().components;
+    check('vier Anfrage-Knöpfe mit Prozent im Namen',
+      kRow.length === 4 && kRow.every((b) => / \d+ %$/.test(b.label)), kRow.map((b) => b.label).join(' | '));
+    check('das Konzert ist ohne Draht 20 gesperrt',
+      kRow[3].custom_id === `kanfrage|${klein.id}-konzert|${KU}` && kRow[3].disabled === true,
+      JSON.stringify(kRow[3]));
+    check('Grund steht auch im Text', kEmbed.fields[0].value.includes('Draht 20 nötig'),
+      kEmbed.fields[0].value);
+    check('Zurück und Hauptmenü', kontakt.components[1].toJSON().components
+      .map((b) => b.custom_id).join(' ') === `kontakte|alle|1|${KU} home|${KU}`);
+    check('Kontaktansicht hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(kontakt).overflow === undefined, String(render.mapReactions(kontakt).overflow));
+    const alt = await ui.buildKontaktView({ guildId: KG, userId: KU, contactId: 'gibtsnichtmehr' });
+    check('eine veraltete Knopf-ID öffnet nichts Falsches (§6)',
+      alt.embeds[0].toJSON().description.includes('gibt es nicht'),
+      alt.embeds[0].toJSON().description);
+
+    // Antwortmeldung: Zusage (Würfel trifft, zweiter Wurf landet auf „zusage").
+    const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
+    const zusage = contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1, 0.9, 0));
+    check('der Wurf ergibt eine Zusage', zusage.ok && zusage.antwort === 'zusage',
+      JSON.stringify({ ok: zusage.ok, antwort: zusage.antwort }));
+    const zNote = kontaktNote(zusage, jetzt);
+    check('Meldung: Stufe, Text des Kontakts, Schub, Draht und Sperre',
+      zNote.includes('Zusage!') && zNote.includes(zusage.text)
+      && /🤝 Wirkt auf deine nächste Veröffentlichung: ×\d+,\d, noch 48 h/.test(zNote)
+      && zNote.includes('🤝 Draht ▰▱▱▱▱ **12** (+12,')
+      && zNote.includes('Wieder erreichbar in 3 Tagen'), zNote);
+
+    // Schub-Zeile in der Musikansicht.
+    const studio = await ui.buildMusicView({ guildId: KG, userId: KU });
+    const heute = studio.embeds[0].toJSON().fields.find((f) => f.name === '⏳ Heute').value;
+    check('die Musikansicht zeigt den laufenden Schub',
+      heute.includes(`🤝 Shoutout mit *${klein.name}* – wirkt auf die nächste Veröffentlichung, noch 48 h`),
+      heute);
+
+    // Antwortmeldung: ignoriert – kein Schub, aber sieben Tage Sperre.
+    const star = cdata.CONTACTS.find((c) => c.reach >= 100_000_000);
+    const nein = contacts.request(KG, KU, star.id, 'feature', jetzt, wuerfel(0.999));
+    check('der Weltstar sagt nichts zu', nein.ok && nein.antwort === 'ignoriert',
+      JSON.stringify({ ok: nein.ok, antwort: nein.antwort, reason: nein.reason }));
+    const nNote = kontaktNote(nein, jetzt);
+    check('Meldung ohne Schub, mit Sperre von sieben Tagen',
+      !nNote.includes('Wirkt auf') && nNote.includes('Wieder erreichbar in 7 Tagen')
+      && nNote.includes('(-1,'), nNote);
+
+    // Fehlerfälle – Wortlaut aus der Spec.
+    check('gesperrt: „Melde dich in … wieder."',
+      kontaktNote(contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1)), jetzt)
+        === '⏳ Melde dich in 3 Tagen wieder.');
+    check('zu wenig Draht nennt die nötige Zahl',
+      kontaktNote(contacts.request(KG, KU, 'ninachuba', 'konzert', jetzt, wuerfel(0.1)), jetzt)
+        === '🤝 Dafür kennt ihr euch noch nicht gut genug (Draht 20 nötig).');
+    check('unbekannter Kontakt wird abgewiesen statt verwechselt',
+      kontaktNote(contacts.request(KG, KU, 'gibtsnichtmehr', 'shoutout', jetzt, wuerfel(0.1)), jetzt)
+        .includes('gibt es nicht'));
+
+    // Ein Schub, der nicht stärker ist als der laufende, verpufft – die
+    // Meldung darf dann weder Faktor noch Dauer nennen, nur den Fixsatz.
+    db.setBoost(KG, KU, {
+      kind: 'release', factor: 99, extra: 1, until: jetzt + 999 * 3600e3,
+      contactId: 'ewiger-platzhalter', requestId: 'shoutout',
+    }, jetzt);
+    const rammstein = cdata.CONTACTS.find((c) => c.id === 'rammstein');
+    const abgelehnt = contacts.request(KG, KU, rammstein.id, 'shoutout', jetzt, wuerfel(0.01, 0.5, 0));
+    check('die Anfrage an Rammstein bekommt eine Antwort',
+      abgelehnt.ok && abgelehnt.antwort !== 'ignoriert' && Boolean(abgelehnt.boost),
+      JSON.stringify({ ok: abgelehnt.ok, antwort: abgelehnt.antwort, boost: abgelehnt.boost }));
+    check('der neue Schub ist nicht stärker als der laufende – er verpufft',
+      abgelehnt.boost && abgelehnt.boost.neu === false, JSON.stringify(abgelehnt.boost));
+    const abgelehntNote = kontaktNote(abgelehnt, jetzt);
+    check('Meldung nennt weder Faktor noch Dauer, nur den Fixsatz',
+      abgelehntNote.includes('🤝 Ein mindestens gleich starker Schub läuft schon – dieser hier wirkt nicht.')
+      && !abgelehntNote.includes('×') && !abgelehntNote.includes('Wirkt auf'), abgelehntNote);
+
+    // no_time: der Tag ist randvoll, aber (durch Erholung seit dem letzten
+    // Eintrag) nicht mehr erschöpft – der Satz baut sich aus `need`/`left`
+    // zusammen, genau wie bei Studio, Release und Konzert.
+    const creatorMod = require('../src/creator');
+    const KG2 = `KON_T2_${Date.now()}`;
+    const KU2 = 'kon_user_zeit';
+    await home.setHome(KG2, KU2, 'de');
+    home.setLanguage(KG2, KU2, 'deutsch');
+    music.setup(KG2, KU2, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG2, KU2, { ...db.getArtist(KG2, KU2, jetzt), listeners: 10_000 });
+    const tagStart = new Date(jetzt);
+    tagStart.setHours(1, 0, 0, 0);
+    const t0 = tagStart.getTime();
+    const gebucht = creatorMod.useTime(KG2, KU2, 24, t0);
+    check('der ganze Tag ist verplant', gebucht.ok && gebucht.left === 0, JSON.stringify(gebucht));
+    const t1 = t0 + 3 * 3600e3;
+    const blockiert = contacts.request(KG2, KU2, 'lilpfand', 'shoutout', t1, wuerfel(0.01));
+    check('keine Wand mehr, aber die Stunden sind alle',
+      blockiert.ok === false && blockiert.reason === 'no_time' && blockiert.left === 0,
+      JSON.stringify(blockiert));
+    const notime = kontaktNote(blockiert, t1);
+    check('no_time-Satz baut sich aus need und left zusammen',
+      notime === `😴 Eine Anfrage kostet **${blockiert.need}** Stunden, übrig sind **${blockiert.left}**.`,
+      notime);
+
+    // exhausted: unter der Wand liefert kontaktNote denselben Text wie
+    // energy.blockText – ein zweiter Wortlaut wäre eine Quelle für Drift.
+    const KG3 = `KON_T3_${Date.now()}`;
+    const KU3 = 'kon_user_erschoepft';
+    await home.setHome(KG3, KU3, 'de');
+    home.setLanguage(KG3, KU3, 'deutsch');
+    music.setup(KG3, KU3, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG3, KU3, { ...db.getArtist(KG3, KU3, jetzt), listeners: 10_000 });
+    creatorMod.useTime(KG3, KU3, 22, jetzt);
+    const erschoepft = contacts.request(KG3, KU3, 'lilpfand', 'shoutout', jetzt, wuerfel(0.01));
+    check('nach 22 Stunden steht die Wand', erschoepft.ok === false && erschoepft.reason === 'exhausted',
+      JSON.stringify(erschoepft));
+    const erschoepftNote = kontaktNote(erschoepft, jetzt);
+    check('erschoepft-Text kommt unverändert von energy.blockText',
+      erschoepftNote === require('../src/energy').blockText(erschoepft, jetzt), erschoepftNote);
+
+    // Schub-Zeile in der Creator-Ansicht: derselbe Mechanismus wie bei Musik –
+    // `kind` läuft auf der Creator-Seite aber immer auf 'creator' zusammen.
+    const KGc = `KON_C_${Date.now()}`;
+    const KUc = 'kon_user_creator';
+    await home.setHome(KGc, KUc, 'de');
+    home.setLanguage(KGc, KUc, 'deutsch');
+    db.saveCreator(KGc, KUc, 'twitch', {
+      ...db.getCreator(KGc, KUc, 'twitch'), followers: 5_000, touched_at: jetzt, last_action_at: jetzt,
+    });
+    const papaplatte = cdata.CONTACTS.find((c) => c.id === 'papaplatte');
+    const czusage = contacts.request(KGc, KUc, papaplatte.id, 'shoutout', jetzt, wuerfel(0.01, 0.9, 0));
+    check('die Creator-Anfrage bekommt eine Antwort und einen Creator-Schub',
+      czusage.ok && czusage.antwort !== 'ignoriert' && czusage.boost && czusage.boost.kind === 'creator',
+      JSON.stringify({ antwort: czusage.antwort, boost: czusage.boost }));
+    const creatorView = await ui.buildCreatorView({ guildId: KGc, userId: KUc });
+    const cExtras = creatorView.embeds[0].toJSON().fields.find((f) => f.name === '​').value;
+    check('die Creator-Ansicht zeigt den laufenden Schub',
+      cExtras.includes(`🤝 Shoutout mit *${papaplatte.name}* – wirkt auf die nächste Aktion, noch 48 h`),
+      cExtras);
+
+    /*
+     * Und wenn er gewirkt hat? Bis hierher stand der Schub nur in der Ansicht
+     * SOLANGE er lag: Beim Verbrauch verschwand die Zeile, und das Ergebnis
+     * schwieg. Geprüft wird darum die Meldung, die der Knopf wirklich schickt
+     * (`buttons.mpub`, `buttons.mshow`) und der Text, den `creator.describe`
+     * baut – für alle drei Stellen, die einen Schub verbrauchen.
+     */
+    const { buttons: knoepfe } = require('../src/buttons');
+    /** Ein Klick auf einen Knopf; zurück kommt der private Hinweis danach. */
+    const meldung = async (handler, guildId, userId, args = []) => {
+      const notes = [];
+      await handler({
+        guildId,
+        user: { id: userId },
+        deferUpdate: async () => {},
+        editReply: async (v) => v,
+        reply: async (v) => { notes.push(v.content ?? v); return v; },
+        followUp: async (v) => { notes.push(v.content ?? v); return v; },
+      }, args);
+      return notes.join('\n');
+    };
+    /**
+     * Die Ereigniswürfel der Musik laufen in `buttons.mpub`/`mshow` über
+     * `Math.random` – ohne festen Wert könnte ein abgesagtes Konzert
+     * (Gewicht 3) den Test gelegentlich umkippen. 0,01 trifft in `candidates`
+     * immer „none" (Gewicht 110 an erster Stelle).
+     */
+    const ohneEreignis = async (fn) => {
+      const echt = Math.random;
+      Math.random = () => 0.01;
+      try { return await fn(); } finally { Math.random = echt; }
+    };
+
+    // (1) Veröffentlichung: der Faktor-Schub gehört in die Meldung.
+    const KGr = `KON_R_${Date.now()}`;
+    const KUr = 'kon_user_release';
+    await home.setHome(KGr, KUr, 'de');
+    home.setLanguage(KGr, KUr, 'deutsch');
+    music.setup(KGr, KUr, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KGr, KUr, {
+      ...db.getArtist(KGr, KUr, Date.now()), listeners: 10_000, songs: 3,
+    });
+    db.setBoost(KGr, KUr, {
+      kind: 'release', factor: 1.3, extra: 1, until: Date.now() + 48 * 3600e3,
+      contactId: klein.id, requestId: 'shoutout',
+    }, Date.now());
+    const relNote = await ohneEreignis(() => meldung(knoepfe.mpub, KGr, KUr, ['single']));
+    check('die Veröffentlichung meldet den verbrauchten Schub mit Namen und Faktor',
+      relNote.includes(`🤝 Der Schub von **${klein.name}** hat gewirkt: ×1,3 Reichweite.`), relNote);
+    // Ohne Schub steht die Zeile nicht da – sonst wäre sie nur Dekoration.
+    db.saveArtist(KGr, KUr, {
+      ...db.getArtist(KGr, KUr, Date.now()), songs: 3, last_release_at: 0,
+    });
+    const relOhne = await ohneEreignis(() => meldung(knoepfe.mpub, KGr, KUr, ['single']));
+    check('ohne Schub bleibt die Zeile weg', !relOhne.includes('hat gewirkt'), relOhne);
+
+    // (2) Konzert: dort zählen Hörer, keine Faktoren – und zwar die gedeckelten.
+    const KGs = `KON_S_${Date.now()}`;
+    const KUs = 'kon_user_show';
+    await home.setHome(KGs, KUs, 'de');
+    home.setLanguage(KGs, KUs, 'deutsch');
+    music.setup(KGs, KUs, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KGs, KUs, { ...db.getArtist(KGs, KUs, Date.now()), listeners: 50_000 });
+    const nina = cdata.CONTACTS.find((c) => c.id === 'ninachuba');
+    db.setBoost(KGs, KUs, {
+      kind: 'show', factor: 1, extra: 2_000, until: Date.now() + 7 * 24 * 3600e3,
+      contactId: nina.id, requestId: 'konzert',
+    }, Date.now());
+    const showNote = await ohneEreignis(() => meldung(knoepfe.mshow, KGs, KUs, []));
+    check('das Konzert meldet die mitgebrachten Hörer',
+      showNote.includes(`🤝 Der Schub von **${nina.name}** hat gewirkt: **+2.000** Hörer im Saal.`),
+      showNote);
+
+    // Ein abgesagtes Konzert verbraucht den Schub trotzdem (er wird vor dem
+    // Ereigniswürfel gelesen) – dann muss die Meldung genau das sagen.
+    // 0,99 trifft in `candidates('show', 1,3)` den letzten Kandidaten „abgesagt".
+    db.saveArtist(KGs, KUs, {
+      ...db.getArtist(KGs, KUs, Date.now()), listeners: 50_000, last_show_at: 0,
+    });
+    db.setBoost(KGs, KUs, {
+      kind: 'show', factor: 1, extra: 2_000, until: Date.now() + 7 * 24 * 3600e3,
+      contactId: nina.id, requestId: 'konzert',
+    }, Date.now());
+    const echterZufall = Math.random;
+    Math.random = () => 0.99;
+    let abgesagtNote;
+    try { abgesagtNote = await meldung(knoepfe.mshow, KGs, KUs, []); } finally {
+      Math.random = echterZufall;
+    }
+    check('das abgesagte Konzert verschweigt den verbrauchten Schub nicht',
+      abgesagtNote.includes('Abgesagt')
+      && abgesagtNote.includes(`🤝 Der Schub von **${nina.name}** ist damit verbraucht – angekommen ist davon nichts.`),
+      abgesagtNote);
+
+    // (3) Kanalaktion: derselbe Satz, gebaut von creator.describe.
+    const KGa = `KON_A_${Date.now()}`;
+    const KUa = 'kon_user_aktion';
+    await home.setHome(KGa, KUa, 'de');
+    home.setLanguage(KGa, KUa, 'deutsch');
+    db.saveCreator(KGa, KUa, 'instagram', {
+      ...db.getCreator(KGa, KUa, 'instagram'), followers: 5_000,
+      touched_at: jetzt, last_action_at: 0,
+    });
+    db.setBoost(KGa, KUa, {
+      kind: 'creator', factor: 1.2, extra: 1, until: Date.now() + 48 * 3600e3,
+      contactId: papaplatte.id, requestId: 'shoutout',
+    }, Date.now());
+    const akt = await creatorMod.act(KGa, KUa, 'instagram', 'foto', Date.now(), () => 0.5);
+    check('die Kanalaktion verbraucht den Schub',
+      akt.ok && akt.kontakt && akt.kontakt.name === papaplatte.name,
+      JSON.stringify({ ok: akt.ok, reason: akt.reason, kontakt: akt.kontakt }));
+    const aktNote = creatorMod.describe(akt, (n) => `${n}`);
+    check('die Kanalaktion meldet den verbrauchten Schub mit Namen und Faktor',
+      aktNote.includes(`🤝 Der Schub von **${papaplatte.name}** hat gewirkt: ×1,2 Reichweite.`),
+      aktNote);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

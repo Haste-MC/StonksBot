@@ -31,6 +31,10 @@
  *          node scripts/messung-geldquellen.js 30 730
  *          node scripts/messung-geldquellen.js 10 365 --stunden=8
  *          node scripts/messung-geldquellen.js 10 365 --nur=nachfrage
+ *          node scripts/messung-geldquellen.js 10 365 --nur=kontakte
+ *          node scripts/messung-geldquellen.js stufenprobe [würfe]
+ *              – Gegenprobe: der gerechnete erwartete Stufenfaktor gegen die
+ *                gewürfelte `contacts.stufeVon` (läuft in Sekunden).
  *
  * Kein Netz: die Geldschnittstelle wird ersetzt und mitgeschrieben.
  */
@@ -57,6 +61,8 @@ const heist = require('../src/heist');
 const decisions = require('../src/decisions');
 const company = require('../src/company');
 const companyData = require('../src/data/companies');
+const contacts = require('../src/contacts');
+const contactsData = require('../src/data/contacts');
 
 const DAY = 24 * 60 * 60 * 1000;
 /** `--ohne-ereignisse`: Musik und Firmen ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
@@ -78,9 +84,14 @@ const MARATHON = process.argv.includes('--marathon');
  * Firmenlaufs als JSON-Zeilen auf stderr (Handprüfung: Einkauf, Werbung, Anpacken, Umsatz,
  * Löhne, Ware, Lager, Kasse). `--trace=handel:<spedition|baufirma>:<mit|ohne>` dasselbe für
  * eine Seite des Handelslaufs (Stück 3b: `kauf.handel/preis/ersparnis`, `spanne`).
+ * `--trace=kontakte` gibt jede Kontaktanfrage des Kontaktlaufs (Stück 5a) als JSON-Zeile aus.
  */
 const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('--trace='.length) || null;
-/** `--nur=nachfrage`: nur den Abschnitt „Nachfrage-Drift" (Stück 3c) fahren – er ist billig, der Rest braucht Minuten. */
+/**
+ * `--nur=<abschnitt>`: nur einen Abschnitt fahren.
+ *   `nachfrage` Nachfrage-Drift (Stück 3c) – billig, der Rest braucht Minuten.
+ *   `kontakte`  Kontaktpflege mit und ohne (Stück 5a) – zwei Archetypen, je drei Varianten.
+ */
 const NUR = (process.argv.find((a) => a.startsWith('--nur=')) ?? '').slice('--nur='.length) || null;
 const de = (n) => Math.round(n).toLocaleString('de-DE');
 
@@ -325,12 +336,326 @@ function musiktag(G, U, now, rand, konzertZuerst = false) {
   return music.status(G, U, now + 3e6);
 }
 
+// ------------------------------------------------------- Kontakte (5a)
+
+/**
+ * ===========================================================================
+ *  KONTAKTPFLEGE ALS SPIELWEISE
+ * ===========================================================================
+ *
+ * Gemessen wird eine einzige Frage: Was bringen die Kontakte (Stück 5a), wenn
+ * ein Spieler jeden Tag zwei Stunden hineinsteckt – statt in eine Aktion?
+ *
+ * Damit die Differenz die Kontakte misst und nichts sonst:
+ *
+ *  • Alle Varianten fahren DIESELBE Strategie (einmal gesucht, dann fest) und
+ *    denselben Würfel `rng(1000 + i)` für Musik, Kanäle, Ereignisse, Vorfälle.
+ *  • Die Kontaktwürfe laufen über einen ZWEITEN Würfel (`rng(seed + 500_000)`).
+ *    Sonst verschöbe jeder Kontaktwurf den Hauptstrom, und die Differenz wäre
+ *    zur Hälfte ein anderer Würfel. (Dass ein Schub die Folgetage verändert
+ *    und damit auch dort andere Zahlen aus demselben Strom zieht, lässt sich
+ *    nicht vermeiden – dafür gibt es mehrere Läufe und den Median.)
+ *  • Jede Variante bekommt eigene Welten, damit nichts hinüberleckt.
+ *
+ * Gezählt wird über eine Hülle um `contacts.consumeBoost`: nur ein Schub, der
+ * wirklich verbraucht wurde, zählt als Wirkung. Ein Schub, der verfällt, ist
+ * keine.
+ */
+
+/** Zähler des laufenden Kontaktlaufs – `null`, solange nicht gemessen wird. */
+let kz = null;
+
+function neuerZaehler() {
+  return {
+    versuche: 0,
+    antworten: { zusage: 0, echt: 0, fluechtig: 0, ignoriert: 0 },
+    abgelehnt: {},                  // Grund -> Anzahl (keine Zeit, Wand, …)
+    nichts: 0,                      // Tage ohne wählbaren Kontakt
+    // Ein Ja versucht immer, einen Schub zu setzen; geschrieben wird er nur,
+    // wenn kein stärkerer derselben Art noch läuft (`db.setBoost` gibt `neu`).
+    schubVersuche: 0,               // Antworten, die einen Schub setzen WOLLTEN
+    gesetzt: 0,                     // davon wirklich geschrieben (neu === true)
+    verbraucht: { release: [], creator: [], show: [] },
+    konzertCreator: [],             // Faktoren der Konzert-Schübe auf der Creator-Seite
+    // Verbrauchte Schübe je Art – "kind/anfrage" -> Faktoren. Erst damit lässt
+    // sich das Creator-Konzert mit dem vergleichen, was auf DERSELBEN Seite
+    // aus einer Reaktion oder einem Feature wird (gleiche Größe, gleiche Art).
+    verbrauchtJeArt: {},
+    proAnfrage: {},                 // "seite/anfrage" -> { versuche, zusage, echt, fluechtig, ignoriert }
+    publishes: 0, shows: 0, akte: 0,
+  };
+}
+
+/*
+ * Die Hüllen. Sie zählen nur, wenn `kz` gesetzt ist, und geben unverändert
+ * weiter – die gemessene Welt bleibt die echte.
+ */
+const echtConsume = contacts.consumeBoost;
+contacts.consumeBoost = (g, u, kind, now) => {
+  const b = echtConsume(g, u, kind, now);
+  if (kz && b) {
+    (kz.verbraucht[kind] ??= []).push(b.factor);
+    (kz.verbrauchtJeArt[`${kind}/${b.requestId}`] ??= []).push(b.factor);
+    if (kind === 'creator' && b.requestId === 'konzert') kz.konzertCreator.push(b.factor);
+  }
+  return b;
+};
+const echtPublish = music.publish;
+music.publish = (...a) => {
+  const r = echtPublish(...a);
+  if (kz && r?.ok) kz.publishes++;
+  return r;
+};
+const echtShow = music.show;
+music.show = async (...a) => {
+  const r = await echtShow(...a);
+  if (kz && r?.ok) kz.shows++;
+  return r;
+};
+const echtAct = creator.act;
+creator.act = async (...a) => {
+  const r = await echtAct(...a);
+  if (kz && r?.ok) kz.akte++;
+  return r;
+};
+
+/**
+ * Was ein Ja bei dieser Anfrage wert wäre – als „Faktor über 1" auf die
+ * nächste Aktion, damit sich die vier Anfragearten vergleichen lassen.
+ *
+ * `reaktion`/`shoutout` 1 + 3 × Stärke, `feature` 1 + 5 × Stärke; das Konzert
+ * bringt auf der Musikseite keine Faktoren, sondern Hörer für EINE Gage
+ * (gedeckelt auf die eigene Hörerschaft, also höchstens ×2 Publikum).
+ *
+ * Die Gage wächst aber NICHT linear mit dem Publikum: `music.show` zahlt
+ * `(Hörer + Zusatzhörer)^SHOW_EXP` (src/music.js, `SHOW_EXP` = 0,7). Doppeltes
+ * Publikum ist deshalb +62 %, nicht +100 % – genau das steht hier. (Die vier
+ * Stunden des Konzerts werden nicht gegengerechnet: Der Messlauf spielt jedes
+ * mögliche Konzert ohnehin, der Schub hängt sich nur an eines an; sie sind
+ * also keine Mehrkosten der Anfrage.)
+ *
+ * Auf der Creator-Seite schreibt `contacts.request` den Konzert-Schub in
+ * dieselbe Formel um, die `boostOf` sonst für `reaktion`/`shoutout` liefert
+ * (`min(4, 1 + 3 × Stärke)`, src/contacts.js). Damit hier keine zweite Kopie
+ * dieser Formel steht, wird sie aus `boostOf` geholt; ändert sie sich dort,
+ * ändert sie sich hier mit.
+ */
+function nutzenOf(requestId, staerke, seine, meine, seite) {
+  const b = contacts.boostOf(requestId, staerke, seine);
+  if (b.kind === 'show') {
+    if (seite === 'creator') return contacts.boostOf('reaktion', staerke, seine).factor - 1;
+    const m = Math.max(1, meine);
+    return Math.pow((m + Math.min(b.extra, m)) / m, music.SHOW_EXP) - 1;
+  }
+  return b.factor - 1;
+}
+
+/**
+ * Wie die zweite Würfelrunde (`contacts.stufeVon`) im Mittel ausfällt.
+ *
+ * Die Stufe ist nicht frei wählbar: Wer antwortet, antwortet meistens flüchtig.
+ * Wie oft es eine Zusage wird, hängt am Größenverhältnis und am Draht – und
+ * genau daran hing der Denkfehler der ersten Fassung dieser Messung, die für
+ * JEDEN Kandidaten mit der Stärke einer Zusage gerechnet hat. Das überschätzt
+ * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe um rund das
+ * 1,43-fache (0,500 gegen 0,350 erwarteter Stufenfaktor).
+ *
+ * Die Gewichte sind dieselben wie in `stufeVon` (src/contacts.js) – die
+ * Funktion würfelt, sie gibt ihre Verteilung nicht heraus, deshalb steht sie
+ * hier ein zweites Mal. Dass beide übereinstimmen, wird nicht geglaubt,
+ * sondern geprüft: `node scripts/messung-geldquellen.js stufenprobe` würfelt
+ * `stufeVon` selbst millionenfach und vergleicht.
+ */
+function stufenVerteilung({ ratio, draht = 0 }) {
+  const naehe = Math.min(1, ratio);
+  const gewichte = {
+    fluechtig: 6 * (ratio < 0.05 ? 2 : 1),
+    echt: 3,
+    zusage: 1 * (1 + 2 * naehe) * (1 + draht / 100),
+  };
+  const summe = gewichte.fluechtig + gewichte.echt + gewichte.zusage;
+  return {
+    fluechtig: gewichte.fluechtig / summe,
+    echt: gewichte.echt / summe,
+    zusage: gewichte.zusage / summe,
+  };
+}
+
+/** Der erwartete Stufenfaktor – Σ p(Stufe) × STUFEN_FAKTOR(Stufe). */
+function erwarteterStufenFaktor(arg) {
+  const p = stufenVerteilung(arg);
+  return Object.entries(p).reduce((s, [stufe, w]) => s + w * contacts.STUFEN_FAKTOR[stufe], 0);
+}
+
+/** Welche Reichweite auf dieser Seite zählt – für die Trace-Zeile. */
+const seite2reichweite = (seite, ich) => Math.max(100, (seite === 'creator' ? ich.total : ich.listeners) || 0);
+const seite2seine = (seite, contact) => (seite === 'creator' ? contact.reachCreator : contact.reach);
+
+/**
+ * Ein Kontakttag: zwei Stunden in den besten verfügbaren Kontakt.
+ *
+ * `vorrang` ist das Messwerkzeug für einen sonst nie gewählten Schub (siehe
+ * unten im Rumpf); ohne ihn wählt der Spieler frei.
+ *
+ * „Bester" heißt: über alle freien Kontakte und alle vier Anfragearten die
+ * höchste **Chance × erwarteter Nutzen**. Die Chance kommt aus
+ * `contacts.detail`, also aus derselben Funktion, die die Ansicht zeigt – das
+ * Skript rechnet sie nicht nach.
+ *
+ * „Erwarteter Nutzen" heißt: über die drei Antwortstufen gemittelt, mit den
+ * Wahrscheinlichkeiten aus `stufeVon` (`stufenVerteilung`). Die erste Fassung
+ * dieser Messung hat für jeden Kandidaten mit der Stärke einer ZUSAGE
+ * gerechnet – das ist eine Wette, die es so nicht gibt, und sie überschätzt
+ * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe systematisch (bei
+ * einem Verhältnis von 0,005 und Draht 15 ist der erwartete Stufenfaktor
+ * 0,350, auf Augenhöhe 0,500). Gemittelt wird über `nutzenOf` selbst, nicht
+ * über die Stärke, damit die Decken der Schübe richtig greifen.
+ *
+ * Vorausgewählt werden die besten acht aus `contacts.listFor`, damit nicht
+ * 74 × `detail` je Tag gerechnet werden muss; die Vorauswahl nutzt dieselbe
+ * Größe, nur mit der Chance der Leitseite.
+ */
+function kontakttag(G, U, now, rand, vorrang = null) {
+  const sm = music.status(G, U, now);
+  const cs = creator.status(G, U, now);
+  const beste = cs.platforms.reduce((a, p) => (p.followers > (a?.followers ?? -1) ? p : a), null);
+  const ich = {
+    musik: sm.started,
+    creator: (beste?.followers ?? 0) > 0,
+    listeners: sm.listeners,
+    total: cs.total,
+    language: sm.market.language.id,
+    genre: sm.started ? sm.genre.id : null,
+    platform: (beste?.followers ?? 0) > 0 ? beste.id : null,
+  };
+
+  /** Stärke und erwarteter Nutzen dieser Anfrage – auf der Seite, über die sie liefe. */
+  const bewerte = (contact, requestId, draht = 0) => {
+    const seite = contacts.seiteFuer(contact, ich, requestId);
+    if (!seite) return null;
+    const meine = Math.max(100, (seite === 'creator' ? ich.total : ich.listeners) || 0);
+    const seine = seite === 'creator' ? contact.reachCreator : contact.reach;
+    const p = contacts.passungOf({
+      meine: seite === 'creator'
+        ? { language: ich.language, platform: ich.platform }
+        : { language: ich.language, genre: ich.genre },
+      seine: seite === 'creator'
+        ? { language: contact.language, platform: contact.platform }
+        : { language: contact.language, genre: contact.genre },
+      seite,
+    });
+    const staerke = contacts.staerkeOf({
+      seineReichweite: seine, meineReichweite: meine, passung: p.passung, stufe: 'zusage' });
+    // Genau das Verhältnis, mit dem `contacts.request` gleich `stufeVon` ruft.
+    const ratio = meine / Math.max(1, seine);
+    const verteilung = stufenVerteilung({ ratio, draht });
+    const nutzen = Object.entries(verteilung).reduce((s, [stufe, w]) =>
+      s + w * nutzenOf(requestId, staerke * contacts.STUFEN_FAKTOR[stufe], seine, meine, seite), 0);
+    return {
+      seite, staerke, nutzen,
+      stufenFaktor: erwarteterStufenFaktor({ ratio, draht }),
+    };
+  };
+
+  // Vorauswahl: die acht besten freien Kontakte nach Chance × erwarteter Stärke der Leitseite.
+  const liste = contacts.listFor(G, U, { now })
+    .filter((z) => z.gesperrtBis <= now)
+    .map((z) => {
+      const b = bewerte(z.contact, 'shoutout', z.draht);
+      return { ...z, grob: b ? z.chance * b.staerke * b.stufenFaktor : 0 };
+    })
+    .sort((a, b) => b.grob - a.grob)
+    .slice(0, 8);
+
+  /*
+   * `vorrang = 'konzert'`: Die Bühne bekommt Vorrang, sobald sie überhaupt
+   * möglich ist (Draht ≥ 20). Ohne diesen Vorrang wird das Konzert NIE
+   * gewählt und die Zeile bliebe eine stille Null – es ist auf beiden Seiten
+   * dominiert: auf der Creator-Seite vom Feature (Faktor 1 + 5 × Stärke bei
+   * Schwierigkeit −0,10 gegen 1 + 3 × Stärke bei −0,20), auf der Musikseite
+   * bringt es gar keinen Faktor, sondern Hörer für eine einzige Gage. Der
+   * Vorrang ist also kein besseres Spiel, sondern das Messwerkzeug für genau
+   * diesen Schub.
+   */
+  let wahl = null;
+  for (const z of liste) {
+    const d = contacts.detail(G, U, z.contact.id, now);
+    if (!d) continue;
+    for (const r of d.requests) {
+      if (!r.moeglich) continue;
+      const b = bewerte(z.contact, r.id, d.draht);
+      if (!b) continue;
+      const score = r.chance * b.nutzen;
+      const konzert = vorrang === 'konzert' && r.id === 'konzert';
+      if (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score)) {
+        wahl = { score, konzert, contactId: z.contact.id, requestId: r.id, seite: b.seite,
+          chance: r.chance, draht: d.draht };
+      }
+    }
+  }
+  if (!wahl) { if (kz) kz.nichts++; return null; }
+
+  const erg = contacts.request(G, U, wahl.contactId, wahl.requestId, now, rand);
+  /*
+   * `--trace=kontakte`: jede Anfrage als JSON-Zeile auf stderr – die Grundlage
+   * der Handprüfung (Chance, Stärke und Faktor eines einzelnen Tages von Hand
+   * gegen data/contacts.js nachgerechnet).
+   */
+  if (TRACE === 'kontakte') {
+    const b = bewerte(contactsData.byId(wahl.contactId), wahl.requestId, wahl.draht) ?? {};
+    console.error(JSON.stringify({
+      datum: new Date(now).toISOString().slice(0, 10),
+      kontakt: wahl.contactId, anfrage: wahl.requestId, seite: wahl.seite,
+      // `chance` ist der Wert, gegen den WIRKLICH gewürfelt wurde (aus
+      // `contacts.request`); `chanceAnzeige` ist derselbe Wert aus
+      // `contacts.detail`, also das, was auf dem Knopf steht.
+      chance: erg.chance ?? null, chanceAnzeige: wahl.chance,
+      antwort: erg.antwort ?? null, ok: erg.ok,
+      drahtVor: erg.drahtVor ?? null, draht: erg.draht ?? null,
+      staerke: erg.staerke ?? null, staerkeBeiZusage: b.staerke ?? null,
+      stufenFaktorErwartet: b.stufenFaktor ?? null, nutzenErwartet: b.nutzen ?? null,
+      faktor: erg.boost?.factor ?? null, extra: erg.boost?.extra ?? null,
+      meine: seite2reichweite(wahl.seite, ich), seine: seite2seine(wahl.seite, contactsData.byId(wahl.contactId)),
+      // Die restlichen Summanden der Chance, damit sie von Hand nachrechenbar ist.
+      hype: sm.hype ?? 1, tuerOeffner: contacts.tuerOeffnerFor(db.contactsOf(G, U), contactsData.byId(wahl.contactId), now),
+      // Partner VOR der Anfrage – das ist der Summand, mit dem gerechnet wurde.
+      partnerVor: Boolean(erg.partner) && !erg.partnerNeu, trait: contactsData.byId(wahl.contactId).trait,
+    }));
+  }
+  if (kz) {
+    if (!erg.ok) {
+      kz.abgelehnt[erg.reason] = (kz.abgelehnt[erg.reason] ?? 0) + 1;
+    } else {
+      kz.versuche++;
+      kz.antworten[erg.antwort]++;
+      // Ein Ja WILL immer einen Schub setzen; `boost.neu` sagt, ob er auch
+      // geschrieben wurde – ein noch laufender stärkerer Schub bleibt liegen.
+      if (erg.boost) {
+        kz.schubVersuche++;
+        if (erg.boost.neu) kz.gesetzt++;
+      }
+      const key = `${erg.seite}/${wahl.requestId}`;
+      const a = (kz.proAnfrage[key] ??= { versuche: 0, zusage: 0, echt: 0, fluechtig: 0, ignoriert: 0 });
+      a.versuche++;
+      a[erg.antwort]++;
+    }
+  }
+  return erg;
+}
+
 // ------------------------------------------------------------ Ein Lauf
 
 async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
   const erreicht = {};
   const tagesgeld = [];
   const rand = rng(seed);
+  /*
+   * EIGENER Würfel für die Kontaktwürfe (Stück 5a). Zöge die Kontaktpflege aus
+   * `rand`, wäre der Lauf „mit Kontakten" ab dem ersten Wurf auch ein anderer
+   * Musik- und Kanallauf – die Differenz misst dann zur Hälfte einen anderen
+   * Würfel statt der Kontakte.
+   */
+  const kontaktRand = rng(seed + 500_000);
   ausruesten(G, U);
   await home.setHome(G, U, 'de');
   if (musik) music.setup(G, U, 'pop', music.PERSONAS[0].id);
@@ -356,14 +681,28 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
       // Abrechnungen (`MIN_SETTLE_MS` verlangt mindestens eine Stunde).
       await music.settle(G, U, now);
       music.settleContracts(G, U, now + 1e5);
-      if (!ruhetag) {
-        const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
-        if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
-          await music.show(G, U, now + 4e6, rand, musikOpts);
-        }
+    }
+    /*
+     * Zwei Stunden Kontaktpflege (`kontakte`, Stück 5a) – VOR der
+     * Veröffentlichung des Tages, damit ein heute gesetzter Schub heute noch
+     * wirken kann. Die zwei Stunden kommen aus demselben 24-h-Budget wie alles
+     * andere; bezahlt werden sie am Tagesende beim Kanalprogramm, das die
+     * Restzeit ausschöpft – also genau „2 h in Kontakte statt in eine Aktion".
+     */
+    if (strat.kontakte && !ruhetag) kontakttag(G, U, now + 15e4, kontaktRand, strat.kontaktVorrang ?? null);
+    if (musik && !ruhetag) {
+      const s = musiktag(G, U, now + 2e5, rand, strat.konzert);
+      if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
+        await music.show(G, U, now + 4e6, rand, musikOpts);
       }
     }
-    const minuten = ruhetag ? 0 : await kanaltag(G, U, strat, now + 6e6, rand);
+    /*
+     * `kanaele: false` ist der reine Musiker: kein Kanalprogramm, also auch
+     * keine Füllaktionen, die die zwei Kontaktstunden verdrängen könnten.
+     * Genau das ist die Frage, die der dritte Archetyp im Kontaktlauf stellt.
+     */
+    const minuten = (ruhetag || strat.kanaele === false)
+      ? 0 : await kanaltag(G, U, strat, now + 6e6, rand);
     await creator.settle(G, U, now + 20e6);
     await creator.settleMerch(G, U, now + 20e6);
     await creator.settleDeals(G, U, now + 20e6);
@@ -1236,6 +1575,286 @@ async function verlauf(laeufe, tage) {
   console.log();
 }
 
+/** Eine Variante (mit/ohne Kontaktpflege) über alle Seeds; die Zähler kommen mit. */
+async function kontaktvariante(kennungBasis, musik, strat, laeufe, tage) {
+  kz = neuerZaehler();
+  const geld = [];
+  const hoerer = [];
+  const follower = [];
+  const energie = [];
+  let zaehler;
+  try {
+    for (let i = 0; i < laeufe; i++) {
+      const kennung = `${kennungBasis}_${i}`;
+      const G = welt(kennung);
+      const U = `fx:${kennung}`;
+      const r = await karriere(G, U, { musik, strat }, tage, 1000 + i);
+      geld.push(r.geld);
+      hoerer.push(r.hoerer);
+      follower.push(r.follower);
+      energie.push(r.energie);
+    }
+  } finally {
+    // Auch wenn ein Lauf abbricht: Der Zähler muss weg, sonst zählen die
+    // Hüllen in jeden folgenden Lauf hinein.
+    zaehler = kz;
+    kz = null;
+  }
+  return {
+    geld, zaehler,
+    median: median(geld), q25: quantil(geld, 0.25), q75: quantil(geld, 0.75),
+    hoerer: median(hoerer), follower: median(follower),
+    energie: energie.reduce((a, b) => a + b, 0) / Math.max(1, energie.length),
+  };
+}
+
+const prozent = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x * 100).toFixed(1).replace('.', ',')} %`;
+const komma = (x, n = 2) => x.toFixed(n).replace('.', ',');
+const mittel = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+/** Ein Summand mit Vorzeichen, deutsch gesetzt: +0,050 / −0,050 / ±0,000. */
+const vorzeichen = (x, n = 3) => (x === 0 ? `±${(0).toFixed(n).replace('.', ',')}`
+  : `${x > 0 ? '+' : '−'}${Math.abs(x).toFixed(n).replace('.', ',')}`);
+
+/** Die Zählerzeilen einer Variante – roh, ohne Rundung auf schöne Zahlen. */
+function kontaktZeilen(z, tage, laeufe) {
+  const out = [];
+  const n = z.versuche;
+  const q = (k) => (n ? `${z.antworten[k]} (${komma((z.antworten[k] / n) * 100, 1)} %)` : `${z.antworten[k]}`);
+  out.push(`Versuche ${de(n)} in ${de(tage * laeufe)} Tagen (${komma(n / (tage * laeufe), 2)}/Tag) · ` +
+    `Zusage ${q('zusage')} · echte Antwort ${q('echt')} · flüchtig ${q('fluechtig')} · ignoriert ${q('ignoriert')}`);
+  const abg = Object.entries(z.abgelehnt).map(([k, v]) => `${k} ${v}`).join(', ') || 'keine';
+  out.push(`nicht zustande gekommen: ${abg} · Tage ohne wählbaren Kontakt ${z.nichts}`);
+  const verbrauchtGesamt = z.verbraucht.release.length + z.verbraucht.creator.length + z.verbraucht.show.length;
+  out.push(`Antworten mit Schub-Versuch ${de(z.schubVersuche)} · davon wirklich geschrieben ${de(z.gesetzt)} ` +
+    `(${de(z.schubVersuche - z.gesetzt)} blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · ` +
+    `verbraucht release ${z.verbraucht.release.length}, creator ${z.verbraucht.creator.length}, ` +
+    `show ${z.verbraucht.show.length} (geschrieben minus verbraucht = ${z.gesetzt - verbrauchtGesamt} verfallen oder überschrieben)`);
+  const f = (a) => (a.length ? `Ø ${komma(mittel(a))} (größter ${komma(Math.max(...a))})` : 'keiner');
+  out.push(`Ø Schubfaktor bei Veröffentlichungen: ${f(z.verbraucht.release)} über ${z.verbraucht.release.length} von ${de(z.publishes)} Veröffentlichungen ` +
+    `→ über ALLE Veröffentlichungen Ø ${komma(z.publishes ? (z.verbraucht.release.reduce((a, b) => a + b, 0) + (z.publishes - z.verbraucht.release.length)) / z.publishes : 1)}`);
+  out.push(`Ø Schubfaktor bei Creator-Aktionen: ${f(z.verbraucht.creator)} über ${z.verbraucht.creator.length} von ${de(z.akte)} Aktionen ` +
+    `→ über ALLE Aktionen Ø ${komma(z.akte ? (z.verbraucht.creator.reduce((a, b) => a + b, 0) + (z.akte - z.verbraucht.creator.length)) / z.akte : 1)}`);
+  out.push(`Konzert-Schübe auf der Musikseite (Hörer statt Faktor): ${z.verbraucht.show.length} von ${de(z.shows)} Konzerten verbraucht`);
+  out.push(`Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): ${z.konzertCreator.length} verbraucht, ${f(z.konzertCreator)}`);
+  // Gleiches gegen Gleiches: der verbrauchte Schub je Art, NICHT gegen einen
+  // Durchschnitt über alle Arten. Nur so ist das Creator-Konzert vergleichbar.
+  const jeArt = Object.entries(z.verbrauchtJeArt).sort((a, b) => b[1].length - a[1].length)
+    .map(([k, a]) => `${k} ${f(a)} über ${a.length}`).join(' · ');
+  out.push(`Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): ${jeArt || 'keiner'}`);
+  const je = Object.entries(z.proAnfrage).sort((a, b) => b[1].versuche - a[1].versuche)
+    .map(([k, v]) => `${k} ${v.versuche}× (Zusage ${komma((v.zusage / v.versuche) * 100, 1)} %)`).join(' · ');
+  out.push(`je Seite und Anfrageart: ${je || 'keine'}`);
+  return out;
+}
+
+/**
+ * Gegenprobe zur Erwartung des Stufenfaktors: `stufeVon` selbst würfeln lassen.
+ *
+ * `stufenVerteilung` schreibt die Gewichte aus `src/contacts.js` ein zweites
+ * Mal ab (die Funktion gibt ihre Verteilung nicht heraus). Abgeschriebenes
+ * glaubt man nicht, man prüft es: Hier wird die echte `contacts.stufeVon`
+ * millionenfach gewürfelt und der gewürfelte Mittelwert gegen den gerechneten
+ * gehalten. Weicht er um mehr als 0,002 ab, steht das als ✗ in der Ausgabe.
+ */
+function stufenprobe(wuerfe = 1_000_000) {
+  const faelle = [
+    { name: 'Taylor Swift (Verhältnis 0,0047, Draht 15)', ratio: 562552 / 120_000_000, draht: 15 },
+    { name: 'Kontakt auf Augenhöhe (Verhältnis 1, Draht 0)', ratio: 1, draht: 0 },
+    { name: 'knapp unter der 0,05-Schwelle', ratio: 0.049, draht: 0 },
+    { name: 'knapp über der 0,05-Schwelle', ratio: 0.051, draht: 0 },
+    { name: 'kleinerer Kontakt (0,2), Draht 30', ratio: 0.2, draht: 30 },
+    { name: 'Weltstar ohne Draht', ratio: 0.001, draht: 0 },
+  ];
+  const out = [];
+  let allesGut = true;
+  for (const fall of faelle) {
+    const r = rng(4711);
+    let summe = 0;
+    const zahl = { fluechtig: 0, echt: 0, zusage: 0 };
+    for (let i = 0; i < wuerfe; i++) {
+      const s = contacts.stufeVon(r, { ratio: fall.ratio, draht: fall.draht });
+      zahl[s]++;
+      summe += contacts.STUFEN_FAKTOR[s];
+    }
+    const gewuerfelt = summe / wuerfe;
+    const gerechnet = erwarteterStufenFaktor({ ratio: fall.ratio, draht: fall.draht });
+    const p = stufenVerteilung({ ratio: fall.ratio, draht: fall.draht });
+    const ok = Math.abs(gewuerfelt - gerechnet) < 0.002;
+    if (!ok) allesGut = false;
+    out.push(`  ${fall.name.padEnd(46)} gerechnet ${gerechnet.toFixed(5)} · gewürfelt ${gewuerfelt.toFixed(5)} ` +
+      `(${de(wuerfe)} Würfe) ${ok ? '✔' : '✗ ABWEICHUNG'}`);
+    out.push(`    Zusagen gerechnet ${(p.zusage * 100).toFixed(3)} % · gewürfelt ${((zahl.zusage / wuerfe) * 100).toFixed(3)} %`);
+  }
+  out.push(`  ${allesGut ? 'Alle Fälle stimmen überein ✔' : 'MINDESTENS EIN FALL WEICHT AB ✗'}`);
+  return out;
+}
+
+/**
+ * Die Passung als Zahl – mit den echten Funktionen gerechnet, nicht von Hand.
+ *
+ * Zwei Blöcke: (a) NUR die Passung verschoben (alles andere gleich), (b) der
+ * konkrete Fall aus dem Katalog mit den echten Ländern und Charakterzügen.
+ * Jede Zeile sagt selbst, ob das Land gleich ist – ohne diese Angabe ist keine
+ * der Zahlen nachrechenbar (der Landbonus ist +0,05).
+ */
+function passungsblock() {
+  const MEINE = 500_000;
+  const ich = { country: 'de', language: 'deutsch', genre: 'hiphop' };
+  const out = [];
+
+  const verwandt = (a, b) => contactsData.RELATED_GENRES.some(
+    ([x, y]) => (x === a && y === b) || (y === a && x === b));
+
+  const zeile = (name, c) => {
+    const p = contacts.passungOf({
+      meine: { language: ich.language, genre: ich.genre },
+      seine: { language: c.language, genre: c.genre },
+      seite: 'musik',
+    });
+    const sprache = ich.language === c.language ? 'gleich'
+      : (ich.language === 'englisch' || c.language === 'englisch') ? 'englisch' : 'fremd';
+    const genre = ich.genre === c.genre ? 'gleich' : verwandt(ich.genre, c.genre) ? 'verwandt' : 'fremd';
+    const gleichesLand = c.country === ich.country;
+    const arg = {
+      meineReichweite: MEINE, seineReichweite: c.reach, gleichesLand, sprache, genre,
+      draht: 0, tuerOeffner: 0, hype: 1, trait: c.trait, partner: false,
+    };
+    const staerke = contacts.staerkeOf({
+      seineReichweite: c.reach, meineReichweite: MEINE, passung: p.passung, stufe: 'zusage' });
+    const werte = ['reaktion', 'feature'].map((id) => ({
+      id,
+      chance: contacts.chanceOf({ ...arg, request: id }),
+      faktor: contacts.boostOf(id, staerke, c.reach).factor,
+    }));
+    // Die Summanden einzeln, damit die Zeile von Hand nachrechenbar ist.
+    const basis = Math.min(contactsData.CHANCE_MAX, 0.6 * Math.sqrt(MEINE / c.reach));
+    const teile = [
+      `Basis ${komma(basis, 3)} (Größe)`,
+      `Land ${gleichesLand ? '+0,050' : '±0,000'}`,
+      `Sprache ${sprache === 'gleich' ? '+0,100' : sprache === 'englisch' ? '±0,000' : '−0,150'}`,
+      `Genre ${genre === 'gleich' ? '+0,050' : genre === 'verwandt' ? '±0,000' : '−0,050'}`,
+      `Charakter ${c.trait} ${vorzeichen(contactsData.TRAIT_BONUS[c.trait] ?? 0, 3)}`,
+    ];
+    out.push(`  ${name.padEnd(34)} Passung ${komma(p.passung, 3)} · ` +
+      werte.map((w) => `${w.id} ${komma(w.chance * 100, 1)} % / Faktor ${komma(w.faktor, 3)}`).join(' · ') +
+      ` · Stärke ${komma(staerke, 4)}`);
+    out.push(`      Summanden: ${teile.join(' · ')} · Schwierigkeit reaktion +0,150 / feature −0,100`);
+  };
+
+  out.push(`  Spieler: ${ich.country} / ${ich.language} / ${ich.genre}, ${de(MEINE)} Hörer, ` +
+    `Draht 0, Hype 1, kein Türöffner, kein Partner.`);
+  out.push('');
+  out.push('  (a) NUR die Passung verschoben: derselbe Kontakt (3,2 Mio, kollegial, Land de = gleiches Land),');
+  out.push('      nur Sprache und Genre getauscht.');
+  zeile('gleiche Sprache, verw. Genre', { country: 'de', language: 'deutsch', genre: 'pop', reach: 3_200_000, trait: 'kollegial' });
+  zeile('fremde Sprache, fremdes Genre', { country: 'de', language: 'japanisch', genre: 'jpop', reach: 3_200_000, trait: 'kollegial' });
+  out.push('');
+  out.push('  (b) Der konkrete Fall aus dem Katalog – echte Länder, echte Größen, echte Charakterzüge:');
+  for (const id of ['ninachuba', 'yoasobi']) {
+    const c = contactsData.byId(id);
+    zeile(`${c.name} (${c.country}, ${c.language}, ${c.genre})`, c);
+  }
+  return out;
+}
+
+/** Tagesleistung einer Variante: was an einem Tag wirklich getan wurde. */
+function leistung(z, tage, laeufe) {
+  const n = tage * laeufe;
+  return { akte: z.akte / n, publishes: z.publishes / n, shows: z.shows / n };
+}
+
+/**
+ * Stück 5a: Was die Kontaktpflege bringt.
+ *
+ * Zwei Archetypen, je drei Varianten mit demselben Würfel und derselben
+ * Strategie. Die Strategie wird je Archetyp EINMAL gesucht (ohne Kontakte) und
+ * dann für alle Varianten festgehalten – sonst misst man die Strategiewahl.
+ *
+ * Die dritte Variante („Konzert-Vorrang") ist keine Spielempfehlung, sondern
+ * das Messwerkzeug für den Konzert-Schub: Ohne Vorrang wählt ein Spieler, der
+ * nach Chance × Nutzen geht, die Bühne nie (sie ist auf beiden Seiten
+ * dominiert), und die Zeile bliebe eine stille Null.
+ */
+async function kontaktlauf(laeufe, tage) {
+  const paare = [
+    { titel: 'Musik+Creator', musik: true, kennung: 'kontakte_beides' },
+    { titel: 'nur Creator', musik: false, kennung: 'kontakte_creator' },
+    // Der reine Musiker: dieselbe Messung ohne Kanalprogramm. Er hat keine
+    // Füllaktionen, die die zwei Stunden verdrängen könnten – bei ihm kostet
+    // die Kontaktpflege also fast nichts, während der Release-Schub der
+    // stärkste der drei ist. Ohne diesen Lauf wäre das eine Vermutung.
+    { titel: 'nur Musik', musik: true, kennung: 'kontakte_musik', kanaele: false },
+  ];
+
+  for (const a of paare) {
+    /*
+     * Ohne Kanäle unterscheiden sich die Strategien nur noch im Konzert-Flag:
+     * Reihenfolge und Bindungsstunden betreffen ausschließlich das Kanal-
+     * programm. Gesucht wird deshalb nur zwischen diesen beiden – die 48
+     * Varianten wären 24-mal derselbe Lauf.
+     */
+    const alle = a.kanaele === false
+      ? strategien(true).filter((s) => s.name.startsWith('Ertrag je Zeit +0B'))
+        .map((s) => ({ ...s, kanaele: false }))
+      : strategien(a.musik);
+    let strat;
+    if (STRATEGIE && alle.some((s) => s.name === STRATEGIE)) {
+      strat = alle.find((s) => s.name === STRATEGIE);
+    } else {
+      const such = await durchlauf(`${a.kennung}_suche`, a.musik, Math.max(2, Math.min(3, laeufe)),
+        Math.min(tage, 180), alle, true);
+      strat = alle.find((s) => s.name === such.strategie);
+    }
+    console.log(`  ${a.titel}: Strategie "${strat.name}", ${laeufe} Läufe à ${tage} Tage, Würfel rng(1000+i), ` +
+      `Kontaktwürfe rng(501000+i)`);
+
+    const ohne = await kontaktvariante(`${a.kennung}_ohne`, a.musik, { ...strat, kontakte: false }, laeufe, tage);
+    const mit = await kontaktvariante(`${a.kennung}_mit`, a.musik, { ...strat, kontakte: true }, laeufe, tage);
+    const kon = await kontaktvariante(`${a.kennung}_konzert`, a.musik,
+      { ...strat, kontakte: true, kontaktVorrang: 'konzert' }, laeufe, tage);
+
+    const zeile = (was, r) => `    ${was.padEnd(18)}${de(r.median / tage).padStart(10)}/Tag   ` +
+      `[${de(r.q25 / tage)} … ${de(r.q75 / tage)}]   ${de(r.follower)} Follower` +
+      (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '') +
+      ` · Energie Ø ${Math.round(r.energie * 100)} %`;
+    /*
+     * Gepaart auswerten: Je Seed läuft in beiden Varianten derselbe Würfel, das
+     * Verhältnis je Seed ist damit die ehrlichere Zahl – es steht neben dem
+     * Verhältnis der Mediane, nicht an seiner Stelle.
+     */
+    const diffzeile = (r) => {
+      const paarweise = ohne.geld.map((g, i) => r.geld[i] / Math.max(1, g));
+      return `      Differenz der Mediane ${prozent(r.median / Math.max(1, ohne.median) - 1)} · ` +
+        `je Seed (gepaart) Median ${prozent(median(paarweise) - 1)}, ` +
+        `Spanne ${prozent(Math.min(...paarweise) - 1)} … ${prozent(Math.max(...paarweise) - 1)}\n` +
+        `      je Seed: ${paarweise.map((x) => prozent(x - 1)).join(' · ')}`;
+    };
+
+    console.log(zeile('ohne Kontakte', ohne));
+    console.log(zeile('mit Kontakten', mit));
+    console.log(diffzeile(mit));
+
+    // Was die zwei Stunden gekostet haben – gezählt, nicht überschlagen.
+    const lo = leistung(ohne.zaehler, tage, laeufe);
+    const lm = leistung(mit.zaehler, tage, laeufe);
+    console.log(`      Tagesleistung Ø/Tag: ohne ${komma(lo.akte)} Kanalaktionen · ${komma(lo.publishes)} Veröffentlichungen · ${komma(lo.shows)} Konzerte` +
+      ` → mit ${komma(lm.akte)} · ${komma(lm.publishes)} · ${komma(lm.shows)}` +
+      ` (${prozent(lm.akte / Math.max(1e-9, lo.akte) - 1)} Kanalaktionen)`);
+    for (const l of kontaktZeilen(mit.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    if (ohne.zaehler.versuche || ohne.zaehler.gesetzt) {
+      console.log(`      KONTROLLE ohne Kontakte: Versuche ${ohne.zaehler.versuche}, Schübe ${ohne.zaehler.gesetzt} – muss 0 sein!`);
+    } else {
+      console.log(`      Kontrolle: im Lauf ohne Kontaktpflege 0 Versuche und 0 Schübe ✔`);
+    }
+
+    console.log(`    Konzert-Vorrang (nur zur Messung des Konzert-Schubs, keine Spielempfehlung):`);
+    console.log(zeile('mit Konzert-Vorrang', kon));
+    console.log(diffzeile(kon));
+    for (const l of kontaktZeilen(kon.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    console.log();
+  }
+}
+
 /** Für Prüf- und Kontrollläufe importierbar (test/…, Handprüfung): nur als Hauptprogramm messen. */
 module.exports = { firmenlauf, handelslauf, karriere, kanaltag, strategien, welt, main };
 
@@ -1246,6 +1865,25 @@ async function main() {
   }
   const LAEUFE = Number(process.argv[2] || 30);
   const TAGE = Number(process.argv[3] || 730);
+
+  if (process.argv[2] === 'stufenprobe') {
+    console.log(`\n--- Gegenprobe: erwarteter Stufenfaktor gegen gewürfelte \`stufeVon\` ---\n`);
+    for (const l of stufenprobe(Number(process.argv[3] || 1_000_000))) console.log(l);
+    console.log();
+    return;
+  }
+
+  if (NUR === 'kontakte') {
+    console.log(`\n--- Kontakte (Stück 5a: mit und ohne Kontaktpflege, ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
+    console.log('  Gegenprobe zur Wahl des Spielers: erwarteter Stufenfaktor gegen gewürfelte `stufeVon`');
+    for (const l of stufenprobe(200_000)) console.log(l);
+    console.log();
+    console.log('  Passung (mit contacts.passungOf / chanceOf / staerkeOf / boostOf gerechnet):');
+    for (const l of passungsblock()) console.log(l);
+    console.log();
+    await kontaktlauf(LAEUFE, TAGE);
+    return;
+  }
 
   if (NUR === 'nachfrage') {
     console.log(`\n--- Nachfrage-Drift (Stück 3c: BETO, ${TAGE} Tage, drei Welten, ein Würfel) ---\n`);

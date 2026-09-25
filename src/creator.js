@@ -498,7 +498,7 @@ function rollDonations(viewers, factor, random) {
  */
 function simulate(state, p, fmt, ctx = {}) {
   const {
-    cross = 0, community = 0, boost = 0, energy = 1,
+    cross = 0, community = 0, boost = 0, energy = 1, kontakt = 1, kontaktHype = 1,
     idleDays: idle = 0, random = Math.random,
     market = { pool: 1, speed: 1, money: 1, deal: 1 },
   } = ctx;
@@ -529,9 +529,11 @@ function simulate(state, p, fmt, ctx = {}) {
   const quality = roll * state.hype;
 
   // 3. Publikum.
+  // `kontakt` ist der Schub aus einer Zusage – er liegt wie der Twitter-Schub
+  // auf dem Publikum dieser EINEN Aktion, nicht auf der Decke (§3).
   const audience = Math.max(1, Math.round(
     reachOf(p, startFollowers, cross) * quality * fmt.reach
-    * (event.audience ?? 1) * (1 + boost) * energy));
+    * (event.audience ?? 1) * (1 + boost) * energy * kontakt));
 
   // 4. Follower.
   const gained = Math.round(audience * followRate * fmt.follow * (event.follow ?? 1));
@@ -545,7 +547,10 @@ function simulate(state, p, fmt, ctx = {}) {
 
   const result = {
     platform: p.id, format: fmt.id,
-    followers, subs: startSubs, hype: clamp(HYPE_MIN, HYPE_MAX, state.hype * 0.7 + roll * 0.3),
+    followers, subs: startSubs,
+    // Ein Feature schiebt neben dem Publikum auch den Hype an (wie bei
+    // music.publish) – `kontaktHype` ist der Zuschlag aus der Zusage.
+    hype: clamp(HYPE_MIN, HYPE_MAX, (state.hype * 0.7 + roll * 0.3) * kontaktHype),
     audience, gained, lost, lostToIdle, spill, spillLoss,
     stock: state.stock ?? 0,
     views: audience, money: 0, ads: 0, donations: 0, donationList: [], subIncome: 0,
@@ -857,11 +862,15 @@ async function act(
 
   const community = communityNow(state, now);
   const boost = activeBoost(state, now);
+  // Der Schub aus einer Zusage wirkt auf GENAU diese Aktion: gelesen,
+  // angewandt, gelöscht (src/contacts.js).
+  const kb = require('./contacts').consumeBoost(guildId, userId, 'creator', now);
   const fatigue = time.fatigue;          // nach dieser Aktion
   const energy = time.factor;            // in simulate heißt der Faktor weiterhin `energy`
 
   const sim = simulate(own, p, fmt, {
     cross, community, boost, energy,
+    kontakt: kb?.factor || 1, kontaktHype: kb?.extra || 1,
     idleDays: idleDays(own.touched_at || own.last_action_at, now),
     random,
   });
@@ -976,6 +985,11 @@ async function act(
     subIncome: sim.subIncome, coop: sim.coop,
     base: sim.money, amount, levelBonus: amount - sim.money, level: perk.level,
     boostUsed: boost, boost: sim.boost, community: sim.community,
+    kontakt: kb ? {
+      id: kb.contact?.id ?? '', name: kb.contact?.name ?? '',
+      request: kb.request?.name ?? kb.requestId,
+      requestId: kb.requestId, factor: kb.factor,
+    } : null,
     fatigue,
     energy: time.energy, factor: time.factor, tired: time.factor < 0.95,
     deal, offer, incident,
@@ -1130,6 +1144,11 @@ function describe(result, money) {
   lines.push(`👀 **${result.audience.toLocaleString('de-DE')}** ${p.unit}` +
     (p.id === 'twitch' ? ` · ▶️ ${result.views.toLocaleString('de-DE')} Aufrufe` : '') +
     (result.boostUsed > 0 ? ` · 🐦 +${Math.round(result.boostUsed * 100)} % durch deinen Tweet` : ''));
+
+  // Kontakte (5a): Ein verbrauchter Schub gehört ins Ergebnis, sonst sieht der
+  // Spieler nur die Zeile „wirkt auf die nächste Aktion" – und danach nichts.
+  const schub = require('./ui').schubGewirkt(result.kontakt);
+  if (schub) lines.push(schub);
 
   if (result.event) lines.push(result.event.text);
 

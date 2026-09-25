@@ -1,0 +1,249 @@
+// test/contacts.test.js
+/**
+ * Kontakte 5a: Katalog, Passung, Antwortchance, Stufen, Stärke, Schübe.
+ * Aufruf: DATA_DIR=.testdata node test/contacts.test.js
+ */
+const data = require('../src/data/contacts');
+const contacts = require('../src/contacts');
+const world = require('../src/data/world');
+const musicData = require('../src/data/music');
+const creatorData = require('../src/data/creator');
+
+let pass = 0, fail = 0;
+const check = (label, ok, extra = '') => {
+  if (ok) { pass++; console.log(`  ✅ ${label}`); }
+  else { fail++; console.log(`  ❌ ${label} ${extra}`); }
+};
+const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+
+(async () => {
+  console.log('--- Katalog: Abdeckung ---');
+  {
+    const musik = data.CONTACTS.filter((c) => c.kind === 'musik' || c.kind === 'beides');
+    const creator = data.CONTACTS.filter((c) => c.kind === 'creator' || c.kind === 'beides');
+    check('IDs eindeutig', new Set(data.CONTACTS.map((c) => c.id)).size === data.CONTACTS.length);
+    check('jeder Eintrag vollständig', data.CONTACTS.every((c) =>
+      c.id && c.name && c.emoji && c.blurb && data.TRAIT_BONUS[c.trait] !== undefined
+      && world.COUNTRIES.some((x) => x.id === c.country) && world.LANGUAGES.some((x) => x.id === c.language)));
+    check('Musik-Einträge haben Genre und Reichweite', musik.every((c) => musicData.GENRES.some((g) => g.id === c.genre) && c.reach > 0));
+    check('Creator-Einträge haben Plattform und Reichweite', creator.every((c) => creatorData.PLATFORMS.some((p) => p.id === c.platform) && c.reachCreator > 0));
+
+    for (const land of world.COUNTRIES) {
+      check(`Land ${land.id}: mindestens ein Kontakt`, data.CONTACTS.some((c) => c.country === land.id));
+    }
+    for (const sprache of world.LANGUAGES) {
+      const m = musik.filter((c) => c.language === sprache.id);
+      check(`Sprache ${sprache.id}: ≥ 3 Musiker, einer < 100k, einer > 1 Mio`,
+        m.length >= 3 && m.some((c) => c.reach < 100_000) && m.some((c) => c.reach > 1_000_000),
+        `${m.length} Einträge`);
+    }
+    for (const g of musicData.GENRES) {
+      const m = musik.filter((c) => c.genre === g.id);
+      check(`Genre ${g.id}: ≥ 4 Kontakte in ≥ 3 Sprachen, ≥ 1 Weltstar`,
+        m.length >= 4 && new Set(m.map((c) => c.language)).size >= 3 && m.some((c) => c.reach >= 100_000_000),
+        `${m.length} Einträge, ${new Set(m.map((c) => c.language)).size} Sprachen`);
+    }
+    for (const p of creatorData.PLATFORMS) {
+      const cs = creator.filter((c) => c.platform === p.id);
+      check(`Plattform ${p.id}: ≥ 3 Kontakte, ≥ 1 über 10 Mio`,
+        cs.length >= 3 && cs.some((c) => c.reachCreator > 10_000_000), `${cs.length} Einträge`);
+    }
+    check('Doppelrollen haben beide Seiten', data.CONTACTS.filter((c) => c.kind === 'beides')
+      .every((c) => c.genre && c.reach > 0 && c.platform && c.reachCreator > 0));
+    check('vier Anfragearten mit 2 h', data.REQUESTS.length === 4 && data.REQUESTS.every((r) => r.time === 2));
+    check('Konzert braucht Draht 20', data.REQUESTS.find((r) => r.id === 'konzert').minDraht === 20);
+    check('Texte für jeden Charakter und jede Stufe', Object.keys(data.TRAIT_BONUS).every((t) =>
+      ['fluechtig', 'echt', 'zusage', 'nein'].every((s) => Array.isArray(data.LINES[t]?.[s]) && data.LINES[t][s].length >= 3)));
+  }
+
+  console.log('--- Passung ---');
+  {
+    const p1 = contacts.passungOf({ meine: { language: 'deutsch', genre: 'hiphop' }, seine: { language: 'deutsch', genre: 'hiphop' } });
+    check('gleiche Sprache, gleiches Genre: 1,0', near(p1.passung, 1));
+    const p2 = contacts.passungOf({ meine: { language: 'japanisch', genre: 'jpop' }, seine: { language: 'deutsch', genre: 'hiphop' } });
+    check('J-Pop-Act und deutscher Rapper: 0,045', near(p2.passung, 0.15 * 0.3), String(p2.passung));
+    const p3 = contacts.passungOf({ meine: { language: 'japanisch', genre: 'jpop' }, seine: { language: 'englisch', genre: 'pop' } });
+    check('Englisch als Brücke, verwandtes Genre: 0,42', near(p3.passung, 0.6 * 0.7));
+    const p4 = contacts.passungOf({ meine: { language: 'deutsch', genre: 'rock' }, seine: { language: 'deutsch', genre: 'metal' } });
+    check('verwandt: 0,7', near(p4.passung, 0.7));
+    const p5 = contacts.passungOf({ meine: { language: 'deutsch', platform: 'twitch' }, seine: { language: 'deutsch', platform: 'youtube' }, seite: 'creator' });
+    check('Creator, andere Plattform: 0,6', near(p5.passung, 0.6));
+  }
+
+  console.log('--- Antwortchance ---');
+  {
+    const basis = (r) => Math.min(0.95, 0.6 * Math.sqrt(r));
+    const arg = (over) => ({
+      meineReichweite: 1_000, seineReichweite: 1_000, request: 'shoutout',
+      gleichesLand: false, sprache: 'gleich', genre: 'gleich', draht: 0,
+      tuerOeffner: 0, hype: 1, trait: 'launisch', partner: false, ...over });
+    // 1:1, alles neutral außer gleicher Sprache/Genre: 0,6 + 0,10 + 0,05 = 0,75
+    check('1:1, gleiche Sprache und Genre: 0,75', near(contacts.chanceOf(arg()), 0.75), String(contacts.chanceOf(arg())));
+    check('1:10 → Basis 0,190', near(basis(0.1), 0.6 * Math.sqrt(0.1)));
+    check('1:100 fremde Sprache, fremdes Genre, arrogant: Untergrenze 0,02',
+      near(contacts.chanceOf(arg({ seineReichweite: 100_000, sprache: 'fremd', genre: 'fremd', trait: 'arrogant' })), 0.02),
+      String(contacts.chanceOf(arg({ seineReichweite: 100_000, sprache: 'fremd', genre: 'fremd', trait: 'arrogant' }))));
+    // 1:1000 = Basis 0,019 + Sprache 0,10 + Genre 0,05 = 0,169
+    check('1:1000, gleiche Sprache und Genre: 0,169',
+      near(contacts.chanceOf(arg({ seineReichweite: 1_000_000 })), 0.6 * Math.sqrt(0.001) + 0.15),
+      String(contacts.chanceOf(arg({ seineReichweite: 1_000_000 }))));
+    check('Draht 50 hebt um 0,125', near(contacts.chanceOf(arg({ draht: 50 })) - contacts.chanceOf(arg()), 0.125));
+    check('Draht −100 senkt um 0,25', near(contacts.chanceOf(arg()) - contacts.chanceOf(arg({ draht: -100 })), 0.25));
+    check('Partner gibt +0,10', near(contacts.chanceOf(arg({ partner: true })) - contacts.chanceOf(arg()), 0.10));
+    check('Reaktion ist leichter als Konzert um 0,35',
+      near(contacts.chanceOf(arg({ request: 'reaktion' })) - contacts.chanceOf(arg({ request: 'konzert' })), 0.35));
+    check('Obergrenze 0,95', contacts.chanceOf(arg({ seineReichweite: 10, draht: 100, trait: 'kollegial' })) === 0.95);
+    check('frischer Account: Boden 100 statt Division durch null',
+      Number.isFinite(contacts.chanceOf(arg({ meineReichweite: 0, seineReichweite: 1_000_000 }))));
+  }
+
+  console.log('--- Stufe und Stärke ---');
+  {
+    // Gewichte: fluechtig 6, echt 3, zusage 1 × (1 + 2×min(1,ratio)) × (1 + draht/100)
+    const zaehle = (ratio, draht, n = 20_000) => {
+      let i = 0; const rng = () => ((i = (i * 1103515245 + 12345) % 2147483648) / 2147483648);
+      const out = { fluechtig: 0, echt: 0, zusage: 0 };
+      for (let k = 0; k < n; k++) out[contacts.stufeVon(rng, { ratio, draht })]++;
+      return out;
+    };
+    const gross = zaehle(1, 50);   // ratio 1 → naehe 1
+    const erwartetZusage = 1 * (1 + 2) * (1 + 0.5);      // 4,5
+    const summe = 6 + 3 + erwartetZusage;                 // 13,5 → Anteil 0,333
+    check('auf Augenhöhe mit Draht 50: Zusagen ≈ 33 % der Fälle',
+      Math.abs(gross.zusage / 20_000 - erwartetZusage / summe) < 0.02,
+      `${(gross.zusage / 20_000).toFixed(3)} vs ${(erwartetZusage / summe).toFixed(3)}`);
+    const klein = zaehle(0.001, 0);
+    // 1:1000: fluechtig 12, echt 3, zusage ≈ 1 → Anteil 0,750
+    check('beim Weltstar bleibt es meist beim Emoji (> 70 %)', klein.fluechtig / 20_000 > 0.7,
+      String(klein.fluechtig / 20_000));
+
+    const s1 = contacts.staerkeOf({ seineReichweite: 1_000, meineReichweite: 1_000, passung: 1, stufe: 'zusage' });
+    check('gleich groß, Zusage: 0,100', near(s1, Math.log10(2) / 3), String(s1));
+    const s2 = contacts.staerkeOf({ seineReichweite: 1_000_000, meineReichweite: 1_000, passung: 1, stufe: 'zusage' });
+    check('1:1000, Zusage: gedeckelt auf 1,0', near(s2, 1));
+    const s3 = contacts.staerkeOf({ seineReichweite: 1_000_000, meineReichweite: 1_000, passung: 0.045, stufe: 'zusage' });
+    check('dasselbe mit J-Pop-Passung: 0,045', near(s3, 0.045));
+    const s4 = contacts.staerkeOf({ seineReichweite: 1_000_000, meineReichweite: 1_000, passung: 1, stufe: 'fluechtig' });
+    check('flüchtig ist ein Viertel: 0,25', near(s4, 0.25));
+  }
+
+  console.log('--- Schübe und Draht ---');
+  {
+    const b1 = contacts.boostOf('shoutout', 1, 1_000_000);
+    check('Shoutout: Faktor 4, 48 h, kind release-oder-creator',
+      b1.factor === 4 && b1.dauerMs === 48 * 3600e3, JSON.stringify(b1));
+    const b2 = contacts.boostOf('feature', 1, 1_000_000);
+    check('Feature: Faktor 6, Hype-Extra 1,15, 72 h',
+      b2.factor === 6 && near(b2.extra, 1.15) && b2.dauerMs === 72 * 3600e3, JSON.stringify(b2));
+    const b3 = contacts.boostOf('konzert', 0.5, 1_000_000);
+    check('Konzert: 50.000 zusätzliche Hörer, 7 Tage',
+      b3.extra === 50_000 && b3.dauerMs === 7 * 24 * 3600e3, JSON.stringify(b3));
+
+    check('Drahtstufen', contacts.drahtStufe(-60) === 'beef' && contacts.drahtStufe(-25) === 'verstimmt'
+      && contacts.drahtStufe(0) === 'neutral' && contacts.drahtStufe(25) === 'bekannt' && contacts.drahtStufe(60) === 'partner');
+    check('Abklingen: 21 Punkte nach zwei Wochen → 17', contacts.decay(21, 14) === 17);
+    check('Abklingen zieht auch negative Richtung 0', contacts.decay(-21, 14) === -17);
+    check('Abklingen überschießt nicht', contacts.decay(3, 70) === 0 && contacts.decay(-3, 70) === 0);
+  }
+
+  console.log('--- Anfragen und Schübe ---');
+  {
+    const unb = require('../src/unb');
+    unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
+    unb.changeCash = async () => ({ cash: 0, bank: 0, total: 0 });
+    const db = require('../src/db');
+    const music = require('../src/music');
+    const creator = require('../src/creator');
+    const home = require('../src/home');
+    const G = `KONTAKT_T${Date.now()}`;
+    const U = 'k1';
+    const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * 3600e3;
+    const H = 3600e3;
+    const immer = () => 0.0001;     // Chance trifft, Stufe = erste = fluechtig
+    const nie = () => 0.9999;
+
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), listeners: 10_000 });
+
+    const klein = data.CONTACTS.find((c) => c.language === 'deutsch' && c.genre === 'hiphop' && c.reach < 100_000);
+    check('ein kleiner deutscher Rapper im Katalog', Boolean(klein));
+
+    // Liste und Detail
+    const liste = contacts.listFor(G, U, { filter: 'inland', now: t0 });
+    check('Liste Inland: nur deutsche Kontakte, mit Chance', liste.length > 0
+      && liste.every((z) => z.contact.country === 'de' && z.chance > 0 && z.chance <= 0.95));
+    const d = contacts.detail(G, U, klein.id, t0);
+    check('Detail: Musikseite, vier Anfragearten, Konzert gesperrt',
+      d.seite === 'musik' && d.requests.length === 4
+      && d.requests.find((r) => r.id === 'konzert').moeglich === false, JSON.stringify(d.requests?.map((r) => [r.id, r.moeglich])));
+
+    // Erfolgreiche Anfrage: Zeit gebucht, Draht steigt, Schub gesetzt
+    const zeitVor = creator.budget(G, U, t0).left;
+    let r = await contacts.request(G, U, klein.id, 'shoutout', t0, immer);
+    check('Antwort kommt, Zeit ist gebucht (2 h)', r.ok && r.antwort !== 'ignoriert'
+      && creator.budget(G, U, t0).left === zeitVor - 2, JSON.stringify({ r: r.antwort, zeit: creator.budget(G, U, t0).left }));
+    check('Draht bewegt sich nach oben', db.getContact(G, U, klein.id).draht > 0);
+    check('Schub liegt bereit', contacts.activeBoost(G, U, 'release', t0)?.factor > 1);
+
+    // Sperre
+    r = await contacts.request(G, U, klein.id, 'shoutout', t0 + H, immer);
+    check('Sperre 3 Tage', r.ok === false && r.reason === 'gesperrt', JSON.stringify(r));
+    r = await contacts.request(G, U, klein.id, 'shoutout', t0 + 3 * 24 * H + H, immer);
+    check('nach 3 Tagen wieder erlaubt', r.ok, JSON.stringify(r));
+
+    // Ignoriert: Zeit trotzdem weg, Sperre 7 Tage, Draht −1
+    const gross = data.CONTACTS.find((c) => c.reach >= 100_000_000);
+    const drahtVor = db.getContact(G, U, gross.id)?.draht ?? 0;
+    const zeit2 = creator.budget(G, U, t0 + 4 * 24 * H).left;
+    r = await contacts.request(G, U, gross.id, 'feature', t0 + 4 * 24 * H, nie);
+    check('Weltstar ignoriert, Zeit ist trotzdem weg, Draht −1',
+      r.ok && r.antwort === 'ignoriert' && creator.budget(G, U, t0 + 4 * 24 * H).left === zeit2 - 2
+      && db.getContact(G, U, gross.id).draht === drahtVor - 1, JSON.stringify(r));
+    r = await contacts.request(G, U, gross.id, 'feature', t0 + 8 * 24 * H, immer);
+    check('nach Ignorieren 7 Tage Sperre', r.ok === false && r.reason === 'gesperrt');
+
+    // Schub wirkt genau einmal auf die nächste Veröffentlichung
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), songs: 5 });
+    const boost = contacts.activeBoost(G, U, 'release', t0 + 4 * 24 * H);
+    check('Schub noch aktiv', Boolean(boost));
+    const ohne = music.publish(G, U, 'single', t0 + 4 * 24 * H, () => 0.5, { events: false });
+    check('Veröffentlichung nennt den Schub', ohne.ok && ohne.kontakt?.name === klein.name, JSON.stringify(ohne.kontakt));
+    check('Schub ist verbraucht', contacts.activeBoost(G, U, 'release', t0 + 4 * 24 * H) === null);
+
+    // Abgelaufener Schub wirkt nicht
+    db.setBoost(G, U, { kind: 'release', factor: 4, extra: 1, until: t0 - 1, contactId: klein.id, requestId: 'shoutout' }, t0);
+    check('abgelaufener Schub zählt nicht', contacts.activeBoost(G, U, 'release', t0) === null);
+
+    // Stärkerer Schub gewinnt, stapelt nicht
+    db.setBoost(G, U, { kind: 'release', factor: 2, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
+    db.setBoost(G, U, { kind: 'release', factor: 3, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
+    check('stärkerer gewinnt', contacts.activeBoost(G, U, 'release', t0).factor === 3);
+    db.setBoost(G, U, { kind: 'release', factor: 2.5, extra: 1, until: t0 + 48 * H, contactId: klein.id, requestId: 'shoutout' }, t0);
+    check('schwächerer verdrängt nicht', contacts.activeBoost(G, U, 'release', t0).factor === 3);
+
+    // Der StÄRKERE gewinnt, nicht der jüngere: ein laufendes Feature lässt sich
+    // von einem später gesendeten Shoutout nicht verdrängen, obwohl der länger läuft.
+    const stark = db.setBoost(G, U,
+      { kind: 'release', factor: 6, extra: 1.9, until: t0 + 72 * H, contactId: klein.id, requestId: 'feature' }, t0);
+    check('starker Schub wird gesetzt', stark.neu === true && stark.row.factor === 6);
+    const spaet = t0 + 25 * H;
+    const schwach = db.setBoost(G, U,
+      { kind: 'release', factor: 1.5, extra: 1, until: spaet + 48 * H, contactId: gross.id, requestId: 'shoutout' }, spaet);
+    const noch = contacts.activeBoost(G, U, 'release', spaet);
+    check('schwächerer mit späterem Ende verdrängt den starken nicht',
+      schwach.neu === false && noch.factor === 6 && noch.requestId === 'feature'
+      && noch.until === t0 + 72 * H, JSON.stringify({ neu: schwach.neu, f: noch.factor, r: noch.requestId }));
+
+    // Gleich stark: der alte bleibt stehen, sein Fenster reicht aber weiter.
+    const gleich = db.setBoost(G, U,
+      { kind: 'release', factor: 6, extra: 1.9, until: t0 + 96 * H, contactId: gross.id, requestId: 'shoutout' }, spaet);
+    check('gleich stark verlängert nur das Fenster',
+      gleich.neu === false && gleich.row.until === t0 + 96 * H
+      && gleich.row.request_id === 'feature', JSON.stringify(gleich));
+  }
+
+  console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
+  process.exit(fail === 0 ? 0 : 1);
+})();
