@@ -26,6 +26,7 @@
  */
 
 const data = require('./data/beef');
+const db = require('./db');
 
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 
@@ -108,8 +109,271 @@ function textFor(trait, lage, name, random = Math.random) {
     .replaceAll('{name}', name);
 }
 
+/**
+ * ===========================================================================
+ *  DIE ZUSTANDSBEHAFTETE SCHICHT
+ * ===========================================================================
+ *
+ * Ab hier kommt die Datenbank dazu: die Tabelle `beefs` mit Hitze, Runden und
+ * Uhr. Die Rechnungen oben bleiben unberührt – hier wird nur gelesen,
+ * gewürfelt und geschrieben.
+ *
+ * Drei Regeln, die überall durchschlagen:
+ *
+ *   • Die zwei Stunden werden IMMER gebucht, auch wenn er nicht einsteigt –
+ *     und zwar BEVOR irgendetwas geschrieben wird. Ein abgelehnter Versuch
+ *     hinterlässt weder Beef noch Draht noch Sperre.
+ *   • Die Abkühlung wird beim Lesen ausgerechnet, nie geschrieben (§4). Erst
+ *     wenn ohnehin etwas geschrieben wird, wandert der abgekühlte Wert mit.
+ *   • Der Draht wird hier NIE selbst geschrieben. Das macht ausschließlich
+ *     `contacts.moveDraht` – eine Stelle, ein Abklingen, eine Sperre.
+ */
+
+const DAY_MS = 86_400_000;
+
+/** Der Beef mit ihm, wenn er offen ist – mit faul gerechneter Hitze. */
+function offenerBeef(guildId, userId, contactId, now = Date.now()) {
+  const row = db.beefRow(guildId, userId, contactId);
+  if (!row || row.status !== 'offen') return null;
+  return { ...row, hitze: hitzeJetzt(row, now) };
+}
+
+/** Alle offenen Beefs, Hitze faul gerechnet. */
+function offeneBeefs(guildId, userId, now = Date.now()) {
+  return db.beefsOf(guildId, userId)
+    .filter((r) => r.status === 'offen')
+    .map((r) => ({ ...r, hitze: hitzeJetzt(r, now) }));
+}
+
+/**
+ * Jemanden anstacheln.
+ *
+ * Die Reihenfolge ist hier die halbe Miete und dieselbe wie bei einer Anfrage
+ * in 5a: erst alles prüfen, dann die Zeit buchen, dann würfeln, dann in einem
+ * Rutsch schreiben. Bis zur Zeitbuchung ist nichts geschrieben – wer kein
+ * Zeitbudget mehr hat, hinterlässt keine Spur.
+ */
+function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.random) {
+  const contacts = require('./contacts');
+
+  // 1. Kennen wir ihn überhaupt?
+  const d = contacts.detail(guildId, userId, contactId, now);
+  if (!d) return { ok: false, reason: 'unknown' };
+
+  // 2. Beef ist eine Sache unter Musikern: Ich brauche die Musikseite, er
+  //    eine Reichweite als Musiker. Auf der Creator-Seite gibt es keinen
+  //    Disstrack, also auch keinen Streit.
+  if (d.seite !== 'musik' || !d.contact.reach) {
+    return { ok: false, reason: 'seite', contact: d.contact };
+  }
+
+  // 3. Mit ihm läuft schon etwas.
+  if (offenerBeef(guildId, userId, contactId, now)) {
+    return { ok: false, reason: 'laeuft_schon', contact: d.contact };
+  }
+
+  // 4. Zwei Fronten reichen.
+  const offene = offeneBeefs(guildId, userId, now);
+  if (offene.length >= data.BEEFS_MAX) {
+    return { ok: false, reason: 'zu_viele', contact: d.contact, max: data.BEEFS_MAX, offen: offene.length };
+  }
+
+  // 5. Er ist noch dicht von der letzten Runde.
+  if (d.gesperrtBis > now) {
+    return { ok: false, reason: 'gesperrt', contact: d.contact,
+      bis: d.gesperrtBis, remainingMs: d.gesperrtBis - now };
+  }
+
+  // 6. Zwei Stunden kostet der Abend – auch wenn er nicht einsteigt.
+  const zeit = require('./creator').useTime(guildId, userId, data.BEEF_TIME, now);
+  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
+
+  // 7. Der Wurf.
+  const chance = einstiegOf({
+    meine: d.meineReichweite, seine: d.seineReichweite, trait: d.contact.trait });
+  const ein = random() < chance;
+
+  // 8. Schreiben – und zwar erst jetzt.
+  let draht;
+  let treffer = null;
+  if (ein) {
+    db.saveBeef(guildId, userId, contactId, {
+      hitze: data.HITZE_ANSTACHELN, runden_ich: 0, runden_er: 0,
+      last_hit: now, last_cool: now, konter_at: 0, angefangen: now,
+      status: 'offen', bonus_until: 0,
+    });
+    draht = contacts.moveDraht(guildId, userId, contactId,
+      data.DRAHT_ANSTACHELN, now, { sperre: true });
+  } else {
+    // Blamage: er steigt nicht ein, die Zeile steht allein da. Draht runter,
+    // einmalig ein Zwanzigstel Hype – der Rest bleibt, wie er war.
+    draht = contacts.moveDraht(guildId, userId, contactId,
+      data.DRAHT_BLAMAGE, now, { sperre: true });
+    treffer = require('./music').applyBeefTreffer(guildId, userId,
+      { hype: data.BLAMAGE_HYPE, hoererAnteil: 0 }, now);
+  }
+
+  // 9. Was die Anzeige erzählt.
+  return {
+    ok: true, ein, chance, contact: d.contact,
+    text: textFor(d.contact.trait, ein ? 'einstieg' : 'blamage', d.contact.name, random),
+    draht, treffer, zeit,
+  };
+}
+
+/**
+ * Die faule Abrechnung (§4): Gegenschlag und Ende passieren nicht zu ihrer
+ * Zeit, sondern sobald jemand hinsieht oder handelt.
+ *
+ * Darf auf jeder Ansicht und vor jeder Aktion laufen: Ist nichts fällig, wird
+ * nichts geschrieben und nichts gemeldet. Ein fällig gewordener Gegenschlag
+ * fällt genau einmal – `konter_at` wird dabei auf 0 gesetzt (§9), auch wenn
+ * er verfällt, weil die Hitze inzwischen zu niedrig ist.
+ */
+function settle(guildId, userId, now = Date.now(), random = Math.random) {
+  const contacts = require('./contacts');
+  const katalog = require('./data/contacts');
+  const ereignisse = [];
+
+  for (const row of db.beefsOf(guildId, userId)) {
+    if (row.status !== 'offen') continue;
+
+    // 1. Wie heiß ist es jetzt?
+    let hitze = hitzeJetzt(row, now);
+    let rundenIch = row.runden_ich;
+    let rundenEr = row.runden_er;
+    let konterAt = row.konter_at;
+    let lastHit = row.last_hit;
+    let status = row.status;
+    let bonusUntil = row.bonus_until;
+    let bewegt = false;
+    const gegner = katalog.byId(row.contact_id);
+
+    // 2. Ist sein Gegenschlag fällig?
+    if (konterAt > 0 && now >= konterAt) {
+      konterAt = 0;          // genau einmal, egal wie es ausgeht (§9)
+      bewegt = true;
+      if (hitze >= data.HITZE_KONTER_MIN) {
+        const d = contacts.detail(guildId, userId, row.contact_id, now);
+        const wucht = wuchtOf({
+          seine: d?.seineReichweite ?? 0, meine: d?.meineReichweite ?? 0 });
+        const treffer = require('./music').applyBeefTreffer(guildId, userId, {
+          hype: 1 - data.KONTER_HYPE * wucht,
+          hoererAnteil: data.KONTER_HOERER * wucht,
+        }, now);
+        const runde = rundeNachKonter(wucht);
+        if (runde === 'er') rundenEr += 1; else rundenIch += 1;
+        hitze = clamp(0, data.HITZE_MAX, hitze + data.HITZE_KONTER);
+        const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_KONTER, now);
+        lastHit = now;
+        ereignisse.push({
+          contactId: row.contact_id, art: 'konter', contact: gegner ?? null,
+          wucht, runde, treffer, draht, hitze, rundenIch, rundenEr,
+          text: gegner ? textFor(gegner.trait, 'konter', gegner.name, random) : '',
+        });
+      }
+      // Sonst: unter HITZE_KONTER_MIN verfällt der Schlag. Nur konter_at = 0.
+    }
+
+    // 3. Ist die Hitze durch? Dann wird abgerechnet.
+    if (hitze <= 0) {
+      status = ausgangOf(rundenIch, rundenEr);
+      bonusUntil = now + data.BONUS_TAGE * DAY_MS;
+      bewegt = true;
+      ereignisse.push({
+        contactId: row.contact_id, art: 'ende', contact: gegner ?? null,
+        status, rundenIch, rundenEr, faktor: bonusFaktor(status), bonusUntil,
+        text: gegner ? textFor(gegner.trait, 'ende', gegner.name, random) : '',
+      });
+    }
+
+    // 4. Ein Schreibvorgang je bewegtem Beef – und nur dann.
+    if (!bewegt) continue;
+    db.saveBeef(guildId, userId, row.contact_id, {
+      hitze, runden_ich: rundenIch, runden_er: rundenEr,
+      last_hit: lastHit, last_cool: now, konter_at: konterAt,
+      angefangen: row.angefangen, status, bonus_until: bonusUntil,
+    });
+  }
+
+  // 5. Was die Anzeige (Stück 4) melden kann.
+  return ereignisse;
+}
+
+/**
+ * Der Bonus auf den Hype: der JÜNGSTE abgerechnete Beef, dessen Fenster noch
+ * läuft. Gestapelt wird nie – wie der Schub in 5a.
+ */
+function bonusOf(guildId, userId, now = Date.now()) {
+  const fertig = db.beefsOf(guildId, userId)
+    .filter((r) => r.status !== 'offen' && r.bonus_until > now)
+    .sort((a, b) => b.bonus_until - a.bonus_until);
+  const j = fertig[0];
+  return j ? { faktor: bonusFaktor(j.status), status: j.status, contactId: j.contact_id, until: j.bonus_until }
+    : { faktor: 1, status: null, contactId: null, until: 0 };
+}
+
+/**
+ * Solange es brennt, macht seine Szene dicht: gleiche Sprache UND gleiches
+ * Genre wie der Gegner – oder er selbst.
+ *
+ * Bei zwei offenen Beefs zählt der GRÖSSTE Malus, nicht die Summe. Sonst
+ * könnte man sich mit zwei Streits vollständig selbst aussperren.
+ */
+function szeneMalus(guildId, userId, contact, now = Date.now()) {
+  let max = 0;
+  for (const b of offeneBeefs(guildId, userId, now)) {
+    const gegner = require('./data/contacts').byId(b.contact_id);
+    if (!gegner) continue;
+    const szene = gegner.id === contact.id
+      || (gegner.language === contact.language && gegner.genre === contact.genre);
+    if (!szene) continue;
+    max = Math.max(max, data.SZENE_MALUS * (b.hitze / 100));
+  }
+  return -max;
+}
+
+/**
+ * Frieden anbieten.
+ *
+ * Möglich, sobald die Hitze unter HITZE_FRIEDEN_MAX liegt – auch noch nach
+ * dem Ende, solange die Zeile steht; dann verfällt der Bonus mit. Der Draht
+ * springt dabei nie ins Plus (FRIEDEN_DECKEL): Beef anfangen und sofort
+ * Frieden schließen ist keine Abkürzung zum Partner.
+ */
+function frieden(guildId, userId, contactId, now = Date.now(), random = Math.random) {
+  const contacts = require('./contacts');
+  const d = contacts.detail(guildId, userId, contactId, now);
+  if (!d) return { ok: false, reason: 'unknown' };
+
+  const row = db.beefRow(guildId, userId, contactId);
+  if (!row) return { ok: false, reason: 'kein_beef', contact: d.contact };
+
+  // Auch die Versöhnung kostet den Abend – gebucht vor jedem Schreiben.
+  const zeit = require('./creator').useTime(guildId, userId, data.BEEF_TIME, now);
+  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
+
+  const hitze = hitzeJetzt(row, now);
+  if (hitze >= data.HITZE_FRIEDEN_MAX) {
+    return { ok: false, reason: 'zu_heiss', hitze, contact: d.contact, zeit };
+  }
+
+  db.saveBeef(guildId, userId, contactId, {
+    ...row, hitze: 0, konter_at: 0, last_cool: now,
+    status: 'frieden', bonus_until: 0,
+  });
+  const ziel = Math.min(data.FRIEDEN_DECKEL, d.draht + data.FRIEDEN_PLUS);
+  const draht = contacts.moveDraht(guildId, userId, contactId, ziel - d.draht, now, { sperre: true });
+
+  return {
+    ok: true, contact: d.contact, status: 'frieden', hitze, draht, zeit,
+    text: textFor(d.contact.trait, 'ende', d.contact.name, random),
+  };
+}
+
 module.exports = {
   traitBonus, einstiegOf, wuchtOf, genrefaktorOf, aufmerksamkeitOf, haemeOf,
   hitzeJetzt, rundeNachDiss, rundeNachKonter, ausgangOf, bonusFaktor,
   anzaehlGewicht, textFor,
+  offenerBeef, offeneBeefs, anstacheln, settle, bonusOf, szeneMalus, frieden,
 };

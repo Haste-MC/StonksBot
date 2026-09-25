@@ -584,6 +584,24 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
 }
 
 /**
+ * Ein Treffer aus einem Beef: Hype mal einem Faktor, ein Anteil der Hörer weg.
+ * Blamage, Häme und Gegenschlag brauchen genau dasselbe – deshalb steht es
+ * hier einmal und nicht dreimal in beef.js.
+ */
+function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now = Date.now()) {
+  const row = db.getArtist(guildId, userId, now);
+  if (!row.genre) return { ok: false, reason: 'not_started' };
+  const verloren = Math.round(row.listeners * clamp(0, 1, hoererAnteil));
+  const listeners = Math.max(0, row.listeners - verloren);
+  db.saveArtist(guildId, userId, {
+    ...row, listeners,
+    hype: clamp(HYPE_MIN, HYPE_MAX, row.hype * hype),
+    touched_at: now,
+  });
+  return { ok: true, verloren, listeners, hypeVor: row.hype };
+}
+
+/**
  * Ein Konzert. Zahlt sofort und richtig – aber nur, wer genug Hörer hat,
  * bekommt eine Halle voll.
  */
@@ -877,6 +895,6 @@ module.exports = {
   GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH, MUSIC_EVENTS, NO_EVENT, rollMusicEvent,
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,
   reachOf, reachBonus, contractOf, terms, simulateRelease,
-  setup, setGenre, reveal, record, publish, show, settle, status,
+  setup, setGenre, reveal, record, publish, applyBeefTreffer, show, settle, status,
   rollContract, sign, decline, leave, settleContracts,
 };

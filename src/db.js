@@ -1053,6 +1053,24 @@ db.exec(`
     request_id TEXT    NOT NULL,
     PRIMARY KEY (guild_id, user_id, kind)
   );
+
+  -- Ein Beef ist ein Zustand mit eigener Uhr: die Hitze steigt mit jedem
+  -- Schlag und kühlt ohne Nachschub ab. Bei 0 wird abgerechnet.
+  CREATE TABLE IF NOT EXISTS beefs (
+    guild_id    TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL,
+    contact_id  TEXT    NOT NULL,
+    hitze       REAL    NOT NULL DEFAULT 0,
+    runden_ich  INTEGER NOT NULL DEFAULT 0,
+    runden_er   INTEGER NOT NULL DEFAULT 0,
+    last_hit    INTEGER NOT NULL DEFAULT 0,
+    last_cool   INTEGER NOT NULL DEFAULT 0,
+    konter_at   INTEGER NOT NULL DEFAULT 0,
+    angefangen  INTEGER NOT NULL DEFAULT 0,
+    status      TEXT    NOT NULL DEFAULT 'offen',
+    bonus_until INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, contact_id)
+  );
 `);
 
 // --------------------------------------------------------------- HEISTS
@@ -2225,6 +2243,23 @@ const stmt = {
        last_try = excluded.last_try, last_move = excluded.last_move,
        ignored_at = excluded.ignored_at`),
   clearContactsOf: db.prepare('DELETE FROM contacts WHERE guild_id = ? AND user_id = ?'),
+
+  // --- Beefs ---
+  beefsOf: db.prepare('SELECT * FROM beefs WHERE guild_id = ? AND user_id = ?'),
+  beefRow: db.prepare(
+    'SELECT * FROM beefs WHERE guild_id = ? AND user_id = ? AND contact_id = ?'),
+  // Ein Beef = EINE Anweisung (§7).
+  saveBeef: db.prepare(
+    `INSERT INTO beefs (guild_id, user_id, contact_id, hitze, runden_ich, runden_er,
+                        last_hit, last_cool, konter_at, angefangen, status, bonus_until)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, contact_id) DO UPDATE SET
+       hitze = excluded.hitze, runden_ich = excluded.runden_ich,
+       runden_er = excluded.runden_er, last_hit = excluded.last_hit,
+       last_cool = excluded.last_cool, konter_at = excluded.konter_at,
+       angefangen = excluded.angefangen, status = excluded.status,
+       bonus_until = excluded.bonus_until`),
+  clearBeefsOf: db.prepare('DELETE FROM beefs WHERE guild_id = ? AND user_id = ?'),
 
   boostRow: db.prepare(
     'SELECT * FROM contact_boosts WHERE guild_id = ? AND user_id = ? AND kind = ?'),
@@ -3681,6 +3716,24 @@ function saveContact(guildId, userId, contactId, c) {
     c.last_try ?? 0, c.last_move ?? 0, c.ignored_at ?? 0);
 }
 
+/** Alle Beefs eines Spielers – offene wie abgerechnete. */
+function beefsOf(guildId, userId) {
+  return stmt.beefsOf.all(guildId, String(userId));
+}
+
+/** Der Beef mit EINEM Kontakt – null, solange es keinen gab. */
+function beefRow(guildId, userId, contactId) {
+  return stmt.beefRow.get(guildId, String(userId), String(contactId)) ?? null;
+}
+
+/** Ein Beef = EINE Anweisung (§7). */
+function saveBeef(guildId, userId, contactId, b) {
+  stmt.saveBeef.run(guildId, String(userId), String(contactId),
+    b.hitze ?? 0, b.runden_ich ?? 0, b.runden_er ?? 0,
+    b.last_hit ?? 0, b.last_cool ?? 0, b.konter_at ?? 0,
+    b.angefangen ?? 0, b.status ?? 'offen', b.bonus_until ?? 0);
+}
+
 /** Der Schub dieser Art, sofern er noch gilt – abgelaufene zählen nicht. */
 function getBoost(guildId, userId, kind, now = Date.now()) {
   return stmt.getBoost.get(guildId, String(userId), String(kind), now) ?? null;
@@ -3731,10 +3784,11 @@ function deleteBoost(guildId, userId, kind) {
   stmt.deleteBoost.run(guildId, String(userId), String(kind));
 }
 
-/** Löscht Drähte und Schübe eines Spielers (Tests, Admin). */
+/** Löscht Drähte, Schübe und Beefs eines Spielers (Tests, Admin). */
 function clearContacts(guildId, userId) {
   stmt.clearContactsOf.run(guildId, String(userId));
   stmt.clearBoosts.run(guildId, String(userId));
+  stmt.clearBeefsOf.run(guildId, String(userId));
 }
 
 // ------------------------------------------------------- Creator-Netzwerk
@@ -4398,6 +4452,7 @@ module.exports = {
   insertContract, getContract, openContract, activeContract, setContractStatus,
   contractHistory,
   getContact, contactsOf, saveContact, getBoost, setBoost, deleteBoost, clearContacts,
+  beefsOf, beefRow, saveBeef,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,
