@@ -1153,6 +1153,24 @@ function view(buttons) {
       heute.includes(`🤝 Shoutout mit *${klein.name}* – wirkt auf die nächste Veröffentlichung, noch 48 h`),
       heute);
 
+    /*
+     * Der Disstrack (5b) ist die fünfte Veröffentlichungsart, steht aber
+     * NICHT in der Musikansicht: Dort wäre das Ziel nicht eindeutig, und ein
+     * fünfter Knopf sprengte den Reaktionshaushalt (§16). Er lebt in der
+     * Kontaktansicht des Gegners.
+     */
+    const arten = await ui.buildReleaseView({ guildId: KG, userId: KU });
+    const aKnoepfe = arten.components[0].toJSON().components;
+    check('die Veröffentlichungsansicht zeigt vier Arten – ohne Disstrack',
+      aKnoepfe.length === 4 && !aKnoepfe.some((b) => b.custom_id.startsWith('mpub|diss')),
+      aKnoepfe.map((b) => b.custom_id).join(' '));
+    check('und beschreibt genau diese vier',
+      arten.embeds[0].toJSON().fields.length === 4
+      && !arten.embeds[0].toJSON().fields.some((f) => f.name.includes('Disstrack')),
+      arten.embeds[0].toJSON().fields.map((f) => f.name).join(' | '));
+    check('Veröffentlichungsansicht hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(arten).overflow === undefined, String(render.mapReactions(arten).overflow));
+
     // Antwortmeldung: ignoriert – kein Schub, aber sieben Tage Sperre.
     const star = cdata.CONTACTS.find((c) => c.reach >= 100_000_000);
     const nein = contacts.request(KG, KU, star.id, 'feature', jetzt, wuerfel(0.999));

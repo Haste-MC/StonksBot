@@ -481,9 +481,15 @@ function simulateRelease(state, {
  * Schub an Abrufen – und manchmal eine Chartplatzierung.
  */
 function publish(guildId, userId, typeId, now = Date.now(), random = Math.random,
-  { events = true, force = false, audience: audienceFactor = 1 } = {}) {
+  { events = true, force = false, audience: audienceFactor = 1, beef = false } = {}) {
   const type = release(typeId);
   if (!type) return { ok: false, reason: 'unknown_release' };
+
+  // Der Disstrack geht immer gegen jemanden. Ein alter Knopf ohne offenen
+  // Beef darf nichts auslösen (§6) – die Wirkung rechnet beef.diss, und nur
+  // von dort kommt `beef: true`. Der Riegel steht vor jeder Prüfung, die
+  // etwas verbraucht.
+  if (type.id === 'diss' && !beef) return { ok: false, reason: 'kein_beef', release: type };
 
   const row = db.getArtist(guildId, userId, now);
   if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
@@ -524,6 +530,10 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor * (kb?.factor ?? 1),
   });
 
+  // Der Ausgang des jüngsten abgerechneten Beefs wirkt eine Woche lang auf
+  // den Hype (5b) – gedeckelt wie alles andere durch HYPE_MAX.
+  const bb = require('./beef').bonusOf(guildId, userId, now).faktor;
+
   const { audience, gained, lost, listeners, buzz, position } = sim;
   const charted = position > 0;
   const best = charted && (row.best_chart === 0 || position < row.best_chart)
@@ -540,7 +550,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     // `extra` ist hier der Hype-Zuschlag eines Features. Auf der `show`-Art
     // zählt `extra` Hörer und fängt bei 0 an – darum `|| 1` statt `?? 1`,
     // sonst risse eine Zeile ohne Zuschlag den Hype auf HYPE_MIN herunter.
-    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1) * (kb?.extra || 1)),
+    hype: clamp(HYPE_MIN, HYPE_MAX, sim.hype * (event.hype ?? 1) * (kb?.extra || 1) * bb),
     last_action_at: now, last_release_at: now, touched_at: now,
     paid_through: row.paid_through || now,
   });
@@ -560,10 +570,16 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const incident = events
     ? require('./decisions').roll(guildId, userId, listeners, now, random, 'music') : null;
 
+  // Wer chartet, wird gesehen – und manchmal angezählt (5b). Der Wurf steht
+  // bewusst ganz am Ende: Die neue Hörerzahl ist da schon geschrieben, und er
+  // verschiebt keinen der Würfel davor.
+  const angezaehlt = charted && events
+    ? require('./beef').anzaehlen(guildId, userId, now, random) : null;
+
   require('./activity').record(guildId, userId, 'music', now);
 
   return {
-    ok: true, release: type, genre: g, persona: p,
+    ok: true, release: type, genre: g, persona: p, angezaehlt,
     audience, gained, lost, lostToIdle: sim.lostToIdle,
     audienceFactor, factor: time.factor,
     listeners: Math.round(listeners), listenersBefore: row.listeners,
@@ -648,12 +664,15 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   const gained = Math.round(before.listeners * 0.02 * quality * (event.gain ?? 1));
   const cancelled = (event.pay ?? 1) === 0;
 
+  // Derselbe Beef-Bonus wie beim Veröffentlichen (5b).
+  const bb = require('./beef').bonusOf(guildId, userId, now).faktor;
+
   db.saveArtist(guildId, userId, {
     ...row,
     shows: row.shows + (cancelled ? 0 : 1),
     listeners: before.listeners + gained,
     peak_listeners: Math.max(row.peak_listeners, Math.round(before.listeners + gained)),
-    hype: clamp(HYPE_MIN, HYPE_MAX, (row.hype * 0.8 + quality * 0.3) * (event.hype ?? 1)),
+    hype: clamp(HYPE_MIN, HYPE_MAX, (row.hype * 0.8 + quality * 0.3) * (event.hype ?? 1) * bb),
     last_action_at: now, last_show_at: now, touched_at: now,
   });
 

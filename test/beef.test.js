@@ -593,6 +593,251 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       JSON.stringify(db.beefRow(G, U, klein.id)));
   }
 
+  /**
+   * -------------------------------------------------------------------------
+   *  Stück 3: der Disstrack und das Angezähltwerden
+   * -------------------------------------------------------------------------
+   * Geprüft wird auch hier die REIHENFOLGE: Die Wirkung wird gerechnet, bevor
+   * veröffentlicht wird, und geschrieben wird erst, wenn `publish` durch ist.
+   * Ein gescheiterter Versuch (kein Titel, Sperre, keine Zeit) lässt den Beef
+   * vollständig unberührt – keine Hitze, keine Runde, kein Draht, kein Konter.
+   */
+
+  /** Ein Würfel, der eine feste Folge abspielt und danach den letzten Wert hält. */
+  const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
+  /** Musiker mit Titeln im Kasten – ohne die geht keine Veröffentlichung. */
+  async function rapper(u, listeners, songs = 3) {
+    const U = await musiker(u, listeners);
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), songs });
+    return U;
+  }
+  /** Eine frische offene Beef-Zeile mit der gewünschten Hitze. */
+  const offeneZeile = (hitze) => ({
+    hitze, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
+    konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0,
+  });
+
+  console.log('--- Der Disstrack ---');
+  {
+    const U = await rapper('bJ', 10_000);
+    const r = beef.diss(G, U, riese.id, t0, wuerfel(0.5));
+    check('Ohne offenen Beef gibt es keinen Disstrack',
+      r.ok === false && r.reason === 'kein_beef', JSON.stringify(r.reason));
+    check('Und er meldet trotzdem, was inzwischen fällig war', Array.isArray(r.vorher));
+    check('Nichts veröffentlicht, nichts verbraucht',
+      db.getArtist(G, U, t0).releases === 0 && db.getArtist(G, U, t0).songs === 3
+      && creator.budget(G, U, t0).used === 0);
+    check('Ein unbekannter Kontakt hat erst recht keinen offenen Beef',
+      beef.diss(G, U, 'gibtsnicht', t0, wuerfel(0.5)).reason === 'kein_beef');
+  }
+  {
+    // §6: Ein alter Knopf in der Musikansicht darf den Disstrack nicht am
+    // Beef vorbei auslösen – `publish` selbst riegelt ab.
+    const U = await rapper('bK', 10_000);
+    const r = music.publish(G, U, 'diss', t0, wuerfel(0.5), { events: false });
+    check('publish lehnt den Disstrack ohne { beef: true } ab',
+      r.ok === false && r.reason === 'kein_beef', JSON.stringify(r.reason));
+    check('Und verbraucht dabei weder Titel noch Zeit',
+      db.getArtist(G, U, t0).songs === 3 && creator.budget(G, U, t0).used === 0);
+  }
+  {
+    // Gegen den Riesen ist die Häme-Chance 0 – der Würfel kann sie nicht auslösen.
+    const U = await rapper('bL', 10_000);
+    db.saveBeef(G, U, riese.id, offeneZeile(40));
+    const r = beef.diss(G, U, riese.id, t0, wuerfel(0.5));
+    const row = db.beefRow(G, U, riese.id);
+    check('Der Disstrack geht raus', r.ok === true, JSON.stringify(r.reason));
+    check('Gegen den Riesen fällt keine Häme – die Runde ist meine',
+      r.beef.haeme === false && r.beef.runde === 'ich'
+      && row.runden_ich === 1 && row.runden_er === 0,
+      JSON.stringify({ haeme: r.beef.haeme, i: row.runden_ich, e: row.runden_er }));
+    check('Volle Wucht und die gerechnete Aufmerksamkeit gehen an publish',
+      nah(r.beef.wucht, 1)
+      && nah(r.beef.aufmerksamkeit, beef.aufmerksamkeitOf({ wucht: 1, genrefaktor: 1, hitze: 40 }))
+      && nah(r.audienceFactor, r.beef.aufmerksamkeit),
+      JSON.stringify({ w: r.beef.wucht, a: r.beef.aufmerksamkeit, f: r.audienceFactor }));
+    check('Hitze +30', nah(row.hitze, 70), String(row.hitze));
+    check('Sein Gegenschlag steht ein bis drei Tage voraus',
+      row.konter_at >= t0 + TAG && row.konter_at <= t0 + 3 * TAG,
+      String((row.konter_at - t0) / TAG));
+    check('Draht −20, ohne Sperre',
+      db.getContact(G, U, riese.id).draht === data.DRAHT_DISS
+      && db.getContact(G, U, riese.id).last_try === 0,
+      JSON.stringify(db.getContact(G, U, riese.id)));
+    check('Er kostet einen Titel und die Veröffentlichungszeit',
+      db.getArtist(G, U, t0).songs === 2 && creator.budget(G, U, t0).used === music.release('diss').time,
+      JSON.stringify({ s: db.getArtist(G, U, t0).songs, z: creator.budget(G, U, t0).used }));
+  }
+  {
+    // Nach unten getreten: gegen Lil Pfand (8.400) liegt die Häme-Chance bei
+    // 2,5 % – der erste Wurf fällt darunter.
+    const U = await rapper('bM', 10_000);
+    db.saveBeef(G, U, klein.id, offeneZeile(40));
+    const r = beef.diss(G, U, klein.id, t0, wuerfel(0.001, 0.5));
+    const row = db.beefRow(G, U, klein.id);
+    const a = db.getArtist(G, U, t0);
+    check('Die Häme fällt', r.ok === true && r.beef.haeme === true,
+      JSON.stringify(r.reason ?? r.beef.haeme));
+    check('Statt der Aufmerksamkeit geht der halbe Faktor an publish',
+      nah(r.audienceFactor, data.HAEME_AUDIENCE), String(r.audienceFactor));
+    check('Die Runde geht an ihn',
+      r.beef.runde === 'er' && row.runden_er === 1 && row.runden_ich === 0);
+    check('Hype × 0,8 …',
+      nah(a.hype, Math.max(music.HYPE_MIN, r.beef.treffer.hypeVor * data.HAEME_HYPE)),
+      JSON.stringify({ h: a.hype, vor: r.beef.treffer.hypeVor }));
+    check('… und zwei Prozent der Hörer weg',
+      r.beef.treffer.verloren > 0
+      && Math.abs(r.beef.treffer.verloren / (r.beef.treffer.verloren + r.beef.treffer.listeners)
+        - data.HAEME_HOERER) < 0.001,
+      JSON.stringify(r.beef.treffer));
+    check('Hitze +30 auch bei Häme', nah(row.hitze, 70), String(row.hitze));
+  }
+
+  console.log('--- Ein gescheiterter Disstrack lässt den Beef unberührt ---');
+  {
+    const unveraendert = (row, hitze = 40) => Boolean(row) && nah(row.hitze, hitze)
+      && row.runden_ich === 0 && row.runden_er === 0 && row.konter_at === 0
+      && row.last_hit === t0 && row.last_cool === t0;
+
+    // 1. Kein Titel im Kasten.
+    const U = await rapper('bN', 10_000, 0);
+    db.saveBeef(G, U, klein.id, offeneZeile(40));
+    const r = beef.diss(G, U, klein.id, t0, wuerfel(0.5));
+    check('Ohne Titel: no_songs', r.ok === false && r.reason === 'no_songs', JSON.stringify(r.reason));
+    check('Der Beef steht unverändert, kein Draht bewegt',
+      unveraendert(db.beefRow(G, U, klein.id)) && db.getContact(G, U, klein.id) === null,
+      JSON.stringify(db.beefRow(G, U, klein.id)));
+    check('Auch die Ablehnung meldet, was fällig war', Array.isArray(r.vorher));
+
+    // 2. Die Veröffentlichungssperre.
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), songs: 2 });
+    const ok = beef.diss(G, U, klein.id, t0, wuerfel(0.5));
+    check('Mit Titel geht derselbe Disstrack raus', ok.ok === true, JSON.stringify(ok.reason));
+    const stand = JSON.stringify(db.beefRow(G, U, klein.id));
+    const drahtStand = db.getContact(G, U, klein.id).draht;
+    const r2 = beef.diss(G, U, klein.id, t0 + 60_000, wuerfel(0.5));
+    check('Zweiter Disstrack sofort danach: cooldown',
+      r2.ok === false && r2.reason === 'cooldown', JSON.stringify(r2.reason));
+    check('Und der Beef steht danach genau wie vorher',
+      JSON.stringify(db.beefRow(G, U, klein.id)) === stand
+      && db.getContact(G, U, klein.id).draht === drahtStand,
+      JSON.stringify(db.beefRow(G, U, klein.id)));
+
+    // 3. Der Tag ist voll.
+    const U2 = await rapper('bO', 10_000);
+    db.saveBeef(G, U2, klein.id, offeneZeile(40));
+    // Eine Stunde bleibt stehen – der Disstrack braucht zwei. Ohne Ermüdung
+    // gebucht, damit die Ablehnung wirklich an den Stunden hängt und nicht an
+    // der Energiewand ('exhausted').
+    creator.useTime(G, U2, creator.budget(G, U2, t0).left - 1, t0, { fatigueFactor: 0 });
+    const r3 = beef.diss(G, U2, klein.id, t0, wuerfel(0.5));
+    check('Ohne Stunden: no_time', r3.ok === false && r3.reason === 'no_time', JSON.stringify(r3.reason));
+    check('Auch dann bleibt der Beef unberührt',
+      unveraendert(db.beefRow(G, U2, klein.id)) && db.getContact(G, U2, klein.id) === null
+      && db.getArtist(G, U2, t0).songs === 3,
+      JSON.stringify(db.beefRow(G, U2, klein.id)));
+  }
+
+  console.log('--- zielFor: der heißeste offene Beef ---');
+  {
+    const U = await musiker('bV', 10_000);
+    check('Ohne Beef gibt es kein Ziel', beef.zielFor(G, U, t0) === null);
+    db.saveBeef(G, U, klein.id, offeneZeile(30));
+    db.saveBeef(G, U, klein2.id, offeneZeile(60));
+    const ziel = beef.zielFor(G, U, t0);
+    check('Der heißeste Beef ist das Ziel',
+      ziel && ziel.contact_id === klein2.id && ziel.contact.id === klein2.id && nah(ziel.hitze, 60),
+      JSON.stringify({ id: ziel?.contact_id, h: ziel?.hitze }));
+    db.saveBeef(G, U, klein2.id, { ...offeneZeile(60), status: 'sieg' });
+    check('Ein abgerechneter Beef ist kein Ziel mehr',
+      beef.zielFor(G, U, t0).contact_id === klein.id);
+  }
+
+  console.log('--- Der Bonus eines abgerechneten Beefs wirkt auf den Hype ---');
+  {
+    const mit = await rapper('bP', 10_000);
+    const ohne = await rapper('bQ', 10_000);
+    db.saveBeef(G, mit, klein.id, {
+      hitze: 0, runden_ich: 2, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: 0, angefangen: t0, status: 'sieg', bonus_until: t0 + data.BONUS_TAGE * TAG,
+    });
+    const a = music.publish(G, mit, 'single', t0, wuerfel(0.5), { events: false });
+    const b = music.publish(G, ohne, 'single', t0, wuerfel(0.5), { events: false });
+    check('Beide veröffentlichen mit demselben Würfel dasselbe',
+      a.ok && b.ok && a.audience === b.audience, JSON.stringify({ a: a.audience, b: b.audience }));
+    const hm = db.getArtist(G, mit, t0).hype;
+    const ho = db.getArtist(G, ohne, t0).hype;
+    check('Nach einem Sieg steht der Hype um den Bonusfaktor höher',
+      hm > ho && nah(hm, Math.min(music.HYPE_MAX, ho * data.BONUS_SIEG)), `${hm} vs ${ho}`);
+  }
+
+  console.log('--- Angezählt werden ---');
+  {
+    // Der Katalog in seiner Reihenfolge: Mit `wurf = 0` trifft es immer den
+    // ERSTEN Kandidaten, der nicht ausgeschlossen ist – so ist der Wurf
+    // prüfbar, ohne die Gewichte nachzurechnen.
+    const musikKontakte = cdata.CONTACTS.filter((c) => c.reach);
+
+    {
+      const U = await musiker('bR', 10_000);
+      db.saveBeef(G, U, klein2.id, offeneZeile(25));
+      db.saveBeef(G, U, klein3.id, offeneZeile(25));
+      check('Bei zwei offenen Beefs zählt niemand an',
+        beef.anzaehlen(G, U, t0, wuerfel(0, 0, 0)) === null);
+    }
+    {
+      const U = await musiker('bS', 10_000);
+      check('Über der Chance passiert nichts',
+        beef.anzaehlen(G, U, t0, wuerfel(data.ANZAEHL_CHANCE)) === null);
+      check('Und es wird auch nichts geschrieben', db.beefsOf(G, U).length === 0);
+    }
+    {
+      const U = await musiker('bT', 10_000);
+      const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
+      const erste = musikKontakte[0];
+      check('Mit festem Würfel trifft es den ersten Kandidaten des Katalogs',
+        r && r.contact.id === erste.id, JSON.stringify(r?.contact?.id));
+      const row = db.beefRow(G, U, erste.id);
+      check('Wer angezählt wird, steht bei Hitze 25 und 0:1 hinten',
+        row.hitze === data.HITZE_ANGEZAEHLT && row.runden_ich === 0 && row.runden_er === 1
+        && row.status === 'offen' && row.konter_at === 0 && row.angefangen === t0,
+        JSON.stringify(row));
+      check('Draht −10', db.getContact(G, U, erste.id).draht === data.DRAHT_ANGEZAEHLT);
+      check('Er sagt dazu etwas im Ton seines Charakters',
+        typeof r.text === 'string' && r.text.includes(erste.name), r.text);
+    }
+    {
+      const U = await musiker('bU', 10_000);
+      contacts.moveDraht(G, U, musikKontakte[0].id, cdata.STUFE_PARTNER, t0);
+      db.saveBeef(G, U, musikKontakte[1].id, offeneZeile(25));
+      const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
+      check('Partner und laufende Beefs fallen aus der Auswahl',
+        r && r.contact.id === musikKontakte[2].id, JSON.stringify(r?.contact?.id));
+    }
+    {
+      // Der Wurf hängt in `publish` – und zwar NACH `db.saveArtist`, damit die
+      // neue Hörerzahl schon steht. Genau das prüft dieser Würfel: Er kippt,
+      // sobald die Veröffentlichung geschrieben ist.
+      const U = await rapper('bW', 10_000);
+      const kippt = () => (db.getArtist(G, U, t0).releases > 0 ? 0.001 : 0.99);
+      const res = music.publish(G, U, 'single', t0, kippt);
+      check('Die Veröffentlichung chartet', res.ok === true && res.position > 0,
+        JSON.stringify({ ok: res.ok, pos: res.position, aud: res.audience }));
+      check('Wer chartet, wird angezählt – und das Ergebnis sagt es',
+        res.angezaehlt && res.angezaehlt.contact.id === musikKontakte[0].id,
+        JSON.stringify(res.angezaehlt?.contact?.id ?? res.angezaehlt));
+      check('Der Beef steht danach in der Tabelle',
+        db.beefRow(G, U, musikKontakte[0].id).hitze === data.HITZE_ANGEZAEHLT
+        && beef.offeneBeefs(G, U, t0).length === 1);
+    }
+    {
+      const U = await rapper('bX', 10_000);
+      const res = music.publish(G, U, 'single', t0, wuerfel(0.99), { events: false });
+      check('Ohne Ereignisse zählt niemand an (Messläufe bleiben sauber)',
+        res.ok === true && res.angezaehlt === null, JSON.stringify(res.angezaehlt));
+    }
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

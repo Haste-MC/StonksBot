@@ -260,6 +260,146 @@ function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.
 }
 
 /**
+ * Der Disstrack.
+ *
+ * Die Reihenfolge: prüfen → die Wirkung RECHNEN → veröffentlichen → erst dann
+ * schreiben. `music.publish` bucht Zeit, Titel und Sperre selbst und kann bis
+ * zuletzt abbrechen (kein Titel, Sperre, keine Stunden) – deshalb steht kein
+ * einziger Schreibvorgang des Beefs davor. Ein gescheiterter Versuch lässt
+ * die Zeile vollständig unberührt: keine Hitze, keine Runde, kein Draht, kein
+ * Gegenschlag.
+ *
+ * Gerechnet wird wie überall in diesem Modul auf der MUSIKSEITE
+ * (`musikLage`), nie mit den Zahlen aus `contacts.detail`: Bei einem Kontakt,
+ * der beides macht, meldet die Leitseite sonst die Follower, und der ganze
+ * Disstrack hinge an der falschen Zahl.
+ */
+function diss(guildId, userId, contactId, now = Date.now(), random = Math.random) {
+  const contacts = require('./contacts');
+  const music = require('./music');
+
+  // 0. Wie beim Anstacheln zuerst die faule Abrechnung nachholen (§4) – sonst
+  //    steht ein längst ausgekühlter Beef hier noch als offen da. Was dabei
+  //    fällig wurde, geht sonst spurlos verloren: unter `vorher` mit hinaus,
+  //    und zwar auch bei jeder Ablehnung danach.
+  const vorher = settle(guildId, userId, now, random);
+
+  // 1. Ohne offenen Beef gibt es kein Ziel.
+  const b = offenerBeef(guildId, userId, contactId, now);
+  if (!b) return { ok: false, reason: 'kein_beef', vorher };
+
+  const d = contacts.detail(guildId, userId, contactId, now);
+  if (!d) return { ok: false, reason: 'unknown', vorher };
+
+  // 2. Ein Beef ist eine Sache unter Musikern – ohne beide Seiten keine Wucht.
+  const lage = musikLage(guildId, userId, d.contact, now);
+  if (!lage) return { ok: false, reason: 'seite', contact: d.contact, vorher };
+
+  // 3. Die Wirkung – vor der Veröffentlichung, denn die Aufmerksamkeit ist ihr
+  //    `audience`-Faktor. Wer nach unten tritt, wird stattdessen ausgelacht.
+  const row = db.getArtist(guildId, userId, now);
+  const genrefaktor = genrefaktorOf(music.genre(row.genre)?.risk);
+  const wucht = wuchtOf(lage);
+  const haeme = random() < haemeOf({ ...lage, genrefaktor });
+  const aufmerksamkeit = haeme
+    ? data.HAEME_AUDIENCE
+    : aufmerksamkeitOf({ wucht, genrefaktor, hitze: b.hitze });
+
+  // 4. Veröffentlichen. Bricht das ab, ist nichts geschrieben.
+  const res = music.publish(guildId, userId, 'diss', now, random,
+    { audience: aufmerksamkeit, beef: true });
+  if (!res.ok) return { ...res, vorher };
+
+  // 5. Jetzt erst der Zustand.
+  const treffer = haeme
+    ? music.applyBeefTreffer(guildId, userId,
+      { hype: data.HAEME_HYPE, hoererAnteil: data.HAEME_HOERER }, now)
+    : null;
+  const runde = rundeNachDiss(haeme);
+  const rundenIch = b.runden_ich + (runde === 'ich' ? 1 : 0);
+  const rundenEr = b.runden_er + (runde === 'er' ? 1 : 0);
+  const tage = data.KONTER_MIN_TAGE
+    + Math.floor(random() * (data.KONTER_MAX_TAGE - data.KONTER_MIN_TAGE + 1));
+  const hitze = Math.min(data.HITZE_MAX, b.hitze + data.HITZE_DISS);
+  const konterAt = now + tage * DAY_MS;
+  db.saveBeef(guildId, userId, contactId, {
+    ...b, hitze, runden_ich: rundenIch, runden_er: rundenEr,
+    last_hit: now, last_cool: now, konter_at: konterAt,
+  });
+  const draht = contacts.moveDraht(guildId, userId, contactId, data.DRAHT_DISS, now);
+
+  return {
+    ok: true, ...res, vorher,
+    beef: {
+      haeme, aufmerksamkeit, wucht, runde, contact: d.contact,
+      hitze, konterAt, draht, treffer, rundenIch, rundenEr,
+    },
+  };
+}
+
+/** Gegen wen ein Disstrack ginge – der heißeste offene Beef. */
+function zielFor(guildId, userId, now = Date.now()) {
+  const offen = offeneBeefs(guildId, userId, now);
+  if (!offen.length) return null;
+  const heiss = offen.sort((a, b) => b.hitze - a.hitze)[0];
+  return { ...heiss, contact: require('./data/contacts').byId(heiss.contact_id) };
+}
+
+/**
+ * Angezählt werden.
+ *
+ * Wer groß wird, zieht Feinde an – auch welche, mit denen man nie gesprochen
+ * hat. Gewichtet nach Nähe im Genre, Nähe in der Größe und Charakter.
+ * Ausgelöst wird das von `music.publish`, sobald eine Veröffentlichung
+ * chartet; dort steht der Wurf NACH dem Schreiben, damit die neue Hörerzahl
+ * schon in der Gewichtung steckt.
+ */
+function anzaehlen(guildId, userId, now = Date.now(), random = Math.random) {
+  const offen = offeneBeefs(guildId, userId, now);
+  if (offen.length >= data.BEEFS_MAX) return null;
+  if (random() >= data.ANZAEHL_CHANCE) return null;
+
+  const contacts = require('./contacts');
+  const cdata = require('./data/contacts');
+  const row = db.getArtist(guildId, userId, now);
+  const meine = row.listeners;
+  const laeuft = new Set(offen.map((b) => b.contact_id));
+  const zeilen = db.contactsOf(guildId, userId);
+
+  // Wer schon Partner ist, zählt dich nicht an – und wer ohnehin schon mit dir
+  // im Streit liegt, braucht keinen zweiten Anlass.
+  const kandidaten = [];
+  let summe = 0;
+  for (const c of cdata.CONTACTS) {
+    if (!c.reach || laeuft.has(c.id)) continue;
+    const z = zeilen.find((x) => x.contact_id === c.id) ?? null;
+    if (contacts.drahtJetzt(z, now) >= cdata.STUFE_PARTNER) continue;
+    const g = anzaehlGewicht({
+      trait: c.trait, meine, seine: c.reach,
+      gleichesGenre: c.genre === row.genre,
+      verwandtesGenre: cdata.RELATED_GENRES.some(([a, b]) =>
+        (a === row.genre && b === c.genre) || (b === row.genre && a === c.genre)),
+    });
+    summe += g;
+    kandidaten.push({ c, g });
+  }
+  if (!kandidaten.length) return null;
+
+  let wurf = random() * summe;
+  const treffer = kandidaten.find(({ g }) => (wurf -= g) <= 0) ?? kandidaten[kandidaten.length - 1];
+  const c = treffer.c;
+
+  // Er hat die erste Runde – schlucken heißt deshalb, als Niederlage zu enden.
+  db.saveBeef(guildId, userId, c.id, {
+    hitze: data.HITZE_ANGEZAEHLT, runden_ich: 0, runden_er: 1,
+    last_hit: now, last_cool: now, konter_at: 0,
+    angefangen: now, status: 'offen', bonus_until: 0,
+  });
+  const draht = contacts.moveDraht(guildId, userId, c.id, data.DRAHT_ANGEZAEHLT, now);
+  return { contact: c, draht, text: textFor(c.trait, 'einstieg', c.name, random) };
+}
+
+/**
  * Die faule Abrechnung (§4): Gegenschlag und Ende passieren nicht zu ihrer
  * Zeit, sondern sobald jemand hinsieht oder handelt.
  *
@@ -424,5 +564,6 @@ module.exports = {
   traitBonus, einstiegOf, wuchtOf, genrefaktorOf, aufmerksamkeitOf, haemeOf,
   hitzeJetzt, rundeNachDiss, rundeNachKonter, ausgangOf, bonusFaktor,
   anzaehlGewicht, textFor,
-  offenerBeef, offeneBeefs, anstacheln, settle, bonusOf, szeneMalus, frieden,
+  offenerBeef, offeneBeefs, anstacheln, diss, zielFor, anzaehlen,
+  settle, bonusOf, szeneMalus, frieden,
 };

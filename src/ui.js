@@ -2553,7 +2553,14 @@ async function buildReleaseView({ guildId, userId }) {
       + 'Je größer die Veröffentlichung, desto größer der Schub – und desto mehr '
       + 'Titel kostet sie.');
 
-  for (const r of music.RELEASES) {
+  /*
+   * Der Disstrack (5b) fehlt hier mit Absicht: Er lebt in der Kontaktansicht,
+   * weil dort das Ziel eindeutig ist – und weil ein fünfter Knopf den
+   * Reaktionshaushalt der Musikansicht sprengen würde (§16).
+   */
+  const arten = music.RELEASES.filter((r) => r.id !== 'diss');
+
+  for (const r of arten) {
     embed.addFields({
       name: `${r.emoji} ${r.name}`,
       value: `**${r.songs}** ${r.songs === 1 ? 'Titel' : 'Titel'} · Zeit ${r.time} · `
@@ -2562,7 +2569,7 @@ async function buildReleaseView({ guildId, userId }) {
     });
   }
 
-  const rows = [new ActionRowBuilder().addComponents(...music.RELEASES.map((r) =>
+  const rows = [new ActionRowBuilder().addComponents(...arten.map((r) =>
     new ButtonBuilder().setCustomId(`mpub|${r.id}|${userId}`)
       .setLabel(`${r.name} (${r.songs})`).setEmoji(r.emoji)
       .setStyle(ButtonStyle.Secondary)

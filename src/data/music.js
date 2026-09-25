@@ -52,6 +52,11 @@ const RELEASES = [
     blurb: 'Ein Statement. Kostet Monate, trägt Jahre.' },
   { id: 'deluxe', name: 'Deluxe / Remix', emoji: '🔁', songs: 2, spike: 1.6, growth: 0.7, time: 1,
     blurb: 'Zweitverwertung. Billig, ehrlich, funktioniert.' },
+  // Der Disstrack (5b) steht nur der Vollständigkeit halber hier: Ausgelöst
+  // wird er ausschließlich über `beef.diss` in der Kontaktansicht, weil dort
+  // das Ziel eindeutig ist. `music.publish` weist ihn ohne offenen Beef ab.
+  { id: 'diss', name: 'Disstrack', emoji: '🔥', songs: 1, spike: 3.0, growth: 0.4, time: 2,
+    blurb: 'Viel Lärm, wenig Bleibendes – und alle hören hin.' },
 ];
 
 /** Wie ein Song im Studio entsteht – reine Farbe für die Meldung. */
