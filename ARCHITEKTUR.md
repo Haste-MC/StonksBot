@@ -956,69 +956,95 @@ ein Faktor auf eine bestehende Aktion, wird beim Verbrauch gelesen, angewandt
 und gelöscht (wie der Twitter-Promo-Schub), stapelt nie (der stärkere bleibt
 liegen, Maximum statt Produkt) und hebt **keine** Decke: Sprache, Szene,
 Plattform und Markt gelten unverändert, und die mitgebrachten Konzert-Hörer
-sind auf die eigene Hörerschaft gedeckelt – die Gage kann sich dadurch
-höchstens verdoppeln.
+sind auf die eigene Hörerschaft gedeckelt – mehr als doppeltes Publikum gibt
+es nicht, und weil die Gage mit `Hörer^0,7` wächst (`SHOW_EXP` in
+`src/music.js`), sind das höchstens **+62 %** auf eine einzige Gage.
 
 **Gemessen** (10 Läufe à 365 Tage, fester Würfel `rng(1000+i)`, in allen
 Varianten dieselbe Strategie, die Kontaktwürfe auf einem zweiten Strom
 `rng(501000+i)`; `node scripts/messung-geldquellen.js 10 365 --nur=kontakte`,
-Auszug in `docs/messungen/2026-09-25-kontakte.txt`): Tägliche Kontaktpflege –
-2 h in Kontakte statt in eine Aktion – bringt **nicht** mehr Geld, sondern
-weniger. Musik+Creator 308.437/Tag statt 372.788 (**−17,3 %**, je Seed gepaart
-−13,7 %), nur Creator 279.969 statt 334.254 (−16,2 %, gepaart −14,8 %). Die
-Spec hatte einen Zuwachs im niedrigen zweistelligen Prozentbereich erwartet und
-ein Senken der Basis `0,6` oder der Schubfaktoren erst über +50 % vorgesehen –
-der Auslöser ist klar nicht erreicht, nur in die andere Richtung; gesenkt wurde
-deshalb nichts. Der Grund steht in denselben Zählern: 65,6 % der Anfragen
-bleiben unbeantwortet, die **Zusagenquote** liegt bei 7,4 % (nur Creator
-8,0 %), und ein Schub trifft nur jede siebte Veröffentlichung – dort im Mittel
-Faktor **1,34** (größter 2,80), über **alle** Veröffentlichungen gemittelt 1,05
-und über alle Kanalaktionen 1,00. Dagegen stehen gezählte 14,9 % weniger
-Kanalaktionen am Tag (12,56 → 10,69; reiner Creator 16,16 → 15,03, −7,0 %),
-denn der Tag endet ohnehin an der Energie-Wand (Ø Energie am Tagesende 12 %
-ohne und 14 % mit Kontakten, beim reinen Creator 8 % und 4 %) und die zwei
-Kontaktstunden schieben jede spätere Stunde die Kostenkurve hinauf (§17). Die
-Musikseite bleibt dabei fast unberührt (0,95 Veröffentlichungen am Tag in
-beiden Läufen, 587.277 gegen 583.012 Hörer) – die
-ganze Differenz sitzt in den Followern (2,59 Mio gegen 1,59 Mio), weil jeder
+vollständige Ausgabe in `docs/messungen/2026-09-25-kontakte.txt`): Tägliche
+Kontaktpflege – 2 h in Kontakte statt in eine Aktion – bringt **nicht** mehr
+Geld, sondern weniger. Musik+Creator 341.705/Tag statt 372.788 (**−8,3 %**, je
+Seed gepaart −8,0 %, 7 von 10 Seeds negativ), nur Creator 318.203 statt 334.254
+(−4,8 %, gepaart −1,8 %, 6 von 10 Seeds negativ – bei einer Seed-Spanne von
+−25,0 % … +26,9 % ist das dort **nicht von null zu unterscheiden**; als „kostet
+Geld" darf nur die erste Zeile gelesen werden). Die Spec hatte einen Zuwachs im
+niedrigen zweistelligen Prozentbereich erwartet und ein Senken der Basis `0,6`
+oder der Schubfaktoren erst über +50 % vorgesehen – der Auslöser ist klar nicht
+erreicht, nur in die andere Richtung; gesenkt wurde deshalb nichts. Der Grund
+steht in denselben Zählern: 61,3 % der Anfragen bleiben unbeantwortet, die
+**Zusagenquote** liegt bei 7,9 % (nur Creator 9,6 %), und ein Schub trifft nur
+jede sechste Veröffentlichung – dort im Mittel Faktor **1,30** (größter 2,80),
+über **alle** Veröffentlichungen gemittelt 1,05 und über alle Kanalaktionen
+1,00. Dagegen stehen gezählte 15,0 % weniger Kanalaktionen am Tag (12,56 →
+10,68; reiner Creator 16,16 → 15,02, −7,0 %), denn der Tag endet ohnehin an der
+Energie-Wand (Ø Energie am Tagesende 12 % ohne und 14 % mit Kontakten, beim
+reinen Creator 8 % und 4 %) und die zwei Kontaktstunden schieben jede spätere
+Stunde die Kostenkurve hinauf (§17). Die Musikseite bleibt dabei fast unberührt
+(0,95 Veröffentlichungen am Tag in beiden Läufen, 587.277 gegen 582.021 Hörer) –
+die Differenz sitzt in den Followern (2,59 Mio gegen 1,95 Mio), weil jeder
 fehlende Kanaltag auch dem Wachstum des nächsten fehlt.
+
+Der simulierte Spieler wählt nach **Chance × erwartetem Nutzen**, und
+„erwartet" ist hier das ganze Wort: gemittelt über die drei Antwortstufen mit
+den Wahrscheinlichkeiten aus `stufeVon`. Eine erste Fassung dieser Messung hat
+jeden Kandidaten mit der Stärke einer *Zusage* bewertet und damit den fernen
+Weltstar um das 1,43-fache überbewertet (erwarteter Stufenfaktor 0,350 gegen
+0,500 auf Augenhöhe); sie kam auf −17,3 % bzw. −16,2 %. Die halbe gemessene
+Differenz war also eine Eigenschaft der Bewertungsregel, nicht des Spiels. Die
+Gegenprobe zur neuen Regel steht in der Messdatei: Die Erwartung wird gegen
+200.000 Würfe der echten `stufeVon` gehalten, je Fall.
 
 **Die Passung ist der Hebel, nicht der Fleiß.** Sprache und Genre (bei
 Creator-Anfragen die Plattform) multiplizieren Chance *und* Wirkung. Isoliert
-gerechnet – derselbe Kontakt mit 3,2 Mio Hörern, nur Sprache und Genre
-getauscht, Spieler mit 500.000 Hörern: gleiche Sprache und verwandtes Genre
-(Passung 0,700) geben **58,7 %** Antwortchance und Schub **1,608**, fremde
-Sprache und fremdes Genre (Passung 0,045) nur **28,7 %** und **1,039** – der
-Schub über 1 fällt von 0,608 auf 0,039, also auf genau das Verhältnis der
-Passungen (1/15,6). Im Katalog kommt die Größe dazu: Derselbe deutsche Rapper
-kommt bei YOASOBI (Japan, J-Pop, 15 Mio) auf **2,0 %** (die Untergrenze
-`CHANCE_MIN`) und Schub 1,067, bei Nina Chuba (Deutschland, Pop, 3,2 Mio) auf
-58,7 % und 1,608. Das ist Beschluss 5 der Spec, gemessen statt behauptet.
+gerechnet – derselbe Kontakt mit 3,2 Mio Hörern im selben Land, nur Sprache und
+Genre getauscht, Spieler ein deutscher Rapper mit 500.000 Hörern: gleiche
+Sprache und verwandtes Genre (Passung 0,700) geben **63,7 %** Antwortchance und
+Schub **1,608**, fremde Sprache und fremdes Genre (Passung 0,045) nur **33,7 %**
+und **1,039** – der Schub über 1 fällt von 0,608 auf 0,039, also auf genau das
+Verhältnis der Passungen (1/15,6). Im Katalog kommen Größe, Land und Charakter
+dazu, und dann ist der Abstand die Summe von vier Dingen, nicht der Passung
+allein: Derselbe Rapper kommt bei Nina Chuba (Deutschland, Pop, 3,2 Mio,
+kollegial) auf **63,7 %** und Schub 1,608, bei YOASOBI (Japan, J-Pop, 15 Mio,
+geschäftlich) auf **2,0 %** (die Untergrenze `CHANCE_MIN`) und Schub 1,067. Die
+vier Summanden dahinter: Größe (Basis 0,237 gegen 0,110), Land (+0,05 gegen ±0,
+der Spieler wohnt in Deutschland), Sprache und Genre (+0,10/±0 gegen
+−0,15/−0,05) und Charakter (+0,10 gegen −0,05). Das ist Beschluss 5 der Spec,
+gemessen statt behauptet – jede dieser Zahlen gibt das Messskript selbst aus.
 
 **Die eine bewusste Abweichung:** Auf der Creator-Seite ersetzt
 `contacts.request` den wirkungslosen Faktor 1, den `boostOf` für die Bühne
 liefert, durch `min(4, 1 + 3 × Stärke)` über 7 Tage – sonst wäre ein
-gemeinsames Event dort ein Schub ohne Wirkung. Sie ist gemessen der
-**schwächste** Schub im Spiel, nicht der stärkste: Ø Faktor **1,05** (größter
-1,18) über 512 verbrauchte Schübe, beim reinen Creator Ø 1,04 über 590. Ein
-Spieler, der nach Chance × Nutzen wählt, nimmt sie nie – das Feature auf
-derselben Seite hat den größeren Faktor *und* die bessere Chance
-(Schwierigkeit −0,10 gegen −0,20), und die Bühne verlangt zusätzlich Draht
-≥ 20. Die Zahlen oben stammen deshalb aus einem dritten Lauf, der sie erzwingt
-(„Konzert-Vorrang" im Messskript) – ohne ihn steht in der Spalte eine Null,
-und eine Null ohne Erklärung ist kein Messwert.
+gemeinsames Event dort ein Schub ohne Wirkung. Gemessen ist er der **kleinste
+der drei Schübe auf seiner Seite**: Ø Faktor **1,05** (größter 1,28) über 511
+verbrauchte Schübe gegen Ø 1,15 bei `creator/reaktion` und Ø 1,10 bei
+`creator/feature` aus demselben Lauf; beim reinen Creator Ø 1,04 über 652 gegen
+1,15 und 1,10. **Nicht, weil die Formel schwächer wäre** – sie ist Zeichen für
+Zeichen dieselbe wie die von `reaktion`, und dieselbe Formel kann nicht
+strukturell schwächer sein. Der Grund ist die Schwelle `minDraht ≥ 20`: Sie
+lässt nur lange gepflegte, also kleine Kontakte durch, und bei kleinen
+Kontakten ist `staerkeOf` klein. Die Bühne bekommt kein schwächeres Werkzeug,
+sondern ein kleineres Publikum. Ein Spieler, der nach Chance × Nutzen wählt,
+nimmt sie ohnehin nie – das Feature auf derselben Seite hat den größeren Faktor
+*und* die bessere Chance (Schwierigkeit −0,10 gegen −0,20) und verlangt keinen
+Draht. Die Zahlen oben stammen deshalb aus einem dritten Lauf, der sie erzwingt
+(„Konzert-Vorrang" im Messskript) – ohne ihn steht in der Spalte eine Null, und
+eine Null ohne Erklärung ist kein Messwert.
 
 **Ehrliche Grenzen:** (1) Gemessen ist die Spielweise „**jeden Tag** zwei
-Stunden, bester Kontakt nach Chance × Nutzen" – nicht „nur bei guter
+Stunden, bester Kontakt nach Chance × erwartetem Nutzen" – nicht „nur bei guter
 Gelegenheit". Wer die zwei Stunden nur an Tagen ausgibt, an denen Passung und
 Chance zusammenkommen, zahlt den Preis seltener; diese Zwischenstufe ist nicht
 gemessen und steht deshalb auch nirgends als Zahl. (2) Die Streuung ist größer
-als bei den Firmen: je Seed −26,2 % … +12,4 % (Musik+Creator) und −46,7 % …
-+34,0 % (nur Creator). Die Richtung stimmt in 9 von 10 bzw. 8 von 10 Seeds, die
-Größe der Differenz nicht. (3) Die Messung ist eine reine Geldfrage. Was die
+als bei den Firmen: je Seed −24,2 % … +12,7 % (Musik+Creator) und −25,0 % …
++26,9 % (nur Creator). Die Richtung stimmt in 7 von 10 bzw. 6 von 10 Seeds –
+beim reinen Creator ist der Befund damit innerhalb des Rauschens. (3) Die Wahl
+des simulierten Spielers rechnet den Nutzen EINER Anfrage, nicht den Wert des
+Drahts, den sie aufbaut. (4) Die Messung ist eine reine Geldfrage. Was die
 Kontakte an Spielgefühl, an Freischaltungen (Partner ab drei Zusagen) und als
 Vorbau für 5b/5c bringen, misst sie nicht – und das war auch nie ihr Argument.
-(4) Die Kontakte sind damit **keine** Geldquelle in der Rangfolge oben, sondern
+(5) Die Kontakte sind damit **keine** Geldquelle in der Rangfolge oben, sondern
 eine Ausgabe: Sie kosten Zeit und geben Streuung zurück. Wer sie zur Quelle
 machen wollte, müsste an den Decken drehen, nicht an den Faktoren – und genau
 das verbietet §3.

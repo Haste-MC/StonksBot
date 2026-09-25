@@ -1,12 +1,22 @@
 Messung Kontakte (Stück 5a: der Draht zu anderen Künstlern) – Lauf vom 2026-09-25.
 Aufruf: rm -rf .testdata && DATA_DIR=.testdata node scripts/messung-geldquellen.js 10 365 --nur=kontakte
-(Laufzeit 2m51s. Der Abschnitt steht nicht im vollen Lauf – er verdreifacht die Karriere-Läufe;
-`--nur=kontakte` fährt genau ihn. Der Lauf wurde in zwei getrennten Prozessen gefahren und war in
+(Der Abschnitt steht nicht im vollen Lauf – er verdreifacht die Karriere-Läufe; `--nur=kontakte` fährt
+genau ihn. Der Lauf wurde in zwei getrennten Prozessen mit getrennten DATA_DIR gefahren und war in
 allen Median-, Differenz- und Zählerzeilen zeilengleich. Die Handprüfung unten kommt aus demselben
 Skript mit `… 1 365 --nur=kontakte "--strategie=Follower zuerst +1B" --trace=kontakte`, das jede
-Anfrage als JSON-Zeile auf stderr schreibt.)
+Anfrage als JSON-Zeile auf stderr schreibt. Die Tabellen der Strategie-Suchphase sind unten
+weggelassen, sonst ist die Ausgabe vollständig und unverändert.)
 
 Die eine Frage: Was bringt es, jeden Tag zwei Stunden in Kontakte zu stecken – statt in eine Aktion?
+
+ACHTUNG, DIESE DATEI IST DIE ZWEITE FASSUNG. Die erste Fassung vom selben Tag hat den simulierten
+Spieler jeden Kandidaten mit der Stärke einer ZUSAGE bewerten lassen (`staerkeOf(…, 'zusage')`) – als
+wäre die Antwortstufe sicher. Sie ist es nicht: `stufeVon` gibt bei einem Größenverhältnis von 0,005
+und Draht 15 einen erwarteten Stufenfaktor von 0,350, bei einem Kontakt auf Augenhöhe 0,500. Die alte
+Regel hat den fernen Weltstar also um rund das 1,43-fache überbewertet, und die gemessene Differenz
+war zur Hälfte eine Eigenschaft dieser Schieflage. Mit der korrigierten Regel (Erwartung über alle
+drei Antwortstufen) bleibt das Vorzeichen, die Größe halbiert sich: −8,3 % statt −17,3 %
+(Musik+Creator) und −4,8 % statt −16,2 % (nur Creator). Alle Zahlen unten sind die neuen.
 
 ==================== AUFBAU ====================
 
@@ -33,13 +43,22 @@ Damit die Differenz die Kontakte misst und nichts sonst:
    gibt es 10 Läufe, den Median UND die gepaarte Auswertung je Seed.)
  * Jede Variante bekommt eigene Welten und eigene Konten.
 
-Die Wahl des Spielers: über alle freien Kontakte und alle vier Anfragearten die höchste
-**Chance × Nutzen**. Die Chance kommt aus `contacts.detail` – also aus derselben Funktion, die die
-Ansicht zeigt; das Skript rechnet sie nicht nach. „Nutzen" ist der Schub als Faktor über 1, gerechnet
-mit der Stärke einer Zusage: Reaktion/Erwähnung `3 × Stärke`, Feature `5 × Stärke`, Konzert auf der
-Musikseite `min(Zusatzhörer, eigene Hörer) / eigene Hörer` (es bringt dort keinen Faktor, sondern
-Hörer für EINE Gage), Konzert auf der Creator-Seite `3 × Stärke` (dort schreibt `contacts.request`
-den Schub um). Vorausgewählt werden die acht besten aus `contacts.listFor`.
+Die Wahl des Spielers: über alle freien Kontakte und alle vier Anfragearten das höchste
+**Chance × erwarteter Nutzen**. Die Chance kommt aus `contacts.detail` – also aus derselben Funktion,
+die die Ansicht zeigt; das Skript rechnet sie nicht nach. Der Nutzen ist der Schub als Faktor über 1,
+gemittelt über die drei Antwortstufen mit den Wahrscheinlichkeiten aus `stufeVon`:
+
+    E[Nutzen] = Σ p(Stufe) × Nutzen(Stärke × Stufenfaktor)      p aus stufeVon, Faktor aus STUFEN_FAKTOR
+
+Gemittelt wird über den Nutzen, nicht über die Stärke, damit die Decken der Schübe (`min(4, …)`,
+`min(6, …)`) richtig greifen. Nutzen heißt je Anfrageart: Reaktion/Erwähnung `3 × Stärke`, Feature
+`5 × Stärke`, Konzert auf der Creator-Seite dieselbe Formel wie Reaktion (dort schreibt
+`contacts.request` den Schub um – das Skript holt die Formel aus `boostOf`, statt sie ein zweites Mal
+hinzuschreiben), Konzert auf der Musikseite `((Hörer + Zusatzhörer) / Hörer)^0,7 − 1`: Es bringt dort
+keinen Faktor, sondern Hörer für EINE Gage, und die Gage wächst mit `Hörer^0,7` (`SHOW_EXP` in
+src/music.js) – doppeltes Publikum sind +62 %, nicht +100 %. Die vier Stunden des Konzerts sind nicht
+gegengerechnet: Der Messlauf spielt jedes mögliche Konzert ohnehin, der Schub hängt sich nur an eines
+an. Vorausgewählt werden die acht besten aus `contacts.listFor`.
 
 Gezählt wird über eine Hülle um `contacts.consumeBoost`, `music.publish`, `music.show` und
 `creator.act`: Nur ein Schub, der wirklich VERBRAUCHT wurde, zählt als Wirkung. Ein Schub, der
@@ -52,85 +71,118 @@ Derselbe `karriere`-Aufruf (Musik+Creator, „Follower zuerst +1B", 10 Seeds à 
 Skript-Fassung VOR und NACH dem Umbau ergibt in allen zehn Läufen bis auf den Cent dieselbe Zahl
 (139.937.395 · 116.761.226 · 139.088.097 · 113.318.470 · 144.367.820 · 129.966.763 · 132.312.663 ·
 135.513.287 · 140.797.984 · 136.622.036; Median 136.067.661,5 = 372.788/Tag – genau die Zeile „ohne
-Kontakte" unten).
+Kontakte" unten, die in beiden Fassungen dieser Messung identisch ist).
+
+==================== GEGENPROBE: DER ERWARTETE STUFENFAKTOR ====================
+
+Die Erwartung wird aus denselben Gewichten gerechnet, die `stufeVon` würfelt (das Skript schreibt sie
+ab, weil die Funktion ihre Verteilung nicht herausgibt). Abgeschriebenes wird nicht geglaubt, sondern
+geprüft: Die echte `contacts.stufeVon` wird selbst gewürfelt und gegen die Rechnung gehalten
+(`node scripts/messung-geldquellen.js stufenprobe [Würfe]`; im Messlauf mit 200.000 Würfen je Fall):
+
+  Gegenprobe zur Wahl des Spielers: erwarteter Stufenfaktor gegen gewürfelte `stufeVon`
+  Taylor Swift (Verhältnis 0,0047, Draht 15)     gerechnet 0.35028 · gewürfelt 0.35100 (200.000 Würfe) ✔
+    Zusagen gerechnet 7.183 % · gewürfelt 7.230 %
+  Kontakt auf Augenhöhe (Verhältnis 1, Draht 0)  gerechnet 0.50000 · gewürfelt 0.50126 (200.000 Würfe) ✔
+    Zusagen gerechnet 25.000 % · gewürfelt 25.192 %
+  knapp unter der 0,05-Schwelle                  gerechnet 0.34775 · gewürfelt 0.34848 (200.000 Würfe) ✔
+    Zusagen gerechnet 6.821 % · gewürfelt 6.867 %
+  knapp über der 0,05-Schwelle                   gerechnet 0.40606 · gewürfelt 0.40721 (200.000 Würfe) ✔
+    Zusagen gerechnet 10.909 % · gewürfelt 11.046 %
+  kleinerer Kontakt (0,2), Draht 30              gerechnet 0.44547 · gewürfelt 0.44683 (200.000 Würfe) ✔
+    Zusagen gerechnet 16.821 % · gewürfelt 17.017 %
+  Weltstar ohne Draht                            gerechnet 0.34383 · gewürfelt 0.34454 (200.000 Würfe) ✔
+    Zusagen gerechnet 6.262 % · gewürfelt 6.309 %
+  Alle Fälle stimmen überein ✔
+
+Die beiden Eckfälle sind genau die aus der Begründung oben: 0,350 beim fernen Weltstar mit Draht 15,
+0,500 beim Kontakt auf Augenhöhe – Verhältnis 1,43. Die 0,05-Schwelle in `stufeVon` (unter ihr wiegt
+„flüchtig" doppelt) ist mit den beiden Fällen 0,049 / 0,051 ebenfalls abgedeckt.
 
 ==================== HANDRECHNUNG (ein Tag, ein Lauf) ====================
 
 Geprüft wurde EIN Fall aus dem Trace-Lauf (Seed 1000, Musik+Creator, Variante „mit Kontakten"),
 von Hand gegen src/contacts.js und src/data/contacts.js nachgerechnet:
 
-  Zeile: {"datum":"2027-08-02","kontakt":"taylorswift","anfrage":"reaktion","seite":"musik",
-          "chance":0.27328802205490593,"antwort":"zusage","drahtVor":15,
-          "staerke":0.46620995185285313,"faktor":2.3986298555585597,
-          "meine":562552,"seine":120000000,"hype":1.447069315143665,"tuerOeffner":0,
-          "partnerVor":false,"trait":"geschaeftlich"}
+  Zeile: {"datum":"2026-12-21","kontakt":"tomscott","anfrage":"feature","seite":"creator",
+          "chance":0.40404146631619187,"antwort":"zusage","drahtVor":25,
+          "staerke":0.06511322899735432,"faktor":1.3255661449867717,"extra":1.009766984349603,
+          "meine":442074,"seine":1100000,"hype":1.1117484891087377,"tuerOeffner":0,
+          "partnerVor":false,"trait":"kollegial"}
 
-  Spieler: Heimat de, Sprache deutsch, Genre pop, 562.552 Hörer, Hype 1,447069315143665.
-  Kontakt: Taylor Swift – us, englisch, pop, reach 120.000.000, trait geschaeftlich.
+  Spieler: Heimat de, Sprache deutsch, 442.074 Follower auf der stärksten Plattform-Seite,
+           Hype 1,1117484891087377.
+  Kontakt: Tom Scott – gb, englisch, Plattform twitter, reachCreator 1.100.000, trait kollegial.
+  (Creator-Seite: statt des Genres zählt die Plattform, statt der Hörer die Follower.)
 
   Chance (chanceOf):
-    ratio   = max(100, 562.552) / max(1, 120.000.000) = 0,0046879333
-    basis   = 0,6 × √0,0046879333 = 0,6 × 0,0684684842 = 0,0410810905   (unter der Decke 0,95)
-    + Schwierigkeit „reaktion"            +0,15
-    + gleiches Land (de gegen us)          0
+    ratio   = max(100, 442.074) / max(1, 1.100.000) = 0,4018854545
+    basis   = 0,6 × √0,4018854545 = 0,6 × 0,6339443623 = 0,3803666174   (unter der Decke 0,95)
+    + Schwierigkeit „feature"             −0,10
+    + gleiches Land (de gegen gb)          0
     + Sprachbonus (einer englisch)         0
-    + Genrebonus (pop gegen pop)          +0,05
-    + Draht 15/100 × 0,25                 +0,0375
+    + Plattformbonus (fremde Plattform)   −0,05
+    + Draht 25/100 × 0,25                 +0,0625
     + Türöffner                            0
-    + Hype (1,447069315143665 − 1) × 0,1  +0,0447069315
-    + Charakter geschaeftlich             −0,05
+    + Hype (1,1117484891087377 − 1) × 0,1 +0,0111748489
+    + Charakter kollegial                 +0,10
     + Partner                              0
-    = 0,273288022054906
-    gemessen 0,27328802205490593 – gleich bis auf die letzte Stelle ✔
+    = 0,40404146631619187
+    gemessen 0,40404146631619187 – gleich bis auf die letzte Stelle ✔
 
   Stärke (staerkeOf, Stufe „zusage" = Faktor 1,0):
-    roh     = log10(1 + 120.000.000 / 562.552) / 3 = log10(214,3136…) / 3 = 2,3310497… / 3
-            = 0,7770165864   (unter der Decke 1)
-    passung = Sprachfaktor 0,6 (einer englisch) × Genrefaktor 1,0 (pop = pop) = 0,6
-    stärke  = 0,7770165864 × 0,6 × 1,0 = 0,466209951852853
-    gemessen 0,46620995185285313 – gleich bis auf die letzte Stelle ✔
+    roh     = log10(1 + 1.100.000 / 442.074) / 3 = log10(3,4882711944) / 3 = 0,5426102416 / 3
+            = 0,1808700805   (unter der Decke 1)
+    passung = Sprachfaktor 0,6 (einer englisch) × Plattformfaktor 0,6 (twitter gegen andere) = 0,36
+    stärke  = 0,1808700805 × 0,36 × 1,0 = 0,06511322899735432
+    gemessen 0,06511322899735432 – gleich bis auf die letzte Stelle ✔
 
-  Schub (boostOf, „reaktion" → 1 + 3 × Stärke, Decke 4, 48 h):
-    faktor  = 1 + 3 × 0,466209951852853 = 2,398629855558560
-    gemessen 2,3986298555585597 – gleich bis auf die letzte Stelle ✔
+  Schub (boostOf, „feature" → 1 + 5 × Stärke, Decke 6, 72 h; extra = 1 + 0,15 × Stärke):
+    faktor  = 1 + 5 × 0,06511322899735432 = 1,3255661449867717
+    extra   = 1 + 0,15 × 0,06511322899735432 = 1,009766984349603
+    gemessen 1,3255661449867717 und 1,009766984349603 – gleich bis auf die letzte Stelle ✔
 
-  Das ist genau eine Veröffentlichung mit 2,40-fachem Publikum; danach ist der Schub gelöscht.
+  Das ist genau EINE Kanalaktion mit 1,33-fachem Publikum; danach ist der Schub gelöscht.
+
+  Zur Trace-Zeile selbst: `chance` ist seit dieser Fassung der Wert aus `contacts.request`, gegen den
+  WIRKLICH gewürfelt wurde (die Anzeige-Chance aus `contacts.detail` steht daneben als
+  `chanceAnzeige`; in allen geprüften Zeilen sind beide gleich, aber gewürfelt wird gegen die erste).
 
 ==================== PASSUNG (das J-Pop-Beispiel der Spec) ====================
 
-Gerechnet mit `contacts.passungOf`, `chanceOf`, `staerkeOf` und `boostOf`; Spieler ist ein deutscher
-Rapper (deutsch, hiphop) mit 500.000 Hörern, Draht 0, Hype 1, kein Türöffner, anderes Land.
+Gerechnet mit `contacts.passungOf`, `chanceOf`, `staerkeOf` und `boostOf` – vom Messskript selbst
+ausgegeben, nicht von Hand. Jede Zeile nennt ihre Summanden, und ob das Land gleich ist (der
+Landbonus ist +0,05; ohne diese Angabe ist keine der Zahlen nachrechenbar):
 
-(a) NUR die Passung verschoben – gleicher Kontakt (3,2 Mio Hörer, kollegial), nur Sprache und Genre
-    getauscht. Das ist die Regel aus Beschluss 5, isoliert:
+  Passung (mit contacts.passungOf / chanceOf / staerkeOf / boostOf gerechnet):
+  Spieler: de / deutsch / hiphop, 500.000 Hörer, Draht 0, Hype 1, kein Türöffner, kein Partner.
 
-      gleiche Sprache, verwandtes Genre   Passung 0,700   reaktion 58,7 %  Faktor 1,608
-                                                          feature  33,7 %  Faktor 2,014
-      fremde Sprache, fremdes Genre       Passung 0,045   reaktion 28,7 %  Faktor 1,039
-                                                          feature   3,7 %  Faktor 1,065
+  (a) NUR die Passung verschoben: derselbe Kontakt (3,2 Mio, kollegial, Land de = gleiches Land),
+      nur Sprache und Genre getauscht.
+  gleiche Sprache, verw. Genre       Passung 0,700 · reaktion 63,7 % / Faktor 1,608 · feature 38,7 % / Faktor 2,014 · Stärke 0,2028
+      Summanden: Basis 0,237 (Größe) · Land +0,050 · Sprache +0,100 · Genre ±0,000 · Charakter kollegial +0,100 · Schwierigkeit reaktion +0,150 / feature −0,100
+  fremde Sprache, fremdes Genre      Passung 0,045 · reaktion 33,7 % / Faktor 1,039 · feature 8,7 % / Faktor 1,065 · Stärke 0,0130
+      Summanden: Basis 0,237 (Größe) · Land +0,050 · Sprache −0,150 · Genre −0,050 · Charakter kollegial +0,100 · Schwierigkeit reaktion +0,150 / feature −0,100
 
-    Die Passung 0,045 sind die „≈ 5 %", die der Testabschnitt der Spec für diesen Fall verlangt.
-    Sie wirkt an beiden Stellen: auf die Chance über Sprach- und Genrebonus (−0,15 und −0,05 statt
-    +0,10 und ±0), auf die Wirkung als Faktor in `staerkeOf` – der Schub über 1 fällt von 0,608 auf
-    0,039, also auf 1/15,6, und das ist exakt das Verhältnis der Passungen (0,700 / 0,045 = 15,6).
-    Der Abzug auf die Chance ist bei beiden Anfragearten genau 0,30 (Sprachbonus +0,10 → −0,15,
-    Genrebonus ±0 → −0,05); beim ohnehin schwereren `feature` (−0,10) bleiben davon nur noch 3,7 %
-    übrig, bei der leichten `reaktion` (+0,15) immerhin 28,7 %.
+  (b) Der konkrete Fall aus dem Katalog – echte Länder, echte Größen, echte Charakterzüge:
+  Nina Chuba (de, deutsch, pop)      Passung 0,700 · reaktion 63,7 % / Faktor 1,608 · feature 38,7 % / Faktor 2,014 · Stärke 0,2028
+      Summanden: Basis 0,237 (Größe) · Land +0,050 · Sprache +0,100 · Genre ±0,000 · Charakter kollegial +0,100 · Schwierigkeit reaktion +0,150 / feature −0,100
+  YOASOBI (jp, japanisch, jpop)      Passung 0,045 · reaktion 2,0 % / Faktor 1,067 · feature 2,0 % / Faktor 1,112 · Stärke 0,0224
+      Summanden: Basis 0,110 (Größe) · Land ±0,000 · Sprache −0,150 · Genre −0,050 · Charakter geschaeftlich −0,050 · Schwierigkeit reaktion +0,150 / feature −0,100
 
-(b) Der konkrete Fall aus dem Katalog – hier unterscheiden sich AUCH Größe und Charakter, die Zahlen
-    sind deshalb nicht die Passung allein:
+    Zu (a): Die Passung 0,045 sind die „≈ 5 %", die der Testabschnitt der Spec für diesen Fall
+    verlangt. Sie wirkt an beiden Stellen: auf die Chance über Sprach- und Genrebonus (−0,15 und
+    −0,05 statt +0,10 und ±0, zusammen genau 0,30 Abzug bei beiden Anfragearten), auf die Wirkung
+    als Faktor in `staerkeOf` – der Schub über 1 fällt von 0,608 auf 0,039, also auf 1/15,6, und das
+    ist exakt das Verhältnis der Passungen (0,700 / 0,045 = 15,6).
 
-      YOASOBI      (jp, japanisch, jpop, 15 Mio, geschaeftlich)  Passung 0,045
-                   reaktion Chance 2,0 % (an der Untergrenze CHANCE_MIN)  Stärke 0,0224  Faktor 1,067
-                   feature  Chance 2,0 %                                  Stärke 0,0224  Faktor 1,112
-      Nina Chuba   (de, deutsch, pop, 3,2 Mio, kollegial)        Passung 0,700
-                   reaktion Chance 58,7 %                        Stärke 0,2028  Faktor 1,608
-                   feature  Chance 33,7 %                        Stärke 0,2028  Faktor 2,014
-
-    2,0 % gegen 58,7 % ist also Passung PLUS Größe (0,6 × √(0,5/15) = 0,110 gegen 0,6 × √(0,5/3,2)
-    = 0,237 in der Basis) PLUS Charakter (geschaeftlich −0,05 gegen kollegial +0,10). Der Schub ist
-    bei YOASOBI trotz gleicher Passung etwas größer als im Fall (a) mit 1,039 – der größere Abstand
-    hebt `staerkeOf`, bevor die Passung ihn wieder einkassiert.
+    Zu (b): 63,7 % gegen 2,0 % ist NICHT die Passung allein. Es sind vier Summanden auf einmal, und
+    alle vier stehen in der Ausgabe: Größe (Basis 0,237 gegen 0,110), Land (+0,05 für Nina Chuba,
+    ±0 für YOASOBI – der Spieler wohnt in Deutschland), Sprache und Genre (+0,10/±0 gegen
+    −0,15/−0,05) und der Charakter (kollegial +0,10 gegen geschaeftlich −0,05). YOASOBI landet damit
+    auf der Untergrenze `CHANCE_MIN` = 2,0 %, bei der Reaktion wie beim Feature. Der Schub ist bei
+    YOASOBI trotz gleicher Passung etwas größer als in (a) mit 1,039 – der größere Abstand hebt
+    `staerkeOf`, bevor die Passung ihn wieder einkassiert.
 
 ==================== ERGEBNIS ====================
 
@@ -138,118 +190,150 @@ Rapper (deutsch, hiphop) mit 500.000 Hörern, Draht 0, Hype 1, kein Türöffner,
 
   Musik+Creator: Strategie "Follower zuerst +1B", 10 Läufe à 365 Tage, Würfel rng(1000+i), Kontaktwürfe rng(501000+i)
     ohne Kontakte        372.788/Tag   [357.680 … 382.808]   2.593.286 Follower, 587.277 Hörer · Energie Ø 12 %
-    mit Kontakten        308.437/Tag   [288.969 … 327.749]   1.585.141 Follower, 583.012 Hörer · Energie Ø 14 %
-      Differenz der Mediane −17,3 % · je Seed (gepaart) Median −13,7 %, Spanne −26,2 % … +12,4 %
-      je Seed: −23,8 % · −4,6 % · −13,2 % · −11,6 % · −21,2 % · −26,2 % · +12,4 % · −14,2 % · −25,4 % · −7,4 %
-      Tagesleistung Ø/Tag: ohne 12,56 Kanalaktionen · 0,95 Veröffentlichungen · 0,23 Konzerte → mit 10,69 · 0,95 · 0,22 (−14,9 % Kanalaktionen)
-      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 271 (7,4 %) · echte Antwort 260 (7,1 %) · flüchtig 726 (19,9 %) · ignoriert 2393 (65,6 %)
+    mit Kontakten        341.705/Tag   [320.601 … 358.805]   1.947.980 Follower, 582.021 Hörer · Energie Ø 14 %
+      Differenz der Mediane −8,3 % · je Seed (gepaart) Median −8,0 %, Spanne −24,2 % … +12,7 %
+      je Seed: −11,0 % · +4,7 % · −5,0 % · +12,7 % · −13,5 % · −11,3 % · −0,2 % · +9,2 % · −21,6 % · −24,2 %
+      Tagesleistung Ø/Tag: ohne 12,56 Kanalaktionen · 0,95 Veröffentlichungen · 0,23 Konzerte → mit 10,68 · 0,95 · 0,23 (−15,0 % Kanalaktionen)
+      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 290 (7,9 %) · echte Antwort 321 (8,8 %) · flüchtig 801 (21,9 %) · ignoriert 2238 (61,3 %)
       nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 0
-      Schübe gesetzt 1.257 · verbraucht release 489, creator 763, show 0 (gesetzt minus verbraucht = 5 verfallen oder überschrieben)
-      Ø Schubfaktor bei Veröffentlichungen: Ø 1,34 (größter 2,80) über 489 von 3.471 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
-      Ø Schubfaktor bei Creator-Aktionen: Ø 1,11 (größter 1,87) über 763 von 39.023 Aktionen → über ALLE Aktionen Ø 1,00
-      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 0 von 814 Konzerten verbraucht
+      Antworten mit Schub-Versuch 1.412 · davon wirklich geschrieben 1.410 (2 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 558, creator 847, show 2 (geschrieben minus verbraucht = 3 verfallen oder überschrieben)
+      Ø Schubfaktor bei Veröffentlichungen: Ø 1,30 (größter 2,80) über 558 von 3.455 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
+      Ø Schubfaktor bei Creator-Aktionen: Ø 1,10 (größter 1,54) über 847 von 38.976 Aktionen → über ALLE Aktionen Ø 1,00
+      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 2 von 832 Konzerten verbraucht
       Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 0 verbraucht, keiner
-      je Seite und Anfrageart: musik/reaktion 1978× (Zusage 1,7 %) · creator/reaktion 1023× (Zusage 2,4 %) · creator/feature 629× (Zusage 33,7 %) · musik/feature 20× (Zusage 0,0 %)
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): creator/feature Ø 1,08 (größter 1,33) über 585 · release/reaktion Ø 1,32 (größter 2,80) über 521 · creator/reaktion Ø 1,15 (größter 1,54) über 262 · release/feature Ø 1,03 (größter 1,13) über 37 · show/konzert Ø 1,00 (größter 1,00) über 2
+      je Seite und Anfrageart: musik/reaktion 2004× (Zusage 2,0 %) · creator/reaktion 883× (Zusage 3,9 %) · creator/feature 690× (Zusage 30,3 %) · musik/feature 59× (Zusage 10,2 %) · musik/konzert 14× (Zusage 7,1 %)
       Kontrolle: im Lauf ohne Kontaktpflege 0 Versuche und 0 Schübe ✔
     Konzert-Vorrang (nur zur Messung des Konzert-Schubs, keine Spielempfehlung):
-    mit Konzert-Vorrang   302.597/Tag   [283.464 … 313.634]   2.282.097 Follower, 519.430 Hörer · Energie Ø 14 %
-      Differenz der Mediane −18,8 % · je Seed (gepaart) Median −17,5 %, Spanne −24,9 % … +2,9 %
-      je Seed: −17,9 % · −3,9 % · −21,8 % · −17,1 % · −15,6 % · −23,5 % · +2,9 % · −24,9 % · −22,9 % · −17,1 %
-      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 260 (7,1 %) · echte Antwort 279 (7,6 %) · flüchtig 715 (19,6 %) · ignoriert 2396 (65,6 %)
+    mit Konzert-Vorrang   319.402/Tag   [301.679 … 338.578]   1.769.832 Follower, 508.601 Hörer · Energie Ø 14 %
+      Differenz der Mediane −14,3 % · je Seed (gepaart) Median −12,4 %, Spanne −39,1 % … +25,8 %
+      je Seed: −21,1 % · +1,3 % · −17,4 % · +25,8 % · −39,1 % · −4,6 % · −7,5 % · −6,7 % · −29,5 % · −19,5 %
+      Versuche 3.650 in 3.650 Tagen (1,00/Tag) · Zusage 278 (7,6 %) · echte Antwort 282 (7,7 %) · flüchtig 779 (21,3 %) · ignoriert 2311 (63,3 %)
       nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 0
-      Schübe gesetzt 1.254 · verbraucht release 440, creator 807, show 2 (gesetzt minus verbraucht = 5 verfallen oder überschrieben)
-      Ø Schubfaktor bei Veröffentlichungen: Ø 1,36 (größter 2,80) über 440 von 3.436 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
-      Ø Schubfaktor bei Creator-Aktionen: Ø 1,09 (größter 1,54) über 807 von 39.048 Aktionen → über ALLE Aktionen Ø 1,00
-      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 2 von 822 Konzerten verbraucht
-      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 512 verbraucht, Ø 1,05 (größter 1,18)
-      je Seite und Anfrageart: musik/reaktion 1887× (Zusage 1,8 %) · creator/reaktion 1009× (Zusage 1,9 %) · creator/konzert 621× (Zusage 30,9 %) · creator/feature 94× (Zusage 16,0 %) · musik/feature 20× (Zusage 0,0 %) · musik/konzert 19× (Zusage 0,0 %)
+      Antworten mit Schub-Versuch 1.339 · davon wirklich geschrieben 1.334 (5 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 521, creator 801, show 7 (geschrieben minus verbraucht = 5 verfallen oder überschrieben)
+      Ø Schubfaktor bei Veröffentlichungen: Ø 1,31 (größter 2,80) über 521 von 3.452 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,05
+      Ø Schubfaktor bei Creator-Aktionen: Ø 1,08 (größter 1,54) über 801 von 39.023 Aktionen → über ALLE Aktionen Ø 1,00
+      Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 7 von 822 Konzerten verbraucht
+      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 511 verbraucht, Ø 1,05 (größter 1,28)
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): creator/konzert Ø 1,05 (größter 1,28) über 511 · release/reaktion Ø 1,33 (größter 2,80) über 483 · creator/reaktion Ø 1,15 (größter 1,54) über 238 · creator/feature Ø 1,10 (größter 1,31) über 52 · release/feature Ø 1,03 (größter 1,13) über 38 · show/konzert Ø 1,00 (größter 1,00) über 7
+      je Seite und Anfrageart: musik/reaktion 1956× (Zusage 2,0 %) · creator/reaktion 872× (Zusage 2,8 %) · creator/konzert 633× (Zusage 30,8 %) · creator/feature 94× (Zusage 10,6 %) · musik/feature 67× (Zusage 9,0 %) · musik/konzert 28× (Zusage 10,7 %)
 
   nur Creator: Strategie "Reichweite zuerst +0B", 10 Läufe à 365 Tage, Würfel rng(1000+i), Kontaktwürfe rng(501000+i)
     ohne Kontakte        334.254/Tag   [310.159 … 351.183]   2.119.664 Follower · Energie Ø 8 %
-    mit Kontakten        279.969/Tag   [276.601 … 299.329]   1.615.338 Follower · Energie Ø 4 %
-      Differenz der Mediane −16,2 % · je Seed (gepaart) Median −14,8 %, Spanne −46,7 % … +34,0 %
-      je Seed: −30,2 % · −46,7 % · −23,6 % · −12,9 % · −16,7 % · +34,0 % · −11,4 % · −10,1 % · +25,1 % · −21,4 %
-      Tagesleistung Ø/Tag: ohne 16,16 Kanalaktionen · 0,00 Veröffentlichungen · 0,00 Konzerte → mit 15,03 · 0,00 · 0,00 (−7,0 % Kanalaktionen)
-      Versuche 3.640 in 3.650 Tagen (1,00/Tag) · Zusage 291 (8,0 %) · echte Antwort 291 (8,0 %) · flüchtig 681 (18,7 %) · ignoriert 2377 (65,3 %)
+    mit Kontakten        318.203/Tag   [286.499 … 344.817]   2.293.972 Follower · Energie Ø 4 %
+      Differenz der Mediane −4,8 % · je Seed (gepaart) Median −1,8 %, Spanne −25,0 % … +26,9 %
+      je Seed: −15,8 % · −6,3 % · +3,8 % · −25,0 % · +25,0 % · +26,9 % · −1,6 % · −16,9 % · +3,1 % · −1,9 %
+      Tagesleistung Ø/Tag: ohne 16,16 Kanalaktionen · 0,00 Veröffentlichungen · 0,00 Konzerte → mit 15,02 · 0,00 · 0,00 (−7,0 % Kanalaktionen)
+      Versuche 3.640 in 3.650 Tagen (1,00/Tag) · Zusage 351 (9,6 %) · echte Antwort 319 (8,8 %) · flüchtig 709 (19,5 %) · ignoriert 2261 (62,1 %)
       nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 10
-      Schübe gesetzt 1.263 · verbraucht release 0, creator 1263, show 0 (gesetzt minus verbraucht = 0 verfallen oder überschrieben)
+      Antworten mit Schub-Versuch 1.379 · davon wirklich geschrieben 1.379 (0 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 0, creator 1379, show 0 (geschrieben minus verbraucht = 0 verfallen oder überschrieben)
       Ø Schubfaktor bei Veröffentlichungen: keiner über 0 von 0 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,00
-      Ø Schubfaktor bei Creator-Aktionen: Ø 1,11 (größter 2,00) über 1263 von 54.851 Aktionen → über ALLE Aktionen Ø 1,00
+      Ø Schubfaktor bei Creator-Aktionen: Ø 1,10 (größter 1,93) über 1379 von 54.836 Aktionen → über ALLE Aktionen Ø 1,00
       Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 0 von 0 Konzerten verbraucht
       Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 0 verbraucht, keiner
-      je Seite und Anfrageart: creator/reaktion 2794× (Zusage 1,9 %) · creator/feature 846× (Zusage 28,1 %)
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): creator/feature Ø 1,07 (größter 1,45) über 754 · creator/reaktion Ø 1,13 (größter 1,93) über 625
+      je Seite und Anfrageart: creator/reaktion 2713× (Zusage 2,8 %) · creator/feature 927× (Zusage 29,6 %)
       Kontrolle: im Lauf ohne Kontaktpflege 0 Versuche und 0 Schübe ✔
     Konzert-Vorrang (nur zur Messung des Konzert-Schubs, keine Spielempfehlung):
-    mit Konzert-Vorrang   306.345/Tag   [265.920 … 323.642]   2.386.724 Follower · Energie Ø 4 %
-      Differenz der Mediane −8,3 % · je Seed (gepaart) Median −10,2 %, Spanne −36,4 % … +29,9 %
-      je Seed: −20,3 % · −36,4 % · +29,9 % · −3,8 % · −4,2 % · +3,8 % · −16,3 % · −23,0 % · +29,0 % · −16,4 %
-      Versuche 3.640 in 3.650 Tagen (1,00/Tag) · Zusage 323 (8,9 %) · echte Antwort 286 (7,9 %) · flüchtig 629 (17,3 %) · ignoriert 2402 (66,0 %)
+    mit Konzert-Vorrang   285.066/Tag   [272.763 … 317.060]   1.871.080 Follower · Energie Ø 4 %
+      Differenz der Mediane −14,7 % · je Seed (gepaart) Median −12,1 %, Spanne −33,4 % … +20,6 %
+      je Seed: −33,4 % · −27,3 % · −12,1 % · −19,8 % · −4,0 % · +16,3 % · −12,1 % · −17,0 % · +20,6 % · −3,6 %
+      Versuche 3.640 in 3.650 Tagen (1,00/Tag) · Zusage 337 (9,3 %) · echte Antwort 282 (7,7 %) · flüchtig 666 (18,3 %) · ignoriert 2355 (64,7 %)
       nicht zustande gekommen: keine · Tage ohne wählbaren Kontakt 10
-      Schübe gesetzt 1.238 · verbraucht release 0, creator 1238, show 0 (gesetzt minus verbraucht = 0 verfallen oder überschrieben)
+      Antworten mit Schub-Versuch 1.285 · davon wirklich geschrieben 1.285 (0 blieben liegen, weil ein stärkerer Schub derselben Art noch lief) · verbraucht release 0, creator 1285, show 0 (geschrieben minus verbraucht = 0 verfallen oder überschrieben)
       Ø Schubfaktor bei Veröffentlichungen: keiner über 0 von 0 Veröffentlichungen → über ALLE Veröffentlichungen Ø 1,00
-      Ø Schubfaktor bei Creator-Aktionen: Ø 1,09 (größter 2,00) über 1238 von 54.840 Aktionen → über ALLE Aktionen Ø 1,00
+      Ø Schubfaktor bei Creator-Aktionen: Ø 1,09 (größter 1,93) über 1285 von 54.828 Aktionen → über ALLE Aktionen Ø 1,00
       Konzert-Schübe auf der Musikseite (Hörer statt Faktor): 0 von 0 Konzerten verbraucht
-      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 590 verbraucht, Ø 1,04 (größter 1,25)
-      je Seite und Anfrageart: creator/reaktion 2723× (Zusage 2,4 %) · creator/konzert 749× (Zusage 32,7 %) · creator/feature 168× (Zusage 7,7 %)
+      Konzert auf der CREATOR-Seite (die Abweichung, Faktor statt Hörer): 652 verbraucht, Ø 1,04 (größter 1,23)
+      Ø verbrauchter Schubfaktor je Art (gleiches gegen gleiches): creator/konzert Ø 1,04 (größter 1,23) über 652 · creator/reaktion Ø 1,15 (größter 1,93) über 578 · creator/feature Ø 1,10 (größter 1,45) über 55
+      je Seite und Anfrageart: creator/reaktion 2719× (Zusage 2,9 %) · creator/konzert 797× (Zusage 30,6 %) · creator/feature 124× (Zusage 10,5 %)
+
 
 ==================== WAS DAS HEISST ====================
 
-1. **Kontaktpflege kostet mehr, als sie bringt.** Musik+Creator −17,3 % im Median (gepaart je Seed
-   −13,7 %), nur Creator −16,2 % (gepaart −14,8 %). Die Spec hatte einen Zuwachs im niedrigen
+1. **Kontaktpflege kostet im Median mehr, als sie bringt – aber weniger deutlich, als die erste
+   Fassung dieser Messung sagte.** Musik+Creator −8,3 % im Median (gepaart je Seed −8,0 %, 7 von 10
+   Seeds negativ), nur Creator −4,8 % (gepaart −1,8 %, 6 von 10 Seeds negativ). Beim reinen Creator
+   ist das bei einer Seed-Spanne von −25,0 % … +26,9 % **nicht mehr von null zu unterscheiden**:
+   Diese Messung sagt dort nicht „Kontakte schaden", sondern „hier misst sie nichts Verlässliches
+   mehr". Für Musik+Creator bleibt die Richtung stabil. Die Spec hatte einen Zuwachs im niedrigen
    zweistelligen Prozentbereich erwartet und als Auslöser für ein Senken der Faktoren „über +50 %"
-   gesetzt – der Auslöser ist damit klar nicht erreicht, in die andere Richtung. Es wurde NICHTS
-   gesenkt: 0,6 in der Basis und alle Schubfaktoren stehen unverändert.
+   gesetzt – der Auslöser ist klar nicht erreicht. Es wurde NICHTS gesenkt: 0,6 in der Basis und
+   alle Schubfaktoren stehen unverändert.
 
-2. **Warum.** Die zwei Stunden kosten gezählte 14,9 % der Kanalaktionen (12,56 → 10,69 am Tag) bzw.
-   7,0 % beim reinen Creator (16,16 → 15,03); der Tag endet in beiden Fällen an der Energie-Wand (Ø Energie am
-   Tagesende 12 % gegen 14 % bei Musik+Creator, 8 % gegen 4 % beim reinen Creator),
+2. **Warum.** Die zwei Stunden kosten gezählte 15,0 % der Kanalaktionen (12,56 → 10,68 am Tag) bzw.
+   7,0 % beim reinen Creator (16,16 → 15,02); der Tag endet in beiden Fällen an der Energie-Wand
+   (Ø Energie am Tagesende 12 % gegen 14 % bei Musik+Creator, 8 % gegen 4 % beim reinen Creator),
    und die zwei Kontaktstunden schieben jede spätere Stunde eine Stufe die Kostenkurve hinauf
-   (§17). Dagegen steht ein Schub, der 65,6 % der Tage gar nicht kommt: Über ALLE Veröffentlichungen
+   (§17). Dagegen steht ein Schub, der 61,3 % der Tage gar nicht kommt: Über ALLE Veröffentlichungen
    gemittelt ist der Faktor 1,05, über alle Creator-Aktionen 1,00. Die Musikseite bleibt fast
-   unberührt (Veröffentlichungen 0,95/Tag in beiden Varianten, Hörer 587.277 gegen 583.012) – die
-   ganze Differenz sitzt in den Followern (2,59 Mio gegen 1,59 Mio) und wächst über das Jahr, weil
-   jeder fehlende Tag auch dem Wachstum des nächsten fehlt.
+   unberührt (Veröffentlichungen 0,95/Tag in beiden Varianten, Hörer 587.277 gegen 582.021) – die
+   Differenz sitzt in den Followern (2,59 Mio gegen 1,95 Mio) und wächst über das Jahr, weil jeder
+   fehlende Tag auch dem Wachstum des nächsten fehlt.
 
-3. **Die Zusagenquote** liegt bei 7,4 % (Musik+Creator) bzw. 8,0 % (nur Creator) aller Anfragen,
-   der durchschnittliche Schubfaktor bei einer Veröffentlichung MIT Schub bei 1,34 (größter 2,80).
-   Beides hängt stark an der Anfrageart: `creator/feature` kommt auf 33,7 % Zusagen (Passung
-   Plattform, Größe auf Augenhöhe), `musik/reaktion` auf 1,7 % (fast nur Weltstars).
+3. **Die Zusagenquote** liegt bei 7,9 % (Musik+Creator) bzw. 9,6 % (nur Creator) aller Anfragen,
+   der durchschnittliche Schubfaktor bei einer Veröffentlichung MIT Schub bei 1,30 (größter 2,80).
+   Beides hängt stark an der Anfrageart: `creator/feature` kommt auf 30,3 % Zusagen (Passung
+   Plattform, Größe auf Augenhöhe), `musik/reaktion` auf 2,0 % (fast nur Weltstars). Dass der
+   Spieler trotzdem 2.004-mal den Weltstar anschreibt und nur 690-mal das Feature, ist keine
+   Schieflage der Wahl mehr, sondern ihr Ergebnis: Ein Ja von einem 100-mal größeren Kontakt ist
+   auch nach Multiplikation mit der niedrigen Chance und dem niedrigen erwarteten Stufenfaktor noch
+   mehr wert als ein sicheres Ja von einem gleich großen.
 
 4. **Der Konzert-Schub auf der Creator-Seite** – die bewusste Abweichung in `contacts.request`, die
-   `boostOf`s wirkungslosen Faktor 1 durch `min(4, 1 + 3 × Stärke)` über 7 Tage ersetzt – war im
-   ersten Lauf eine NULL, und zwar keine zufällige: Ein Spieler, der nach Chance × Nutzen wählt,
-   nimmt die Bühne nie. Sie ist auf derselben Seite doppelt dominiert – das Feature hat den
-   größeren Faktor (1 + 5 × Stärke gegen 1 + 3 × Stärke) UND die bessere Chance (Schwierigkeit
-   −0,10 gegen −0,20), und die Bühne verlangt zusätzlich Draht ≥ 20. Deshalb die dritte Variante
-   „Konzert-Vorrang", die sie erzwingt, sobald sie möglich ist. Damit gemessen: 512 verbrauchte
-   Creator-Konzert-Schübe (Musik+Creator) mit Ø Faktor **1,05**, größter 1,18; beim reinen Creator
-   590 Schübe mit Ø **1,04**, größter 1,25. Sie ist damit der SCHWÄCHSTE Schub im Spiel, nicht der
-   stärkste: Die eigene Follower-Zahl wächst schnell über die `reachCreator` der Kontakte hinaus,
-   und `staerkeOf` fällt mit dem Größenverhältnis. Von „die Musikerseite in den Schatten stellen"
-   ist sie weit entfernt: 1,05 gegen 1,34 bei Veröffentlichungen, und der Musik-Schub wirkt auf
-   eine Veröffentlichung mit vielfach größerem Geldhebel als eine einzelne Kanalaktion.
+   `boostOf`s wirkungslosen Faktor 1 durch `min(4, 1 + 3 × Stärke)` über 7 Tage ersetzt – war ohne
+   Vorrang wieder eine NULL, und zwar keine zufällige: Ein Spieler, der nach Chance × Nutzen wählt,
+   nimmt die Bühne nie. Das Feature auf derselben Seite hat den größeren Faktor (1 + 5 × Stärke
+   gegen 1 + 3 × Stärke) UND die bessere Chance (Schwierigkeit −0,10 gegen −0,20), und die Bühne
+   verlangt zusätzlich Draht ≥ 20. Deshalb die dritte Variante „Konzert-Vorrang", die sie erzwingt,
+   sobald sie möglich ist. Damit gemessen: 511 verbrauchte Creator-Konzert-Schübe (Musik+Creator)
+   mit Ø Faktor **1,05**, größter 1,28; beim reinen Creator 652 Schübe mit Ø **1,04**, größter 1,23.
 
-5. **Der Konzert-Schub auf der Musikseite** (Hörer statt Faktor) wurde im Vorrang-Lauf 2-mal von
-   822 Konzerten verbraucht, ohne Vorrang 0-mal von 814 – aus demselben Grund: Draht ≥ 20 bei einem
-   Musik-Kontakt entsteht kaum, weil der Spieler dort fast nur Weltstars anschreibt (Zusage 1,7 %).
+   Im Vergleich GLEICHES GEGEN GLEICHES – verbrauchte Schübe je Art, aus demselben Lauf:
+
+       creator/konzert  Ø 1,05 über 511      creator/konzert  Ø 1,04 über 652
+       creator/reaktion Ø 1,15 über 238      creator/reaktion Ø 1,15 über 578
+       creator/feature  Ø 1,10 über  52      creator/feature  Ø 1,10 über  55
+       (Musik+Creator)                       (nur Creator)
+
+   Er ist damit der kleinste der drei Schübe auf seiner Seite. **Nicht, weil die Formel schwächer
+   wäre** – sie ist Zeichen für Zeichen dieselbe wie die von `reaktion` (`min(4, 1 + 3 × Stärke)`),
+   und dieselbe Formel kann nicht strukturell schwächer sein. Der Grund ist die Schwelle
+   `minDraht: STUFE_BEKANNT` (Draht ≥ 20): Sie lässt nur Kontakte durch, die man lange gepflegt hat,
+   und das sind die kleinen – bei kleinen Kontakten ist `staerkeOf` (log10 des Größenverhältnisses)
+   klein. Die Bühne bekommt also nicht einen schwächeren Hebel, sondern ein schwächeres Publikum.
+   Ein Superlativ („der schwächste Schub im Spiel") steht deshalb hier bewusst NICHT: Gemessen ist
+   ein Durchschnitt über eine Auswahl, nicht eine Eigenschaft der Formel. Von „stellt die
+   Musikerseite in den Schatten" (die Annahme, die diese Messung prüfen sollte) ist er trotzdem weit
+   entfernt: 1,05 gegen 1,30 bei Veröffentlichungen, und der Musik-Schub wirkt auf eine
+   Veröffentlichung mit vielfach größerem Geldhebel als eine einzelne Kanalaktion.
+
+5. **Der Konzert-Schub auf der Musikseite** (Hörer statt Faktor) wurde im Vorrang-Lauf 7-mal von
+   822 Konzerten verbraucht, ohne Vorrang 2-mal von 832 – aus demselben Grund: Draht ≥ 20 bei einem
+   Musik-Kontakt entsteht kaum, weil der Spieler dort fast nur Weltstars anschreibt (Zusage 2,0 %).
 
 ==================== EHRLICHE GRENZEN ====================
 
-(1) Gemessen ist die Spielweise „**jeden Tag** zwei Stunden, bester Kontakt nach Chance × Nutzen" –
-    nicht „nur bei guter Gelegenheit". Wer die zwei Stunden nur an Tagen ausgibt, an denen Passung
-    und Chance zusammenkommen, zahlt den Preis seltener; diese Zwischenstufe ist NICHT gemessen und
-    steht deshalb auch nirgends als Zahl.
-(2) Die Streuung ist größer als bei den Firmen-Messungen: je Seed −26,2 % … +12,4 % (Musik+Creator)
-    und −46,7 % … +34,0 % (nur Creator) bei 10 Seeds. Die Richtung ist in 9 von 10 bzw. 8 von 10
-    Seeds dieselbe, die Größe der Differenz ist es nicht. Dass der Konzert-Vorrang beim reinen
-    Creator „nur" −8,3 % kostet statt −16,2 %, liegt innerhalb dieser Streuung und ist KEIN Beleg
-    dafür, dass Konzerte die bessere Wahl wären.
-(3) Die Vorauswahl der acht besten Kontakte je Tag (statt aller 74 des Katalogs) kann in Einzelfällen einen
-    besseren Kandidaten übersehen. Sie betrifft nur die Wahl des Spielers, nie das Ergebnis der
+(1) Gemessen ist die Spielweise „**jeden Tag** zwei Stunden, bester Kontakt nach Chance × erwartetem
+    Nutzen" – nicht „nur bei guter Gelegenheit". Wer die zwei Stunden nur an Tagen ausgibt, an denen
+    Passung und Chance zusammenkommen, zahlt den Preis seltener; diese Zwischenstufe ist NICHT
+    gemessen und steht deshalb auch nirgends als Zahl.
+(2) Die Streuung ist größer als bei den Firmen-Messungen: je Seed −24,2 % … +12,7 % (Musik+Creator)
+    und −25,0 % … +26,9 % (nur Creator) bei 10 Seeds. Die Richtung stimmt in 7 von 10 bzw. 6 von 10
+    Seeds. Beim reinen Creator ist der gepaarte Median von −1,8 % damit **innerhalb des Rauschens**;
+    als „Kontakte kosten Geld" darf nur die Musik+Creator-Zeile gelesen werden. Dass der
+    Konzert-Vorrang −14,3 % bzw. −14,7 % kostet, ist aus demselben Grund KEIN Beleg dafür, dass
+    Konzerte die schlechtere Wahl wären – es ist dieselbe Streuung.
+(3) Die Wahl des simulierten Spielers ist eine Näherung, kein Optimum. Sie rechnet den erwarteten
+    Nutzen EINER Anfrage, nicht den Wert des Drahts, den sie aufbaut (ein Nein hebt ihn nicht, ein
+    Ja schon, und erst ab Draht 20 öffnet sich die Bühne). Ein Spieler, der gezielt einen Draht
+    aufbaut, spielt anders als dieser hier.
+(4) Die Vorauswahl der acht besten Kontakte je Tag (statt aller 74 des Katalogs) kann in Einzelfällen
+    einen besseren Kandidaten übersehen. Sie betrifft nur die Wahl des Spielers, nie das Ergebnis der
     Anfrage: Gewürfelt und gerechnet wird ausschließlich in `contacts.request`.
-(4) Die Kontaktwürfe laufen auf einem zweiten Würfelstrom. Die Läufe „mit" und „ohne" sind dadurch
+(5) Die Kontaktwürfe laufen auf einem zweiten Würfelstrom. Die Läufe „mit" und „ohne" sind dadurch
     am ersten Tag identisch, danach nicht mehr – ein Schub verschiebt alles Folgende. Gegen diese
     Restunsicherheit stehen 10 Seeds, der Median und die gepaarte Auswertung, nicht eine Rechnung.
-(5) Die Kontakte sind in dieser Messung eine reine Geldfrage. Was sie an Spielgefühl,
+(6) Die Kontakte sind in dieser Messung eine reine Geldfrage. Was sie an Spielgefühl,
     Freischaltungen (Partner ab drei Zusagen) und an Vorarbeit für 5b/5c bringen, misst niemand
     hier – und es war auch nie das Argument für sie.

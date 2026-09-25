@@ -263,12 +263,29 @@ Gemessen (10 Läufe à 365 Tage, Median je Tag):
 
 | | ohne Kontakte | mit Kontakten | Differenz |
 |---|---|---|---|
-| Musik + Creator | 372.788/Tag | 308.437/Tag | **−17,3 %** (gepaart je Seed −13,7 %) |
-| nur Creator | 334.254/Tag | 279.969/Tag | **−16,2 %** (gepaart je Seed −14,8 %) |
+| Musik + Creator | 372.788/Tag | 341.705/Tag | **−8,3 %** (gepaart je Seed −8,0 %) |
+| nur Creator | 334.254/Tag | 318.203/Tag | **−4,8 %** (gepaart je Seed −1,8 %) |
 
-Zusagenquote 7,4 % bzw. 8,0 % aller Anfragen (65,6 % bleiben unbeantwortet);
-durchschnittlicher Schubfaktor bei einer Veröffentlichung **mit** Schub 1,34
+**Mit der Streuung gelesen, nicht ohne sie.** Je Seed reicht die Spanne von
+−24,2 % … +12,7 % (Musik+Creator) und −25,0 % … +26,9 % (nur Creator); die
+Richtung stimmt in 7 von 10 bzw. 6 von 10 Seeds. Für Musik+Creator ist der
+Befund damit stabil, **beim reinen Creator liegt er im Rauschen** – dort sagt
+diese Messung nicht „Kontakte kosten Geld", sondern „hier misst sie nichts
+Verlässliches". Dasselbe gilt für jeden Vergleich der drei Varianten
+untereinander.
+
+Zusagenquote 7,9 % bzw. 9,6 % aller Anfragen (61,3 % bleiben unbeantwortet);
+durchschnittlicher Schubfaktor bei einer Veröffentlichung **mit** Schub 1,30
 (größter 2,80), über alle Veröffentlichungen gemittelt 1,05.
+
+**Korrektur an der Messung selbst.** Die erste Fassung hat den simulierten
+Spieler jeden Kandidaten mit der Stärke einer *Zusage* bewerten lassen. Das ist
+keine neutrale Vereinfachung: Der erwartete Stufenfaktor aus `stufeVon` ist
+0,350 beim fernen Weltstar mit Draht 15 und 0,500 auf Augenhöhe, die Regel hat
+den Weltstar also um das 1,43-fache überbewertet. Sie kam auf −17,3 % bzw.
+−16,2 %; die halbe Differenz war eine Eigenschaft der Bewertungsregel. Jetzt
+wird über alle drei Antwortstufen gemittelt, und die Erwartung wird gegen
+200.000 Würfe der echten `stufeVon` gehalten (in der Messdatei abgedruckt).
 
 **Konsequenz: Es wurde nichts gesenkt.** Der Auslöser der Spec („liegt es über
 +50 %, `0,6` in der Basis oder die Schubfaktoren senken und neu messen") ist
@@ -277,26 +294,33 @@ Verhalten des Spiels hat diese Messung nichts geändert.
 
 **Zwei Befunde, die die Spec so nicht vorgesehen hatte:**
 
-1. **Die zwei Stunden sind der ganze Preis.** Sie kosten gezählte 14,9 % der
-   Kanalaktionen am Tag (12,56 → 10,69; reiner Creator 16,16 → 15,03, −7,0 %),
+1. **Die zwei Stunden sind der ganze Preis.** Sie kosten gezählte 15,0 % der
+   Kanalaktionen am Tag (12,56 → 10,68; reiner Creator 16,16 → 15,02, −7,0 %),
    weil der Tag ohnehin an der Energie-Wand endet. Die Musikseite bleibt fast
-   unberührt (0,95 Veröffentlichungen am Tag in beiden Läufen); die ganze
-   Differenz sitzt in den Followern (2,59 Mio gegen 1,59 Mio) und wächst über
-   das Jahr. Kontakte sind damit eine **Ausgabe mit Streuung**, keine Quelle –
-   was §3 genau so wollte, nur deutlicher als gedacht.
+   unberührt (0,95 Veröffentlichungen am Tag in beiden Läufen); die Differenz
+   sitzt in den Followern (2,59 Mio gegen 1,95 Mio) und wächst über das Jahr.
+   Kontakte sind damit eine **Ausgabe mit Streuung**, keine Quelle – was §3
+   genau so wollte, nur deutlicher als gedacht.
 
-2. **Der Konzert-Schub auf der Creator-Seite ist der schwächste im Spiel.**
+2. **Der Konzert-Schub auf der Creator-Seite ist der kleinste der drei Schübe
+   auf seiner Seite – wegen der Draht-Schwelle, nicht wegen der Formel.**
    Die Wirkungstabelle der Spec kennt für `konzert` nur die Musikseite
    („Hörer für die Gage"). `contacts.request` ersetzt den dort wirkungslosen
    Faktor 1 auf der Creator-Seite durch `min(4, 1 + 3 × Stärke)` über 7 Tage –
    sonst wäre ein gemeinsames Event für einen reinen Creator ein Schub ohne
-   Wirkung. Gemessen: Ø Faktor **1,05** (größter 1,18) über 512 verbrauchte
-   Schübe, beim reinen Creator Ø 1,04 über 590. Ein Spieler, der nach
-   Chance × Nutzen wählt, nimmt sie **nie**: Das Feature auf derselben Seite
-   hat den größeren Faktor (`1 + 5 × Stärke`) *und* die bessere Chance
-   (Schwierigkeit −0,10 gegen −0,20), und die Bühne verlangt zusätzlich
-   Draht ≥ 20. Die Zahlen stammen deshalb aus einem dritten Messlauf, der die
-   Bühne erzwingt, sobald sie möglich ist („Konzert-Vorrang" im Messskript).
+   Wirkung. Gemessen, gleiches gegen gleiches aus demselben Lauf: `creator/
+   konzert` Ø **1,05** (größter 1,28) über 511 verbrauchte Schübe gegen
+   `creator/reaktion` Ø 1,15 und `creator/feature` Ø 1,10; beim reinen Creator
+   Ø 1,04 über 652 gegen 1,15 und 1,10. Die Formel ist Zeichen für Zeichen
+   dieselbe wie die von `reaktion` und kann deshalb nicht strukturell schwächer
+   sein; der Unterschied kommt von `minDraht: STUFE_BEKANNT` – nur lange
+   gepflegte, also kleine Kontakte kommen überhaupt auf die Bühne, und bei
+   kleinen Kontakten ist `staerkeOf` klein. Ein Spieler, der nach
+   Chance × Nutzen wählt, nimmt sie ohnehin **nie**: Das Feature auf derselben
+   Seite hat den größeren Faktor (`1 + 5 × Stärke`) *und* die bessere Chance
+   (Schwierigkeit −0,10 gegen −0,20) und verlangt keinen Draht. Die Zahlen
+   stammen deshalb aus einem dritten Messlauf, der die Bühne erzwingt, sobald
+   sie möglich ist („Konzert-Vorrang" im Messskript).
 
 **Offen für 5b/5c:** Ob die Kontakte eine attraktivere Zeitverwendung werden
 sollen, ist eine Balancing-Entscheidung des Nutzers, keine Folge dieser
