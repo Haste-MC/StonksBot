@@ -1118,8 +1118,11 @@ function view(buttons) {
       kEmbed.description.includes('🤝 Draht ▱▱▱▱▱ 0 (neutral) · 0 Versuche, 0 Zusagen')
       && kEmbed.description.includes('🎯 Passung 100 %'), kEmbed.description);
     const kRow = kontakt.components[0].toJSON().components;
+    // Seit 5b steht als fünfter Knopf das Anstacheln daneben (unten geprüft) –
+    // die vier Anfragen tragen weiterhin ihre Chance im Namen.
     check('vier Anfrage-Knöpfe mit Prozent im Namen',
-      kRow.length === 4 && kRow.every((b) => / \d+ %$/.test(b.label)), kRow.map((b) => b.label).join(' | '));
+      kRow.length === 5 && kRow.slice(0, 4).every((b) => / \d+ %$/.test(b.label)),
+      kRow.map((b) => b.label).join(' | '));
     check('das Konzert ist ohne Draht 20 gesperrt',
       kRow[3].custom_id === `kanfrage|${klein.id}-konzert|${KU}` && kRow[3].disabled === true,
       JSON.stringify(kRow[3]));
@@ -1386,6 +1389,283 @@ function view(buttons) {
     check('die Kanalaktion meldet den verbrauchten Schub mit Namen und Faktor',
       aktNote.includes(`🤝 Der Schub von **${papaplatte.name}** hat gewirkt: ×1,2 Reichweite.`),
       aktNote);
+  }
+
+  console.log('--- Beef (Spec 5b: Anzeige) ---');
+  /*
+   * Die Anzeige des Beefs ist die einzige Stelle, an der ein Spieler ihn
+   * überhaupt sieht – und sie hat dieselbe harte Grenze wie die Kontakte
+   * (§16, neun Reaktionen). Ohne Beef trägt die Kontaktansicht 4 Anfragen +
+   * Anstacheln + Zurück + Hauptmenü = 7 aktive Knöpfe; mit Beef sind die vier
+   * Anfragen deaktiviert und bekommen keine Reaktion (`render.js`), dafür
+   * kommen Disstrack und Frieden dazu = 4. Geprüft wird `overflow === undefined`
+   * in BEIDEN Zuständen, sonst verschwände ein Knopf lautlos.
+   */
+  {
+    const ui = require('../src/ui');
+    const beef = require('../src/beef');
+    const bdata = require('../src/data/beef');
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const {
+      anstachelnNote, dissNote, friedenNote, beefNote, beefProblem,
+    } = require('../src/buttons');
+    const jetzt = Date.now();
+    const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
+
+    /** Ein frischer Rapper mit Titeln im Kasten – jeder Fall bekommt seinen. */
+    let lauf = 0;
+    const neu = async (listeners = 50_000) => {
+      const g = `BEEF_T${Date.now()}_${lauf++}`;
+      const u = 'beef_user';
+      await home.setHome(g, u, 'de');
+      home.setLanguage(g, u, 'deutsch');
+      music.setup(g, u, 'hiphop', music.PERSONAS[0].id);
+      db.saveArtist(g, u, { ...db.getArtist(g, u, jetzt), listeners, songs: 4 });
+      return [g, u];
+    };
+    /** Eine Beef-Zeile von Hand – die Ansicht soll geprüft werden, nicht der Wurf. */
+    const setzeBeef = (g, u, contactId, felder) => db.saveBeef(g, u, contactId, {
+      hitze: 25, runden_ich: 0, runden_er: 0, last_hit: jetzt, last_cool: jetzt,
+      konter_at: 0, angefangen: jetzt, status: 'offen', bonus_until: 0, ...felder,
+    });
+
+    const gross = cdata.CONTACTS.find((c) => c.id === 'rammstein');
+    const klein = cdata.CONTACTS.find((c) => c.id === 'lilpfand');
+
+    // --- Kontaktansicht OHNE Beef: der Anstachel-Knopf mit seiner Chance ----
+    const [VG, VU] = await neu();
+    const ohne = await ui.buildKontaktView({ guildId: VG, userId: VU, contactId: gross.id });
+    const oRow = ohne.components[0].toJSON().components;
+    check('ohne Beef steht als fünfter Knopf das Anstacheln mit Prozent',
+      oRow.length === 5 && oRow[4].custom_id === `anstacheln|${gross.id}|${VU}`
+      && / \d+ %$/.test(oRow[4].label) && oRow[4].disabled !== true,
+      oRow.map((b) => `${b.custom_id}=${b.label}`).join(' | '));
+    check('die Prozentzahl ist die Einstiegschance aus beef.einstiegOf',
+      oRow[4].label === `Anstacheln ${Math.round(beef.einstiegOf({
+        ...beef.musikLage(VG, VU, gross, jetzt), trait: gross.trait,
+      }) * 100)} %`, oRow[4].label);
+    check('ohne Beef gibt es keine Beef-Zeile und keinen Friedensknopf',
+      !ohne.embeds[0].toJSON().description.includes('🔥 **Beef**')
+      && ohne.components[1].toJSON().components[0].custom_id === `kontakte|alle|1|${VU}`,
+      ohne.components[1].toJSON().components.map((b) => b.custom_id).join(' '));
+    check('Kontaktansicht ohne Beef hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(ohne).overflow === undefined,
+      `${render.mapReactions(ohne).length} / ${render.mapReactions(ohne).overflow}`);
+
+    // --- Kontaktansicht MIT Beef -------------------------------------------
+    // Zwei Fronten: der heiße gegen den Großen (Konter steht aus), der kalte
+    // gegen den Kleinen (kühlt ab, Frieden möglich).
+    setzeBeef(VG, VU, gross.id, {
+      hitze: 62, runden_ich: 2, runden_er: 1, konter_at: jetzt + 14 * 3600e3,
+    });
+    setzeBeef(VG, VU, klein.id, { hitze: 20, runden_ich: 1, runden_er: 0 });
+
+    const mit = await ui.buildKontaktView({ guildId: VG, userId: VU, contactId: gross.id });
+    const mEmbed = mit.embeds[0].toJSON();
+    check('die Beef-Zeile nennt Hitze, Balken, Runden und den Konter',
+      mEmbed.description.includes('🔥 **Beef** · Hitze 62 ▰▰▰▰▱ · Runden 2:1 · sein Konter kommt in 14 h'),
+      mEmbed.description.split('\n').filter((z) => z.includes('Beef')).join(' / '));
+    const mRow = mit.components[0].toJSON().components;
+    check('die vier Kooperationsknöpfe sind deaktiviert',
+      mRow.slice(0, 4).every((b) => b.disabled === true && b.custom_id.startsWith('kanfrage|')),
+      mRow.map((b) => `${b.custom_id}:${b.disabled}`).join(' | '));
+    check('und der Grund steht im Text',
+      mEmbed.fields[0].value.split('\n').every((z) => z.endsWith('❌ Solange der Beef läuft, nicht.')),
+      mEmbed.fields[0].value);
+    check('fünfter Knopf ist der Disstrack, offen mit Titeln im Kasten',
+      mRow.length === 5 && mRow[4].custom_id === `diss|${gross.id}|${VU}`
+      && mRow[4].label === 'Disstrack' && mRow[4].disabled !== true,
+      JSON.stringify(mRow[4]));
+    check('bei Hitze 62 gibt es keinen Friedensknopf',
+      !mit.components[1].toJSON().components.some((b) => b.custom_id.startsWith('frieden|')),
+      mit.components[1].toJSON().components.map((b) => b.custom_id).join(' '));
+    check('Kontaktansicht mit Beef hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(mit).overflow === undefined,
+      `${render.mapReactions(mit).length} / ${render.mapReactions(mit).overflow}`);
+
+    // Der abgekühlte Beef: keine Konter-Uhr, dafür der Rest bis zum Ende – und
+    // Frieden ist unter Hitze 30 möglich.
+    const kalt = await ui.buildKontaktView({ guildId: VG, userId: VU, contactId: klein.id });
+    check('ohne ausstehenden Konter zählt die Zeile die Abkühlung herunter',
+      kalt.embeds[0].toJSON().description.includes('🔥 **Beef** · Hitze 20 ▰▱▱▱▱ · Runden 1:0 · kühlt ab, noch 3 Tage'),
+      kalt.embeds[0].toJSON().description.split('\n').filter((z) => z.includes('Beef')).join(' / '));
+    check('unter Hitze 30 steht der Friedensknopf vor Zurück und Hauptmenü',
+      kalt.components[1].toJSON().components.map((b) => b.custom_id).join(' ')
+        === `frieden|${klein.id}|${VU} kontakte|alle|1|${VU} home|${VU}`,
+      kalt.components[1].toJSON().components.map((b) => b.custom_id).join(' '));
+    check('Kontaktansicht mit Friedensknopf hält das Fluxer-Limit',
+      render.mapReactions(kalt).overflow === undefined,
+      `${render.mapReactions(kalt).length} / ${render.mapReactions(kalt).overflow}`);
+
+    // --- Kontaktliste: 🔥 statt 🔒 ----------------------------------------
+    const alleZ = contacts.listFor(VG, VU, { filter: 'alle', now: jetzt });
+    const platz = alleZ.findIndex((z) => z.contact.id === gross.id);
+    const liste5b = await ui.buildKontakteView({
+      guildId: VG, userId: VU, page: Math.floor(platz / 5) + 1, filter: 'alle',
+    });
+    const beefZeileListe = liste5b.embeds[0].toJSON().description.split('\n')
+      .find((z) => z.includes(gross.name));
+    check('die Kontaktliste zeigt 🔥 statt des Sperr-Zusatzes 🔒',
+      Boolean(beefZeileListe) && beefZeileListe.endsWith(' · 🔥 Beef')
+      && !beefZeileListe.includes('🔒'), String(beefZeileListe));
+    check('Kontaktliste mit Beef hält das Fluxer-Limit',
+      render.mapReactions(liste5b).overflow === undefined,
+      String(render.mapReactions(liste5b).overflow));
+
+    // --- Musikansicht: nur eine Hinweiszeile, kein fünfter Knopf -----------
+    const studio5b = await ui.buildMusicView({ guildId: VG, userId: VU });
+    const heute5b = studio5b.embeds[0].toJSON().fields.find((f) => f.name === '⏳ Heute').value;
+    check('die Musikansicht nennt den heißesten Beef',
+      heute5b.includes(`🔥 Beef mit *${gross.name}* · Hitze 62 – ein Disstrack wartet`), heute5b);
+    check('aber sie bekommt keinen Disstrack-Knopf (§16)',
+      !studio5b.components.some((r) => r.toJSON().components
+        .some((b) => String(b.custom_id).startsWith('diss|'))),
+      studio5b.components.map((r) => r.toJSON().components.map((b) => b.custom_id).join(' ')).join(' | '));
+    check('Musikansicht mit Beef hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(studio5b).overflow === undefined,
+      `${render.mapReactions(studio5b).length} / ${render.mapReactions(studio5b).overflow}`);
+    const arten5b = await ui.buildReleaseView({ guildId: VG, userId: VU });
+    check('die Veröffentlichungsansicht bleibt bei vier Arten ohne Disstrack',
+      arten5b.components[0].toJSON().components.length === 4
+      && !arten5b.components[0].toJSON().components.some((b) => b.custom_id.startsWith('mpub|diss')),
+      arten5b.components[0].toJSON().components.map((b) => b.custom_id).join(' '));
+
+    // --- Meldung: Einstieg -------------------------------------------------
+    const [EG, EU] = await neu();
+    const ein = beef.anstacheln(EG, EU, klein.id, jetzt, wuerfel(0));
+    check('der Wurf ergibt einen Einstieg', ein.ok && ein.ein === true,
+      JSON.stringify({ ok: ein.ok, reason: ein.reason, ein: ein.ein }));
+    const einNote = anstachelnNote(ein, jetzt);
+    check('Meldung bei Einstieg: Name, Ton des Kontakts, Hitze, Draht',
+      einNote.includes(`🔥 **${klein.name}** steigt ein.`) && einNote.includes(ein.text)
+      && einNote.includes(`🔥 Hitze ${bdata.HITZE_ANSTACHELN}`)
+      && einNote.includes('🤝 Draht ▱▱▱▱▱ **-15** (-15,'), einNote);
+
+    // --- Meldung: Blamage --------------------------------------------------
+    const [BlG, BlU] = await neu();
+    const blamage = beef.anstacheln(BlG, BlU, gross.id, jetzt, wuerfel(0.99));
+    check('gegen den Großen steigt er nicht ein', blamage.ok && blamage.ein === false,
+      JSON.stringify({ ok: blamage.ok, reason: blamage.reason, ein: blamage.ein }));
+    const blNote = anstachelnNote(blamage, jetzt);
+    check('Meldung bei Blamage: kein Einstieg, Hype gelitten, die zwei Stunden',
+      blNote.includes(`😶 ${gross.name} reagiert nicht.`)
+      && blNote.includes('📉 Dein Hype hat gelitten.')
+      && blNote.includes(`⏱️ Die **${bdata.BEEF_TIME}** Stunden sind trotzdem weg`), blNote);
+
+    // --- Meldung: Disstrack, mit und ohne Häme ----------------------------
+    const [DG, DU] = await neu();
+    setzeBeef(DG, DU, gross.id, { hitze: 62 });
+    const dissRes = beef.diss(DG, DU, gross.id, jetzt, wuerfel(0.99, 0.5));
+    check('der Disstrack gegen den Großen geht durch und ohne Häme',
+      dissRes.ok && dissRes.beef.haeme === false,
+      JSON.stringify({ ok: dissRes.ok, reason: dissRes.reason }));
+    const dNote = dissNote(dissRes, jetzt);
+    check('Meldung: normale Veröffentlichung plus Gegner, Aufmerksamkeit, Runden',
+      dNote.includes('**Disstrack** ist draußen.') && dNote.includes('haben reingehört')
+      && /🔥 Gegen \*\*Rammstein\*\* · Aufmerksamkeit ×\d+,\d · Runden 1:0/.test(dNote), dNote);
+
+    const [HG, HU] = await neu();
+    setzeBeef(HG, HU, klein.id, { hitze: 62 });
+    const haeme = beef.diss(HG, HU, klein.id, jetzt, wuerfel(0.01, 0.5));
+    check('nach unten getreten wird ausgelacht', haeme.ok && haeme.beef.haeme === true,
+      JSON.stringify({ ok: haeme.ok, reason: haeme.reason }));
+    check('Meldung bei Häme nennt die Nummer zu klein',
+      dissNote(haeme, jetzt).includes(
+        `😬 Das ging nach hinten los: ${klein.name} ist eine Nummer zu klein für dich.`),
+      dissNote(haeme, jetzt));
+
+    // --- Meldung: Gegenschlag (aus settle) --------------------------------
+    const [KG5, KU5] = await neu();
+    setzeBeef(KG5, KU5, gross.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const konterEv = beef.settle(KG5, KU5, jetzt, wuerfel(0));
+    check('der fällige Konter kommt als Ereignis',
+      konterEv.length === 1 && konterEv[0].art === 'konter',
+      JSON.stringify(konterEv.map((e) => e.art)));
+    const kNote = beefNote(konterEv);
+    check('Meldung beim Gegenschlag: Name, Ton, Hype und verlorene Hörer',
+      kNote.includes(`🔥 **${gross.name}** hat zurückgeschlagen.`)
+      && kNote.includes(konterEv[0].text)
+      && /📉 Hype −\d+ %, [\d.]+ Hörer weg\./.test(kNote), kNote);
+
+    // --- Meldung: Abrechnung in allen drei Ausgängen -----------------------
+    // Drei Fronten, eine Abrechnung: die Hitze ist bei allen längst durch.
+    const [AG, AU] = await neu();
+    const lange = { hitze: 10, last_cool: jetzt - 30 * 86_400_000 };
+    setzeBeef(AG, AU, gross.id, { ...lange, runden_ich: 2, runden_er: 1 });
+    setzeBeef(AG, AU, klein.id, { ...lange, runden_ich: 1, runden_er: 2 });
+    setzeBeef(AG, AU, 'ninachuba', { ...lange, runden_ich: 1, runden_er: 1 });
+    const enden = beef.settle(AG, AU, jetzt, wuerfel(0));
+    check('alle drei Beefs werden abgerechnet',
+      enden.length === 3 && enden.every((e) => e.art === 'ende'),
+      JSON.stringify(enden.map((e) => `${e.contactId}:${e.status}`)));
+    const aNote = beefNote(enden);
+    check('Abrechnung: Sieg nennt den Stand und die sieben Tage',
+      aNote.includes(`🔥 Der Beef mit **${gross.name}** ist durch: **2:1** für dich. Die Straße redet – sieben Tage lang.`),
+      aNote);
+    check('Abrechnung: Niederlage sitzt eine Woche',
+      aNote.includes(`🔥 Der Beef mit **${klein.name}** ist durch: **1:2** für ihn. Das sitzt eine Woche.`),
+      aNote);
+    check('Abrechnung: unentschieden hat keinen Gewinner',
+      aNote.includes('ist durch: **1:1**. Keiner hat gewonnen.'), aNote);
+
+    // --- Meldung: Frieden --------------------------------------------------
+    const [FG, FU] = await neu();
+    setzeBeef(FG, FU, klein.id, { hitze: 10 });
+    const friede = beef.frieden(FG, FU, klein.id, jetzt, wuerfel(0));
+    check('Frieden geht unter Hitze 30', friede.ok === true,
+      JSON.stringify({ ok: friede.ok, reason: friede.reason }));
+    check('Meldung bei Frieden: der Draht springt nicht ins Plus',
+      friedenNote(friede, jetzt).includes(
+        `🕊️ Ihr habt Frieden geschlossen. Draht **${bdata.FRIEDEN_DECKEL}**.`),
+      friedenNote(friede, jetzt));
+
+    // --- Die Fehlerfälle mit dem Wortlaut der Spec ------------------------
+    check('laeuft_schon', beefProblem({ reason: 'laeuft_schon' }, jetzt)
+      === '🔥 Mit ihm läuft schon einer.');
+    check('zu_viele', beefProblem({ reason: 'zu_viele' }, jetzt)
+      === '🔥 Zwei Beefs sind genug.');
+    check('zu_heiss nennt Hitze und Grenze',
+      beefProblem({ reason: 'zu_heiss', hitze: 62 }, jetzt)
+        === `🔥 Dafür ist es noch zu heiß (Hitze 62, nötig unter ${bdata.HITZE_FRIEDEN_MAX}).`,
+      beefProblem({ reason: 'zu_heiss', hitze: 62 }, jetzt));
+    check('kein_beef', beefProblem({ reason: 'kein_beef' }, jetzt)
+      === '❌ Dafür läuft kein Beef.');
+    check('gesperrt wie in 5a',
+      beefProblem({ reason: 'gesperrt', remainingMs: 3 * 86_400_000 }, jetzt)
+        === '⏳ Melde dich in 3 Tagen wieder.');
+    check('zu_frisch nennt die Restzeit des Bonusfensters',
+      beefProblem({ reason: 'zu_frisch', bis: jetzt + 3 * 86_400_000 }, jetzt)
+        .includes('wieder möglich in 3 Tagen'),
+      beefProblem({ reason: 'zu_frisch', bis: jetzt + 3 * 86_400_000 }, jetzt));
+    check('eine Absage der Veröffentlichung kommt unverändert von releaseProblem',
+      beefProblem({ reason: 'no_songs', need: 1, have: 0, release: { name: 'Disstrack' } }, jetzt)
+        .includes('braucht **1** Titel'),
+      beefProblem({ reason: 'no_songs', need: 1, have: 0, release: { name: 'Disstrack' } }, jetzt));
+
+    /*
+     * Und der Grund, warum `beefVorher` überall gerendert werden MUSS: Eine
+     * abgelehnte Veröffentlichung rechnet den fälligen Gegenschlag trotzdem ab
+     * (§4, Schritt 0 in `music.publish`). Ohne die Zeile in der Meldung kostet
+     * ein Fehlklick still Hype und Hörer.
+     */
+    const [MG, MU] = await neu();
+    db.saveArtist(MG, MU, { ...db.getArtist(MG, MU, jetzt), listeners: 50_000, songs: 0 });
+    setzeBeef(MG, MU, gross.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const abgelehntPub = music.publish(MG, MU, 'single', jetzt, wuerfel(0.5));
+    check('ohne Titel wird abgelehnt – der Konter ist trotzdem gefallen',
+      abgelehntPub.ok === false && abgelehntPub.reason === 'no_songs'
+      && abgelehntPub.beefVorher.length === 1
+      && abgelehntPub.beefVorher[0].art === 'konter',
+      JSON.stringify({ reason: abgelehntPub.reason, vorher: abgelehntPub.beefVorher?.length }));
+    check('und er steht in der Meldung vor der Absage',
+      require('../src/buttons').mitBeef(abgelehntPub.beefVorher,
+        require('../src/buttons').releaseProblem(abgelehntPub, jetzt))
+        .startsWith(`🔥 **${gross.name}** hat zurückgeschlagen.`),
+      require('../src/buttons').mitBeef(abgelehntPub.beefVorher,
+        require('../src/buttons').releaseProblem(abgelehntPub, jetzt)));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

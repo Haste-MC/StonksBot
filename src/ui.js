@@ -2315,7 +2315,11 @@ async function buildOpenHeistsView({ guildId, userId }) {
  */
 async function buildMusicView({ guildId, userId }) {
   const music = require('./music');
+  const beef = require('./beef');
   const symbol = await getSymbol(guildId);
+  // 5b, §4: Vor `status` abrechnen – ein fälliger Gegenschlag nimmt Hype und
+  // Hörer, und die Ansicht soll die Zahlen NACH ihm zeigen, nicht davor.
+  beef.settle(guildId, userId);
   const s = music.status(guildId, userId);
 
   if (!s.started) {
@@ -2416,6 +2420,18 @@ async function buildMusicView({ guildId, userId }) {
   // Veröffentlichung bzw. das nächste Konzert – hier steht, dass er liegt.
   const schuebe = [schubZeile(guildId, userId, 'release'), schubZeile(guildId, userId, 'show')]
     .filter(Boolean);
+
+  /*
+   * Beef (5b): Nur eine Hinweiszeile, kein Knopf. Der Disstrack lebt in der
+   * Kontaktansicht des Gegners – dort ist das Ziel eindeutig, und ein fünfter
+   * Knopf sprengte hier den Reaktionshaushalt (§16). Gezeigt wird der
+   * heißeste offene Beef; abgerechnet ist oben schon.
+   */
+  const ziel = beef.zielFor(guildId, userId);
+  if (ziel?.contact) {
+    schuebe.push(`🔥 Beef mit *${ziel.contact.name}* · Hitze ${Math.round(ziel.hitze)} `
+      + '– ein Disstrack wartet');
+  }
 
   embed.addFields({
     name: '⏳ Heute',
@@ -2741,6 +2757,29 @@ function restZeit(ms) {
 }
 
 /**
+ * Die Beef-Zeile der Kontaktansicht (5b).
+ *
+ * Die Hitze bekommt denselben Fünf-Block-Balken wie der Draht – es ist
+ * dieselbe Art Zahl von 0 bis 100, und zwei Balkenformen nebeneinander liest
+ * niemand. Dahinter steht die Uhr des Beefs: Solange sein Gegenschlag
+ * aussteht, zählt sie den herunter; sonst sagt sie, wie lange die Hitze noch
+ * braucht, bis die Sache von allein durch ist (`hitze / HITZE_COOL_PRO_TAG`).
+ */
+function beefZeile(b, now = Date.now()) {
+  const bdata = require('./data/beef');
+  const hitze = Math.round(b.hitze);
+  let rest;
+  if (b.konter_at > 0) {
+    rest = `sein Konter kommt in ${restZeit(Math.max(0, b.konter_at - now))}`;
+  } else {
+    const tage = Math.max(1, Math.round(hitze / bdata.HITZE_COOL_PRO_TAG));
+    rest = `kühlt ab, noch ${tage} ${tage === 1 ? 'Tag' : 'Tage'}`;
+  }
+  return `🔥 **Beef** · Hitze ${hitze} ${drahtBar(hitze)} · `
+    + `Runden ${b.runden_ich}:${b.runden_er} · ${rest}`;
+}
+
+/**
  * Die Zeile über einen laufenden Kontakt-Schub für Musik- und Creator-Ansicht.
  * Ohne Schub null – die Ansicht lässt die Zeile dann weg.
  */
@@ -2803,7 +2842,14 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
   const contacts = require('./contacts');
   const world = require('./data/world');
   const data = require('./data/contacts');
+  const beef = require('./beef');
   const now = Date.now();
+
+  // 5b: Abrechnung und Gegenschlag sind faul (§4). Ohne diesen Aufruf stünde
+  // ein längst ausgekühlter Beef hier weiter als offen und bekäme sein 🔥.
+  beef.settle(guildId, userId, now);
+  const beefOffen = new Set(
+    beef.offeneBeefs(guildId, userId, now).map((b) => b.contact_id));
 
   const aktiv = KONTAKT_FILTER.find((f) => f.id === filter) ?? KONTAKT_FILTER[0];
   const naechster = KONTAKT_FILTER[(KONTAKT_FILTER.indexOf(aktiv) + 1) % KONTAKT_FILTER.length];
@@ -2828,8 +2874,10 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
   const zeilen = items.map((z, i) => {
     const land = world.COUNTRIES.find((x) => x.id === z.contact.country);
     const reach = z.seite === 'creator' ? z.contact.reachCreator : z.contact.reach;
-    const gesperrt = z.gesperrtBis > now
-      ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
+    // 5b: Ein laufender Beef steht vor der Sperre – er ist der Grund für sie
+    // und sagt mehr als „frei in 3 Tagen". Sortiert wird weiter wie bisher.
+    const gesperrt = beefOffen.has(z.contact.id) ? ' · 🔥 Beef'
+      : z.gesperrtBis > now ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
       + `Draht ${drahtBar(z.draht)} ${z.draht} (${DRAHT_STUFEN[z.stufe]}) · `
@@ -2893,7 +2941,15 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
 async function buildKontaktView({ guildId, userId, contactId }) {
   const contacts = require('./contacts');
   const world = require('./data/world');
+  const beef = require('./beef');
+  const bdata = require('./data/beef');
   const now = Date.now();
+
+  // 5b, §4: Erst abrechnen, dann anzeigen. Ein Beef, dessen Hitze durch ist,
+  // steht bis zur Abrechnung weiter als `offen` in der Tabelle – ohne diesen
+  // Aufruf würde die Ansicht ihn zeigen, die vier Anfragen grundlos sperren
+  // und einen Disstrack-Knopf bauen, der in `kein_beef` läuft.
+  beef.settle(guildId, userId, now);
 
   const d = contacts.detail(guildId, userId, contactId, now);
   // §6: Eine veraltete Knopf-ID darf nichts Falsches öffnen – lieber abweisen.
@@ -2935,11 +2991,57 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   }
   if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
 
+  // 5b: Der laufende Beef steht direkt über den Anfragen – er ist der Grund,
+  // warum alle vier gleich darunter gesperrt sind.
+  const b = beef.offenerBeef(guildId, userId, contactId, now);
+  if (b) kopf.push(beefZeile(b, now));
+
   const grundText = (r) => ({
     seite: '🔒 passende Karriere fehlt',
     draht: `🔒 Draht ${r.minDraht} nötig`,
     gesperrt: '🔒 gesperrt',
+    // 5b: Ohne diesen Eintrag stünde auf einem gesperrten Knopf weiter eine
+    // Chance, die gerade niemand bekommen kann.
+    beef: '❌ Solange der Beef läuft, nicht.',
   }[r.grund] ?? `Chance **${pct(r.chance)}**`);
+
+  /*
+   * Der fünfte Knopf der ersten Zeile: ohne Beef das Anstacheln mit seiner
+   * Einstiegschance, mit Beef der Disstrack. Gerechnet wird die Chance auf der
+   * MUSIKSEITE (`beef.musikLage`), nicht mit `d.meineReichweite` – bei einem
+   * Kontakt, der auch Creator ist, meldet `contacts.detail` die Leitseite, und
+   * dann stünde auf dem Knopf eine andere Zahl, als `beef.anstacheln` würfelt.
+   * Ohne Musikseite auf einer der beiden Seiten gibt es keinen Streit: Der
+   * Knopf bleibt dann zu, statt in `seite` zu laufen (§6).
+   */
+  const lage = b ? null : beef.musikLage(guildId, userId, c, now);
+  const einstieg = lage ? beef.einstiegOf({ ...lage, trait: c.trait }) : null;
+  const [anstachelnArt, friedenArt] = bdata.BEEF_AKTIONEN;
+
+  const beefKnopf = b
+    ? (() => {
+      // Der Disstrack ist eine Veröffentlichung: ohne Titel im Kasten und
+      // in der Veröffentlichungssperre geht er nicht.
+      const s = require('./music').status(guildId, userId, now);
+      return new ButtonBuilder().setCustomId(`diss|${c.id}|${userId}`)
+        .setLabel('Disstrack').setEmoji('🔥').setStyle(ButtonStyle.Danger)
+        .setDisabled(!s.started || s.songs < 1 || s.releaseMs > 0);
+    })()
+    : new ButtonBuilder().setCustomId(`anstacheln|${c.id}|${userId}`)
+      .setLabel(einstieg === null
+        ? anstachelnArt.name : `${anstachelnArt.name} ${pct(einstieg)}`)
+      .setEmoji(anstachelnArt.emoji).setStyle(ButtonStyle.Danger)
+      .setDisabled(einstieg === null || gesperrt
+        || beef.offeneBeefs(guildId, userId, now).length >= bdata.BEEFS_MAX);
+
+  // Frieden gibt es erst, wenn es abgekühlt ist – darüber nimmt er keinen an.
+  const zweiteZeile = [];
+  if (b && b.hitze < bdata.HITZE_FRIEDEN_MAX) {
+    zweiteZeile.push(new ButtonBuilder().setCustomId(`frieden|${c.id}|${userId}`)
+      .setLabel(friedenArt.name).setEmoji(friedenArt.emoji)
+      .setStyle(ButtonStyle.Success));
+  }
+  zweiteZeile.push(kontakteZurueck(userId), homeButton(userId));
 
   const embed = new EmbedBuilder()
     .setTitle(`${c.emoji} ${c.name}`)
@@ -2961,8 +3063,8 @@ async function buildKontaktView({ guildId, userId, contactId }) {
           .setLabel(`${ANFRAGE_KURZ[r.id] ?? r.id} ${pct(r.chance)}`)
           .setEmoji(r.emoji)
           .setStyle(r.id === 'feature' ? ButtonStyle.Success : ButtonStyle.Secondary)
-          .setDisabled(!r.moeglich))),
-      new ActionRowBuilder().addComponents(kontakteZurueck(userId), homeButton(userId)),
+          .setDisabled(!r.moeglich)), beefKnopf),
+      new ActionRowBuilder().addComponents(...zweiteZeile),
     ],
   };
 }

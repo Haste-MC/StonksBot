@@ -584,6 +584,6 @@ module.exports = {
   traitBonus, einstiegOf, wuchtOf, genrefaktorOf, aufmerksamkeitOf, haemeOf,
   hitzeJetzt, rundeNachDiss, rundeNachKonter, ausgangOf, bonusFaktor,
   anzaehlGewicht, textFor,
-  offenerBeef, offeneBeefs, anstacheln, diss, zielFor, anzaehlen,
+  offenerBeef, offeneBeefs, musikLage, anstacheln, diss, zielFor, anzaehlen,
   settle, bonusOf, szeneMalus, frieden,
 };
