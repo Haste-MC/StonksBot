@@ -2555,8 +2555,10 @@ async function buildReleaseView({ guildId, userId }) {
 
   /*
    * Der Disstrack (5b) fehlt hier mit Absicht: Er lebt in der Kontaktansicht,
-   * weil dort das Ziel eindeutig ist – und weil ein fünfter Knopf den
-   * Reaktionshaushalt der Musikansicht sprengen würde (§16).
+   * weil nur dort das Ziel eindeutig ist – ohne Gegenüber wäre der Knopf ein
+   * Griff ins Leere. Am Reaktionshaushalt (§16) liegt es NICHT: Fünf Arten
+   * plus Studio plus Home sind sieben Reaktionen und damit noch unter
+   * MAX_REACTIONS 9.
    */
   const arten = music.RELEASES.filter((r) => r.id !== 'diss');
 

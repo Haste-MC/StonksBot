@@ -337,7 +337,18 @@ function diss(guildId, userId, contactId, now = Date.now(), random = Math.random
   };
 }
 
-/** Gegen wen ein Disstrack ginge – der heißeste offene Beef. */
+/**
+ * Gegen wen ein Disstrack ginge – der heißeste offene Beef.
+ *
+ * Liest nur und rechnet die Hitze faul (§4): Ein längst ausgekühlter Beef
+ * steht bis zur Abrechnung weiter als `offen` in der Tabelle und käme hier mit
+ * Hitze 0 als Ziel zurück – der Knopf daraus liefe dann in `kein_beef`. DER
+ * AUFRUFER MUSS VORHER ABGERECHNET HABEN. Von allein geschieht das nirgends;
+ * die Abrechnung kommt aus `settle`, das jede Beef-Aktion (`anstacheln`,
+ * `diss`, `frieden`) und seit Stück 3 auch `music.publish` und `music.show` als
+ * Schritt 0 mitbringen. Eine Ansicht, die nach einer dieser Aktionen gebaut
+ * wird, sieht damit den abgerechneten Stand; jede andere ruft `settle` selbst.
+ */
 function zielFor(guildId, userId, now = Date.now()) {
   const offen = offeneBeefs(guildId, userId, now);
   if (!offen.length) return null;
@@ -366,12 +377,21 @@ function anzaehlen(guildId, userId, now = Date.now(), random = Math.random) {
   const laeuft = new Set(offen.map((b) => b.contact_id));
   const zeilen = db.contactsOf(guildId, userId);
 
+  // Wessen Bonusfenster gerade noch läuft, der ist ebenfalls raus – dieselbe
+  // Sperre, die `anstacheln` als `zu_frisch` zieht: Die Tabelle hat nur EINE
+  // Zeile je Kontakt, ein neuer Beef von ihm würde sie überschreiben und den
+  // eben erst verdienten Bonus mitreißen. Nur von der anderen Seite gestartet
+  // wäre es derselbe Schaden, also gilt hier dieselbe Regel.
+  const frisch = new Set(db.beefsOf(guildId, userId)
+    .filter((r) => r.status !== 'offen' && r.bonus_until > now)
+    .map((r) => r.contact_id));
+
   // Wer schon Partner ist, zählt dich nicht an – und wer ohnehin schon mit dir
   // im Streit liegt, braucht keinen zweiten Anlass.
   const kandidaten = [];
   let summe = 0;
   for (const c of cdata.CONTACTS) {
-    if (!c.reach || laeuft.has(c.id)) continue;
+    if (!c.reach || laeuft.has(c.id) || frisch.has(c.id)) continue;
     const z = zeilen.find((x) => x.contact_id === c.id) ?? null;
     if (contacts.drahtJetzt(z, now) >= cdata.STUFE_PARTNER) continue;
     const g = anzaehlGewicht({

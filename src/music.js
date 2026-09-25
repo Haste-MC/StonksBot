@@ -491,22 +491,38 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   // etwas verbraucht.
   if (type.id === 'diss' && !beef) return { ok: false, reason: 'kein_beef', release: type };
 
+  // Schritt 0: die faule Abrechnung des Beefs nachholen (§4). Weiter unten
+  // werden Bonus (`bonusOf`) und Anzählen (`anzaehlen`) gelesen, und beide
+  // sähen sonst einen Stand von vorgestern: ein längst ausgekühlter Beef zahlt
+  // seinen Sieg nicht aus und zählt weiter als offene Front mit. Geschrieben
+  // wird dabei nur, was ohnehin fällig war – wie in `beef.anstacheln`.
+  //
+  // Der eigene Würfel wird ABSICHTLICH nicht durchgereicht: `settle` zieht
+  // damit nur eine Textzeile, würde aber jede spätere Zahl dieser
+  // Veröffentlichung verschieben und Messläufe wie Tests unreproduzierbar
+  // machen. Die Zeile darf ruhig aus `Math.random` kommen.
+  //
+  // Stehen MUSS es vor `db.getArtist`: Ein fälliger Gegenschlag nimmt Hörer
+  // und Hype, und eine vorher gelesene Zeile würde ihn beim Speichern wieder
+  // überschreiben.
+  const beefVorher = require('./beef').settle(guildId, userId, now);
+
   const row = db.getArtist(guildId, userId, now);
-  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
+  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started', beefVorher };
   if (row.songs < type.songs) {
-    return { ok: false, reason: 'no_songs', need: type.songs, have: row.songs, release: type };
+    return { ok: false, reason: 'no_songs', need: type.songs, have: row.songs, release: type, beefVorher };
   }
 
   // `force`: eine erzwungene Veröffentlichung (Vorfall „Album im Netz") kennt
   // weder Sperre noch Zeitbudget – das Material ist ohnehin schon draußen.
   const left = force ? 0 : remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now);
-  if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, release: type };
+  if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, release: type, beefVorher };
 
   // `force` bucht keine Zeit, nimmt aber die aktuelle Energie.
   const time = force
     ? { ok: true, forced: true, factor: require('./creator').energyOf(guildId, userId, now).factor }
     : useTime(guildId, userId, type.time, now);
-  if (!time.ok) return { ok: false, reason: time.reason, need: type.time, release: type, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: type.time, release: type, ...time, beefVorher };
 
   // Ein Schub aus einer Zusage wirkt auf GENAU diese Veröffentlichung: gelesen,
   // angewandt, gelöscht (src/contacts.js). Erst hier, damit ein abgebrochener
@@ -579,7 +595,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   require('./activity').record(guildId, userId, 'music', now);
 
   return {
-    ok: true, release: type, genre: g, persona: p, angezaehlt,
+    ok: true, release: type, genre: g, persona: p, angezaehlt, beefVorher,
     audience, gained, lost, lostToIdle: sim.lostToIdle,
     audienceFactor, factor: time.factor,
     listeners: Math.round(listeners), listenersBefore: row.listeners,
@@ -622,23 +638,30 @@ function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now =
  * bekommt eine Halle voll.
  */
 async function show(guildId, userId, now = Date.now(), random = Math.random, { events = true } = {}) {
+  // Schritt 0 wie beim Veröffentlichen: erst die faule Abrechnung des Beefs
+  // nachholen (§4), denn weiter unten wird `bonusOf` gelesen – ein längst
+  // ausgekühlter Sieg zahlte sonst nie. Vor `db.getArtist`, weil ein fälliger
+  // Gegenschlag Hörer und Hype nimmt, und ohne den eigenen Würfel, damit sich
+  // keine Zahl dieses Konzerts verschiebt.
+  const beefVorher = require('./beef').settle(guildId, userId, now);
+
   const row = db.getArtist(guildId, userId, now);
-  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
+  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started', beefVorher };
 
   const market = marketOf(guildId, userId);
   const before = decayed(row, market, now);
   if (before.listeners < SHOW_MIN_LISTENERS) {
     return {
-      ok: false, reason: 'too_small',
+      ok: false, reason: 'too_small', beefVorher,
       have: Math.round(before.listeners), need: SHOW_MIN_LISTENERS,
     };
   }
 
   const left = remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now);
-  if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left };
+  if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, beefVorher };
 
   const time = useTime(guildId, userId, SHOW_TIME, now);
-  if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time };
+  if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time, beefVorher };
 
   // Ein zugesagter Auftritt bringt sein Publikum mit – einmal, für diese Gage.
   // Mehr als die eigene Hörerschaft zählt nicht. Die Gage wächst deshalb um
@@ -689,7 +712,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
     : null;
 
   return {
-    ok: true, gross, cut, amount: net, gained, quality, factor: time.factor, genre: g,
+    ok: true, gross, cut, amount: net, gained, quality, factor: time.factor, genre: g, beefVorher,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
     incident, cancelled, extraHoerer,
     kontakt: kb ? {

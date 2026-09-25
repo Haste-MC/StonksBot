@@ -651,9 +651,14 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       r.beef.haeme === false && r.beef.runde === 'ich'
       && row.runden_ich === 1 && row.runden_er === 0,
       JSON.stringify({ haeme: r.beef.haeme, i: row.runden_ich, e: row.runden_er }));
+    // 2,05 ist von Hand nachgerechnet: 1 + 1,5 × Wucht 1 × Genrefaktor 1
+    // (Hip-Hop) × (0,5 + 0,5 × 40/100). Die Zahl steht hier als Literal und
+    // nicht als Aufruf von `aufmerksamkeitOf` – sonst prüfte der Test die
+    // Funktion gegen sich selbst und übersähe eine falsch durchgereichte
+    // Hitze.
     check('Volle Wucht und die gerechnete Aufmerksamkeit gehen an publish',
       nah(r.beef.wucht, 1)
-      && nah(r.beef.aufmerksamkeit, beef.aufmerksamkeitOf({ wucht: 1, genrefaktor: 1, hitze: 40 }))
+      && nah(r.beef.aufmerksamkeit, 2.05)
       && nah(r.audienceFactor, r.beef.aufmerksamkeit),
       JSON.stringify({ w: r.beef.wucht, a: r.beef.aufmerksamkeit, f: r.audienceFactor }));
     check('Hitze +30', nah(row.hitze, 70), String(row.hitze));
@@ -771,6 +776,51 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       hm > ho && nah(hm, Math.min(music.HYPE_MAX, ho * data.BONUS_SIEG)), `${hm} vs ${ho}`);
   }
 
+  console.log('--- Stück 3: publish rechnet den vergessenen Beef zuerst ab ---');
+  {
+    // Der Normalfall: Der Beef ist vor zehn Tagen ausgekühlt, seitdem hat
+    // niemand hingesehen – keine Beef-Aktion, keine Kontaktansicht. Die Zeile
+    // steht deshalb noch auf `offen`, der Sieg ist nie abgerechnet worden.
+    // Ohne Schritt 0 in `publish` bliebe der Bonus für immer liegen.
+    const tSpaet = t0 + 10 * TAG;
+    const mit = await rapper('bY', 10_000);
+    const ohne = await rapper('bZ', 10_000);
+    for (const U of [mit, ohne]) {
+      db.saveArtist(G, U, { ...db.getArtist(G, U, t0), touched_at: tSpaet, last_action_at: tSpaet });
+    }
+    // 20 Hitze, zehn Tage à 6 Punkte – längst durch. 1:0 gewonnen.
+    db.saveBeef(G, mit, klein.id, {
+      hitze: 20, runden_ich: 1, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0,
+    });
+    check('Vor der Veröffentlichung zahlt der vergessene Sieg nichts',
+      nah(beef.bonusOf(G, mit, tSpaet).faktor, 1)
+      && nah(beef.hitzeJetzt(db.beefRow(G, mit, klein.id), tSpaet), 0),
+      JSON.stringify(beef.bonusOf(G, mit, tSpaet)));
+
+    const a = music.publish(G, mit, 'single', tSpaet, wuerfel(0.5), { events: false });
+    const b = music.publish(G, ohne, 'single', tSpaet, wuerfel(0.5), { events: false });
+    check('Die Abrechnung wird nachgeholt und als beefVorher gemeldet',
+      Array.isArray(a.beefVorher) && a.beefVorher.length === 1
+      && a.beefVorher[0].art === 'ende' && a.beefVorher[0].status === 'sieg'
+      && a.beefVorher[0].contactId === klein.id,
+      JSON.stringify(a.beefVorher));
+    check('Ohne fälligen Beef bleibt beefVorher leer',
+      Array.isArray(b.beefVorher) && b.beefVorher.length === 0, JSON.stringify(b.beefVorher));
+    check('Die Zeile steht jetzt auf Sieg mit laufendem Fenster',
+      db.beefRow(G, mit, klein.id).status === 'sieg'
+      && db.beefRow(G, mit, klein.id).bonus_until === tSpaet + data.BONUS_TAGE * TAG,
+      JSON.stringify(db.beefRow(G, mit, klein.id)));
+    // Die Abrechnung darf den Würfel dieser Veröffentlichung NICHT anfassen –
+    // sonst wäre kein Messlauf mehr reproduzierbar.
+    check('Beide veröffentlichen mit demselben Würfel dasselbe',
+      a.ok && b.ok && a.audience === b.audience, JSON.stringify({ a: a.audience, b: b.audience }));
+    const hm = db.getArtist(G, mit, tSpaet).hype;
+    const ho = db.getArtist(G, ohne, tSpaet).hype;
+    check('Der nachgeholte Sieg zahlt seinen Bonus auf genau diese Veröffentlichung',
+      hm > ho && nah(hm, Math.min(music.HYPE_MAX, ho * data.BONUS_SIEG)), `${hm} vs ${ho}`);
+  }
+
   console.log('--- Angezählt werden ---');
   {
     // Der Katalog in seiner Reihenfolge: Mit `wurf = 0` trifft es immer den
@@ -813,6 +863,29 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
       check('Partner und laufende Beefs fallen aus der Auswahl',
         r && r.contact.id === musikKontakte[2].id, JSON.stringify(r?.contact?.id));
+    }
+    {
+      // Ein gerade gewonnener Beef mit laufendem Bonusfenster: Zählte er von
+      // sich aus wieder an, überschriebe die eine Zeile je Kontakt den Sieg –
+      // der Bonus wäre weg und man stünde obendrein 0:1 hinten. `anstacheln`
+      // hält das mit `zu_frisch` auf, `anzaehlen` muss dasselbe tun.
+      const U = await musiker('bAn', 10_000);
+      const erste = musikKontakte[0];
+      const bis = t0 + 7 * TAG;
+      db.saveBeef(G, U, erste.id, {
+        hitze: 0, runden_ich: 2, runden_er: 0, last_hit: t0, last_cool: t0,
+        konter_at: 0, angefangen: t0, status: 'sieg', bonus_until: bis,
+      });
+      const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
+      check('Wessen Bonusfenster noch läuft, der zählt nicht an',
+        r && r.contact.id === musikKontakte[1].id, JSON.stringify(r?.contact?.id));
+      check('Seine Zeile steht unberührt – der Sieg und sein Fenster bleiben',
+        db.beefRow(G, U, erste.id).status === 'sieg'
+        && db.beefRow(G, U, erste.id).bonus_until === bis
+        && db.beefRow(G, U, erste.id).runden_ich === 2,
+        JSON.stringify(db.beefRow(G, U, erste.id)));
+      check('Und der Bonus zahlt weiter',
+        nah(beef.bonusOf(G, U, t0).faktor, data.BONUS_SIEG), String(beef.bonusOf(G, U, t0).faktor));
     }
     {
       // Der Wurf hängt in `publish` – und zwar NACH `db.saveArtist`, damit die
