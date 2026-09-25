@@ -58,8 +58,28 @@ unten der Zustand. Die Zahlen und Schwellen stehen in **`src/data/beef.js`**.
 ausschließlich über eine neue Funktion `contacts.moveDraht(guildId, userId,
 contactId, delta, now)` – der Draht wird an genau einer Stelle geschrieben.
 Umgekehrt fragt `contacts.chanceOf` über `beef.szeneMalus(...)` nach dem
-Szenen-Malus, und `music.publish` fragt `beef.zielFor(...)`, gegen wen ein
-Disstrack geht. Beide Richtungen laufen über spät gebundene `require` (§8).
+Szenen-Malus und `contacts.detail` über `beef.offenerBeef(...)` nach dem Grund
+`beef`. Alle Richtungen laufen über spät gebundene `require` (§8).
+
+**Die Beef-Aktionen stehen NICHT in `data/contacts.js REQUESTS`.** Diese Liste
+hat vier Einträge, ihre Chance-Rechnung ist die Kooperationsrechnung aus 5a,
+und `test/contacts.test.js:53` und `:179` halten das fest. Anstacheln und
+Frieden bekommen darum ihre eigene Liste `BEEF_AKTIONEN` in `src/data/beef.js`
+mit derselben Form (`id`, `name`, `emoji`, `time`) – ihre Auflösung ist ohnehin
+eine andere.
+
+**Wer orchestriert:** `beef.anstacheln`, `beef.diss`, `beef.frieden` und
+`beef.settle` sind die vier Eingänge. `beef.diss` ist der Dirigent des
+Disstracks: Wirkung rechnen → `music.publish(…, 'diss', …, { audience })` →
+Zustand schreiben. `music.publish` selbst kennt den Beef nur an drei Stellen:
+es lehnt `diss` ohne offenen Beef ab (`reason: 'kein_beef'`, damit ein alter
+Knopf nichts kaputt macht), es nimmt den Hype-Bonus aus `beef.bonusOf(...)`
+entgegen, und es würfelt nach einer Chart-Platzierung über `beef.anzaehlen(...)`.
+
+Häme und Gegenschlag brauchen dieselbe Wirkung auf den Künstler – Hype mal
+einem Faktor, ein Anteil der Hörer weg. Dafür gibt es **eine** Funktion
+`music.applyBeefTreffer(guildId, userId, { hype, hoererAnteil }, now)`, die
+beide Aufrufer benutzen; `beef.js` schreibt die Künstlerzeile nicht selbst.
 
 ## Der Zustand: Hitze und Runden
 
@@ -98,8 +118,8 @@ Versuch wird mit `zu_viele` abgelehnt.
 
 ## Anstacheln
 
-Fünfte Anfrageart in `REQUESTS`: `{ id: 'anstacheln', name: 'Anstacheln',
-emoji: '🔥', time: 2, minDraht: null }`. Sie läuft **nicht** durch
+Erster Eintrag in `BEEF_AKTIONEN` (`src/data/beef.js`): `{ id: 'anstacheln',
+name: 'Anstacheln', emoji: '🔥', time: 2 }`. Sie läuft **nicht** durch
 `contacts.request`, sondern durch `beef.anstacheln(guildId, userId, contactId,
 now, random)`; die Reihenfolge der Prüfungen ist dieselbe wie in 5a: Kontakt
 unbekannt → Seite fehlt (nur Musiker) → schon ein Beef mit ihm offen → zu viele
@@ -178,13 +198,15 @@ haeme = clamp(0, 0,6, log10(max(1, meine / max(1, seine))) / 3
                       + 0,2 × (1 − genrefaktor))
 ```
 
-Von Hand: gleich groß, Hip-Hop → 0 % · du tausendmal größer, Hip-Hop → 33,3 % ·
-du hunderttausendmal größer → 60 % (Obergrenze) · gleich groß, Klassik →
-12,3 % · du tausendmal größer, Klassik → 45,6 %.
+Von Hand: gleich groß, Hip-Hop → 0 % · du zehnmal größer, Hip-Hop → 33,3 % ·
+du hundertmal größer → 60 % (die Obergrenze greift ab dem 63-fachen) · gleich
+groß, Klassik → 12,3 % · du zehnmal größer, Klassik → 45,6 % · du tausendmal
+größer → 60 % in jedem Genre.
 
-Bei Häme wird statt der Aufmerksamkeit der Faktor **0,5** übergeben, der Hype
-fällt auf × 0,8, 2 % der Hörer gehen, und **die Runde geht an ihn**. Ohne Häme
-holt der Disstrack die Runde für dich.
+Bei Häme wird statt der Aufmerksamkeit der Faktor **0,5** an `publish`
+übergeben, und danach setzt `music.applyBeefTreffer(..., { hype: 0,8,
+hoererAnteil: 0,02 })` den Rest: Hype × 0,8 und 2 % der Hörer weg. **Die Runde
+geht an ihn.** Ohne Häme holt der Disstrack die Runde für dich.
 
 In jedem Fall: Hitze +30, Draht −20, ein aufgenommener Titel und die normale
 Veröffentlichungssperre.
@@ -201,8 +223,9 @@ hat Glück gehabt.
 Seine Wucht ist dieselbe Rechnung: `wucht = clamp(0, 1, log10(1 + seine /
 max(100, meine)) / 3)`.
 
-- Hype × (1 − 0,25 × wucht) – bei einem tausendmal Größeren also × 0,75
-- Hörer − (10 % × wucht), höchstens 10 %
+- `music.applyBeefTreffer(..., { hype: 1 − 0,25 × wucht, hoererAnteil: 0,10 ×
+  wucht })` – bei einem tausendmal Größeren also Hype × 0,75 und 10 % der Hörer
+  weg, bei einem gleich Großen Hype × 0,975 und 1 % der Hörer
 - Hitze +30, Draht −10
 - **Die Runde geht an ihn, außer `wucht < 0,2`** – ein Konter von jemandem, der
   weit kleiner ist als du, wirkt lächerlich, und die Runde bleibt bei dir.
@@ -258,8 +281,8 @@ abgerechneten Beefs zurück, dessen Fenster noch läuft – gestapelt wird nie
 (wie der Schub in 5a). Er wirkt auf den Hype in `music.publish` und
 `music.show` und ist durch `HYPE_MAX 1,7` gedeckelt. Kein Geld, keine Decke.
 
-**Versöhnung** ist eine sechste Anfrageart `{ id: 'frieden', name: 'Frieden
-anbieten', emoji: '🕊️', time: 2, minDraht: null }`, möglich sobald die Hitze
+**Versöhnung** ist der zweite Eintrag in `BEEF_AKTIONEN`: `{ id: 'frieden',
+name: 'Frieden anbieten', emoji: '🕊️', time: 2 }`, möglich sobald die Hitze
 unter 30 liegt (auch nach dem Ende, solange die Zeile steht):
 `beef.frieden(...)` kostet zwei Stunden, setzt `status: 'frieden'`, löscht
 Bonus und Malus und hebt den Draht:
