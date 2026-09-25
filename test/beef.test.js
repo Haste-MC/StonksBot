@@ -508,6 +508,91 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       JSON.stringify(beef.offeneBeefs(G, U, t5).map((b) => b.contact_id)));
   }
 
+  console.log('--- Stück 3: die Ereignisse aus Schritt 0 gehen nicht verloren ---');
+  {
+    // klein (Lil Pfand, Reichweite 8.400) hat einen fälligen Gegenschlag. Wird
+    // er durch Schritt 0 von anstacheln nachgeholt, darf das Ereignis nicht
+    // verschwinden – es muss unter `vorher` im Rückgabewert auftauchen.
+    const U = await musiker('bG', 10_000);
+    db.saveBeef(G, U, klein.id, {
+      hitze: 55, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: t0 - 1000, angefangen: t0, status: 'offen', bonus_until: 0,
+    });
+    // anstacheln zielt auf einen ANDEREN Kontakt – der fällige Gegenschlag bei
+    // klein wird trotzdem in Schritt 0 nachgeholt.
+    const r = beef.anstacheln(G, U, klein2.id, t0, immer);
+    check('Anstacheln gegen den anderen Kontakt geht durch', r.ok === true && r.ein === true,
+      JSON.stringify(r.reason ?? r.ein));
+    check('Der fällige Gegenschlag steht unter vorher',
+      Array.isArray(r.vorher) && r.vorher.length === 1 && r.vorher[0].art === 'konter'
+      && r.vorher[0].contactId === klein.id,
+      JSON.stringify(r.vorher));
+    check('Seine Zahlen stehen drin: Wucht, Hype-Treffer und verlorene Hörer',
+      nah(r.vorher[0].wucht, 0.088267, 1e-5) && r.vorher[0].treffer.verloren === 88
+      && r.vorher[0].treffer.listeners === 9912,
+      JSON.stringify(r.vorher[0]));
+    check('Die Zahlen sind auch wirklich geschrieben: Hype 1 → 0,978, Hörer 10.000 → 9.912',
+      nah(db.getArtist(G, U, t0).hype, 0.977933, 1e-5) && db.getArtist(G, U, t0).listeners === 9_912,
+      JSON.stringify(db.getArtist(G, U, t0)));
+
+    // Auch eine abgelehnte Aktion darf die Ereignisse aus Schritt 0 nicht
+    // verschlucken: derselbe Kontakt läuft noch (Hitze 85 nach dem Konter),
+    // ein zweiter Versuch wird abgelehnt – vorher muss trotzdem ankommen.
+    const r2 = beef.anstacheln(G, U, klein.id, t0, immer);
+    check('Zweiter Versuch gegen denselben Kontakt: läuft schon',
+      r2.ok === false && r2.reason === 'laeuft_schon', JSON.stringify(r2.reason));
+    check('vorher ist bei der Ablehnung leer, weil der Gegenschlag schon gefallen ist',
+      Array.isArray(r2.vorher) && r2.vorher.length === 0, JSON.stringify(r2.vorher));
+
+    // Eigener Fall: ein fälliger Gegenschlag gegen GENAU den Kontakt, den man
+    // gerade wieder anstacheln will – die Ablehnung ('laeuft_schon') darf das
+    // Ereignis trotzdem melden.
+    const U2 = await musiker('bH', 10_000);
+    db.saveBeef(G, U2, riese.id, {
+      hitze: 55, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: t0 - 1000, angefangen: t0, status: 'offen', bonus_until: 0,
+    });
+    const r3 = beef.anstacheln(G, U2, riese.id, t0, immer);
+    check('Läuft schon – aber mit dem nachgeholten Ereignis im Gepäck',
+      r3.ok === false && r3.reason === 'laeuft_schon'
+      && Array.isArray(r3.vorher) && r3.vorher.length === 1
+      && r3.vorher[0].art === 'konter' && r3.vorher[0].contactId === riese.id,
+      JSON.stringify({ reason: r3.reason, vorher: r3.vorher }));
+  }
+
+  console.log('--- Stück 3: ein frischer Bonus lässt sich nicht überschreiben ---');
+  {
+    // Genau abgerechnet wie in „bonusOf stapelt nicht": ein Sieg mit laufendem
+    // Bonusfenster, direkt in die Tabelle geschrieben.
+    const U = await musiker('bI', 10_000);
+    const bis = t0 + data.BONUS_TAGE * 86_400_000;
+    db.saveBeef(G, U, klein.id, {
+      hitze: 0, runden_ich: 2, runden_er: 0, last_hit: t0, last_cool: t0,
+      konter_at: 0, angefangen: t0, status: 'sieg', bonus_until: bis,
+    });
+    check('Der Bonus steht: Faktor 1,25',
+      nah(beef.bonusOf(G, U, t0).faktor, data.BONUS_SIEG) && beef.bonusOf(G, U, t0).contactId === klein.id);
+
+    const zeitVor = creator.budget(G, U, t0).left;
+    const r = beef.anstacheln(G, U, klein.id, t0, immer);
+    check('Ein neuer Beef mit ihm wird abgelehnt: zu_frisch',
+      r.ok === false && r.reason === 'zu_frisch' && r.bis === bis, JSON.stringify(r));
+    check('Die Ablehnung kostet keine Zeit', creator.budget(G, U, t0).left === zeitVor,
+      `${creator.budget(G, U, t0).left} statt ${zeitVor}`);
+    check('Die alte Zeile und der Bonus stehen unverändert',
+      db.beefRow(G, U, klein.id).status === 'sieg' && db.beefRow(G, U, klein.id).bonus_until === bis
+      && nah(beef.bonusOf(G, U, t0).faktor, data.BONUS_SIEG));
+
+    // Nach Ablauf des Fensters darf ein neuer Beef ihn legitim überschreiben.
+    const spaeter = bis + 1;
+    const r2 = beef.anstacheln(G, U, klein.id, spaeter, immer);
+    check('Nach Ablauf des Bonusfensters geht ein neuer Beef durch',
+      r2.ok === true && r2.ein === true, JSON.stringify(r2.reason ?? r2.ein));
+    check('Die alte Zeile ist jetzt legitim ersetzt: offen, ohne Bonus',
+      db.beefRow(G, U, klein.id).status === 'offen' && db.beefRow(G, U, klein.id).bonus_until === 0,
+      JSON.stringify(db.beefRow(G, U, klein.id)));
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

@@ -170,8 +170,10 @@ function musikLage(guildId, userId, contact, now = Date.now()) {
  *
  * Die Reihenfolge ist hier die halbe Miete und dieselbe wie bei einer Anfrage
  * in 5a: erst alles prüfen, dann die Zeit buchen, dann würfeln, dann in einem
- * Rutsch schreiben. Bis zur Zeitbuchung ist nichts geschrieben – wer kein
- * Zeitbudget mehr hat, hinterlässt keine Spur.
+ * Rutsch schreiben. Bis zur Zeitbuchung schreibt DIE AKTION SELBST nichts –
+ * wer kein Zeitbudget mehr hat, hinterlässt keine Spur. Schritt 0 darf davor
+ * trotzdem schreiben: Was dort fällig ist, war es schon vorher und wäre bei
+ * jeder Ansicht ebenso nachgeholt worden.
  */
 function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.random) {
   const contacts = require('./contacts');
@@ -180,38 +182,50 @@ function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.
   //    Abrechnung weiter als offen in der Tabelle und würde hier als Front
   //    mitzählen. Die Abrechnung ist faul (§4), also holen wir sie nach,
   //    bevor wir zählen – geschrieben wird dabei nur, was ohnehin fällig war.
-  settle(guildId, userId, now, random);
+  //    Die dabei ausgelösten Ereignisse (Gegenschlag, Abrechnung) gehen sonst
+  //    spurlos verloren, also reichen wir sie unter `vorher` mit hinaus.
+  const vorher = settle(guildId, userId, now, random);
 
   // 1. Kennen wir ihn überhaupt?
   const d = contacts.detail(guildId, userId, contactId, now);
-  if (!d) return { ok: false, reason: 'unknown' };
+  if (!d) return { ok: false, reason: 'unknown', vorher };
 
   // 2. Beef ist eine Sache unter Musikern: Ich brauche eine Musikkarriere, er
   //    eine Reichweite als Musiker. Auf der Creator-Seite gibt es keinen
   //    Disstrack, also auch keinen Streit.
   const lage = musikLage(guildId, userId, d.contact, now);
-  if (!lage) return { ok: false, reason: 'seite', contact: d.contact };
+  if (!lage) return { ok: false, reason: 'seite', contact: d.contact, vorher };
 
   // 3. Mit ihm läuft schon etwas.
   if (offenerBeef(guildId, userId, contactId, now)) {
-    return { ok: false, reason: 'laeuft_schon', contact: d.contact };
+    return { ok: false, reason: 'laeuft_schon', contact: d.contact, vorher };
+  }
+
+  // 3b. Die Straße redet noch über die letzte Sache: Solange das Bonusfenster
+  //     des Beefs läuft, der gerade mit ihm abgerechnet wurde, fängt man mit
+  //     ihm keinen neuen an – der würde die Zeile sonst gleich überschreiben
+  //     und den eben verdienten Bonus mitreißen (Tabelle hat nur eine Zeile
+  //     je Kontakt).
+  const alt = db.beefRow(guildId, userId, contactId);
+  if (alt && alt.status !== 'offen' && alt.bonus_until > now) {
+    return { ok: false, reason: 'zu_frisch', contact: d.contact, bis: alt.bonus_until, vorher };
   }
 
   // 4. Zwei Fronten reichen.
   const offene = offeneBeefs(guildId, userId, now);
   if (offene.length >= data.BEEFS_MAX) {
-    return { ok: false, reason: 'zu_viele', contact: d.contact, max: data.BEEFS_MAX, offen: offene.length };
+    return { ok: false, reason: 'zu_viele', contact: d.contact, max: data.BEEFS_MAX, offen: offene.length, vorher };
   }
 
   // 5. Er ist noch dicht von der letzten Runde.
   if (d.gesperrtBis > now) {
     return { ok: false, reason: 'gesperrt', contact: d.contact,
-      bis: d.gesperrtBis, remainingMs: d.gesperrtBis - now };
+      bis: d.gesperrtBis, remainingMs: d.gesperrtBis - now, vorher };
   }
 
   // 6. Zwei Stunden kostet der Abend – auch wenn er nicht einsteigt.
   const zeit = require('./creator').useTime(guildId, userId, data.BEEF_TIME, now);
-  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
+  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME, vorher };
 
   // 7. Der Wurf.
   const chance = einstiegOf({ ...lage, trait: d.contact.trait });
@@ -241,7 +255,7 @@ function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.
   return {
     ok: true, ein, chance, contact: d.contact,
     text: textFor(d.contact.trait, ein ? 'einstieg' : 'blamage', d.contact.name, random),
-    draht, treffer, zeit,
+    draht, treffer, zeit, vorher,
   };
 }
 
@@ -371,26 +385,27 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
   const contacts = require('./contacts');
 
   // Erst die faule Abrechnung nachholen (§4), damit ein längst ausgekühlter
-  // Beef hier als das dasteht, was er ist.
-  settle(guildId, userId, now, random);
+  // Beef hier als das dasteht, was er ist. Was dabei fällig wurde, geht sonst
+  // spurlos verloren – also unter `vorher` mit hinausreichen.
+  const vorher = settle(guildId, userId, now, random);
 
   const d = contacts.detail(guildId, userId, contactId, now);
-  if (!d) return { ok: false, reason: 'unknown' };
+  if (!d) return { ok: false, reason: 'unknown', vorher };
 
   const row = db.beefRow(guildId, userId, contactId);
-  if (!row) return { ok: false, reason: 'kein_beef', contact: d.contact };
+  if (!row) return { ok: false, reason: 'kein_beef', contact: d.contact, vorher };
 
   // Zu heiß ist eine Voraussetzung wie die Sperre bei einer Anfrage, kein
   // Ergebnis: Sie steht VOR der Zeitbuchung. Wer es zu früh versucht, hat den
   // Abend noch.
   const hitze = hitzeJetzt(row, now);
   if (hitze >= data.HITZE_FRIEDEN_MAX) {
-    return { ok: false, reason: 'zu_heiss', hitze, contact: d.contact };
+    return { ok: false, reason: 'zu_heiss', hitze, contact: d.contact, vorher };
   }
 
   // Auch die Versöhnung kostet den Abend – gebucht vor jedem Schreiben.
   const zeit = require('./creator').useTime(guildId, userId, data.BEEF_TIME, now);
-  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME };
+  if (!zeit.ok) return { ok: false, ...zeit, contact: d.contact, need: data.BEEF_TIME, vorher };
 
   db.saveBeef(guildId, userId, contactId, {
     ...row, hitze: 0, konter_at: 0, last_cool: now,
@@ -400,7 +415,7 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
   const draht = contacts.moveDraht(guildId, userId, contactId, ziel - d.draht, now, { sperre: true });
 
   return {
-    ok: true, contact: d.contact, status: 'frieden', hitze, draht, zeit,
+    ok: true, contact: d.contact, status: 'frieden', hitze, draht, zeit, vorher,
     text: textFor(d.contact.trait, 'ende', d.contact.name, random),
   };
 }
