@@ -1170,6 +1170,85 @@ function view(buttons) {
     check('unbekannter Kontakt wird abgewiesen statt verwechselt',
       kontaktNote(contacts.request(KG, KU, 'gibtsnichtmehr', 'shoutout', jetzt, wuerfel(0.1)), jetzt)
         .includes('gibt es nicht'));
+
+    // Ein Schub, der nicht stärker ist als der laufende, verpufft – die
+    // Meldung darf dann weder Faktor noch Dauer nennen, nur den Fixsatz.
+    db.setBoost(KG, KU, {
+      kind: 'release', factor: 99, extra: 1, until: jetzt + 999 * 3600e3,
+      contactId: 'ewiger-platzhalter', requestId: 'shoutout',
+    }, jetzt);
+    const rammstein = cdata.CONTACTS.find((c) => c.id === 'rammstein');
+    const abgelehnt = contacts.request(KG, KU, rammstein.id, 'shoutout', jetzt, wuerfel(0.01, 0.5, 0));
+    check('die Anfrage an Rammstein bekommt eine Antwort',
+      abgelehnt.ok && abgelehnt.antwort !== 'ignoriert' && Boolean(abgelehnt.boost),
+      JSON.stringify({ ok: abgelehnt.ok, antwort: abgelehnt.antwort, boost: abgelehnt.boost }));
+    check('der neue Schub ist nicht stärker als der laufende – er verpufft',
+      abgelehnt.boost && abgelehnt.boost.neu === false, JSON.stringify(abgelehnt.boost));
+    const abgelehntNote = kontaktNote(abgelehnt, jetzt);
+    check('Meldung nennt weder Faktor noch Dauer, nur den Fixsatz',
+      abgelehntNote.includes('🤝 Ein mindestens gleich starker Schub läuft schon – dieser hier wirkt nicht.')
+      && !abgelehntNote.includes('×') && !abgelehntNote.includes('Wirkt auf'), abgelehntNote);
+
+    // no_time: der Tag ist randvoll, aber (durch Erholung seit dem letzten
+    // Eintrag) nicht mehr erschöpft – der Satz baut sich aus `need`/`left`
+    // zusammen, genau wie bei Studio, Release und Konzert.
+    const creatorMod = require('../src/creator');
+    const KG2 = `KON_T2_${Date.now()}`;
+    const KU2 = 'kon_user_zeit';
+    await home.setHome(KG2, KU2, 'de');
+    home.setLanguage(KG2, KU2, 'deutsch');
+    music.setup(KG2, KU2, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG2, KU2, { ...db.getArtist(KG2, KU2, jetzt), listeners: 10_000 });
+    const tagStart = new Date(jetzt);
+    tagStart.setHours(1, 0, 0, 0);
+    const t0 = tagStart.getTime();
+    const gebucht = creatorMod.useTime(KG2, KU2, 24, t0);
+    check('der ganze Tag ist verplant', gebucht.ok && gebucht.left === 0, JSON.stringify(gebucht));
+    const t1 = t0 + 3 * 3600e3;
+    const blockiert = contacts.request(KG2, KU2, 'lilpfand', 'shoutout', t1, wuerfel(0.01));
+    check('keine Wand mehr, aber die Stunden sind alle',
+      blockiert.ok === false && blockiert.reason === 'no_time' && blockiert.left === 0,
+      JSON.stringify(blockiert));
+    const notime = kontaktNote(blockiert, t1);
+    check('no_time-Satz baut sich aus need und left zusammen',
+      notime === `😴 Eine Anfrage kostet **${blockiert.need}** Stunden, übrig sind **${blockiert.left}**.`,
+      notime);
+
+    // exhausted: unter der Wand liefert kontaktNote denselben Text wie
+    // energy.blockText – ein zweiter Wortlaut wäre eine Quelle für Drift.
+    const KG3 = `KON_T3_${Date.now()}`;
+    const KU3 = 'kon_user_erschoepft';
+    await home.setHome(KG3, KU3, 'de');
+    home.setLanguage(KG3, KU3, 'deutsch');
+    music.setup(KG3, KU3, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(KG3, KU3, { ...db.getArtist(KG3, KU3, jetzt), listeners: 10_000 });
+    creatorMod.useTime(KG3, KU3, 22, jetzt);
+    const erschoepft = contacts.request(KG3, KU3, 'lilpfand', 'shoutout', jetzt, wuerfel(0.01));
+    check('nach 22 Stunden steht die Wand', erschoepft.ok === false && erschoepft.reason === 'exhausted',
+      JSON.stringify(erschoepft));
+    const erschoepftNote = kontaktNote(erschoepft, jetzt);
+    check('erschoepft-Text kommt unverändert von energy.blockText',
+      erschoepftNote === require('../src/energy').blockText(erschoepft, jetzt), erschoepftNote);
+
+    // Schub-Zeile in der Creator-Ansicht: derselbe Mechanismus wie bei Musik –
+    // `kind` läuft auf der Creator-Seite aber immer auf 'creator' zusammen.
+    const KGc = `KON_C_${Date.now()}`;
+    const KUc = 'kon_user_creator';
+    await home.setHome(KGc, KUc, 'de');
+    home.setLanguage(KGc, KUc, 'deutsch');
+    db.saveCreator(KGc, KUc, 'twitch', {
+      ...db.getCreator(KGc, KUc, 'twitch'), followers: 5_000, touched_at: jetzt, last_action_at: jetzt,
+    });
+    const papaplatte = cdata.CONTACTS.find((c) => c.id === 'papaplatte');
+    const czusage = contacts.request(KGc, KUc, papaplatte.id, 'shoutout', jetzt, wuerfel(0.01, 0.9, 0));
+    check('die Creator-Anfrage bekommt eine Antwort und einen Creator-Schub',
+      czusage.ok && czusage.antwort !== 'ignoriert' && czusage.boost && czusage.boost.kind === 'creator',
+      JSON.stringify({ antwort: czusage.antwort, boost: czusage.boost }));
+    const creatorView = await ui.buildCreatorView({ guildId: KGc, userId: KUc });
+    const cExtras = creatorView.embeds[0].toJSON().fields.find((f) => f.name === '​').value;
+    check('die Creator-Ansicht zeigt den laufenden Schub',
+      cExtras.includes(`🤝 Shoutout mit *${papaplatte.name}* – wirkt auf die nächste Aktion, noch 48 h`),
+      cExtras);
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -494,7 +494,8 @@ function kontaktNote(res, now = Date.now()) {
     if (res.reason === 'no_time') {
       return `😴 Eine Anfrage kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
     }
-    return '❌ Diesen Kontakt gibt es nicht (mehr).';
+    if (res.reason === 'unknown') return '❌ Diesen Kontakt gibt es nicht (mehr).';
+    return '❌ Das ging nicht.';
   }
 
   const stufe = KONTAKT_ANTWORT[res.antwort] ?? KONTAKT_ANTWORT.ignoriert;
@@ -502,9 +503,9 @@ function kontaktNote(res, now = Date.now()) {
   if (res.text) zeilen.push(`_${res.text}_`);
 
   if (res.boost && res.boost.neu === false) {
-    // Gestapelt wird nie: Ein stärkerer Schub derselben Art läuft schon,
-    // dieser hier verpufft. Das gehört gesagt, nicht verschwiegen.
-    zeilen.push('🤝 Ein stärkerer Schub läuft schon – dieser hier wirkt nicht.');
+    // Gestapelt wird nie: Ein mindestens gleich starker Schub derselben Art
+    // läuft schon, dieser hier verpufft. Das gehört gesagt, nicht verschwiegen.
+    zeilen.push('🤝 Ein mindestens gleich starker Schub läuft schon – dieser hier wirkt nicht.');
   } else if (res.boost && res.boost.kind === 'show') {
     zeilen.push(`🤝 Wirkt auf ${SCHUB_ZIEL_DEIN.show}: `
       + `**+${Math.round(res.boost.extra).toLocaleString('de-DE')}** Hörer für die Gage, `

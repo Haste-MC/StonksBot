@@ -2716,7 +2716,8 @@ function frist(ms) {
     const h = Math.round(ms / 3600e3);
     return `${h} ${h === 1 ? 'Stunde' : 'Stunden'}`;
   }
-  return `${Math.max(1, Math.round(ms / 60000))} Minuten`;
+  const m = Math.max(1, Math.round(ms / 60000));
+  return `${m} ${m === 1 ? 'Minute' : 'Minuten'}`;
 }
 
 /**
@@ -2764,6 +2765,7 @@ const kontakteZurueck = (userId) =>
 async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' }) {
   const contacts = require('./contacts');
   const world = require('./data/world');
+  const data = require('./data/contacts');
   const now = Date.now();
 
   const aktiv = KONTAKT_FILTER.find((f) => f.id === filter) ?? KONTAKT_FILTER[0];
@@ -2804,7 +2806,7 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       (reichweite.length
         ? `Deine Reichweite: ${reichweite.join(' · ')}`
         : 'Noch keine Reichweite – fang erst mit 🎵 **Musik** oder einem 📡 **Kanal** an.')
-      + `\n🔎 Filter: **${aktiv.label}** · eine Anfrage kostet ⏱️ 2 Stunden\n\n`
+      + `\n🔎 Filter: **${aktiv.label}** · eine Anfrage kostet ⏱️ ${data.REQUESTS[0].time} Stunden\n\n`
       + (zeilen.length ? zeilen.join('\n')
         : '_Hier ist gerade niemand, den du anschreiben könntest._'));
 
@@ -2906,7 +2908,7 @@ async function buildKontaktView({ guildId, userId, contactId }) {
       value: d.requests.map((r) =>
         `${r.emoji} **${r.name}** · ⏱️ ${r.time} h · ${grundText(r)}`).join('\n'),
     })
-    .setFooter({ text: 'Jeder Versuch kostet zwei Stunden – auch wenn nie eine Antwort kommt.' });
+    .setFooter({ text: `Jeder Versuch kostet ${d.requests[0].time} Stunden – auch wenn nie eine Antwort kommt.` });
 
   return {
     embeds: [embed],
