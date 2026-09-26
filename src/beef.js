@@ -19,7 +19,7 @@
  *   rundeNachDiss     wem die Runde nach deinem Disstrack gehört
  *   rundeNachKonter   wem die Runde nach seinem Gegenschlag gehört
  *   ausgangOf         sieg · niederlage · unentschieden
- *   bonusFaktor       was der Ausgang eine Woche lang am Hype macht
+ *   bonusFaktor       was der Ausgang `BONUS_TAGE` lang am Hype macht
  *   anzaehlGewicht    wie wahrscheinlich dich gerade dieser anzählt
  *   textFor           eine Zeile im Ton des Kontakts
  *
@@ -87,7 +87,10 @@ function ausgangOf(rundenIch, rundenEr) {
   return 'unentschieden';
 }
 
-/** Was der Ausgang eine Woche lang am Hype macht – Frieden zahlt nichts. */
+/**
+ * Was der Ausgang am Hype macht, solange sein Fenster läuft (`BONUS_TAGE`,
+ * seit dem Balancing vom 2026-09-26 ein Tag) – Frieden zahlt nichts.
+ */
 function bonusFaktor(status) {
   if (status === 'sieg') return data.BONUS_SIEG;
   if (status === 'niederlage') return data.BONUS_NIEDERLAGE;

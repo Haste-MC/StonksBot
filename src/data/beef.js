@@ -130,8 +130,30 @@ const FRIEDEN_DECKEL = -10;
 
 // --- Ausgang ---------------------------------------------------------------
 
-/** Der Ausgang wirkt eine Woche lang auf den Hype. */
-const BONUS_TAGE = 7;
+/**
+ * Der Ausgang wirkt EINEN Tag auf den Hype – nicht eine Woche.
+ *
+ * Balancing, gemessen (Messung vom 2026-09-26, Abschnitt „Nachtrag 5d"): Der
+ * Hype trägt sich selbst weiter (`hype ← 0,7 × hype + 0,3 × Wurf` beim
+ * Veröffentlichen, `0,8 × hype + 0,3 × Güte` beim Konzert), und der Faktor
+ * greift auf JEDE Veröffentlichung und JEDES Konzert im Fenster. Bei sieben
+ * Tagen war der Fixpunkt dieser Rekursion `0,3 × Wurf × 1,25 / (1 − 0,7 × 1,25)`
+ * = 3,0 × Wurf, also weit über `HYPE_MAX` 1,7; beim Konzert ist `1 − 0,8 × 1,25`
+ * sogar genau 0, die Rekursion hat dort gar keinen Fixpunkt mehr. Wer regelmäßig
+ * gewann, klebte damit dauerhaft an der Decke: gemessen lagen bei sieben Tagen
+ * 14.335 von 21.900 simulierten Tagen im Siegfenster (Ø Hype dort 1,519, über
+ * alle Tage 1,46), bei einem Tag sind es 2.824 (Ø Hype im Fenster 1,173, über
+ * alle Tage 1,19) gegen 1,13 ohne jeden Beef. Ein Tag reicht für einen
+ * sichtbaren Ausschlag, ohne dass sich Fenster an Fenster zu einem Dauerzustand
+ * reiht: Der Ausgang trägt der gezielt gewinnenden Spielweise weiter knapp 15
+ * Prozentpunkte ihres Jahresertrags (+19,7 % gegen +4,8 % ohne die zwei
+ * Faktoren).
+ *
+ * Die zwei Faktoren selbst sind deshalb UNVERÄNDERT: Ein Sieg ist mit 1,25 der
+ * stärkste Hype-Schub, den das Spiel an einem Tag kennt, und eine Niederlage
+ * bleibt mit 0,85 genauso spürbar.
+ */
+const BONUS_TAGE = 1;
 const BONUS_SIEG = 1.25;
 const BONUS_NIEDERLAGE = 0.85;
 

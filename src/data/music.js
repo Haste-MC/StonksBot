@@ -55,7 +55,14 @@ const RELEASES = [
   // Der Disstrack (5b) steht nur der Vollständigkeit halber hier: Ausgelöst
   // wird er ausschließlich über `beef.diss` in der Kontaktansicht, weil dort
   // das Ziel eindeutig ist. `music.publish` weist ihn ohne offenen Beef ab.
-  { id: 'diss', name: 'Disstrack', emoji: '🔥', songs: 1, spike: 3.0, growth: 0.4, time: 2,
+  // `spike` 2,1 gegen `growth` 0,4 ist Balancing und gemessen (Messung vom
+  // 2026-09-26, Abschnitt „Nachtrag 5d"): Das Produkt `spike × growth` ist die
+  // Zahl der Hörer je aufgenommenem Titel, und sie muss UNTER der Single
+  // (1,0 × 1,0 = 1,00) liegen, sonst ist der Disstrack trotz seines Blurbs die
+  // bleibendere Veröffentlichung. Bei `spike` 3,0 war sie 1,20 und damit
+  // darüber; bei 2,1 ist sie 0,84. Der Lärm bleibt: `spike` zählt im Buzz
+  // zweimal, 2,1² = 4,41 je Titel gegen 1,00 der Single.
+  { id: 'diss', name: 'Disstrack', emoji: '🔥', songs: 1, spike: 2.1, growth: 0.4, time: 2,
     blurb: 'Viel Lärm, wenig Bleibendes – und alle hören hin.' },
 ];
 

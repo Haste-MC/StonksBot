@@ -66,6 +66,7 @@ const contacts = require('../src/contacts');
 const contactsData = require('../src/data/contacts');
 const beef = require('../src/beef');
 const beefData = require('../src/data/beef');
+const musicData = require('../src/data/music');
 
 const DAY = 24 * 60 * 60 * 1000;
 /** `--ohne-ereignisse`: Musik und Firmen ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
@@ -115,6 +116,43 @@ const de = (n) => Math.round(n).toLocaleString('de-DE');
 // 0 ist ausdrücklich erlaubt: `aufmerksamkeit` ist dann konstant 1,0 – die
 // Gegenprobe, ob der Faktor überhaupt der Hebel ist.
 if (DISS_AUFMERK !== null && Number.isFinite(DISS_AUFMERK) && DISS_AUFMERK >= 0) beefData.DISS_AUFMERK = DISS_AUFMERK;
+
+/*
+ * `--diss-spike=<N>`, `--diss-growth=<N>`, `--bonus-sieg=<N>`,
+ * `--bonus-niederlage=<N>`, `--bonus-tage=<N>`: dieselbe Bauweise wie
+ * `--diss-aufmerk` oben, für die fünf Zahlen, an denen das Balancing von 5b/5c
+ * hängt. `spike` und `growth` des Disstracks stehen in `src/data/music.js`, die
+ * drei `BONUS_*` in `src/data/beef.js`; `src/music.js` liest den Typ bei jeder
+ * Veröffentlichung über `release('diss')` aus demselben Objekt, `src/beef.js`
+ * die Bonuszahlen bei jedem Aufruf aus dem Datenmodul – beides greift also.
+ *
+ * Wozu: Die SUCHE nach einer Einstellung braucht viele Läufe, und jeder Lauf
+ * soll mit seiner Kommandozeile im Messbericht stehen statt mit „vorher war die
+ * Datei anders". Die ENDMESSUNG läuft ohne jeden dieser Schalter, damit die
+ * veröffentlichten Zahlen aus den Konstanten selbst kommen; die Kopfzeile jedes
+ * Laufs druckt alle fünf Werte mit, deshalb ist in der Rohausgabe zu sehen,
+ * welcher Lauf welche hatte.
+ */
+function zahlArg(name) {
+  const a = process.argv.find((x) => x.startsWith(`--${name}=`)) ?? null;
+  if (a === null) return null;
+  const n = Number(a.slice(name.length + 3));
+  return Number.isFinite(n) ? n : null;
+}
+const DISS_SPIKE = zahlArg('diss-spike');
+const DISS_GROWTH = zahlArg('diss-growth');
+const BONUS_SIEG_ARG = zahlArg('bonus-sieg');
+const BONUS_NIEDERLAGE_ARG = zahlArg('bonus-niederlage');
+const BONUS_TAGE_ARG = zahlArg('bonus-tage');
+{
+  // Der Disstrack ist dasselbe Objekt, das `music.release('diss')` zurückgibt.
+  const diss = musicData.RELEASES.find((r) => r.id === 'diss');
+  if (DISS_SPIKE !== null && DISS_SPIKE > 0) diss.spike = DISS_SPIKE;
+  if (DISS_GROWTH !== null && DISS_GROWTH > 0) diss.growth = DISS_GROWTH;
+  if (BONUS_SIEG_ARG !== null && BONUS_SIEG_ARG > 0) beefData.BONUS_SIEG = BONUS_SIEG_ARG;
+  if (BONUS_NIEDERLAGE_ARG !== null && BONUS_NIEDERLAGE_ARG > 0) beefData.BONUS_NIEDERLAGE = BONUS_NIEDERLAGE_ARG;
+  if (BONUS_TAGE_ARG !== null && BONUS_TAGE_ARG >= 0) beefData.BONUS_TAGE = BONUS_TAGE_ARG;
+}
 
 // ------------------------------------------------------------------ Würfel
 
@@ -2958,11 +2996,21 @@ async function main() {
   if (NUR === 'beef') {
     console.log(`\n--- Beef (Stück 5b/5c: ohne Beef · passiv · Beef-Spielweise · ohne Beef mit Album · ` +
       `diss-isoliert · sieg-farm – ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
+    // Alle Zahlen, an denen das Balancing hängt, stehen in der Kopfzeile jedes
+    // Laufs – damit in der Rohausgabe zu sehen ist, welche Einstellung sie
+    // gemessen hat, und nicht nur in der Kommandozeile darüber.
+    const gesetzt = (arg) => (arg === null ? '' : '*');
     console.log(`  DISS_AUFMERK ${komma(beefData.DISS_AUFMERK, 2)}` +
       `${DISS_AUFMERK_ARG ? ' (über --diss-aufmerk gesetzt)' : ' (Standard aus src/data/beef.js)'}` +
-      `, HAEME_AUDIENCE ${komma(beefData.HAEME_AUDIENCE)}, BONUS_SIEG ${komma(beefData.BONUS_SIEG)}, ` +
-      `BONUS_NIEDERLAGE ${komma(beefData.BONUS_NIEDERLAGE)}, Disstrack growth ${komma(music.release('diss').growth, 1)} ` +
-      `gegen Single ${komma(music.release('single').growth, 1)}\n`);
+      `, HAEME_AUDIENCE ${komma(beefData.HAEME_AUDIENCE)}, BONUS_SIEG ${komma(beefData.BONUS_SIEG)}` +
+      `${gesetzt(BONUS_SIEG_ARG)}, BONUS_NIEDERLAGE ${komma(beefData.BONUS_NIEDERLAGE)}` +
+      `${gesetzt(BONUS_NIEDERLAGE_ARG)}, BONUS_TAGE ${beefData.BONUS_TAGE}${gesetzt(BONUS_TAGE_ARG)}` +
+      `, Disstrack spike ${komma(music.release('diss').spike, 2)}${gesetzt(DISS_SPIKE)}` +
+      ` gegen Single ${komma(music.release('single').spike, 2)}` +
+      `, Disstrack growth ${komma(music.release('diss').growth, 2)}${gesetzt(DISS_GROWTH)} ` +
+      `gegen Single ${komma(music.release('single').growth, 1)}` +
+      `${[BONUS_SIEG_ARG, BONUS_NIEDERLAGE_ARG, BONUS_TAGE_ARG, DISS_SPIKE, DISS_GROWTH]
+        .some((x) => x !== null) ? '   (* über die Kommandozeile gesetzt, nicht aus der Datendatei)' : ''}\n`);
     await beeflauf(LAEUFE, TAGE);
     return;
   }

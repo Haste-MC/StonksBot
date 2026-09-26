@@ -166,12 +166,18 @@ dicht. Steigt er ein: Beef mit Hitze 25, Draht −15, Runden 0:0.
 Fünfte Veröffentlichungsart in `src/data/music.js`:
 
 ```js
-{ id: 'diss', name: 'Disstrack', emoji: '🔥', songs: 1, spike: 3.0,
+{ id: 'diss', name: 'Disstrack', emoji: '🔥', songs: 1, spike: 2.1,
   growth: 0.4, time: 2, blurb: 'Viel Lärm, wenig Bleibendes – und alle hören hin.' }
 ```
 
-Spike 3,0 schlägt härter ein als eine Single (1,0), Growth 0,4 hält weniger als
-jede andere Art. Der Disstrack ist nur wählbar, wenn ein Beef offen ist; das
+Spike 2,1 schlägt härter ein als eine Single (1,0), Growth 0,4 hält weniger als
+jede andere Art. **Diese Spec hatte hier bis zum 2026-09-26 Spike 3,0.** Mit 3,0
+war `spike × growth` = 1,20 und damit größer als die 1,00 der Single: Der
+Disstrack holte je aufgenommenem Titel MEHR bleibende Hörer als eine Single und
+war damit trotz seines Blurbs die bleibendere Art – die Wurzel des
+Geldruckers, den der Nachtrag 5d gemessen hat. Mit 2,1 ist das Produkt 0,84
+(unter der Single), der Buzz je Titel bleibt mit 2,1² = 4,41 der zweithöchste im
+Spiel (nur das Album liegt mit 5,04 darüber). Siehe **Addendum 3** unten. Der Disstrack ist nur wählbar, wenn ein Beef offen ist; das
 Ziel ist der Gegner (`beef.zielFor`). Ohne offenen Beef antwortet `publish` mit
 `reason: 'kein_beef'`.
 
@@ -267,9 +273,14 @@ Malus, nicht die Summe – sonst könnte man sich selbst vollständig aussperren
 ## Ende, Sieg, Versöhnung
 
 Bei Hitze ≤ 0 rechnet `beef.settle` ab: `runden_ich > runden_er` → `sieg`,
-`<` → `niederlage`, `=` → `unentschieden`. `bonus_until = now + 7 Tage`.
+`<` → `niederlage`, `=` → `unentschieden`.
+`bonus_until = now + BONUS_TAGE`, und `BONUS_TAGE` ist **1 Tag**. (Diese Spec
+hatte hier bis zum 2026-09-26 sieben Tage; das war der zweite Teil des
+Geldruckers – der Hype trägt sich selbst weiter, und ein Wochenfenster
+machte aus dem Ausschlag einen Dauerzustand. Die zwei Faktoren selbst sind
+unverändert. Siehe **Addendum 3** unten.)
 
-| Ende | Wirkung, 7 Tage lang |
+| Ende | Wirkung, 1 Tag lang |
 |---|---|
 | Sieg | Hype × 1,25 |
 | Niederlage | Hype × 0,85 |
@@ -320,12 +331,30 @@ ist genauso lang wie ohne Beef.
 
 ## §3, Messung, Tests
 
-**Warum das kein Geldrucker ist:** Der Disstrack ist eine Veröffentlichung mit
-dem **niedrigsten Growth im Spiel** (0,4 gegen 1,0 einer Single). Die
-Aufmerksamkeit ist ein Spike auf das Publikum einer einzelnen
-Veröffentlichung – die Hörer, die bleiben, hängen an `growth`, nicht am Spike.
-Der Sieg zahlt nur über Hype, und Hype ist bei 1,7 hart gedeckelt. Kein
-`unb`-Aufruf in `src/beef.js` oder `src/data/beef.js`.
+**Warum das kein Geldrucker ist:** Kein `unb`-Aufruf in `src/beef.js` oder
+`src/data/beef.js`; die Aufmerksamkeit ist ein Faktor auf das Publikum **einer**
+Veröffentlichung, und der Sieg zahlt ausschließlich über den Hype, der bei
+`HYPE_MAX` 1,7 hart gedeckelt ist.
+
+**Der ursprüngliche Satz dieser Spec war an zwei Stellen falsch, und beide sind
+gemessen widerlegt** (`docs/messungen/2026-09-26-beef.txt`, Nachträge 5c und 5d):
+
+1. „Der niedrigste Growth im Spiel ist die Bremse, die Hörer hängen an `growth`,
+   nicht am Spike" – falsch. In `src/music.js` ist `gained = audience × … ×
+   type.growth × …`, und `audience` enthält `type.spike`. Die bleibenden Hörer je
+   aufgenommenem Titel sind `spike × growth`, also 3,0 × 0,4 = **1,20** – mehr
+   als die 1,00 einer Single. Der Disstrack war die bleibendere Art. Behoben
+   über `spike` 2,1 (Produkt 0,84).
+2. „Der Hype ist gedeckelt, also kann der Sieg nicht davonlaufen" – richtig,
+   aber unvollständig: Der Deckel war genau das Problem. Der Hype trägt sich
+   selbst weiter, und der Faktor greift auf JEDE Veröffentlichung und JEDES
+   Konzert im Fenster. Beim Veröffentlichen ist der Fixpunkt
+   `0,3 × Wurf × B / (1 − 0,7 × B)` = 3,0 × Wurf bei B = 1,25, beim Konzert ist
+   der Nenner `1 − 0,8 × 1,25` **genau 0** – dort gibt es gar keinen Fixpunkt,
+   und die Folge läuft monoton in den Deckel. Wer regelmäßig gewann, klebte an
+   `HYPE_MAX`, statt einen Ausschlag zu bekommen (gemessen: 14.335 von 21.900
+   Tagen im Siegfenster, Ø Hype dort 1,519). Behoben über `BONUS_TAGE` 1
+   (2.824 von 21.900 Tagen, Ø Hype im Fenster 1,173).
 
 **Messung** (`scripts/messung-geldquellen.js --nur=beef`, in der Form des
 Kontaktlaufs aus 5a): zwei Archetypen – **Musik+Creator** und **nur Musik**,
@@ -543,3 +572,113 @@ die Lücke:
    nutzt (an 1.123 bzw. 1.153 von 3.650 Tagen fand sie kein Ziel im sicheren
    Fenster, an 835 bzw. 827 waren beide Fronten belegt – ihre Zahl ist eine
    Untergrenze); und der reine Creator, der keinen Disstrack hat.
+
+## Addendum 3 nach dem Nachtrag 5d (2026-09-26): der Deckel hält wieder
+
+**Die Addenda 1 und 2 sind ab hier historisch.** Ihre Zahlen sind unverändert
+der Stand, den sie gemessen haben; sie gelten aber für `spike` 3,0 und
+`BONUS_TAGE` 7 und für einen Kontaktkatalog mit 74 Einträgen. Was heute gilt,
+steht hier. Vollständige Ausgabe aller Läufe:
+`docs/messungen/2026-09-26-beef.txt`, Abschnitt „Nachtrag 5d".
+
+**Warum es diesen Nachtrag gibt.** Der Kontaktkatalog ist auf 90 Einträge
+erweitert worden (Commit 3db0b2f, um die Lücke im mittleren Größenbereich zu
+schließen, die Addendum 2 als Grenze (d) notiert hatte). Damit findet die
+`sieg-farm` an weit mehr Tagen ein Ziel im sicheren Fenster, und der Auslöser
+des Plans („über +25 %") war gerissen: Neu gemessen mit denselben Konstanten und
+denselben Seeds stand `sieg-farm` für den reinen Musiker bei **+165,9 %**
+(gepaart, 60 Läufe) statt +75,5 %, `diss-isoliert` bei +38,3 %, und für
+Musik+Creator `sieg-farm` bei +46,6 %.
+
+**Geändert wurden zwei Zahlen, sonst nichts.**
+
+| Konstante | Datei | alt | neu |
+|---|---|---|---|
+| Disstrack `spike` | `src/data/music.js` | 3,0 | **2,1** |
+| `BONUS_TAGE` | `src/data/beef.js` | 7 | **1** |
+
+Unverändert: `growth` 0,4 · `BONUS_SIEG` 1,25 · `BONUS_NIEDERLAGE` 0,85 ·
+`DISS_AUFMERK` 1,5 · `HAEME_AUDIENCE` 0,50 · `HYPE_MAX` 1,7 · jede andere Zahl ·
+jede Formel. Der Spiegel des Zahlensatzes (Sieg 1,25 gegen Niederlage 0,85, im
+Logarithmus 0,73) ist damit unangetastet: Der Sieg und die Niederlage behalten
+ihre volle Wucht, nur das Fenster ist kürzer.
+
+**Zwei Konstanten, weil es zwei Mechanismen sind.** Genau wie Addendum 2 es
+vermutet hat: `spike` ist der Hebel von `diss-isoliert` (dort sind 98,7 % aller
+Veröffentlichungen Disstracks), `BONUS_TAGE` der von `sieg-farm` (dort belegt
+der Disstrack nur 15,1 % der Veröffentlichungen, der Zuwachs kommt aus dem
+Hype-Fenster). Gemessen, dass keine der beiden allein reicht:
+
+| Einstellung | `sieg-farm`, nur Musik, gepaart |
+|---|---|
+| `spike` 2,1 · `BONUS_TAGE` 7 | +95,2 % ✗ |
+| `spike` 3,0 · `BONUS_TAGE` 1 | +92,2 % ✗ |
+| `spike` 2,1 · `BONUS_TAGE` 1 | **+19,7 %** ✔ |
+
+**Der Endstand** (60 Läufe à 365 Tage, Mediane / je Seed gepaart gegen
+„ohne Beef"; das 10- und das 30-Läufe-Protokoll stehen in der Messdatei daneben
+und halten den Deckel ebenfalls, mit +15,2 % bzw. +19,6 % als größter Zahl):
+
+| Variante | Musik+Creator | nur Musik |
+|---|---|---|
+| ohne Beef | 358.064/Tag | 104.032/Tag |
+| passiv | 352.978 (−1,4 % / +0,2 %) | 97.843 (−5,9 % / −5,0 %) |
+| aktiv | 310.231 (−13,4 % / −14,0 %) | 52.325 (−49,7 % / −49,6 %) |
+| `diss-isoliert` | 310.926 (−13,2 % / −12,4 %) | 53.854 (−48,2 % / −46,9 %) |
+| `sieg-farm` | 357.554 (−0,1 % / +0,8 %) | 121.091 (**+16,4 % / +19,7 %**) |
+| Kontrolle: ohne Beef, Album | 2.741.519 (+665,7 %) | 2.981.641 (+2766,1 %) |
+
+Die größte Zahl der Tabelle ist +19,7 %; der Auslöser ist in keiner der sechzehn
+Zellen erreicht.
+
+**Der Sieg ist weiter spürbar, und das ist gemessen.** Ein Kontrolllauf fährt die
+Endeinstellung mit `BONUS_SIEG` 1,00 und `BONUS_NIEDERLAGE` 1,00: Die Sieg-Farm
+des reinen Musikers bringt dann 104.892/Tag (**+4,8 %** gepaart) statt 121.091
+(+19,7 %) – der Ausgang trägt ihr also knapp **15 Prozentpunkte** ihres
+Jahresertrags –, ihr Ø Hype fällt von 1,19 auf 1,11 und im Siegfenster von 1,173
+auf 1,134 (bei fast gleich vielen Fenstertagen: 2.824 gegen 2.822). Der passive
+Spieler landet ohne Ausgangsfaktor bei **exakt ±0,0 %** – ohne ihn ist „passiv"
+Zahl für Zahl „ohne Beef". Die Siegquote der Farm bleibt hoch: 2.875 Siege in
+3.270 Abrechnungen (**87,9 %**).
+
+**Der Preis, und er ist unbequem.** Der passive Spieler verlor mit dem
+Wochenfenster **−23,9 %** im Jahr (nur Musik) bzw. −10,4 % (Musik+Creator);
+jetzt sind es **−5,0 %** bzw. +0,2 %, bei Musik+Creator also nicht mehr von null
+zu unterscheiden. Ein kürzeres Fenster verkürzt Sieg und Niederlage gleich stark,
+und die Niederlage war die Zahl, mit der die Patchnotes zu 1.40.0 geworben haben
+– sie sind entsprechend neu geschrieben. Innerhalb der geänderten Konstanten
+gibt es dagegen kein Mittel: `BONUS_NIEDERLAGE` allein härter zu machen bräche
+den Spiegel, und der passive Spieler ist nicht die Spielweise, die über +25 %
+lag. Die messbare Alternative wäre gewesen, das Wochenfenster zu behalten und
+`BONUS_SIEG` auf 1,03 zu senken (gemessen: hält den Deckel ebenfalls, mit
++21,1 % bei 30 Läufen) – dann wäre der Ausgang eine Woche lang um 3 % spürbar,
+also gar nicht. Ein Tag mit dem vollen Viertel ist die bessere Hälfte dieses
+Tauschs; dass es ein Tausch ist, steht hier.
+
+**Was der Disstrack jetzt ist.** Zweitlauteste Art im Spiel und die am wenigsten
+bleibende – das, was sein Blurb sagt:
+
+| Art | `songs` | `spike` | `growth` | Hörer je Titel | Buzz je Titel |
+|---|---|---|---|---|---|
+| Single | 1 | 1,0 | 1,0 | 1,00 | 1,00 |
+| EP | 3 | 2,6 | 1,5 | 1,30 | 2,25 |
+| Album | 6 | 5,5 | 2,4 | **2,20** | 5,04 |
+| Deluxe / Remix | 2 | 1,6 | 0,7 | 0,56 | 1,28 |
+| Disstrack | 1 | 2,1 | 0,4 | 0,84 | **4,41** |
+
+`test/music.test.js` hält die Richtung fest („Disstrack: mehr spike, weniger
+growth als die Single") und ist **nicht** angepasst worden: 2,1 > 1,0 und
+0,4 < 1,0 gelten unverändert. Ebenso unverändert sind die zwei Prüfungen in
+`test/beef.test.js`, die `bonusFaktor` auf 1,25 und 0,85 festnageln.
+
+**Ehrliche Grenzen dieses Addendums.** (1) Der Rand ist nah: +19,7 % liegt gut
+fünf Prozentpunkte unter dem Deckel, und `spike` 2,2 statt 2,1 reißt ihn schon
+(+25,3 %, gemessen). Wer am Kontaktkatalog, an `ANZAEHL_CHANCE`, an `HYPE_MAX`
+oder an den Genres dreht, muss diese Messung wiederholen. (2) Bei 10 Seeds
+wackelt derselbe Punkt der Suche um gut zehn Prozentpunkte – deshalb ist mit 30
+gesucht und mit 60 bestätigt. (3) Die Strategie-Suchphase des Messskripts ist
+nicht bit-stabil (fünf Zeilen, je 1 Einheit, zwischen zwei Aufrufen derselben
+Kommandozeile); der Beef-Abschnitt war in jedem Vergleich zeilengleich, und
+keine Zahl dieses Addendums kommt aus der Suchphase. (4) Die Grenzen (5) von
+Addendum 2 gelten weiter: Frieden, „Album horten UND Sieg-Farm" und der reine
+Creator sind nicht gemessen.

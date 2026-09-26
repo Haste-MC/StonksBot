@@ -546,7 +546,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor * (kb?.factor ?? 1),
   });
 
-  // Der Ausgang des jüngsten abgerechneten Beefs wirkt eine Woche lang auf
+  // Der Ausgang des jüngsten abgerechneten Beefs wirkt `BONUS_TAGE` lang auf
   // den Hype (5b) – gedeckelt wie alles andere durch HYPE_MAX.
   const bb = require('./beef').bonusOf(guildId, userId, now).faktor;
 
