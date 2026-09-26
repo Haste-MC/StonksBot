@@ -1614,6 +1614,11 @@ function view(buttons) {
 
     // --- Meldung: Frieden --------------------------------------------------
     const [FG, FU] = await neu();
+    // Von −40 aus greift der Deckel: −40 + 30 wäre 10, gemeldet werden muss
+    // FRIEDEN_DECKEL. (Ein Draht ÜBER dem Deckel bleibt unangetastet – der
+    // Deckel bremst nach oben und zieht nicht nach unten; das rechnet
+    // test/beef.test.js von beiden Seiten durch.)
+    contacts.moveDraht(FG, FU, klein.id, -40, jetzt);
     setzeBeef(FG, FU, klein.id, { hitze: 10 });
     const friede = beef.frieden(FG, FU, klein.id, jetzt, wuerfel(0));
     check('Frieden geht unter Hitze 30', friede.ok === true,

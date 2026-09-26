@@ -1084,12 +1084,54 @@ Hitze 40), die Häme, wenn du nach unten trittst, die dichte Szene, solange es
 brennt, das Angezähltwerden nach einer Chart-Platzierung – und der Ausgang, der
 sieben Tage lang auf den Hype wirkt.
 
-**Die Grenze ist scharf und gewollt:** kein neuer Zufluss (§3). Der Disstrack
-hat den **niedrigsten Growth im Spiel** (0,4 gegen 1,0 einer Single), die
-Aufmerksamkeit ist ein Faktor auf das Publikum **einer** Veröffentlichung – die
-Hörer, die bleiben, hängen am Growth –, der Sieg zahlt ausschließlich über Hype,
-und Hype ist bei `HYPE_MAX` **1,7** hart gedeckelt. In `src/beef.js` und
-`src/data/beef.js` steht kein einziger `unb`-Aufruf.
+**Die Grenze ist scharf und gewollt:** kein neuer Zufluss (§3). Die
+Aufmerksamkeit ist ein Faktor auf das Publikum **einer** Veröffentlichung, der
+Sieg zahlt ausschließlich über Hype, Hype ist bei `HYPE_MAX` **1,7** hart
+gedeckelt – und in `src/beef.js` und `src/data/beef.js` steht kein einziger
+`unb`-Aufruf. Der Disstrack bewegt also weder eine Decke noch legt er einen
+Hahn: Er ist eine Veröffentlichungsart wie die anderen vier, mit anderen Zahlen.
+
+**Was der Disstrack ausdrücklich NICHT ist: die schwächste Art.** In früheren
+Fassungen stand hier, sein `growth` von 0,4 – der niedrigste im Spiel – sei die
+Bremse, denn „die Hörer, die bleiben, hängen am Growth". Das ist falsch, und
+`src/music.js` sagt warum: Die gewonnenen Hörer sind `audience × CONVERSION ×
+TEMPO × boost × type.growth × …`, und `audience` enthält seinerseits
+`type.spike`. Beide Zahlen zählen also zusammen, und der Buzz zählt `spike`
+sogar zweimal (`buzz = audience × 9 × spike`). Je **aufgenommenem Titel** –
+Titel sind der Preis, den `songs` verlangt – steht damit (nachgerechnet aus
+`RELEASES` in `src/data/music.js`):
+
+| Art | `songs` | `spike` | `growth` | Hörer je Titel (`spike × growth / songs`) | Buzz je Titel (`spike² / songs`) |
+| --- | --- | --- | --- | --- | --- |
+| Single | 1 | 1,0 | 1,0 | 1,00 | 1,00 |
+| EP | 3 | 2,6 | 1,5 | 1,30 | 2,25 |
+| Album | 6 | 5,5 | 2,4 | **2,20** | 5,04 |
+| Deluxe / Remix | 2 | 1,6 | 0,7 | 0,56 | 1,28 |
+| Disstrack | 1 | 3,0 | 0,4 | 1,20 | **9,00** |
+
+Der Disstrack holt je Titel **mehr** Hörer als eine Single (1,20 gegen 1,00) und
+hat den **höchsten Buzz je Titel im ganzen Spiel** (9,00). Wer 5b bremsen will,
+darf sich nicht auf `growth` berufen.
+
+**Die Bremse ist der geteilte Veröffentlichungsplatz, nicht `growth`.** Ein
+Disstrack ist eine Veröffentlichung: Er kostet einen Titel aus demselben Vorrat
+und verbraucht denselben Platz, den die `cooldown`-Sperre auf gut einen am Tag
+begrenzt. Ein Disstrack-Tag ist damit ein Tag ohne EP und ohne Album – und beim
+Album stehen je Titel 2,20 Hörer gegen 1,20. Hörer sind die Größe, die sich
+verzinst (`audience` hängt über `reachOf` an der Hörerzahl, der Buzz hängt an
+`audience`); ein einmalig hoher Buzz hängt an nichts. Genau das misst die
+Kontrollvariante weiter unten in diesem Abschnitt („Die Veröffentlichungsart ist
+der große Hebel"): Die Beef-Spielweise liegt **85,5 %** bzw. **96,0 %** unter
+demselben Spieler, der ohne jeden Beef auf sechs Titel und ein Album wartet. Die
+bessere konkurrierende Veröffentlichungsart, nicht die eigene Schwäche, hält den
+Disstrack klein.
+
+**Nicht isoliert gemessen:** Die Zahl, die dieser Absatz verdient hätte – was
+ein Disstrack gegenüber einer Single am selben Tag in derselben Lage bringt –
+gibt es noch nicht. In der gemessenen Beef-Spielweise belegt der Disstrack
+**98,9 %** aller Veröffentlichungen; „mit Beef" und „mit Disstracks statt
+Singles" sind dort dasselbe und nicht zu trennen. Die isolierte Messung ist ein
+eigener, späterer Schritt; bis dahin steht hier nur, was aus den Formeln folgt.
 
 **Gemessen** (10 Läufe à 365 Tage, fester Würfel `rng(1000+i)`, in allen
 Varianten dieselbe Strategie, die Beefwürfe auf einem dritten Strom

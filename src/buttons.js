@@ -557,8 +557,8 @@ function releaseProblem(res, now = Date.now()) {
     return `😴 Dafür fehlen die Stunden (**${res.need}** nötig, **${res.left}** übrig).`;
   }
   if (res.reason === 'not_started') return '🎤 Starte zuerst deine Karriere.';
-  // Ein Disstrack-Knopf aus einer alten Nachricht, dessen Beef inzwischen
-  // abgerechnet ist (§6) – oder `mpub|diss` von Hand.
+  // Ein Disstrack- oder 🕊️-Knopf aus einer alten Nachricht, dessen Beef
+  // inzwischen abgerechnet ist (§6) – oder `mpub|diss` von Hand.
   if (res.reason === 'kein_beef') return '❌ Dafür läuft kein Beef.';
   return '❌ Das ging nicht.';
 }

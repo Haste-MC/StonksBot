@@ -536,10 +536,14 @@ function szeneMalus(guildId, userId, contact, now = Date.now()) {
 /**
  * Frieden anbieten.
  *
- * Möglich, sobald die Hitze unter HITZE_FRIEDEN_MAX liegt – auch noch nach
- * dem Ende, solange die Zeile steht; dann verfällt der Bonus mit. Der Draht
- * springt dabei nie ins Plus (FRIEDEN_DECKEL): Beef anfangen und sofort
- * Frieden schließen ist keine Abkürzung zum Partner.
+ * Möglich, sobald die Hitze unter HITZE_FRIEDEN_MAX liegt – auch noch im
+ * Nachbeben, solange das Bonusfenster läuft; dann verfällt der Bonus mit. Ist
+ * die Zeile abgerechnet UND das Fenster durch, gibt es nichts mehr zu
+ * befrieden (§6).
+ *
+ * Der Draht steigt dabei nie ins Plus (FRIEDEN_DECKEL) – Beef anfangen und
+ * sofort Frieden schließen ist keine Abkürzung zum Partner – und er fällt
+ * dabei nie: Der Deckel bremst, er zieht nicht.
  */
 function frieden(guildId, userId, contactId, now = Date.now(), random = Math.random) {
   const contacts = require('./contacts');
@@ -554,6 +558,17 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
 
   const row = db.beefRow(guildId, userId, contactId);
   if (!row) return { ok: false, reason: 'kein_beef', contact: d.contact, vorher };
+
+  // Eine abgerechnete Zeile ohne laufendes Nachbeben ist nichts mehr, das man
+  // befrieden könnte: Hitze 0, Bonus 0. Sie käme sonst durch die Hitze-Prüfung
+  // hindurch, würde den Abend kosten, sich selbst neu schreiben und über
+  // `moveDraht` bei Delta 0 nur die Drei-Tage-Sperre neu spannen. Der Knopf
+  // dazu wird in keiner frisch gebauten Ansicht mehr angeboten – erreichbar ist
+  // das nur aus einer alten Nachricht, also genau der Fall aus §6: höflich
+  // ablehnen, VOR der Zeitbuchung, und nichts tun.
+  if (row.status !== 'offen' && row.bonus_until <= now) {
+    return { ok: false, reason: 'kein_beef', contact: d.contact, vorher };
+  }
 
   // Zu heiß ist eine Voraussetzung wie die Sperre bei einer Anfrage, kein
   // Ergebnis: Sie steht VOR der Zeitbuchung. Wer es zu früh versucht, hat den
@@ -571,7 +586,12 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
     ...row, hitze: 0, konter_at: 0, last_cool: now,
     status: 'frieden', bonus_until: 0,
   });
-  const ziel = Math.min(data.FRIEDEN_DECKEL, d.draht + data.FRIEDEN_PLUS);
+  // Der Deckel ist eine Bremse nach oben, kein Zug nach unten: Wer trotz Beef
+  // noch über FRIEDEN_DECKEL steht (anstacheln hat keine Draht-Voraussetzung,
+  // ein Partner kann also angestachelt werden), behält seinen Draht. Sonst
+  // würde die freundlichste Schaltfläche des Spiels bis zu 110 Punkte
+  // verbrennen, die bloßes Auskühlen gar nichts gekostet hätte.
+  const ziel = Math.max(d.draht, Math.min(data.FRIEDEN_DECKEL, d.draht + data.FRIEDEN_PLUS));
   const draht = contacts.moveDraht(guildId, userId, contactId, ziel - d.draht, now, { sperre: true });
 
   return {

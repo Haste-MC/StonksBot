@@ -383,6 +383,51 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       `${creator.budget(G, U, t0).left} statt ${zeitVor}`);
     check('Ohne Beef gibt es nichts zu befrieden',
       beef.frieden(G, U, anders.id, t0).reason === 'kein_beef');
+
+    // Der Deckel bremst nach oben, er zieht nicht nach unten. `anstacheln` hat
+    // keine Draht-Voraussetzung: Auch ein Partner kann angestachelt werden,
+    // und dann steht der Draht bei laufendem Beef weit über FRIEDEN_DECKEL.
+    // Bloßes Auskühlen kostet ihn nichts – die Versöhnung darf ihn deshalb
+    // auch nicht kosten.
+    {
+      const P = await musiker('b6b', 10_000);
+      contacts.moveDraht(G, P, klein.id, 75, t0);
+      db.saveBeef(G, P, klein.id, { hitze: 0, runden_ich: 0, runden_er: 0, last_hit: t0,
+        last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
+      const f4 = beef.frieden(G, P, klein.id, t0);
+      check('Draht 75 bleibt 75 – der Deckel zieht nicht nach unten',
+        f4.ok && f4.draht.vorher === 75 && f4.draht.nachher === 75,
+        JSON.stringify(f4.reason ?? f4.draht));
+    }
+
+    // §6: Ein 🕊️ aus einer alten Nachricht. Die abgerechnete Zeile hat Hitze 0
+    // und Bonus 0, käme also durch die Hitze-Prüfung – und würde ohne Wache den
+    // Abend kosten, die Zeile neu schreiben und die Drei-Tage-Sperre neu
+    // spannen, beliebig oft.
+    {
+      const S = await musiker('b6c', 10_000);
+      contacts.moveDraht(G, S, klein2.id, -40, t0);
+      db.saveBeef(G, S, klein2.id, { hitze: 0, runden_ich: 0, runden_er: 0, last_hit: t0,
+        last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
+      const k1 = beef.frieden(G, S, klein2.id, t0);
+      const zeitNach1 = creator.budget(G, S, t0).left;
+      const zeileNach1 = db.contactsOf(G, S).find((z) => z.contact_id === klein2.id);
+      const k2 = beef.frieden(G, S, klein2.id, t0);
+      const zeileNach2 = db.contactsOf(G, S).find((z) => z.contact_id === klein2.id);
+      check('Der erste Klick schließt Frieden', k1.ok && k1.draht.nachher === -10,
+        JSON.stringify(k1.reason ?? k1.draht));
+      check('Der zweite Klick wird höflich abgelehnt',
+        k2.ok === false && k2.reason === 'kein_beef', JSON.stringify(k2.reason));
+      check('Der zweite Klick kostet keine Zeit',
+        creator.budget(G, S, t0).left === zeitNach1,
+        `${creator.budget(G, S, t0).left} statt ${zeitNach1}`);
+      check('Der zweite Klick spannt die Sperre nicht neu',
+        zeileNach2.tries === zeileNach1.tries && zeileNach2.last_try === zeileNach1.last_try
+        && zeileNach2.draht === zeileNach1.draht,
+        JSON.stringify({ vor: zeileNach1, nach: zeileNach2 }));
+      check('Die Zeile bleibt unverändert auf frieden stehen',
+        db.beefRow(G, S, klein2.id).status === 'frieden');
+    }
   }
 
   console.log('--- Die Szene macht dicht ---');
