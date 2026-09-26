@@ -572,3 +572,785 @@ abgeleiteten Zahlen unten.
 (f) **Die Messung ist eine reine Geldfrage.** Was der Beef an Spielgefühl, Meldungen und Texten
     bringt, misst sie nicht – und das war auch nie ihr Argument.
 
+
+
+==================== NACHTRAG 5c (2026-09-26): ZWEI SPIELWEISEN, DIE 5b NICHT GEMESSEN HAT ====================
+
+Alles oberhalb dieser Zeile ist unverändert der Lauf von Stück 5b. Dieser Nachtrag ist ein NEUER
+Abschnitt und ändert an ihm keine Zahl; er kommt aus demselben Skript, denselben Seeds und denselben
+Aufrufen, nur aus einer späteren Fassung von `scripts/messung-geldquellen.js`, die zwei Varianten
+mehr fährt.
+
+Aufrufe (drei Läufe, drei getrennte DATA_DIR, parallel gefahren – dieselben drei wie oben):
+
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef --diss-aufmerk=0.75
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 10 365 --nur=beef --diss-aufmerk=0
+
+Die Handprüfung unten kommt aus:
+
+  DATA_DIR=<eigenes Verzeichnis> node scripts/messung-geldquellen.js 1 90 --nur=beef --trace=beef
+
+==================== WARUM ES DIESEN NACHTRAG GIBT ====================
+
+Die Zeile, die 5b für die Beef-Spielweise gemeldet hat – **+0,9 %** (Mediane) und **−0,6 %** (gepaart)
+gegen „ohne Beef" bei Musik+Creator, +7,1 % / +15,4 % bei nur Musik – ist die SUMME aus zwei neuen
+Wirkungen, die sich gegenseitig aufheben:
+
+  * dem Gewinn des Disstracks (er ersetzt eine Single mit `spike` 1,0 durch eine Veröffentlichung
+    mit `spike` 3,0), und
+  * dem Verlust aus den Fenstern der Niederlagen, die `anzaehlen` nebenbei aufmacht und die diese
+    Spielweise nie beantwortet (in 5b: 169 bzw. 162 Abrechnungen, alle 0:1).
+
+Die Variante „aktiv" wird angezählt, ihre Vergleichsgrundlage „ohne Beef" nicht – die Differenz ist
+in diesem Punkt also UNSYMMETRISCH, und sie beantwortet keine der zwei Fragen, die §3 stellt:
+„Was bringt ein Disstrack gegenüber einer Single?" und „Was bringt ein gewonnener Beef?". Zwei
+Spielweisen füllen die Lücke; beide liefen bisher nicht.
+
+==================== WIEDERHOLBARKEIT: DIE VIER ALTEN VARIANTEN SIND UNBERÜHRT ====================
+
+Geprüft, nicht behauptet: Jede der 96 nicht-leeren Zeilen der drei committeten Rohausgaben oben
+(„ROHAUSGABE LAUF 1/2/3") steht zeichengleich in der Ausgabe des jeweiligen neuen Laufs – 96 von 96
+in allen drei Läufen, 0 fehlende. Die einzige geänderte Zeile ist die Kopfzeile des Abschnitts
+(„Stück 5b: … " → „Stück 5b/5c: … "), weil der Abschnitt jetzt sechs Varianten fährt.
+
+Das ist keine Nebensache: Die zwei neuen Varianten laufen in eigenen Welten, mit eigenen Konten und
+auf denselben Seeds; sie dürfen an den alten Zahlen nichts verschieben, und sie tun es nicht. Der
+zusätzliche Lesevorgang (`music.status`, `beef.bonusOf`) für die Hype-Messung hängt deshalb
+ausdrücklich an den neuen Spielweisen und nicht an allen.
+
+==================== AUFBAU DER ZWEI NEUEN VARIANTEN ====================
+
+Beide fahren, was die vier Varianten von 5b fahren: je Archetyp DIESELBE Strategie (einmal ohne Beef
+gesucht, dann fest – Musik+Creator „Follower zuerst +1B", nur Musik „Ertrag je Zeit +0B"), denselben
+Hauptwürfel `rng(1000 + i)`, den Beefwürfel `rng(seed + 700_000)`, 10 Läufe à 365 Tage, Start heute
+6:00 Uhr vorwärts, eigene Welt und eigenes Konto je Variante.
+
+  diss-isoliert   wie „aktiv" (anstacheln, sobald keine Front offen ist; Disstrack auf die heißeste
+                  Front, sobald ein Titel da und die Sperre durch ist; kein Frieden) – aber
+                  `anzaehlen` ist STILLGELEGT: Die Hülle um `beef.anzaehlen` gibt null zurück, bevor
+                  sie würfelt.
+
+                  **Vergleichsgrundlage ist „ohne Beef", und zwar unverändert die Zeile von 5b.**
+                  Genau darin liegt der Sinn: In „ohne Beef" ist `anzaehlen` seit dem ersten Lauf
+                  ebenfalls stillgelegt (siehe Grenze (c) oben), beide Seiten würfeln dort nicht und
+                  verwerfen auch nichts. Die Grundlage unterscheidet sich also NICHT von „ohne Beef" –
+                  sie IST sie, und eine eigene, neu gerechnete Grundlage wäre Zahl für Zahl dieselbe
+                  Zeile. Was sich unterscheidet, ist die aktive Seite: „aktiv" wird angezählt,
+                  „diss-isoliert" nicht. Übrig bleibt als Unterschied genau „Disstrack statt Single".
+                  Die Kontrollzeilen unten zeigen für BEIDE Seiten, dass niemand anzählt
+                  („angezählt 0" bzw. „kein einziger Beef … keine Anzählung").
+
+  sieg-farm       ein Disstrack je Front, dann auskühlen lassen und abrechnen. `anzaehlen` bleibt
+                  hier LEBENDIG, damit die Variante mit „passiv" und „aktiv" vergleichbar ist; die
+                  Fronten aus fremdem Anlass gehören nicht zur Farm und werden nicht bedisst – sie
+                  gehen wie beim passiven Spieler mit 0:1 aus.
+
+                  Das Ziel wird nach zwei Bedingungen gesucht, beide aus `src/beef.js` GELESEN und
+                  nicht nachgerechnet:
+                    * `wuchtOf` unter 0,19 (95 % von `KONTER_LAECHERLICH` 0,20) → sein Gegenschlag
+                      wirkt lächerlich und holt die Runde für MICH (`rundeNachKonter`). Die 5 %
+                      Sicherheitsabstand sind nötig, weil über `KONTER_LAECHERLICH` erst beim
+                      Gegenschlag entschieden wird und die eigene Hörerzahl bis dahin fällt. Ein
+                      erster Lauf ohne diesen Abstand hatte Disstracks, deren Wucht bis zum Schlag
+                      über die Grenze gestiegen war; wie oft es TROTZ Abstand passiert, zählt die
+                      Ausgabe („Disstracks, deren Wucht … über KONTER_LAECHERLICH 0,20 gestiegen
+                      ist": 0 von 283 bzw. 1 von 282, größte Wucht 0,1914 bzw. 0,2166).
+                    * `haemeOf` so klein, wie es für IRGENDEIN Ziel des Katalogs geht. Das ist für
+                      einen Pop-Künstler **nicht 0, sondern 0,0462** (siehe Befund (3) unten).
+                  Unter den Kandidaten, die beides erfüllen, wird der mit der höchsten `einstiegOf`
+                  genommen. Findet sich keiner, passiert an diesem Tag nichts – gezählt als
+                  „kein Kandidat im sicheren Fenster".
+
+Neu gemessen wird außerdem für ALLE sechs Varianten der **Hype im Mittel über alle Tage** (Median
+über die Seeds, Spanne der Seeds). Die bisherige Hype-Zahl ist der Wert am letzten Tag; ein
+Bonusfenster dauert `BONUS_TAGE` 7 Tage und wird von ihm nur zufällig getroffen. Für die zwei neuen
+Varianten steht der Hype zusätzlich getrennt nach dem Fenster, in dem der Tag lag.
+
+Stille Nullen sind auch hier Fehler und nicht Ergebnisse. Gedruckt werden drei Kontrollzeilen: die
+Grundlage „ohne Beef" muss leer sein, „diss-isoliert" muss ohne eine einzige Anzählung durchlaufen
+und trotzdem Disstracks haben, und die Sieg-Farm muss genau einen Disstrack je Front gesetzt haben,
+eigene Fronten abgerechnet haben und ihre zwei Zielbedingungen eingehalten haben.
+
+==================== HANDPRÜFUNG 5c: EINE FRONT VON ANFANG BIS ABRECHNUNG ====================
+
+Die Sieg-Farm hängt nicht an der Aufmerksamkeit, sondern am AUSGANG: Runden, Hitze-Uhr,
+Abrechnungstag, Bonusfaktor. Genau das ist hier von Hand nachgerechnet – gegen `src/beef.js` und
+`src/data/beef.js`, nicht gegen das Skript. Der Fall kommt aus
+`… 1 90 --nur=beef --trace=beef`, Archetyp „nur Musik", Seed 1000, Beefwürfe rng(701000); der Lauf
+ist wiederholbar.
+
+Vier Trace-Zeilen, unverändert (Zeilen 426, 427, 428 und 434 des stderr-Protokolls):
+
+  {"datum":"2026-10-18","was":"anstacheln","modus":"sieg","kontakt":"bopworth","trait":"kollegial",
+   "meine":2546,"seine":3900,"chance":0.2536984480727844,"wucht":0.13447730061955968,
+   "haeme":0.04615384615384617,"hype":1.0690964934661418,"ein":true}
+  {"datum":"2026-10-19","was":"diss","kontakt":"bopworth","trait":"kollegial","meine":2731,
+   "seine":3900,"genre":"pop","genrefaktor":0.7692307692307692,"hitzeVor":19,
+   "wucht":0.12841910925742517,"haeme":false,"aufmerksamkeit":1.0881646577017323,
+   "audienceFactor":1.0881646577017323,"audience":2362,"gained":295,"position":31,"hitzeNach":49,
+   "runden":"1:0","modus":"sieg","hype":1.0860184881365096,"disseAufDieseFront":1}
+  {"datum":"2026-10-20","was":"konter","modus":"sieg","kontakt":"bopworth","eigeneFront":true,
+   "disseAufDieseFront":1,"wucht":0.12060322639568916,"runde":"ich","hitzeNach":73,
+   "hypeVor":1.0159602782151589,"runden":"2:0"}
+  {"datum":"2026-11-02","was":"ende","modus":"sieg","kontakt":"bopworth","eigeneFront":true,
+   "disseAufDieseFront":1,"status":"sieg","faktor":1.25,"bonusUntil":1794198400000,"runden":"2:0"}
+
+Der Gegner ist „Sir Reginald Bopworth" (`bopworth`, 3.900 Hörer Reichweite, Charakterzug
+`kollegial`) aus
+`src/data/contacts.js`; der Spieler hat am 18.10. 2.546 Hörer und macht Pop.
+
+(a) Die Wahl des Ziels, `beef.wuchtOf` und `beef.haemeOf` mit `genrefaktor = risk/1,3 = 1/1,3`:
+
+      wucht = log10(1 + 3900/max(100, 2546)) / 3 = 0,13447730061955968
+      Skript:                                     0.13447730061955968   ✔ gleich
+      → unter 0,19, also unter 95 % von KONTER_LAECHERLICH 0,20
+
+      haeme = log10(max(1, 2546/3900))/3 + 0,2 × (1 − 1/1,3)
+            = log10(1)/3 + 0,2 × 0,23076923076923078
+            = 0 + 0,04615384615384617
+      Skript: 0.04615384615384617   ✔ gleich
+
+    Die erste Klammer ist der Grund für Befund (3): `Math.max(1, meine/seine)` klemmt das
+    Größenverhältnis bei 1, der erste Summand verschwindet also bei JEDEM Gegner, der mindestens so
+    groß ist wie ich – aber der Genre-Summand bleibt stehen. Null wäre er nur bei `genrefaktor` 1,
+    also in Hip-Hop (`risk` 1,3). Der Pop-Künstler dieser Messung behält 4,6 % Häme-Risiko je
+    Disstrack, egal wie groß der Gegner ist.
+
+(b) Einstiegschance, `beef.einstiegOf` mit `EINSTIEG_BASIS 0,55`, `EINSTIEG_STEIGUNG 0,25`,
+    `BEEF_TRAIT.kollegial −0,25`:
+
+      v        = log10(max(100, 2546)/3900) = −0,18520620770886262
+      einstieg = 0,55 + 0,25 × (−0,18520620770886262) − 0,25 = 0,2536984480727844
+      Skript:                                                  0.2536984480727844   ✔ gleich
+
+(c) Der Disstrack am Tag darauf. Hitze: `HITZE_ANSTACHELN` 25 am 18.10., `HITZE_COOL_PRO_TAG` 6
+    → nach einem Tag 25 − 6 = 19; das Skript meldet `hitzeVor` 19 ✔.
+
+      wucht = log10(1 + 3900/2731)/3 = 0,12841910925742517
+      Skript:                          0.12841910925742517   ✔ gleich
+
+      aufmerksamkeit = 1 + 1,5 × 0,12841910925742517 × (1/1,3) × (0,5 + 0,5 × 19/100)
+                     = 1,0881646577017323
+      Skript:          1.0881646577017323   ✔ gleich
+
+      `HITZE_DISS` 30 → 19 + 30 = 49, das Skript meldet `hitzeNach` 49 ✔, und die Runde geht ohne
+      Häme an den Spieler (`rundeNachDiss(false)` = „ich", `runden` „1:0") ✔.
+
+(d) Sein Gegenschlag am 20.10. – der Kern der Sieg-Farm:
+
+      Hitze am 20.10.: 49 − 6 = 43, und 43 ≥ `HITZE_KONTER_MIN` 40 → der Schlag fällt ✔
+      wucht 0,12060322639568916 < `KONTER_LAECHERLICH` 0,20
+        → `rundeNachKonter` gibt „ich"; das Skript meldet `runde` „ich" und `runden` „2:0" ✔
+      (Gegenprobe zur Hörerzahl: aus 0,12060322639568916 = log10(1 + 3900/meine)/3 folgt
+       meine = 3900 / (10^(3 × 0,12060322639568916) − 1) = 2.999,0000000000005 – der Spieler hatte am
+       20.10. also 2.999 Hörer, und die fünf Stellen am Ende sind Gleitkomma-Rauschen der Umkehrung.
+       Eine ganze Zahl, wie sie aus `music.status` kommt.)
+      `HITZE_KONTER` 30 → 43 + 30 = 73, das Skript meldet `hitzeNach` 73 ✔
+
+(e) Die Abrechnung. Der Lauf beginnt am ersten Tag um 6:00 Uhr Ortszeit und rückt je Tag um genau
+    86.400.000 ms vor; der Beefschritt liegt bei `now + 1,4e6` ms, also bei 04:26:40 UTC jeden Tag.
+
+      Hitze 73 am 20.10. 04:26:40 UTC, 6 Punkte je Tag → 73/6 = 12,166666666666666 Tage
+        → Null erreicht am 01.11. 08:26:40 UTC
+      Beefschritt am 01.11. (04:26:40 UTC): Hitze 73 − 6 × 12 = 1, also noch offen
+      Beefschritt am 02.11. (04:26:40 UTC): Hitze 73 − 6 × 13 < 0, geklemmt 0 → abgerechnet
+      Das Skript meldet die Abrechnung am 2026-11-02 ✔
+
+      `ausgangOf(2, 0)` = „sieg", `bonusFaktor('sieg')` = `BONUS_SIEG` 1,25
+        → das Skript meldet `status` „sieg" und `faktor` 1.25 ✔
+      `bonusUntil` = 02.11. 04:26:40 UTC + `BONUS_TAGE` 7 × 86.400.000 ms
+        = 2026-11-09T04:26:40.000Z = 1794198400000
+        → das Skript meldet `bonusUntil` 1794198400000 ✔ (millisekundengleich)
+
+Nichts davon ist ein Mittelwert: zehn Zahlen einer einzelnen Front, von Hand aus den Konstanten
+nachgerechnet und stellengleich mit dem, womit das Spiel gewürfelt hat – einschließlich des Tages
+der Abrechnung und des Bonusfensters auf die Millisekunde. Erst danach stehen die abgeleiteten
+Zahlen unten.
+
+Eine Grenze dieser Handprüfung, ausdrücklich: Der HYPE-Pfad ist damit NICHT nachgerechnet. Der Hype
+wird an einem Tag von mehreren Stellen bewegt (`record` 0,85·h + 0,15·Qualität, `publish`
+0,7·h + 0,3·Wurf, `show`, `applyBeefTreffer`), und die dortigen Würfe stehen nicht im Trace. Was zum
+Hype unten steht, ist deshalb gemessen (Ø je Fenster, größter Wert) und nicht hergeleitet.
+
+==================== ROHAUSGABE 5c LAUF 1: DISS_AUFMERK 1,50 (Standard) ====================
+
+(Nur der neue Abschnitt je Archetyp; die vier Varianten von 5b stehen unverändert oben. Die
+Strategiezeile des Archetyps ist als Kopf mit dabei.)
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 1,50
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          408.312/Tag   [399.506 … 450.354]   2.299.443 Follower, 112.450 Hörer · Hype 0,99 · Energie Ø 12 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +9,5 % · je Seed (gepaart) Median +14,3 %, Spanne −5,8 % … +57,7 %, 9 von 10 Seeds im Plus
+      je Seed: +16,2 % · +14,4 % · +5,3 % · +57,7 % · +0,9 % · +32,5 % · +14,2 % · +21,7 % · −5,8 % · +7,5 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +8,5 % · je Seed (gepaart) Median +12,2 %, Spanne −11,8 % … +47,2 %, 7 von 10 Seeds im Plus
+      je Seed: +18,2 % · +21,5 % · +4,4 % · +47,2 % · +6,3 % · +39,5 % · −3,3 % · −11,8 % · −6,2 % · +19,5 %
+      gegen „ohne Beef, Album": Mediane −84,2 % · je Seed (gepaart) Median −83,0 %, Spanne −88,4 % … −78,1 %, 0 von 10 Seeds im Plus
+      je Seed: −86,3 % · −83,3 % · −86,9 % · −82,8 % · −79,5 % · −78,1 % · −88,3 % · −80,7 % · −79,2 % · −88,4 %
+    sieg-farm              407.082/Tag   [380.771 … 445.544]   1.985.221 Follower, 703.896 Hörer · Hype 1,70 · Energie Ø 12 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +9,2 % · je Seed (gepaart) Median +14,4 %, Spanne −10,6 % … +52,3 %, 7 von 10 Seeds im Plus
+      je Seed: +21,0 % · +29,3 % · −5,5 % · +35,5 % · −5,0 % · +11,1 % · +52,3 % · −10,6 % · +17,7 % · +7,0 %
+      gegen „passiv": Mediane +31,4 % · je Seed (gepaart) Median +27,6 %, Spanne +11,8 % … +82,1 %, 10 von 10 Seeds im Plus
+      je Seed: +46,4 % · +30,9 % · +32,4 % · +41,5 % · +24,4 % · +11,8 % · +82,1 % · +21,4 % · +15,6 % · +21,3 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +8,2 % · je Seed (gepaart) Median +18,0 %, Spanne −35,2 % … +37,4 %, 8 von 10 Seeds im Plus
+      je Seed: +23,0 % · +37,4 % · −6,4 % · +26,4 % · +0,1 % · +17,0 % · +28,9 % · −35,2 % · +17,1 % · +18,8 %
+      Quellen diss-isoliert:          Merch 232.897/Tag (57 %) · Tantiemen 123.590/Tag (30 %) · Twitch 40.627/Tag (10 %) · YouTube 13.217/Tag (3 %) · Konzert 6.884/Tag (2 %) · Instagram 6.184/Tag (2 %) · Vorfall -2.879/Tag (-1 %)
+      Quellen sieg-farm:              Merch 206.379/Tag (51 %) · Tantiemen 144.564/Tag (36 %) · Twitch 37.804/Tag (9 %) · Konzert 14.604/Tag (4 %) · YouTube 12.067/Tag (3 %) · Instagram 5.571/Tag (1 %) · Vorfall -4.215/Tag (-1 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,12 [1,11 … 1,14] · passiv 1,00 [0,96 … 1,03] · aktiv 0,88 [0,84 … 0,93] · Album 1,12 [1,09 … 1,14] · diss-isoliert 0,97 [0,94 … 1,01] · sieg-farm 1,26 [1,20 … 1,34]
+      Tagesleistung Ø/Tag: diss-isoliert 12,50 Kanalaktionen · 0,97 Veröffentlichungen · 0,23 Konzerte (gegen ohne Beef: −0,4 % Kanalaktionen, +2,0 % Veröffentlichungen) → sieg-farm 12,23 · 0,95 · 0,22 (gegen ohne Beef: −2,6 % Kanalaktionen, −0,1 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,96/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,078/Tag – 8,2 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +9,5 %, gepaart +14,3 % → nicht erreicht
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +9,2 %, gepaart +14,4 % → nicht erreicht
+    diss-isoliert:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.491 (0,96/Tag) · Häme 1.075 (Häme-Quote 30,8 %) · kein Disstrack möglich an: kein_titel 118, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,891 (kleinster 0,500, größter 1,785) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,065 (kleinster 1,007, größter 1,785)
+      Ø Wucht beim Disstrack: Ø 0,047 (kleinster 0,006, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,6 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.210 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 0,997 (3.650 Tage, kleinster 0,615, größter 1,650)
+    sieg-farm:
+      Anstacheln: 636 bezahlte Versuche in 3.650 Tagen (0,17/Tag) · Einstieg 284 (Einstiegsquote 44,7 %) · Blamage 352 (55,3 %) · Ø gewürfelte Einstiegschance 42,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 461, zu_frisch 902
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 127
+      Disstracks 283 (0,08/Tag) · Häme 10 (Häme-Quote 3,5 %) · kein Disstrack möglich an: kein_titel 13
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 1,079 (kleinster 0,500, größter 1,131) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,100 (kleinster 1,059, größter 1,131)
+      Ø Wucht beim Disstrack: Ø 0,146 (kleinster 0,090, größter 0,191) · Ø Hitze beim Disstrack: Ø 18,7 (kleinster 13,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,64 (höchstens 2)
+      Gegenschläge 95 · Abrechnungen 393: Sieg 257 (Siegquote 65,4 %) · Niederlage 134 (34,1 %) · Unentschieden 2 (0,5 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 266 von 393 (Sieg 257 · Niederlage 7 · Unentschieden 2) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 169× · 0:1 134× · 2:0 88× · 1:1 2×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,472 (1.374 Tage, kleinster 0,667, größter 1,700) · im Niederlagenfenster 0,936 (724 Tage, kleinster 0,623, größter 1,700) · ohne Fenster 1,153 (1.552 Tage, kleinster 0,664, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1497 (kleinster 0,1004, größter 0,1899) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 42,2 % · Ø Reichweite des Gegners 640.747
+      Sieg-Farm, eigene Fronten: 284 angestachelt und eingestiegen · 283 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.123 · beide Fronten belegt 835
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 0 von 283 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.491 (nicht null ✔), Anstacheln 40 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 283 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,1914 (0 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 266 (nicht null ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 1,50
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          134.570/Tag   [114.160 … 155.131]   1.088.612 Follower, 132.454 Hörer · Hype 1,01 · Energie Ø 100 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +28,2 % · je Seed (gepaart) Median +45,5 %, Spanne −7,6 % … +122,2 %, 8 von 10 Seeds im Plus
+      je Seed: +58,6 % · −7,6 % · +65,8 % · +48,8 % · +52,4 % · −1,1 % · +122,2 % · +42,2 % · +3,1 % · +4,9 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +19,7 % · je Seed (gepaart) Median +5,9 %, Spanne −2,8 % … +39,9 %, 9 von 10 Seeds im Plus
+      je Seed: +3,0 % · +2,0 % · +39,9 % · +32,6 % · +21,0 % · +8,7 % · +20,1 % · +1,3 % · −2,8 % · +0,7 %
+      gegen „ohne Beef, Album": Mediane −95,2 % · je Seed (gepaart) Median −94,9 %, Spanne −97,6 % … −88,6 %, 0 von 10 Seeds im Plus
+      je Seed: −95,5 % · −94,2 % · −94,4 % · −94,9 % · −89,2 % · −97,6 % · −88,6 % · −95,0 % · −96,9 % · −97,2 %
+    sieg-farm              169.188/Tag   [144.594 … 200.242]   1.316.144 Follower, 770.662 Hörer · Hype 1,70 · Energie Ø 99 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +61,2 % · je Seed (gepaart) Median +75,5 %, Spanne +32,3 % … +158,4 %, 10 von 10 Seeds im Plus
+      je Seed: +76,5 % · +85,5 % · +86,8 % · +109,8 % · +34,6 % · +74,6 % · +72,3 % · +32,3 % · +51,2 % · +158,4 %
+      gegen „passiv": Mediane +125,4 % · je Seed (gepaart) Median +118,7 %, Spanne +93,3 % … +281,6 %, 10 von 10 Seeds im Plus
+      je Seed: +118,1 % · +134,9 % · +146,2 % · +96,6 % · +107,9 % · +125,6 % · +119,3 % · +93,3 % · +105,6 % · +281,6 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +50,5 % · je Seed (gepaart) Median +50,1 %, Spanne −6,9 % … +148,1 %, 8 von 10 Seeds im Plus
+      je Seed: +14,6 % · +104,7 % · +57,5 % · +87,0 % · +6,9 % · +91,9 % · −6,9 % · −5,7 % · +42,6 % · +148,1 %
+      Quellen diss-isoliert:          Tantiemen 130.842/Tag (97 %) · Konzert 7.602/Tag (6 %) · Vorfall -143/Tag (0 %)
+      Quellen sieg-farm:              Tantiemen 165.825/Tag (98 %) · Konzert 16.690/Tag (10 %) · Vorfall -324/Tag (0 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,13 [1,11 … 1,14] · passiv 1,02 [0,95 … 1,04] · aktiv 0,89 [0,87 … 0,93] · Album 1,16 [1,14 … 1,19] · diss-isoliert 0,97 [0,95 … 1,00] · sieg-farm 1,25 [1,23 … 1,34]
+      Tagesleistung Ø/Tag: diss-isoliert 0,00 Kanalaktionen · 0,97 Veröffentlichungen · 0,23 Konzerte (gegen ohne Beef: −100,0 % Kanalaktionen, +1,8 % Veröffentlichungen) → sieg-farm 0,00 · 0,95 · 0,22 (gegen ohne Beef: −100,0 % Kanalaktionen, −0,4 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,96/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,077/Tag – 8,2 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +28,2 %, gepaart +45,5 % → ERREICHT, DISS_AUFMERK senken und neu messen
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +61,2 %, gepaart +75,5 % → ERREICHT, DISS_AUFMERK senken und neu messen
+    diss-isoliert:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.494 (0,96/Tag) · Häme 1.123 (Häme-Quote 32,1 %) · kein Disstrack möglich an: kein_titel 115, sperre 2
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,879 (kleinster 0,500, größter 1,820) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,059 (kleinster 1,008, größter 1,820)
+      Ø Wucht beim Disstrack: Ø 0,042 (kleinster 0,007, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.177 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 1,008 (3.650 Tage, kleinster 0,616, größter 1,616)
+    sieg-farm:
+      Anstacheln: 685 bezahlte Versuche in 3.650 Tagen (0,19/Tag) · Einstieg 283 (Einstiegsquote 41,3 %) · Blamage 402 (58,7 %) · Ø gewürfelte Einstiegschance 40,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 539, zu_frisch 866
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 119
+      Disstracks 282 (0,08/Tag) · Häme 10 (Häme-Quote 3,5 %) · kein Disstrack möglich an: kein_titel 17
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 1,079 (kleinster 0,500, größter 1,149) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,100 (kleinster 1,064, größter 1,149)
+      Ø Wucht beim Disstrack: Ø 0,146 (kleinster 0,099, größter 0,217) · Ø Hitze beim Disstrack: Ø 18,6 (kleinster 7,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,61 (höchstens 2)
+      Gegenschläge 96 · Abrechnungen 385: Sieg 259 (Siegquote 67,3 %) · Niederlage 124 (32,2 %) · Unentschieden 2 (0,5 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 268 von 385 (Sieg 259 · Niederlage 7 · Unentschieden 2) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 171× · 0:1 124× · 2:0 88× · 1:1 2×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,488 (1.385 Tage, kleinster 0,647, größter 1,700) · im Niederlagenfenster 0,949 (659 Tage, kleinster 0,634, größter 1,700) · ohne Fenster 1,170 (1.606 Tage, kleinster 0,622, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1480 (kleinster 0,1004, größter 0,1899) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 40,1 % · Ø Reichweite des Gegners 690.031
+      Sieg-Farm, eigene Fronten: 283 angestachelt und eingestiegen · 282 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.153 · beide Fronten belegt 827
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 1 von 282 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.494 (nicht null ✔), Anstacheln 39 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 282 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,2166 (1 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 268 (nicht null ✔)
+
+==================== ROHAUSGABE 5c LAUF 2: DISS_AUFMERK 0,75 ====================
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,75
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          413.425/Tag   [344.414 … 433.622]   2.170.044 Follower, 118.654 Hörer · Hype 0,95 · Energie Ø 12 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +10,9 % · je Seed (gepaart) Median +7,4 %, Spanne −12,6 % … +40,5 %, 7 von 10 Seeds im Plus
+      je Seed: +14,3 % · +5,6 % · −4,4 % · +40,5 % · +2,5 % · +19,6 % · +25,0 % · −12,6 % · +9,3 % · −12,4 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +9,5 % · je Seed (gepaart) Median +4,3 %, Spanne −11,7 % … +19,2 %, 7 von 10 Seeds im Plus
+      je Seed: +13,6 % · −9,5 % · −4,6 % · +1,5 % · +6,0 % · +16,3 % · +2,6 % · −11,7 % · +19,2 % · +15,4 %
+      gegen „ohne Beef, Album": Mediane −84,0 % · je Seed (gepaart) Median −85,4 %, Spanne −90,6 % … −75,8 %, 0 von 10 Seeds im Plus
+      je Seed: −86,5 % · −84,6 % · −88,1 % · −84,6 % · −79,2 % · −80,2 % · −87,2 % · −86,1 % · −75,8 % · −90,6 %
+    sieg-farm              396.343/Tag   [375.191 … 427.665]   2.392.310 Follower, 626.687 Hörer · Hype 1,44 · Energie Ø 12 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +6,3 % · je Seed (gepaart) Median +8,8 %, Spanne −4,5 % … +26,2 %, 8 von 10 Seeds im Plus
+      je Seed: −2,5 % · +14,2 % · +14,4 % · +26,2 % · +8,8 % · +6,5 % · +22,0 % · +8,0 % · +8,8 % · −4,5 %
+      gegen „passiv": Mediane +28,0 % · je Seed (gepaart) Median +24,9 %, Spanne +6,9 % … +60,2 %, 10 von 10 Seeds im Plus
+      je Seed: +18,0 % · +15,6 % · +60,2 % · +31,8 % · +42,4 % · +7,1 % · +45,9 % · +46,6 % · +6,9 % · +8,3 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +5,0 % · je Seed (gepaart) Median +6,3 %, Spanne −8,9 % … +25,8 %, 7 von 10 Seeds im Plus
+      je Seed: −3,0 % · −2,1 % · +14,1 % · −8,9 % · +12,6 % · +3,6 % · +0,2 % · +9,1 % · +18,7 % · +25,8 %
+      Quellen diss-isoliert:          Merch 216.402/Tag (52 %) · Tantiemen 115.007/Tag (28 %) · Twitch 37.909/Tag (9 %) · YouTube 12.568/Tag (3 %) · Konzert 6.754/Tag (2 %) · Instagram 5.956/Tag (1 %) · Vorfall -1.109/Tag (0 %)
+      Quellen sieg-farm:              Merch 211.690/Tag (53 %) · Tantiemen 123.341/Tag (31 %) · Twitch 36.658/Tag (9 %) · Konzert 13.050/Tag (3 %) · YouTube 12.229/Tag (3 %) · Instagram 5.676/Tag (1 %) · Vorfall -2.974/Tag (-1 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,12 [1,11 … 1,14] · passiv 1,00 [0,96 … 1,03] · aktiv 0,89 [0,84 … 0,93] · Album 1,12 [1,09 … 1,14] · diss-isoliert 0,96 [0,94 … 1,02] · sieg-farm 1,25 [1,17 … 1,31]
+      Tagesleistung Ø/Tag: diss-isoliert 12,50 Kanalaktionen · 0,96 Veröffentlichungen · 0,23 Konzerte (gegen ohne Beef: −0,4 % Kanalaktionen, +1,7 % Veröffentlichungen) → sieg-farm 12,26 · 0,94 · 0,22 (gegen ohne Beef: −2,3 % Kanalaktionen, −0,8 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,95/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,072/Tag – 7,6 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +10,9 %, gepaart +7,4 % → nicht erreicht
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +6,3 %, gepaart +8,8 % → nicht erreicht
+    diss-isoliert:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.482 (0,95/Tag) · Häme 1.029 (Häme-Quote 29,6 %) · kein Disstrack möglich an: kein_titel 127, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,877 (kleinster 0,500, größter 1,401) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,035 (kleinster 1,004, größter 1,401)
+      Ø Wucht beim Disstrack: Ø 0,050 (kleinster 0,007, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.183 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 0,995 (3.650 Tage, kleinster 0,611, größter 1,700)
+    sieg-farm:
+      Anstacheln: 596 bezahlte Versuche in 3.650 Tagen (0,16/Tag) · Einstieg 265 (Einstiegsquote 44,5 %) · Blamage 331 (55,5 %) · Ø gewürfelte Einstiegschance 41,6 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 488, zu_frisch 830
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 137
+      Disstracks 261 (0,07/Tag) · Häme 9 (Häme-Quote 3,4 %) · kein Disstrack möglich an: kein_titel 22
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 1,030 (kleinster 0,500, größter 1,065) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,049 (kleinster 1,029, größter 1,065)
+      Ø Wucht beim Disstrack: Ø 0,145 (kleinster 0,085, größter 0,190) · Ø Hitze beim Disstrack: Ø 18,5 (kleinster 7,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,59 (höchstens 2)
+      Gegenschläge 87 · Abrechnungen 382: Sieg 237 (Siegquote 62,0 %) · Niederlage 142 (37,2 %) · Unentschieden 3 (0,8 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 246 von 382 (Sieg 237 · Niederlage 6 · Unentschieden 3) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 159× · 0:1 142× · 2:0 78× · 1:1 3×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,472 (1.293 Tage, kleinster 0,655, größter 1,700) · im Niederlagenfenster 0,933 (761 Tage, kleinster 0,615, größter 1,700) · ohne Fenster 1,153 (1.596 Tage, kleinster 0,616, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1475 (kleinster 0,1007, größter 0,1899) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 41,6 % · Ø Reichweite des Gegners 532.384
+      Sieg-Farm, eigene Fronten: 265 angestachelt und eingestiegen · 261 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.233 · beide Fronten belegt 728
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 0 von 261 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.482 (nicht null ✔), Anstacheln 40 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 261 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,1902 (0 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 246 (nicht null ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,75
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          132.052/Tag   [115.025 … 145.059]   1.099.124 Follower, 124.785 Hörer · Hype 0,86 · Energie Ø 100 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +25,8 % · je Seed (gepaart) Median +45,9 %, Spanne −2,3 % … +61,8 %, 8 von 10 Seeds im Plus
+      je Seed: +54,0 % · −1,5 % · +58,0 % · +61,8 % · +52,1 % · −2,3 % · +58,6 % · +39,6 % · +0,3 % · +1,6 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +13,3 % · je Seed (gepaart) Median +9,3 %, Spanne −3,9 % … +39,8 %, 9 von 10 Seeds im Plus
+      je Seed: +3,0 % · +12,3 % · +10,9 % · +39,8 % · +17,6 % · +13,0 % · −3,9 % · +2,3 % · +7,8 % · +4,9 %
+      gegen „ohne Beef, Album": Mediane −95,3 % · je Seed (gepaart) Median −94,9 %, Spanne −97,6 % … −89,2 %, 0 von 10 Seeds im Plus
+      je Seed: −95,7 % · −93,9 % · −94,7 % · −94,4 % · −89,2 % · −97,6 % · −91,9 % · −95,1 % · −96,9 % · −97,3 %
+    sieg-farm              151.141/Tag   [135.481 … 191.683]   1.202.950 Follower, 722.454 Hörer · Hype 1,54 · Energie Ø 99 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +44,0 % · je Seed (gepaart) Median +57,1 %, Spanne +20,3 % … +138,5 %, 10 von 10 Seeds im Plus
+      je Seed: +109,7 % · +57,9 % · +83,7 % · +20,3 % · +30,5 % · +56,3 % · +65,6 % · +30,4 % · +35,9 % · +138,5 %
+      gegen „passiv": Mediane +101,4 % · je Seed (gepaart) Median +101,8 %, Spanne +12,7 % … +252,2 %, 10 von 10 Seeds im Plus
+      je Seed: +159,2 % · +100,1 % · +142,2 % · +12,7 % · +101,6 % · +102,0 % · +110,9 % · +90,4 % · +84,7 % · +252,2 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +29,7 % · je Seed (gepaart) Median +34,6 %, Spanne −4,5 % … +146,2 %, 9 von 10 Seeds im Plus
+      je Seed: +40,3 % · +80,1 % · +28,9 % · +4,0 % · +0,9 % · +80,8 % · +0,4 % · −4,5 % · +46,0 % · +146,2 %
+      Quellen diss-isoliert:          Tantiemen 125.378/Tag (95 %) · Konzert 7.470/Tag (6 %) · Vorfall -163/Tag (0 %)
+      Quellen sieg-farm:              Tantiemen 152.770/Tag (101 %) · Konzert 16.168/Tag (11 %) · Vorfall -1.229/Tag (-1 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,13 [1,11 … 1,14] · passiv 1,02 [0,95 … 1,04] · aktiv 0,90 [0,88 … 0,94] · Album 1,16 [1,14 … 1,19] · diss-isoliert 0,97 [0,95 … 1,01] · sieg-farm 1,25 [1,17 … 1,37]
+      Tagesleistung Ø/Tag: diss-isoliert 0,00 Kanalaktionen · 0,97 Veröffentlichungen · 0,23 Konzerte (gegen ohne Beef: −100,0 % Kanalaktionen, +1,8 % Veröffentlichungen) → sieg-farm 0,00 · 0,95 · 0,22 (gegen ohne Beef: −100,0 % Kanalaktionen, +0,1 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,96/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,076/Tag – 7,9 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +25,8 %, gepaart +45,9 % → ERREICHT, DISS_AUFMERK senken und neu messen
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +44,0 %, gepaart +57,1 % → ERREICHT, DISS_AUFMERK senken und neu messen
+    diss-isoliert:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.493 (0,96/Tag) · Häme 1.091 (Häme-Quote 31,2 %) · kein Disstrack möglich an: kein_titel 116, sperre 2
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,865 (kleinster 0,500, größter 1,413) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,031 (kleinster 1,004, größter 1,413)
+      Ø Wucht beim Disstrack: Ø 0,045 (kleinster 0,007, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.168 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 1,012 (3.650 Tage, kleinster 0,613, größter 1,682)
+    sieg-farm:
+      Anstacheln: 692 bezahlte Versuche in 3.650 Tagen (0,19/Tag) · Einstieg 279 (Einstiegsquote 40,3 %) · Blamage 413 (59,7 %) · Ø gewürfelte Einstiegschance 40,4 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 559, zu_frisch 797
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 131
+      Disstracks 276 (0,08/Tag) · Häme 5 (Häme-Quote 1,8 %) · kein Disstrack möglich an: kein_titel 12
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 1,040 (kleinster 0,500, größter 1,065) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,050 (kleinster 1,033, größter 1,065)
+      Ø Wucht beim Disstrack: Ø 0,145 (kleinster 0,097, größter 0,190) · Ø Hitze beim Disstrack: Ø 18,7 (kleinster 13,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,62 (höchstens 2)
+      Gegenschläge 93 · Abrechnungen 392: Sieg 257 (Siegquote 65,6 %) · Niederlage 135 (34,4 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 262 von 392 (Sieg 257 · Niederlage 5 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 169× · 0:1 135× · 2:0 88×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,479 (1.392 Tage, kleinster 0,647, größter 1,700) · im Niederlagenfenster 0,941 (739 Tage, kleinster 0,623, größter 1,700) · ohne Fenster 1,171 (1.519 Tage, kleinster 0,644, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1487 (kleinster 0,1004, größter 0,1900) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 40,4 % · Ø Reichweite des Gegners 674.362
+      Sieg-Farm, eigene Fronten: 279 angestachelt und eingestiegen · 276 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.171 · beide Fronten belegt 808
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 0 von 276 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.493 (nicht null ✔), Anstacheln 39 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 276 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,1898 (0 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 262 (nicht null ✔)
+
+==================== ROHAUSGABE 5c LAUF 3: DISS_AUFMERK 0,00 (Faktor ganz aus) ====================
+
+  Musik+Creator: Strategie "Follower zuerst +1B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,00
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          376.276/Tag   [356.349 … 380.720]   1.895.370 Follower, 110.628 Hörer · Hype 1,03 · Energie Ø 12 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +0,9 % · je Seed (gepaart) Median +3,7 %, Spanne −17,6 % … +21,9 %, 6 von 10 Seeds im Plus
+      je Seed: −1,5 % · +9,9 % · −17,6 % · +21,9 % · −3,6 % · +5,3 % · +2,1 % · +18,5 % · −16,8 % · +20,2 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +7,0 % · je Seed (gepaart) Median +1,6 %, Spanne −29,4 % … +33,6 %, 5 von 10 Seeds im Plus
+      je Seed: −23,2 % · +3,7 % · −29,4 % · −9,3 % · +8,3 % · +23,6 % · −18,0 % · +25,4 % · −0,6 % · +33,6 %
+      gegen „ohne Beef, Album": Mediane −85,5 % · je Seed (gepaart) Median −85,3 %, Spanne −89,8 % … −80,4 %, 0 von 10 Seeds im Plus
+      je Seed: −88,4 % · −84,0 % · −89,8 % · −86,7 % · −80,4 % · −82,6 % · −89,5 % · −81,2 % · −81,6 % · −87,1 %
+    sieg-farm              402.269/Tag   [385.573 … 470.505]   3.357.144 Follower, 582.352 Hörer · Hype 1,15 · Energie Ø 12 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +7,9 % · je Seed (gepaart) Median +15,2 %, Spanne −7,8 % … +52,9 %, 9 von 10 Seeds im Plus
+      je Seed: +5,7 % · +19,6 % · +20,2 % · +52,9 % · +33,6 % · +10,8 % · +32,9 % · −7,8 % · +3,5 % · +1,3 %
+      gegen „passiv": Mediane +29,9 % · je Seed (gepaart) Median +26,5 %, Spanne +1,7 % … +75,0 %, 10 von 10 Seeds im Plus
+      je Seed: +27,9 % · +21,0 % · +68,4 % · +59,8 % · +75,0 % · +11,5 % · +58,9 % · +25,1 % · +1,7 % · +14,9 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +14,4 % · je Seed (gepaart) Median +12,7 %, Spanne −17,6 % … +50,1 %, 8 von 10 Seeds im Plus
+      je Seed: −17,6 % · +12,8 % · +3,0 % · +13,8 % · +50,1 % · +30,0 % · +6,6 % · −2,5 % · +23,7 % · +12,6 %
+      Quellen diss-isoliert:          Merch 211.647/Tag (56 %) · Tantiemen 105.459/Tag (28 %) · Twitch 36.885/Tag (10 %) · YouTube 12.333/Tag (3 %) · Instagram 6.062/Tag (2 %) · Konzert 6.009/Tag (2 %) · Vorfall -2.491/Tag (-1 %)
+      Quellen sieg-farm:              Merch 234.890/Tag (58 %) · Tantiemen 121.315/Tag (30 %) · Twitch 39.702/Tag (10 %) · Konzert 13.445/Tag (3 %) · YouTube 13.368/Tag (3 %) · Instagram 6.174/Tag (2 %) · Vorfall -4.301/Tag (-1 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,12 [1,11 … 1,14] · passiv 1,00 [0,96 … 1,03] · aktiv 0,89 [0,87 … 0,92] · Album 1,12 [1,09 … 1,14] · diss-isoliert 0,97 [0,95 … 1,00] · sieg-farm 1,24 [1,19 … 1,35]
+      Tagesleistung Ø/Tag: diss-isoliert 12,53 Kanalaktionen · 0,96 Veröffentlichungen · 0,22 Konzerte (gegen ohne Beef: −0,2 % Kanalaktionen, +1,4 % Veröffentlichungen) → sieg-farm 12,27 · 0,94 · 0,22 (gegen ohne Beef: −2,3 % Kanalaktionen, −0,9 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,95/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,071/Tag – 7,6 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +0,9 %, gepaart +3,7 % → nicht erreicht
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +7,9 %, gepaart +15,2 % → nicht erreicht
+    diss-isoliert:
+      Anstacheln: 40 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,0 %) · Blamage 30 (75,0 %) · Ø gewürfelte Einstiegschance 21,1 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 33
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.470 (0,95/Tag) · Häme 955 (Häme-Quote 27,5 %) · kein Disstrack möglich an: kein_titel 139, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,862 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,058 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,6 (kleinster 19,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.210 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 0,998 (3.650 Tage, kleinster 0,613, größter 1,581)
+    sieg-farm:
+      Anstacheln: 555 bezahlte Versuche in 3.650 Tagen (0,15/Tag) · Einstieg 263 (Einstiegsquote 47,4 %) · Blamage 292 (52,6 %) · Ø gewürfelte Einstiegschance 42,5 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 401, zu_frisch 894
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 126
+      Disstracks 260 (0,07/Tag) · Häme 10 (Häme-Quote 3,8 %) · kein Disstrack möglich an: kein_titel 15
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,981 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,146 (kleinster 0,094, größter 0,205) · Ø Hitze beim Disstrack: Ø 18,7 (kleinster 7,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,60 (höchstens 2)
+      Gegenschläge 104 · Abrechnungen 374: Sieg 238 (Siegquote 63,6 %) · Niederlage 131 (35,0 %) · Unentschieden 5 (1,3 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 249 von 374 (Sieg 238 · Niederlage 6 · Unentschieden 5) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 144× · 0:1 131× · 2:0 94× · 1:1 5×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,487 (1.291 Tage, kleinster 0,647, größter 1,700) · im Niederlagenfenster 0,931 (685 Tage, kleinster 0,613, größter 1,700) · ohne Fenster 1,154 (1.674 Tage, kleinster 0,617, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1479 (kleinster 0,1004, größter 0,1900) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 42,5 % · Ø Reichweite des Gegners 571.829
+      Sieg-Farm, eigene Fronten: 263 angestachelt und eingestiegen · 260 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.285 · beide Fronten belegt 786
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 1 von 260 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.470 (nicht null ✔), Anstacheln 40 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 260 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,2048 (1 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 249 (nicht null ✔)
+
+  nur Musik: Strategie "Ertrag je Zeit +0B" (Suche ohne Beef, wie in 5a), 10 Läufe à 365 Tage, Würfel rng(1000+i), Beefwürfe rng(701000+i), DISS_AUFMERK 0,00
+
+    ---- Stück 5c: zwei bisher ungemessene Spielweisen ----
+    diss-isoliert          120.570/Tag   [107.031 … 140.705]   1.001.474 Follower, 127.000 Hörer · Hype 0,87 · Energie Ø 100 %
+      Vergleichsgrundlage ist „ohne Beef" (die Zeile oben, unverändert): In ihr ist
+      `anzaehlen` seit dem ersten Lauf ebenfalls stillgelegt – die Hülle gibt null zurück,
+      bevor sie würfelt. Damit unterscheiden sich die zwei Läufe in genau einer Sache:
+      „Disstrack statt Single". Eine EIGENE Grundlage gibt es nicht, weil sie Zahl für Zahl
+      diese wäre; die Kontrollzeilen unten zeigen für beide Seiten, dass niemand anzählt.
+      Der Unterschied zur Zeile „aktiv gegen ohne Beef" liegt deshalb nicht in der
+      Grundlage, sondern in der Variante: „aktiv" wird angezählt, „diss-isoliert" nicht.
+      gegen „ohne Beef": Mediane +14,9 % · je Seed (gepaart) Median +26,3 %, Spanne −13,5 % … +81,3 %, 6 von 10 Seeds im Plus
+      je Seed: +46,1 % · −13,5 % · +40,2 % · +52,8 % · +41,0 % · −13,1 % · +81,3 % · +12,4 % · −2,3 % · −1,1 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +18,1 % · je Seed (gepaart) Median +7,0 %, Spanne −7,7 % … +34,0 %, 7 von 10 Seeds im Plus
+      je Seed: +1,2 % · +6,0 % · +26,6 % · +34,0 % · +17,0 % · −1,0 % · +19,5 % · −7,7 % · −0,8 % · +8,1 %
+      gegen „ohne Beef, Album": Mediane −95,7 % · je Seed (gepaart) Median −95,6 %, Spanne −97,9 % … −90,0 %, 0 von 10 Seeds im Plus
+      je Seed: −95,9 % · −94,6 % · −95,3 % · −94,7 % · −90,0 % · −97,9 % · −90,7 % · −96,1 % · −97,0 % · −97,3 %
+    sieg-farm              173.789/Tag   [143.070 … 190.272]   1.294.390 Follower, 737.181 Hörer · Hype 1,69 · Energie Ø 99 %
+      Vergleichsgrundlagen der Sieg-Farm sind „passiv" (dieselbe Anzähl-Belastung, denn
+      `anzaehlen` bleibt hier lebendig) und „ohne Beef" (das Spiel vor 1.40.0).
+      gegen „ohne Beef": Mediane +65,6 % · je Seed (gepaart) Median +71,2 %, Spanne +8,2 % … +134,5 %, 10 von 10 Seeds im Plus
+      je Seed: +91,2 % · +48,4 % · +91,0 % · +8,2 % · +75,7 % · +66,8 % · +78,0 % · +10,7 % · +36,5 % · +134,5 %
+      gegen „passiv": Mediane +131,6 % · je Seed (gepaart) Median +121,1 %, Spanne +1,4 % … +246,3 %, 10 von 10 Seeds im Plus
+      je Seed: +136,4 % · +87,9 % · +151,8 % · +1,4 % · +171,3 % · +115,5 % · +126,6 % · +61,7 % · +85,6 % · +246,3 %
+      gegen „aktiv (Beef-Spielweise)": Mediane +70,3 % · je Seed (gepaart) Median +42,2 %, Spanne −9,1 % … +156,1 %, 8 von 10 Seeds im Plus
+      je Seed: +32,4 % · +81,8 % · +72,4 % · −5,1 % · +45,7 % · +90,0 % · +17,3 % · −9,1 % · +38,6 % · +156,1 %
+      Quellen diss-isoliert:          Tantiemen 117.153/Tag (97 %) · Konzert 7.009/Tag (6 %) · Vorfall -121/Tag (0 %)
+      Quellen sieg-farm:              Tantiemen 152.958/Tag (88 %) · Konzert 16.317/Tag (9 %) · Vorfall -767/Tag (0 %)
+      Ø Hype über ALLE Tage (Median der Seeds, Spanne der Seeds), HYPE_MAX 1,70: ohne Beef 1,13 [1,11 … 1,14] · passiv 1,02 [0,95 … 1,04] · aktiv 0,90 [0,87 … 0,93] · Album 1,16 [1,14 … 1,19] · diss-isoliert 0,97 [0,95 … 1,00] · sieg-farm 1,27 [1,18 … 1,33]
+      Tagesleistung Ø/Tag: diss-isoliert 0,00 Kanalaktionen · 0,97 Veröffentlichungen · 0,23 Konzerte (gegen ohne Beef: −100,0 % Kanalaktionen, +1,9 % Veröffentlichungen) → sieg-farm 0,00 · 0,95 · 0,22 (gegen ohne Beef: −100,0 % Kanalaktionen, +0,1 % Veröffentlichungen)
+      davon Disstracks: diss-isoliert 0,96/Tag – 98,9 % aller Veröffentlichungen · sieg-farm 0,076/Tag – 8,0 % aller Veröffentlichungen
+      Auslöser „über +25 %" (Plan, Task 5) für diss-isoliert: Mediane +14,9 %, gepaart +26,3 % → ERREICHT, DISS_AUFMERK senken und neu messen
+      Auslöser „über +25 %" (Plan, Task 5) für sieg-farm: Mediane +65,6 %, gepaart +71,2 % → ERREICHT, DISS_AUFMERK senken und neu messen
+    diss-isoliert:
+      Anstacheln: 39 bezahlte Versuche in 3.650 Tagen (0,01/Tag) · Einstieg 10 (Einstiegsquote 25,6 %) · Blamage 29 (74,4 %) · Ø gewürfelte Einstiegschance 21,2 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 31
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 0
+      Disstracks 3.497 (0,96/Tag) · Häme 1.087 (Häme-Quote 31,1 %) · kein Disstrack möglich an: kein_titel 113, sperre 1
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,845 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,051 (kleinster 0,008, größter 0,794) · Ø Hitze beim Disstrack: Ø 95,5 (kleinster 1,0, größter 100,0)
+      Ø offene Fronten im Moment des Disstracks: 1,00 (höchstens 2)
+      Gegenschläge 1.186 · Abrechnungen 0: Sieg 0 (Siegquote – (0 Fälle)) · Niederlage 0 (– (0 Fälle)) · Unentschieden 0 (– (0 Fälle))
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 0 von 0 (Sieg 0 · Niederlage 0 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: keine
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster keine solchen Tage · im Niederlagenfenster keine solchen Tage · ohne Fenster 1,008 (3.650 Tage, kleinster 0,613, größter 1,682)
+    sieg-farm:
+      Anstacheln: 683 bezahlte Versuche in 3.650 Tagen (0,19/Tag) · Einstieg 278 (Einstiegsquote 40,7 %) · Blamage 405 (59,3 %) · Ø gewürfelte Einstiegschance 40,9 %
+      ohne Zeitkosten abgelehnt (vor der Buchung): gesperrt 526, zu_frisch 831
+      von selbst angezählt (nach einer Chart-Platzierung, 6 % je Platzierung): 133
+      Disstracks 277 (0,08/Tag) · Häme 9 (Häme-Quote 3,2 %) · kein Disstrack möglich an: kein_titel 14
+      Ø Aufmerksamkeitsfaktor über ALLE Disstracks: Ø 0,984 (kleinster 0,500, größter 1,000) · ohne die Häme-Fälle (die zahlen fest 0,50): Ø 1,000 (kleinster 1,000, größter 1,000)
+      Ø Wucht beim Disstrack: Ø 0,144 (kleinster 0,098, größter 0,189) · Ø Hitze beim Disstrack: Ø 18,7 (kleinster 7,0, größter 19,0)
+      Ø offene Fronten im Moment des Disstracks: 1,60 (höchstens 2)
+      Gegenschläge 87 · Abrechnungen 398: Sieg 258 (Siegquote 64,8 %) · Niederlage 140 (35,2 %) · Unentschieden 0 (0,0 %)
+      davon Fronten, in die dieser Spieler je einen Disstrack gesteckt hat: 267 von 398 (Sieg 258 · Niederlage 9 · Unentschieden 0) – der Rest wurde nie beantwortet und geht mit 0:1 aus
+      Rundenstand bei der Abrechnung: 1:0 174× · 0:1 140× · 2:0 84×
+      Ø Hype am Beeftag, getrennt nach dem Bonusfenster (HYPE_MAX 1,70): im Siegfenster 1,488 (1.380 Tage, kleinster 0,647, größter 1,700) · im Niederlagenfenster 0,942 (721 Tage, kleinster 0,620, größter 1,700) · ohne Fenster 1,170 (1.549 Tage, kleinster 0,644, größter 1,700)
+      Sieg-Farm, gewähltes Ziel: Ø Wucht Ø 0,1481 (kleinster 0,1004, größter 0,1900) (Bedingung: unter 0,19 = 95 % von KONTER_LAECHERLICH 0,20) · Häme Ø 0,0462 (kleinster 0,0462, größter 0,0462) (Bedingung: der kleinste Wert, den haemeOf für irgendein Ziel hergibt – für Pop 0,0462 und NICHT 0) · Ø Einstiegschance 40,9 % · Ø Reichweite des Gegners 693.204
+      Sieg-Farm, eigene Fronten: 278 angestachelt und eingestiegen · 277 davon bedisst · Disstracks je Front höchstens 1 (die Farm verlangt genau 1)
+      Sieg-Farm, Tage ohne Anstacheln: kein Kandidat im sicheren Fenster 1.149 · beide Fronten belegt 803
+      Sieg-Farm, Disstracks, deren Wucht bis zum Schlag über KONTER_LAECHERLICH 0,20 gestiegen ist: 0 von 277 – bei ihnen holt sein Gegenschlag die Runde, der Ausgang steht dann nicht mehr fest
+      KONTROLLE Grundlage „ohne Beef" (für diss-isoliert): kein einziger Beef, kein Gegenschlag, keine Abrechnung, keine Anzählung ✔
+      KONTROLLE „diss-isoliert": angezählt 0 (erwartet 0, `anzaehlen` stillgelegt wie in „ohne Beef" ✔), Disstracks 3.497 (nicht null ✔), Anstacheln 39 (mindestens ein Einstieg ✔), Abrechnungen 0 (keine Null, die verschwiegen wird: die eine Front wird jeden Tag neu bedisst und damit auf HITZE_MAX gehalten – sie kühlt nie aus, also wird sie nie abgerechnet; Ø offene Fronten im Moment des Disstracks 1,00)
+      KONTROLLE „sieg-farm": Disstracks 277 (nicht null ✔), höchstens 1 je Front (erwartet 1 ✔), größte Wucht beim Disstrack 0,1893 (0 davon über KONTER_LAECHERLICH 0,20 – gezählt, nicht weggerundet), gewählte Häme-Wahrscheinlichkeit 0,0462 … 0,0462 (der Boden von haemeOf für dieses Genre, NICHT 0 – deshalb ist die Häme-Quote unten nicht null, sondern gewürfelt), eigene Fronten abgerechnet 267 (nicht null ✔)
+
+==================== WAS DABEI HERAUSKAM (5c) ====================
+
+(0) **Die Kontrollen vorweg.** Alle drei Kontrollzeilen stehen in allen sechs Blöcken (zwei
+    Archetypen × drei Läufe) auf ✔: die Grundlage „ohne Beef" ohne einen einzigen Beef, Gegenschlag,
+    ohne Abrechnung und ohne Anzählung; „diss-isoliert" mit **angezählt 0** und trotzdem 3.491 bzw.
+    3.494 Disstracks; die Sieg-Farm mit **höchstens 1 Disstrack je Front**, mit einer gewählten
+    Häme-Wahrscheinlichkeit von genau 0,0462 in jedem Fall und mit 266 bzw. 268 abgerechneten eigenen
+    Fronten. Dazu die Wiederholbarkeitsprobe oben: 96 von 96 committeten Zeilen zeichengleich, in
+    allen drei Läufen.
+
+(1) **Der Disstrack allein ist mehr wert als 5b gemessen hat – beim reinen Musiker deutlich.**
+    Mit stillgelegtem `anzaehlen` auf beiden Seiten bleibt als Unterschied nur „Disstrack statt
+    Single", und der bringt:
+
+      Musik+Creator  408.312/Tag gegen 372.788 → **+9,5 %** (Mediane), **+14,3 %** (gepaart je Seed),
+                     Spanne −5,8 % … +57,7 %, **9 von 10 Seeds im Plus**
+      nur Musik      134.570/Tag gegen 104.965 → **+28,2 %** (Mediane), **+45,5 %** (gepaart),
+                     Spanne −7,6 % … +122,2 %, **8 von 10 Seeds im Plus**
+
+    Die Zahl von 5b (+0,9 % / −0,6 % bzw. +7,1 % / +15,4 %) war damit tatsächlich das Netto aus zwei
+    Wirkungen. Was die Anzähl-Fenster kosten, steht direkt daneben: diss-isoliert gegen „aktiv"
+    **+8,5 %** (gepaart +12,2 %) bei Musik+Creator und **+19,7 %** (gepaart +5,9 %) bei nur Musik.
+
+    Bezahlt wird das nicht mit Zeit: 12,56 → 12,50 Kanalaktionen am Tag (−0,4 %) und 0,95 → 0,97
+    Veröffentlichungen (+2,0 %); beim reinen Musiker +1,8 % Veröffentlichungen. Der Disstrack belegt
+    **98,9 %** aller Veröffentlichungen, genau wie in 5b. Bezahlt wird mit Hörern und Hype:
+    112.450 bzw. 132.454 Hörer am Jahresende gegen 587.277 bzw. 579.842 ohne Beef, und der Ø Hype
+    über ALLE Tage liegt bei **0,97** in beiden Archetypen gegen 1,12 bzw. 1,13 ohne Beef.
+
+    Die Zähler dieser Variante: Einstiegsquote 25,0 % bzw. 25,6 % bei Ø gewürfelter Chance 21,1 %
+    bzw. 21,2 % · Häme-Quote **30,8 %** bzw. **32,1 %** · Ø Aufmerksamkeitsfaktor über alle
+    Disstracks **0,891** bzw. **0,879**, also weiter UNTER 1 · Ø Wucht 0,047 bzw. 0,042.
+    **Siegquote: keine einzige Abrechnung** (0 Fälle) – dazu Befund (2).
+
+(2) **Die Sieg-Farm sieht den Sieg, und `BONUS_SIEG` zahlt.** Dieselbe Code-Basis, dieselben Seeds,
+    eine andere Spielweise – und aus 0,0 % Siegquote über 718 Abrechnungen wird:
+
+      Musik+Creator  393 Abrechnungen: Sieg 257 (**Siegquote 65,4 %**) · Niederlage 134 (34,1 %) ·
+                     Unentschieden 2 (0,5 %) – von den eigenen, bedissten Fronten **257 von 266**
+      nur Musik      385 Abrechnungen: Sieg 259 (**67,3 %**) · Niederlage 124 (32,2 %) ·
+                     Unentschieden 2 (0,5 %) – eigene Fronten **259 von 268**
+      Rundenstand    1:0 169× · 0:1 134× · 2:0 88× · 1:1 2× (Musik+Creator)
+
+    Die 134 bzw. 124 Niederlagen sind fast alle die Fronten aus fremdem Anlass: 127 bzw. 119
+    Anzählungen, die die Farm nicht beantwortet und die mit 0:1 ausgehen – von den eigenen Fronten
+    gingen nur 7 verloren. Der Unterschied zu 5b ist keine Änderung am Code und kein anderer Würfel,
+    sondern ausschließlich die Reihenfolge der Züge: EIN Disstrack, dann auskühlen lassen.
+
+    Und die Spielweise verdient:
+
+      Musik+Creator  407.082/Tag → gegen „ohne Beef" **+9,2 %** (gepaart +14,4 %, 7 von 10 Seeds im
+                     Plus), gegen „passiv" +31,4 % (gepaart +27,6 %, 10 von 10)
+      nur Musik      169.188/Tag → gegen „ohne Beef" **+61,2 %** (gepaart **+75,5 %**, Spanne
+                     +32,3 % … +158,4 %, **10 von 10 Seeds im Plus**), gegen „passiv" +125,4 %
+                     (gepaart +118,7 %, 10 von 10)
+
+    Das ist die erste Beef-Spielweise dieser Messung, die dem Spieler auch HÖRER bringt: 703.896 bzw.
+    **770.662** Hörer am Jahresende gegen 587.277 bzw. 579.842 ohne Beef – und gegen 114.390 bzw.
+    128.657 des Dauerstreiters. Sie kostet dabei praktisch nichts: 12,23 Kanalaktionen (−2,6 %) und
+    0,95 Veröffentlichungen (−0,1 %), der Disstrack belegt nur **8,2 %** aller Veröffentlichungen
+    (0,078 bzw. 0,077 am Tag).
+
+    Der Grund steht in den Zählern: Die Farm tritt nie nach unten (Ø Wucht beim Disstrack 0,146, Ø
+    Reichweite des Gegners 640.747 bzw. 690.031), also ist ihr Ø Aufmerksamkeitsfaktor mit **1,079**
+    der einzige über 1 in dieser ganzen Messung, ihre Häme-Quote liegt bei **3,5 %** statt 30,8 %,
+    und ihre Einstiegsquote bei **44,7 %** bzw. 41,3 % statt 25,0 %, weil das Ziel nach `einstiegOf`
+    gewählt wird.
+
+(3) **`haemeOf` klemmt für einen Pop-Künstler NICHT auf 0 – der Boden ist 0,0462.** Das war die
+    Annahme, mit der die Sieg-Farm gebaut wurde, und sie ist falsch:
+    `Math.log10(Math.max(1, meine / seine)) / 3` klemmt das GRÖSSENVERHÄLTNIS bei 1, nicht den
+    Logarithmus bei 0. Der erste Summand verschwindet damit bei jedem Gegner, der mindestens so groß
+    ist wie ich – der Genre-Summand `0,2 × (1 − genrefaktor)` bleibt stehen. Gemessen: In allen sechs
+    Blöcken liegt die gewählte Häme-Wahrscheinlichkeit bei 0,0462 … 0,0462, und gewürfelt sind daraus
+    3,5 % Häme (10 von 283 bzw. 10 von 282 Disstracks).
+
+    Aus den Konstanten gerechnet (`risk` aus `src/data/music.js`, Formel aus `src/beef.js`; das ist
+    eine Herleitung und keine Messung, gemessen ist nur die Zeile für Pop): Der Boden ist
+    0,2 × (1 − risk/1,3), also Hip-Hop 0 · Japanpop 0,0308 · Pop 0,0462 · Rock 0,0615 ·
+    Elektro und Metal 0,0769 · Indie 0,0923 · Klassik 0,1231. Nur in Hip-Hop ist ein Disstrack
+    hämefrei möglich. Wer das für eine Absicht hält, hat damit eine Genre-Eigenschaft, die nirgends
+    dokumentiert war.
+
+(4) **Der Auslöser des Plans ist erreicht – und `DISS_AUFMERK` ist nicht das Stellrad.**
+    Alle Zahlen gegen „ohne Beef", Mediane / gepaart je Seed:
+
+      DISS_AUFMERK   diss-isoliert M+C   diss-isoliert nur Musik   sieg-farm M+C      sieg-farm nur Musik
+      1,50           +9,5 % / +14,3 %    **+28,2 % / +45,5 %**     +9,2 % / +14,4 %   **+61,2 % / +75,5 %**
+      0,75           +10,9 % / +7,4 %    **+25,8 % / +45,9 %**     +6,3 % / +8,8 %    **+44,0 % / +57,1 %**
+      0,00           +0,9 % / +3,7 %     +14,9 % / **+26,3 %**     +7,9 % / +15,2 %   **+65,6 % / +71,2 %**
+
+    Für **Musik+Creator** ist der Auslöser („über +25 %") in keiner der neun Zahlen erreicht.
+    Für **nur Musik** ist er in ALLEN DREI Läufen und für BEIDE Spielweisen erreicht – auch bei
+    `DISS_AUFMERK` **0,00**, wo die Aufmerksamkeit konstant 1,0 ist und der Disstrack nur noch eine
+    `spike`-3,0-Veröffentlichung mit `growth` 0,4 ist. Die Skriptausgabe schreibt das an beiden
+    Stellen hin („ERREICHT, DISS_AUFMERK senken und neu messen").
+
+    Was das Senken bewirkt:
+      * diss-isoliert, nur Musik: gepaart +45,5 % → +45,9 % → **+26,3 %**. Der Faktor bewegt die Zahl
+        also, aber er bringt sie nicht unter die Schwelle, und zwischen 1,50 und 0,75 bewegt er sie in
+        die falsche Richtung.
+      * sieg-farm, nur Musik: gepaart +75,5 % → +57,1 % → **+71,2 %**. Nicht monoton, also bei dieser
+        Streuung Rauschen: Der Faktor ist hier **kein** Stellrad.
+    Das ist mechanisch auch zu erwarten: Die Sieg-Farm holt ihren Zuwachs über den Ausgang
+    (`BONUS_SIEG` 1,25 auf den Hype, sieben Tage lang), nicht über die Aufmerksamkeit – ihr
+    Aufmerksamkeitsfaktor ist 1,079, und der Disstrack belegt nur 8,2 % ihrer Veröffentlichungen.
+    Bei diss-isoliert trägt den Unterschied der Veröffentlichungsplatz: 98,9 % aller
+    Veröffentlichungen sind Disstracks mit `spike` 3,0 statt Singles mit 1,0, und `spike` zählt im
+    Buzz zweimal (`audience` und `buzz = audience × 9 × spike`). `spike` steht in
+    `src/data/music.js`.
+
+    **Geändert wurde nichts.** `src/data/beef.js` steht unverändert auf `DISS_AUFMERK` 1,5; die drei
+    Läufe oben haben den Wert nur über die Kommandozeile überschrieben. Welche Zahl gesenkt wird –
+    und ob – ist eine Balancing-Entscheidung und gehört dem Besitzer des Projekts. Diese Messung sagt
+    dazu nur: `DISS_AUFMERK` erreicht das Ziel nicht.
+
+(5) **Der Hype: das Siegfenster erreicht die Decke, klebt aber nicht an ihr.** Gemessen am Beeftag,
+    getrennt nach dem Fenster, in dem der Tag lag (Musik+Creator / nur Musik):
+
+      im Siegfenster          Ø **1,472** (1.374 Tage) / Ø **1,488** (1.385 Tage) – größter Wert
+                              jeweils **1,700**, also genau `HYPE_MAX`
+      ohne Fenster            Ø 1,153 (1.552 Tage) / Ø 1,170 (1.606 Tage)
+      im Niederlagenfenster   Ø 0,936 (724 Tage) / Ø 0,949 (659 Tage)
+
+    Der Ø Hype über ALLE Tage ist bei der Sieg-Farm mit **1,26** bzw. **1,25** der höchste aller
+    sechs Varianten (ohne Beef 1,12 / 1,13 · passiv 1,00 / 1,02 · aktiv 0,88 / 0,89 · Album 1,12 /
+    1,16 · diss-isoliert 0,97 / 0,97), und am letzten Tag des Laufs steht er im Median bei
+    **1,70** – auf der Decke. Die Deckel-Behauptung ist damit zur Hälfte bestätigt: Die Decke wird
+    im Siegfenster wirklich erreicht, aber der Mittelwert im Fenster ist 1,472 bzw. 1,488 und nicht
+    1,700, und der „natürliche" Wert an Tagen ohne Fenster ist 1,153 bzw. 1,170 und nicht 1,05.
+
+(6) **Die Rangfolge der Spielweisen (nur Musik, Mediane je Tag) ist unverändert von der
+    Veröffentlichungspolitik bestimmt:** ohne Beef mit Album 2.806.466 ≫ sieg-farm 169.188 >
+    diss-isoliert 134.570 > aktiv 112.427 > ohne Beef 104.965 > passiv 75.051. Für Musik+Creator:
+    Album 2.590.231 ≫ diss-isoliert 408.312 ≈ sieg-farm 407.082 ≈ aktiv 376.192 ≈ ohne Beef 372.788
+    > passiv 309.694. Die Album-Spielweise bleibt also um Größenordnungen der stärkste Hebel, und
+    sie hat mit dem Beef nichts zu tun (diss-isoliert gegen sie: −84,2 % bzw. −95,2 %; für die
+    Sieg-Farm druckt das Skript diese Differenz nicht, deshalb steht hier keine).
+
+==================== EHRLICHE GRENZEN (5c) ====================
+
+(a) **Die Streuung ist wieder größer als der Effekt, mit einer Ausnahme.** Sauber ist nur die
+    Sieg-Farm beim reinen Musiker: 10 von 10 Seeds im Plus, Spanne +32,3 % … +158,4 %; die Richtung
+    steht, die Größe nicht. diss-isoliert Musik+Creator (−5,8 % … +57,7 %, 9 von 10) stützt die
+    Richtung, nicht die Größe. Wer genauere Größen will, braucht mehr Seeds.
+
+(b) **„diss-isoliert" ist kein Spielzustand, sondern eine Messvariante.** Kein Spieler kann
+    `anzaehlen` abschalten. Die Zahl sagt, was der Disstrack als Veröffentlichung wert ist – nicht,
+    was ein Spieler verdient, der ihn drückt. Was er verdient, steht in 5b („aktiv").
+
+(c) **Der Disstrack zieht seine Veröffentlichungswürfe aus dem Beefwürfel, die Single aus dem
+    Hauptstrom.** An einem Disstrack-Tag zieht der Hauptstrom die Würfe der Veröffentlichung also
+    nicht, und die Läufe laufen ab dem ersten Disstrack auseinander. Das ist die Bauweise von 5b (die
+    Beefwürfe gehören auf den Beefwürfel, sonst wäre die Differenz zur Hälfte ein anderer Würfel) und
+    lässt sich nicht beides haben. Deshalb steht bei jeder Zahl die gepaarte neben der Mediane und
+    die Spanne bei beiden.
+
+(d) **Die Sieg-Farm hängt am Kontaktkatalog.** An 1.123 bzw. 1.153 von 3.650 Tagen fand sie kein Ziel
+    im sicheren Fenster, an 835 bzw. 827 Tagen waren beide Fronten belegt – sie lässt also an mehr als
+    der Hälfte ihrer Tage die zwei Stunden liegen. Der Grund ist die Lücke in `src/data/contacts.js`
+    zwischen 41.000 und 350.000 Hörern Reichweite: Ein Spieler in dieser Größe findet keinen Gegner,
+    der mindestens so groß ist wie er und dessen Wucht unter 0,19 bleibt. Mit mehr Kontakten in dieser
+    Lücke wäre die Farm STÄRKER, nicht schwächer. Die gemessene Zahl ist damit eine Untergrenze für
+    diese Spielweise.
+
+(e) **Die Farm ist keine Garantie, sondern 257 von 266 bzw. 259 von 268.** Die Häme bleibt gewürfelt
+    (3,5 % der Disstracks), und bei 0 von 283 bzw. 1 von 282 Disstracks war die Wucht bis zum Schlag
+    über `KONTER_LAECHERLICH` 0,20 gestiegen – dann holt sein Gegenschlag die Runde.
+
+(f) **Der Hype-Pfad ist gemessen, nicht hergeleitet.** Siehe die Grenze am Ende der Handprüfung: Die
+    Würfe, die `record`, `publish` und `show` in den Hype tragen, stehen nicht im Trace.
+
+(g) **Nicht gemessen bleibt:** der Spieler, der Frieden anbietet; die Kombination „Album horten UND
+    Sieg-Farm" (Songs und Veröffentlichungsplatz sind geteilt, ein Disstrack-Tag kostet einen
+    Album-Tag); eine Sieg-Farm, die ihre freien Tage anders nutzt; und der reine Creator, der keinen
+    Disstrack hat. Diese Zahlen gibt es nicht und stehen deshalb nirgends.
+
+(h) **Die Sieg-Farm ist die beste gemessene, nicht die beste mögliche.** Sie wurde für diese Messung
+    geschrieben, nicht gesucht: eine Front, ein Disstrack, auskühlen, kein Frieden, keine Nutzung der
+    freien Tage. Ein erster Entwurf war schlechter (er hat eine zweite Front mit demselben Gegner für
+    „schon bedisst" gehalten und 301 von 545 Abrechnungen 0:0 ausgehen lassen); dieser Fehler ist
+    behoben, und die Kontrollzeile „höchstens 1 Disstrack je Front" ist die Antwort darauf.
