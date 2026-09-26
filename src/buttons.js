@@ -622,10 +622,14 @@ function beefNote(events) {
         + `${(e.treffer?.verloren ?? 0).toLocaleString('de-DE')} Hörer weg.`);
     } else if (e.art === 'ende') {
       const stand = `**${e.rundenIch}:${e.rundenEr}**`;
+      // Die Dauer kommt aus BONUS_TAGE, damit der Text nicht wieder von der
+      // Konstante abdriftet (siehe deren Änderung von 7 auf 1 im Balancing).
+      const tage = bdata.BONUS_TAGE;
+      const dauer = tage === 1 ? 'einen Tag' : `${tage} Tage`;
       const schluss = e.status === 'sieg'
-        ? `${stand} für dich. Die Straße redet – sieben Tage lang.`
+        ? `${stand} für dich. Die Straße redet – ${dauer} lang.`
         : e.status === 'niederlage'
-          ? `${stand} für ihn. Das sitzt eine Woche.`
+          ? `${stand} für ihn. Das sitzt ${dauer}.`
           : `${stand}. Keiner hat gewonnen.`;
       zeilen.push(`🔥 Der Beef mit **${name}** ist durch: ${schluss}`);
       if (e.text) zeilen.push(`_${e.text}_`);

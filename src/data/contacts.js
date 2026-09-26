@@ -11,14 +11,19 @@
  * src/contacts.js rechnet. Reine Daten, kein Zustand, keine Datenbank.
  *
  * ---------------------------------------------------------------------------
- *  Alles hier ist Spielfiktion
+ *  Echte Namen, erfundene Zahlen und Zeilen
  * ---------------------------------------------------------------------------
- * Die Namen sind Anklänge an bekannte Künstler, damit die Welt vertraut wirkt –
- * dazwischen stehen bewusst erfundene Quatsch-Namen als lokale Ebene. Die
- * Texte in LINES sind KEINE Zitate und geben niemandes Meinung wieder: Sie
- * handeln ausschließlich von Musik, Streams, Terminen und Zusammenarbeit.
- * Keine Aussagen zu realen Personen, Politik oder Weltgeschehen. Wer hier
- * etwas ergänzt, hält sich daran.
+ * Die meisten Einträge tragen den echten Namen einer realen Künstlerin, eines
+ * realen Künstlers oder Creators, damit die Welt vertraut wirkt – dazwischen
+ * stehen bewusst erfundene Quatsch-Namen als lokale Ebene (z. B. „Steffi
+ * Stream-Schnecke", „Der Timeline-Troll"). `reach`/`reachCreator` sind für
+ * ALLE Einträge Spielfiktion in einer plausiblen Größenordnung, keine
+ * recherchierten Werte. Die Texte in LINES sind KEINE Zitate und geben
+ * niemandes Meinung wieder: Sie handeln ausschließlich von Musik, Streams,
+ * Terminen und Zusammenarbeit – nichts über die Meinung, den Charakter, das
+ * Aussehen, die Herkunft (außer der Staatsangehörigkeit), die Familie, die
+ * Gesundheit oder das Privatleben der realen Person. Keine Aussagen zu
+ * Politik oder Weltgeschehen. Wer hier etwas ergänzt, hält sich daran.
  *
  * ---------------------------------------------------------------------------
  *  Abdeckung – eine Verpflichtung, kein Wunsch
@@ -52,8 +57,10 @@
  *   language      Sprache aus world.js (steuert die Passung am stärksten)
  *   genre         Genre aus music.js      – nur bei musik/beides
  *   reach         monatliche Hörer         – nur bei musik/beides
+ *                 (Spielfiktion in plausibler Größenordnung, nicht recherchiert)
  *   platform      Plattform aus creator.js – nur bei creator/beides
  *   reachCreator  Follower                 – nur bei creator/beides
+ *                 (dieselbe Spielfiktion wie `reach`)
  *   trait         Charakterzug: steuert Antwortchance (TRAIT_BONUS) und Ton
  *   blurb         ein Satz, der den Kontakt greifbar macht
  */
@@ -252,7 +259,8 @@ const RELATED_GENRES = [
 /**
  * Die Künstler und Creator, die man anschreiben kann. Sortiert nach Sprache,
  * damit die Abdeckung beim Lesen sichtbar bleibt. `reach` sind monatliche
- * Hörer, `reachCreator` sind Follower.
+ * Hörer, `reachCreator` sind Follower – beides Spielfiktion in plausibler
+ * Größenordnung, nicht recherchiert (siehe Kopf der Datei).
  */
 const CONTACTS = [
   // --- Deutsch -------------------------------------------------------------

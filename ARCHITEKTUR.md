@@ -1098,7 +1098,9 @@ denn „die Hörer, die bleiben, hängen am Growth". Das ist falsch, und
 `src/music.js` sagt warum: Die gewonnenen Hörer sind `audience × CONVERSION ×
 TEMPO × boost × type.growth × …`, und `audience` enthält seinerseits
 `type.spike`. Beide Zahlen zählen also zusammen, und der Buzz zählt `spike`
-sogar zweimal (`buzz = audience × 9 × spike`). Je **aufgenommenem Titel** –
+sogar zweimal (`buzz = audience × 9 × spike`, vereinfacht – der Code
+multipliziert zusätzlich mit `p.plays`, der Persona-Zahl, `src/music.js:467`).
+Je **aufgenommenem Titel** –
 Titel sind der Preis, den `songs` verlangt – steht damit (nachgerechnet aus
 `RELEASES` in `src/data/music.js`):
 
@@ -1159,7 +1161,8 @@ Musiker stand `sieg-farm` bei **+165,9 %** (gepaart) und `diss-isoliert` bei
   von `diss-isoliert`, weil dort 98,7 % aller Veröffentlichungen Disstracks sind.
 * `BONUS_TAGE` **7 → 1** (`src/data/beef.js`) – das ist der Hebel von `sieg-farm`,
   weil die ihren Zuwachs über das Hype-Fenster holt und der Disstrack bei ihr nur
-  15,1 % der Veröffentlichungen belegt.
+  14,2 % der Veröffentlichungen belegt (Endstand, nur Musik; 15,1 % war der
+  ältere 5d-Wert vor Nachtrag 5e).
 
 Eine dritte Zahl kam im Nachtrag danach hinzu, und zwar aus dem umgekehrten Grund –
 nicht weil eine Spielweise zu viel einbrachte, sondern weil das Aussitzen zu wenig
@@ -1299,7 +1302,7 @@ Spielweise des Messskripts, nicht über 5b: Die Zahlen der Archetypen oben messe
 die Rangfolge oben fortschreibt, muss das wissen.
 
 **Ehrliche Grenzen:** (1) **Der Rand ist nah, aber weniger nah als nach 5d.** Die
-Endeinstellung liegt mit +16,2 % achteinhalb Prozentpunkte unter dem Deckel (nach 5d
+Endeinstellung liegt mit +16,2 % 8,8 Prozentpunkte unter dem Deckel (nach 5d
 waren es +19,7 % und gut fünf), und `spike` 2,2 statt 2,1 riss ihn damals schon
 (+25,3 %, gemessen). Wer am Kontaktkatalog, an `ANZAEHL_CHANCE`, an `HYPE_MAX` oder
 an den Genres dreht, muss diese Messung wiederholen. (2) **Die Streuung ist größer
@@ -1316,14 +1319,30 @@ Die Zahlen der Spielweise „aktiv" gelten für genau eine Spielweise, und zwar 
 teure: jeden Tag ein Disstrack auf die heißeste Front, **kein Frieden**. **Nicht**
 gemessen sind der Spieler, der Frieden anbietet, und die Kombination „Album horten
 **und** Disstrack" – Songs und Veröffentlichungsplatz sind zwischen beiden geteilt.
-Auch die `sieg-farm` ist die beste **gemessene** und nicht die beste mögliche. (4)
+Auch **nicht gemessen** ist die Kombination aus Beef-Sieg und Kontakt-Zusage:
+Keine Beef-Variante des Messskripts setzt `strat.kontakte`
+(`scripts/messung-geldquellen.js:826` gegen die Variantenkonstruktion an
+`:2740-2752` – dort fehlt `kontakte: true`, anders als in der 5a-Kontaktmessung),
+also gab es in keinem gemessenen Beef-Jahr eine einzige 5a-Kontaktanfrage. Das ist
+kein Randfall: Eine `feature`-Zusage multipliziert denselben `audienceFactor` einer
+Veröffentlichung mit bis zu `kb.factor` **6** (`src/contacts.js:90`), den auch die
+Aufmerksamkeit des Disstracks speist (dort höchstens 2,5) – und anders als die
+Hype-Seite (`HYPE_MAX`) ist dieser Faktor auf einer einzelnen Veröffentlichung
+nicht gedeckelt. Was ein gewonnener Beef zusammen mit einer frischen
+Feature-Zusage bringt, ist damit **nicht gemessen**, und diese Messung schätzt es
+nicht. Auch die `sieg-farm` ist die beste **gemessene** und nicht die beste mögliche. (4)
 **`diss-isoliert` ist eine Messvariante und kein Spielzustand:** Kein Spieler kann
 `anzaehlen` abschalten. Die Zahl sagt, was der Disstrack als Veröffentlichung wert
 ist, nicht was ein Spieler verdient. (5) Der **reine Creator fehlt** – er hat keinen
 Disstrack. (6) Alles hängt an `ANZAEHL_CHANCE` (35 % je Chart-Platzierung, seit 5e):
 Wer nie chartet, sieht nie einen fremden Beef – und für ihn ist der ganze Abschnitt
 wirkungslos. Wie sich 83 Anzählungen im Jahr statt 20 anfühlen, ist **nicht**
-gemessen; gemessen ist nur, was sie kosten. (7) Ein Eingriff des Messwerkzeugs: Der
+gemessen; gemessen ist nur, was sie kosten. Ungenannt bisher: In derselben
+Sieg-Farm blockieren fremd geöffnete Fronten den eigenen 🔥-Anstacheln-Knopf mit
+dem Grund `zu_viele` („Zwei Beefs sind genug.") an 11.917 von 21.900 Tagen –
+**54,4 %**, also an rund jedem zweiten Tag (`docs/messungen/2026-09-26-beef.txt`,
+„Sieg-Farm, Tage ohne Anstacheln … beide Fronten belegt"). Auch das ist nur
+gezählt, nicht als Spielgefühl bewertet. (7) Ein Eingriff des Messwerkzeugs: Der
 Anzähl-Wurf läuft dort für „passiv" und „aktiv" auf dem Beefwürfel; für „ohne Beef"
 (und „Album") entfällt er ganz, statt gezogen und weggeworfen zu werden. (8) Die
 Strategie-Suchphase des Messskripts ist **nicht bit-stabil**: Zwei Aufrufe derselben

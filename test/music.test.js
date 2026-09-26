@@ -100,6 +100,15 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       music.release('diss').spike > music.release('single').spike
       && music.release('diss').growth < music.release('single').growth,
       JSON.stringify(music.release('diss')));
+    // §3: Der Geldrucker vom alten spike 3,0 hing daran, dass spike × growth
+    // des Disstracks über dem der Single lag (spike allein reicht als
+    // Zusicherung nicht, siehe die alte spike 3,0 / growth 0,4 = 1,20 gegen
+    // 1,0 × 1,0 = 1,00 der Single). Balancing vom 2026-09-26 hat spike auf
+    // 2,1 gesenkt, damit das Produkt wieder darunter liegt.
+    check('der Disstrack bringt weniger bleibende Hörer je Titel als eine Single (spike × growth)',
+      music.release('diss').spike * music.release('diss').growth
+      < music.release('single').spike * music.release('single').growth,
+      JSON.stringify({ diss: music.release('diss'), single: music.release('single') }));
     check('jedes Genre ist vollständig',
       music.GENRES.every((g) => g.id && g.name && g.emoji && g.reach > 0 && g.royalty > 0
         && g.live > 0 && g.blurb));

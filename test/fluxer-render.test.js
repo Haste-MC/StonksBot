@@ -1603,11 +1603,16 @@ function view(buttons) {
       enden.length === 3 && enden.every((e) => e.art === 'ende'),
       JSON.stringify(enden.map((e) => `${e.contactId}:${e.status}`)));
     const aNote = beefNote(enden);
-    check('Abrechnung: Sieg nennt den Stand und die sieben Tage',
-      aNote.includes(`🔥 Der Beef mit **${gross.name}** ist durch: **2:1** für dich. Die Straße redet – sieben Tage lang.`),
+    // Die Dauer kommt aus BONUS_TAGE, nicht aus einer festen Zahl im Test –
+    // sonst prüft der Test nur sich selbst, wenn Text und Konstante
+    // gemeinsam verrutschen (siehe die Korrektur von „sieben Tage"/„eine
+    // Woche" auf `BONUS_TAGE` 1 im Balancing vom 2026-09-26).
+    const dauer = bdata.BONUS_TAGE === 1 ? 'einen Tag' : `${bdata.BONUS_TAGE} Tage`;
+    check('Abrechnung: Sieg nennt den Stand und die Dauer aus BONUS_TAGE',
+      aNote.includes(`🔥 Der Beef mit **${gross.name}** ist durch: **2:1** für dich. Die Straße redet – ${dauer} lang.`),
       aNote);
-    check('Abrechnung: Niederlage sitzt eine Woche',
-      aNote.includes(`🔥 Der Beef mit **${klein.name}** ist durch: **1:2** für ihn. Das sitzt eine Woche.`),
+    check('Abrechnung: Niederlage sitzt dieselbe Dauer aus BONUS_TAGE',
+      aNote.includes(`🔥 Der Beef mit **${klein.name}** ist durch: **1:2** für ihn. Das sitzt ${dauer}.`),
       aNote);
     check('Abrechnung: unentschieden hat keinen Gewinner',
       aNote.includes('ist durch: **1:1**. Keiner hat gewonnen.'), aNote);

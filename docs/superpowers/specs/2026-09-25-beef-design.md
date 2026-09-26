@@ -337,7 +337,9 @@ ist genauso lang wie ohne Beef.
 - **Meldungen:** Anstacheln (Einstieg oder Blamage, mit dem Ton des Kontakts),
   Disstrack (Aufmerksamkeit oder Häme), der Gegenschlag beim nächsten
   Hinschauen, und die Abrechnung („🔥 Der Beef mit *Name* ist durch: 2:1 für
-  dich. Die Straße redet – sieben Tage lang.").
+  dich. Die Straße redet – einen Tag lang." – `BONUS_TAGE`, seit dem Balancing
+  vom 2026-09-26 auf 1 statt 7; der Text hängt in `beefNote`
+  (`src/buttons.js`) an dieser Konstante, damit er nicht wieder abdriftet).
 - **Texte** wie in 5a je Charakterzug, alles Spielfiktion: Musik, Zeilen,
   Termine. Keine Aussagen über die wirkliche Welt und keine Beleidigungen, die
   außerhalb des Spiels stehen könnten – der Disstrack ist eine Veröffentlichung
@@ -628,11 +630,17 @@ Veröffentlichungen Disstracks), `BONUS_TAGE` der von `sieg-farm` (dort belegt
 der Disstrack nur 15,1 % der Veröffentlichungen, der Zuwachs kommt aus dem
 Hype-Fenster). Gemessen, dass keine der beiden allein reicht:
 
-| Einstellung | `sieg-farm`, nur Musik, gepaart |
-|---|---|
-| `spike` 2,1 · `BONUS_TAGE` 7 | +95,2 % ✗ |
-| `spike` 3,0 · `BONUS_TAGE` 1 | +92,2 % ✗ |
-| `spike` 2,1 · `BONUS_TAGE` 1 | **+19,7 %** ✔ |
+| Einstellung | Läufe | `sieg-farm`, nur Musik, gepaart |
+|---|---|---|
+| `spike` 2,1 · `BONUS_TAGE` 7 (Kontrolle 2) | 60 | +95,2 % ✗ |
+| `spike` 3,0 · `BONUS_TAGE` 1 | **30** | +92,2 % ✗ |
+| `spike` 2,1 · `BONUS_TAGE` 1 (Endstand) | 60 | **+19,7 %** ✔ |
+
+Die mittlere Zeile ist die einzige mit nur 30 statt 60 Läufen (siehe
+`docs/messungen/2026-09-26-beef.txt`, Abschnitt „Nachtrag 5d" – dort steht die
+Läufezahl direkt hinter der Einstellung); bei 10 Seeds wackelt derselbe Punkt
+laut Ehrlichen Grenzen (2) unten um gut zehn Prozentpunkte, also ist sie nicht
+ohne Weiteres mit den zwei 60-Läufe-Zeilen vergleichbar.
 
 **Der Endstand** (60 Läufe à 365 Tage, Mediane / je Seed gepaart gegen
 „ohne Beef"; das 10- und das 30-Läufe-Protokoll stehen in der Messdatei daneben
