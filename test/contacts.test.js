@@ -43,6 +43,18 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
         m.length >= 4 && new Set(m.map((c) => c.language)).size >= 3 && m.some((c) => c.reach >= 100_000_000),
         `${m.length} Einträge, ${new Set(m.map((c) => c.language)).size} Sprachen`);
     }
+    // Das Mittelfeld: In jedem Genre muss es Kontakte in der eigenen Liga
+    // geben, sonst stehen dem Spieler nur Zwerge und Weltstars gegenüber – und
+    // Antwortchance (5a) wie Beef (5b) hängen am Größenverhältnis.
+    for (const g of musicData.GENRES) {
+      const reichweiten = musik.filter((c) => c.genre === g.id).map((c) => c.reach).sort((a, b) => a - b);
+      const baender = [[40_000, 200_000], [200_000, 1_000_000], [1_000_000, 5_000_000]];
+      const mitte = reichweiten.filter((r) => r >= 40_000 && r < 5_000_000);
+      check(`Genre ${g.id}: Mittelfeld besetzt (40k–200k, 200k–1 Mio, 1–5 Mio), keine Lücke über Faktor 10`,
+        baender.every(([lo, hi]) => reichweiten.some((r) => r >= lo && r < hi))
+        && mitte.every((r, i) => i === 0 || r / mitte[i - 1] <= 10),
+        mitte.join(' · '));
+    }
     for (const p of creatorData.PLATFORMS) {
       const cs = creator.filter((c) => c.platform === p.id);
       check(`Plattform ${p.id}: ≥ 3 Kontakte, ≥ 1 über 10 Mio`,
