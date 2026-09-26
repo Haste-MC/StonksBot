@@ -53,13 +53,15 @@ Damit die Differenz den Beef misst und nichts sonst:
 
  * Alle vier Varianten fahren DIESELBE Strategie. Sie wird je Archetyp einmal gesucht (Suchphase
    ohne Beef, 3 Läufe à 180 Tage) und dann festgehalten – sonst misst man die Strategiewahl.
-   Gefunden: Musik+Creator „Follower zuerst +1B +K", nur Musik „Ertrag je Zeit +0B".
+   Gefunden: Musik+Creator „Follower zuerst +1B", nur Musik „Ertrag je Zeit +0B".
  * Alle vier Varianten fahren DENSELBEN Würfel `rng(1000 + i)` für Musik, Kanäle, Ereignisse und
    Vorfälle – derselbe Generator und dieselben Seeds wie im Kontaktlauf (Stück 5a).
  * Alle Beefwürfe laufen über einen DRITTEN Würfel `rng(701000 + i)`: Einstieg, Häme, Kontertage,
-   das Angezähltwerden und der Disstrack selbst. Auch die Variante „ohne Beef" zieht den
-   Anzähl-Wurf aus diesem Strom (und wirft ihn weg) – sonst hätte sie einen Wurf weniger im
-   Hauptstrom und wäre ab der ersten Chart-Platzierung ein anderer Musiklauf als die anderen drei.
+   das Angezähltwerden und der Disstrack selbst. „passiv" und „aktiv" ziehen den Anzähl-Wurf aus
+   diesem Strom; die Variante „ohne Beef" zieht ihn gar nicht – die Hülle um `beef.anzaehlen` gibt
+   dort null zurück, bevor sie würfelt. Beides erreicht denselben Zweck: sonst hätte „ohne Beef"
+   einen Wurf weniger im Hauptstrom und wäre ab der ersten Chart-Platzierung ein anderer Musiklauf
+   als die anderen drei.
  * Jede Variante bekommt eigene Welten und eigene Konten.
  * Gezählt wird nur, was das Spiel selbst gemeldet hat: die Rückgabewerte von `beef.anstacheln` und
    `beef.diss` und die Ereignisse aus `beef.settle`. Das Skript rechnet keine Einstiegschance, keine
@@ -68,6 +70,9 @@ Damit die Differenz den Beef misst und nichts sonst:
 Zwei Kontrollen stehen in jeder Ausgabe, weil eine stille Null ein Fehler ist und kein Ergebnis:
 „ohne Beef" muss ohne einen einzigen Beef, Gegenschlag und ohne eine Abrechnung durchlaufen, und
 „passiv" muss angezählt werden, aber nie selbst schlagen. Beide sind in allen drei Läufen ✔.
+(„Album" fährt ebenfalls mit `spielweise: 'aus'` und müsste dieselbe Kontrolle wie „ohne Beef"
+bestehen; das Skript druckt seit einer späteren Prüfung auch dafür eine Kontrollzeile, aber dieser
+Lauf ist älter als diese Ergänzung, deshalb steht sie unten nicht mit dabei.)
 
 ==================== HANDPRÜFUNG: EIN TAG, EIN SEED, EINE ANFRAGE ====================
 
@@ -116,7 +121,9 @@ Der Gegner ist „Karaoke-Kaiser Ken" (`karaokeken`, 24.000 Hörer Reichweite, C
       aufmerksamkeit = 1 + 1,5 × 0,7940056808582895 × (1/1,3) × (0,5 + 0,5 × 19/100)
                      = 1 + 1,5 × 0,6107736006602227 × 0,595
                      = 1,545115438589249
-      Skript:          1.5451154385892485   ✔ gleich (15 Stellen; der Rest ist Gleitkomma-Rauschen)
+      Skript:          1.5451154385892485   ✔ gleich (derselbe Double 1.5451154385892485; die
+                       letzte Stelle unterscheidet sich nur, weil die Handrechnung oben auf 15
+                       Stellen aufgeschrieben ist – kein Gleitkomma-Rauschen)
 
     Derselbe Wert steht in `audienceFactor`, wird also genau so an `music.publish` übergeben.
 
@@ -541,14 +548,19 @@ abgeleiteten Zahlen unten.
     gemessen sind: der Spieler, der Frieden anbietet (der Draht ist bei `FRIEDEN_DECKEL` −10
     gedeckelt, und es kostet zwei weitere Stunden); der Spieler, der nach zwei gewonnenen Runden
     aufhört und auskühlen lässt – genau der würde die Siege sehen, die diese Messung nie sieht; und
-    die Kombination „Album horten UND Disstrack", die nach (5) und (6) die stärkste Spielweise wäre.
+    die Kombination „Album horten UND Disstrack": Ob sie stärker wäre als beide einzeln, weiß diese
+    Messung nicht – Songs und Veröffentlichungsplatz sind zwischen beiden geteilt, ein Disstrack-Tag
+    kostet also einen Album-Tag und verdünnt den Growth 2,4, der die Hörer trägt.
     Diese drei Zahlen gibt es nicht und sie stehen deshalb auch nirgends.
 
-(c) **Ein Eingriff des Messwerkzeugs:** Der Anzähl-Wurf (`beef.anzaehlen`) läuft in ALLEN Varianten
-    auf dem Beefwürfel statt auf dem Hauptstrom. Im Spiel zieht er aus demselben Strom wie die
-    Veröffentlichung, die ihn auslöst. Das verändert keine Wahrscheinlichkeit, nur welche Zahl an
-    welcher Stelle steht – aber ohne diesen Umweg wäre „ohne Beef" ab der ersten Chart-Platzierung
-    ein anderer Musiklauf und die ganze Differenz zur Hälfte ein anderer Würfel.
+(c) **Ein Eingriff des Messwerkzeugs:** Der Anzähl-Wurf (`beef.anzaehlen`) läuft in „passiv" und
+    „aktiv" auf dem Beefwürfel statt auf dem Hauptstrom; in „ohne Beef" (und in „Album", das mit
+    derselben Spielweise `aus` läuft) entfällt er ganz – die Hülle gibt dort null zurück, bevor sie
+    würfelt. Im Spiel zieht er aus demselben Strom wie die Veröffentlichung, die ihn auslöst. Das
+    verändert keine Wahrscheinlichkeit, nur welche Zahl an welcher Stelle steht (bzw., für „ohne
+    Beef" und „Album", dass gar keine gezogen wird) – aber ohne diesen Umweg wäre „ohne Beef" ab der
+    ersten Chart-Platzierung ein anderer Musiklauf und die ganze Differenz zur Hälfte ein anderer
+    Würfel.
 
 (d) **Der reine Creator fehlt** – er hat keinen Disstrack. Für ihn ist der Beef nicht gemessen, weil
     es ihn dort nicht gibt.

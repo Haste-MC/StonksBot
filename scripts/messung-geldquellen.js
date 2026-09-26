@@ -719,11 +719,14 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    * Musik- und Kanalstrom nicht verschieben, sonst wäre die Differenz zur
    * Hälfte ein anderer Würfel.
    *
-   * Er hängt auch dann am Zähler, wenn die Beef-Spielweise „aus" ist: Die
-   * Hülle um `beef.anzaehlen` zieht ihren Wurf IMMER aus diesem Strom (siehe
-   * dort). Nur so sehen alle drei Varianten denselben Hauptstrom – sonst wäre
-   * schon die Variante „ohne Beef" ein anderer Lauf als die anderen zwei,
-   * weil `music.publish` bei jeder Chart-Platzierung einen Wurf mehr zieht.
+   * Er hängt auch dann am Zähler, wenn die Beef-Spielweise „aus" ist – nicht
+   * weil die Hülle um `beef.anzaehlen` dort aus ihm zieht, sondern im
+   * Gegenteil: Für „aus" gibt die Hülle sofort `null` zurück, OHNE zu
+   * würfeln (siehe dort). Für „passiv" und „aktiv" zieht sie ihren Wurf aus
+   * diesem Strom statt aus `rand`. So oder so bleibt der Hauptstrom
+   * unberührt – sonst wäre schon die Variante „ohne Beef" ein anderer Lauf
+   * als die anderen zwei, weil `music.publish` bei jeder Chart-Platzierung
+   * einen Wurf mehr zöge.
    */
   const beefRand = rng(seed + 700_000);
   if (bz) bz.rand = beefRand;
@@ -1974,9 +1977,11 @@ async function kontaktlauf(laeufe, tage) {
  *    Vorfälle – dieselben Seeds wie im Kontaktlauf.
  *  • Alle Beefwürfe laufen über einen DRITTEN Würfel `rng(701000 + i)`:
  *    Einstieg, Häme, Kontertage, das Angezähltwerden und der Disstrack selbst.
- *    Auch die Variante „aus" zieht den Anzähl-Wurf aus diesem Strom (sie wirft
- *    ihn weg) – sonst hätte sie einen Wurf weniger im Hauptstrom und wäre ab
- *    der ersten Chart-Platzierung ein anderer Musiklauf.
+ *    „passiv" und „aktiv" ziehen den Anzähl-Wurf aus diesem Strom; die
+ *    Variante „aus" zieht ihn gar nicht – die Hülle gibt dort null zurück,
+ *    ohne zu würfeln. Beides hält den Hauptstrom gleich – sonst hätte „aus"
+ *    einen Wurf weniger im Hauptstrom und wäre ab der ersten
+ *    Chart-Platzierung ein anderer Musiklauf.
  *  • Jede Variante bekommt eigene Welten und eigene Konten.
  *
  * Gezählt wird ausschließlich, was das Spiel selbst gemeldet hat: die
@@ -2413,13 +2418,17 @@ async function beeflauf(laeufe, tage) {
     console.log(`    aktiv:`);
     for (const z of beefZeilen(aktiv.beefZaehler, tage, laeufe)) console.log(`      ${z}`);
 
-    // Stille Nullen sind Fehler, nicht Ergebnisse: Die Variante „aus" MUSS
-    // leer sein, die beiden anderen dürfen es nicht.
+    // Stille Nullen sind Fehler, nicht Ergebnisse: Die Varianten „aus" und
+    // „Album" (die ebenfalls mit `spielweise: 'aus'` läuft) MÜSSEN leer sein,
+    // „passiv" und „aktiv" dürfen es nicht.
+    const leerCheck = (z) => !z.einstieg && !z.blamage && !z.disse && !z.angezaehlt && !z.konter
+      && !z.ende.sieg && !z.ende.niederlage && !z.ende.unentschieden;
     const b = aus.beefZaehler;
-    const leer = !b.einstieg && !b.blamage && !b.disse && !b.angezaehlt && !b.konter
-      && !b.ende.sieg && !b.ende.niederlage && !b.ende.unentschieden;
-    console.log(`      KONTROLLE „ohne Beef": ${leer ? 'kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔'
+    console.log(`      KONTROLLE „ohne Beef": ${leerCheck(b) ? 'kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔'
       : `NICHT LEER – ${JSON.stringify({ ...b, rand: undefined, gedisst: b.gedisst.size })}`}`);
+    const balbum = album.beefZaehler;
+    console.log(`      KONTROLLE „Album": ${leerCheck(balbum) ? 'kein einziger Beef, kein Gegenschlag, keine Abrechnung ✔'
+      : `NICHT LEER – ${JSON.stringify({ ...balbum, rand: undefined, gedisst: balbum.gedisst.size })}`}`);
     const p = passiv.beefZaehler;
     console.log(`      KONTROLLE „passiv": angezählt ${de(p.angezaehlt)}, Abrechnungen ` +
       `${de(p.ende.sieg + p.ende.niederlage + p.ende.unentschieden)}, eigene Disstracks ${de(p.disse)} ` +

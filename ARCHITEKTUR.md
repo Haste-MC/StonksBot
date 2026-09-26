@@ -1134,10 +1134,10 @@ Differenz +15,4 %, der Auslöser also nicht erreicht. Gesenkt und neu gemessen
 wurde trotzdem, weil die Differenz gegen den passiven Spieler darüber liegt:
 `--diss-aufmerk=0.75` und `--diss-aufmerk=0` in derselben Messdatei. Ergebnis:
 Bei **0,00** – die Aufmerksamkeit ist dann konstant 1,0 – liegt die Spielweise
-noch immer +22,4 % bzw. +40,6 % über dem passiven Spieler. Der Faktor ist nicht
-der Hebel, sondern dass der Disstrack **98,9 %** aller Veröffentlichungen
-belegt und mit `spike` 3,0 eine Single (1,0) ersetzt; `DISS_AUFMERK` bleibt
-deshalb bei 1,5.
+noch immer +22,4 % bzw. +40,6 % (je Seed gepaart) über dem passiven Spieler. Der
+Faktor ist nicht der Hebel, sondern dass der Disstrack **98,9 %** aller
+Veröffentlichungen belegt und mit `spike` 3,0 eine Single (1,0) ersetzt;
+`DISS_AUFMERK` bleibt deshalb bei 1,5.
 
 **Die Veröffentlichungsart ist der große Hebel, und sie hat mit dem Beef nichts
 zu tun.** Als Kontrolle lief derselbe Spieler ohne jeden Beef, aber mit „warten
@@ -1157,20 +1157,24 @@ Rücksicht auf die zweite Front. **Nicht** gemessen sind der Spieler, der Friede
 anbietet (zwei weitere Stunden, Draht bei −10 gedeckelt), der Spieler, der nach
 zwei gewonnenen Runden aufhört und auskühlen lässt – genau der würde die Siege
 sehen, die diese Messung nie sieht – und die Kombination „Album horten **und**
-Disstrack", die nach den beiden Absätzen davor die stärkste wäre. Diese drei
-Zahlen gibt es nicht und stehen deshalb nirgends. (2) Die Streuung ist groß: je
-Seed gepaart −10,0 % … +38,0 % (Musik+Creator) und −9,4 % … +85,0 % (nur Musik).
-Sauber sind nur der passive Spieler (je 1 von 10 Seeds im Plus) und der Abstand
-zur Album-Spielweise (0 von 10 darüber). (3) Der **reine Creator fehlt** – er hat
-keinen Disstrack. (4) Alles hängt an `ANZAEHL_CHANCE` (6 % je
+Disstrack": Ob sie stärker wäre als beide einzeln, weiß diese Messung nicht –
+Songs und Veröffentlichungsplatz sind zwischen beiden geteilt, ein Disstrack-Tag
+kostet also einen Album-Tag und verdünnt den Growth 2,4, der die Hörer trägt.
+Diese drei Zahlen gibt es nicht und stehen deshalb nirgends. (2) Die Streuung
+ist groß: je Seed gepaart −10,0 % … +38,0 % (Musik+Creator) und −9,4 % … +85,0 %
+(nur Musik). Sauber sind nur der passive Spieler (je 1 von 10 Seeds im Plus) und
+der Abstand zur Album-Spielweise (0 von 10 darüber). (3) Der **reine Creator
+fehlt** – er hat keinen Disstrack. (4) Alles hängt an `ANZAEHL_CHANCE` (6 % je
 Chart-Platzierung): Wer nie chartet, sieht nie einen fremden Beef, und über ihn
 sagt die Messung nichts. (5) Ein Eingriff des Messwerkzeugs: Der Anzähl-Wurf
-läuft dort in allen Varianten auf dem Beefwürfel, im Spiel auf dem Strom der
-Veröffentlichung – sonst wäre schon „ohne Beef" ein anderer Musiklauf. (6) Die
-Messung ist eine reine Geldfrage; was der Beef an Spielgefühl, Meldungen und
-Texten bringt, misst sie nicht. (7) Der Beef ist damit **keine** Geldquelle in
-der Rangfolge oben, sondern ein Risiko, das man verwaltet: Er kostet Hörer und
-Hype, und die einzige klar messbare Zahl ist, was das Aussitzen kostet.
+läuft dort für „passiv" und „aktiv" auf dem Beefwürfel; für „ohne Beef" (und
+„Album") entfällt er ganz, statt gezogen und weggeworfen zu werden. Im Spiel
+läuft er auf dem Strom der Veröffentlichung – sonst wäre schon „ohne Beef" ein
+anderer Musiklauf. (6) Die Messung ist eine reine Geldfrage; was der Beef an
+Spielgefühl, Meldungen und Texten bringt, misst sie nicht. (7) Der Beef ist
+damit **keine** Geldquelle in der Rangfolge oben, sondern ein Risiko, das man
+verwaltet: Er kostet Hörer und Hype, und die einzige klar messbare Zahl ist,
+was das Aussitzen kostet.
 
 ### Eine Bremse, nicht zwei
 
