@@ -119,18 +119,21 @@ if (DISS_AUFMERK !== null && Number.isFinite(DISS_AUFMERK) && DISS_AUFMERK >= 0)
 
 /*
  * `--diss-spike=<N>`, `--diss-growth=<N>`, `--bonus-sieg=<N>`,
- * `--bonus-niederlage=<N>`, `--bonus-tage=<N>`: dieselbe Bauweise wie
- * `--diss-aufmerk` oben, für die fünf Zahlen, an denen das Balancing von 5b/5c
- * hängt. `spike` und `growth` des Disstracks stehen in `src/data/music.js`, die
- * drei `BONUS_*` in `src/data/beef.js`; `src/music.js` liest den Typ bei jeder
- * Veröffentlichung über `release('diss')` aus demselben Objekt, `src/beef.js`
- * die Bonuszahlen bei jedem Aufruf aus dem Datenmodul – beides greift also.
+ * `--bonus-niederlage=<N>`, `--bonus-tage=<N>`, `--anzaehl-chance=<N>`:
+ * dieselbe Bauweise wie `--diss-aufmerk` oben, für die sechs Zahlen, an denen
+ * das Balancing von 5b/5c/5e hängt. `spike` und `growth` des Disstracks stehen
+ * in `src/data/music.js`, die drei `BONUS_*` und `ANZAEHL_CHANCE` in
+ * `src/data/beef.js`; `src/music.js` liest den Typ bei jeder Veröffentlichung
+ * über `release('diss')` aus demselben Objekt, `src/beef.js` die Bonuszahlen
+ * bei jedem Aufruf und `ANZAEHL_CHANCE` in `anzaehlen` vor dem ersten Wurf
+ * (`src/beef.js`, `if (random() >= data.ANZAEHL_CHANCE) return null;`) aus dem
+ * Datenmodul – beides greift also.
  *
  * Wozu: Die SUCHE nach einer Einstellung braucht viele Läufe, und jeder Lauf
  * soll mit seiner Kommandozeile im Messbericht stehen statt mit „vorher war die
  * Datei anders". Die ENDMESSUNG läuft ohne jeden dieser Schalter, damit die
  * veröffentlichten Zahlen aus den Konstanten selbst kommen; die Kopfzeile jedes
- * Laufs druckt alle fünf Werte mit, deshalb ist in der Rohausgabe zu sehen,
+ * Laufs druckt alle sechs Werte mit, deshalb ist in der Rohausgabe zu sehen,
  * welcher Lauf welche hatte.
  */
 function zahlArg(name) {
@@ -144,6 +147,7 @@ const DISS_GROWTH = zahlArg('diss-growth');
 const BONUS_SIEG_ARG = zahlArg('bonus-sieg');
 const BONUS_NIEDERLAGE_ARG = zahlArg('bonus-niederlage');
 const BONUS_TAGE_ARG = zahlArg('bonus-tage');
+const ANZAEHL_CHANCE_ARG = zahlArg('anzaehl-chance');
 {
   // Der Disstrack ist dasselbe Objekt, das `music.release('diss')` zurückgibt.
   const diss = musicData.RELEASES.find((r) => r.id === 'diss');
@@ -152,6 +156,11 @@ const BONUS_TAGE_ARG = zahlArg('bonus-tage');
   if (BONUS_SIEG_ARG !== null && BONUS_SIEG_ARG > 0) beefData.BONUS_SIEG = BONUS_SIEG_ARG;
   if (BONUS_NIEDERLAGE_ARG !== null && BONUS_NIEDERLAGE_ARG > 0) beefData.BONUS_NIEDERLAGE = BONUS_NIEDERLAGE_ARG;
   if (BONUS_TAGE_ARG !== null && BONUS_TAGE_ARG >= 0) beefData.BONUS_TAGE = BONUS_TAGE_ARG;
+  // 0 ist ausdrücklich erlaubt (dann zählt niemand von selbst an – die
+  // Gegenprobe), 1 ebenfalls (jede Chart-Platzierung zieht einen Feind).
+  if (ANZAEHL_CHANCE_ARG !== null && ANZAEHL_CHANCE_ARG >= 0 && ANZAEHL_CHANCE_ARG <= 1) {
+    beefData.ANZAEHL_CHANCE = ANZAEHL_CHANCE_ARG;
+  }
 }
 
 // ------------------------------------------------------------------ Würfel
@@ -3009,7 +3018,8 @@ async function main() {
       ` gegen Single ${komma(music.release('single').spike, 2)}` +
       `, Disstrack growth ${komma(music.release('diss').growth, 2)}${gesetzt(DISS_GROWTH)} ` +
       `gegen Single ${komma(music.release('single').growth, 1)}` +
-      `${[BONUS_SIEG_ARG, BONUS_NIEDERLAGE_ARG, BONUS_TAGE_ARG, DISS_SPIKE, DISS_GROWTH]
+      `, ANZAEHL_CHANCE ${komma(beefData.ANZAEHL_CHANCE * 100, 1)} %${gesetzt(ANZAEHL_CHANCE_ARG)}` +
+      `${[BONUS_SIEG_ARG, BONUS_NIEDERLAGE_ARG, BONUS_TAGE_ARG, DISS_SPIKE, DISS_GROWTH, ANZAEHL_CHANCE_ARG]
         .some((x) => x !== null) ? '   (* über die Kommandozeile gesetzt, nicht aus der Datendatei)' : ''}\n`);
     await beeflauf(LAEUFE, TAGE);
     return;

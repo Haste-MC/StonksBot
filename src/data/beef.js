@@ -102,8 +102,38 @@ const KONTER_MAX_TAGE = 3;
 
 // --- Angezählt werden ------------------------------------------------------
 
-/** Gut jede sechzehnte Chart-Platzierung zieht einen Feind an. */
-const ANZAEHL_CHANCE = 0.06;
+/**
+ * Gut jede dritte Chart-Platzierung zieht einen Feind an.
+ *
+ * Balancing, gemessen (Messung vom 2026-09-26, Abschnitt „Nachtrag 5e"): Diese
+ * Zahl ist der EINZIGE Hebel, mit dem der Beef den passiven Spieler überhaupt
+ * noch etwas kostet. Wer angezählt wird und schluckt, nimmt keinen Gegenschlag
+ * (`anzaehlen` schreibt `konter_at: 0`, und `settle` schlägt nur bei
+ * `konter_at > 0` zu) – bei ihm greift von allen Beef-Zahlen ausschließlich das
+ * Niederlagen-Fenster, und `BONUS_TAGE` 1 macht daraus einen Tag mit
+ * `BONUS_NIEDERLAGE` 0,85. Wie teuer das Aussitzen im Jahr ist, hängt deshalb
+ * nur daran, WIE OFT ein Fenster aufgeht, und das ist diese Zahl.
+ *
+ * Bei 0,06 kostete das Aussitzen einen reinen Musiker 5,0 % im Jahr (gepaart,
+ * 60 Läufe) und einen Musik+Creator +0,2 %, also nichts. Gemessen wurde die
+ * Reihe 0,06 · 0,25 · 0,30 · 0,35 · 0,40 · 0,45 bei sonst unveränderten Zahlen:
+ * −5,0 % · −16,4 % · −18,1 % · −19,9 % · −21,7 % · −22,7 %. 0,35 liegt in der
+ * Mitte des Zielbands (−15 % bis −25 %) und liefert gleichzeitig die einzige
+ * Musik+Creator-Zahl, deren Vorzeichen aus dem Rauschen heraussteht (−10,2 %,
+ * 42 von 60 Seeds im Minus).
+ *
+ * `BONUS_NIEDERLAGE` ist deshalb UNVERÄNDERT 0,85 und der Spiegel zu
+ * `BONUS_SIEG` 1,25 unangetastet: Als Hebel sättigt die Zahl schnell (gemessen
+ * bei 30 Läufen 0,85 → 0,60 bringt 6 Prozentpunkte, 0,60 → 0,40 nur noch 1,3),
+ * und ein halbes Dutzend Läufe mit beiden Hebeln zusammen war in beiden
+ * Archetypen schlechter als 0,35 allein.
+ *
+ * Der Deckel des Plans („keine Spielweise über +25 % gegen ohne Beef") hält mit
+ * mehr Luft als vorher: Das häufigere Angezähltwerden trifft auch die Sieg-Farm,
+ * die diese Fronten als Niederlagen abrechnet (Siegquote des reinen Musikers
+ * 87,9 % → 71,0 %); ihre größte Zelle fällt von +19,7 % auf +16,2 %.
+ */
+const ANZAEHL_CHANCE = 0.35;
 
 // --- Szene -----------------------------------------------------------------
 
@@ -145,9 +175,12 @@ const FRIEDEN_DECKEL = -10;
  * alle Tage 1,46), bei einem Tag sind es 2.824 (Ø Hype im Fenster 1,173, über
  * alle Tage 1,19) gegen 1,13 ohne jeden Beef. Ein Tag reicht für einen
  * sichtbaren Ausschlag, ohne dass sich Fenster an Fenster zu einem Dauerzustand
- * reiht: Der Ausgang trägt der gezielt gewinnenden Spielweise weiter knapp 15
- * Prozentpunkte ihres Jahresertrags (+19,7 % gegen +4,8 % ohne die zwei
- * Faktoren).
+ * reiht: Der Ausgang trägt der gezielt gewinnenden Spielweise weiter ihren
+ * ganzen Zuwachs. Bei `ANZAEHL_CHANCE` 0,06 waren das knapp 15 Prozentpunkte
+ * (+19,7 % gegen +4,8 % ohne die zwei Faktoren); mit 0,35 sind es 16,4
+ * (+15,0 % gegen −1,4 %, neu gemessen in „Nachtrag 5e"). Die Zahlen des
+ * Fixpunkt- und Fensterabsatzes darüber stehen unverändert, weil sie die
+ * Wirkung von `BONUS_TAGE` zeigen und bei 0,06 gemessen sind.
  *
  * Die zwei Faktoren selbst sind deshalb UNVERÄNDERT: Ein Sieg ist mit 1,25 der
  * stärkste Hype-Schub, den das Spiel an einem Tag kennt, und eine Niederlage

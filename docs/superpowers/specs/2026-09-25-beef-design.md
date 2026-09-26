@@ -239,8 +239,11 @@ max(100, meine)) / 3)`.
 ## Angezählt werden
 
 Auslöser ist eine Veröffentlichung, die chartet (`position > 0`): Wurf
-`ANZAEHL_CHANCE = 0,06`. Auch völlig Fremde kommen in Frage – wer groß wird,
-zieht Feinde an. Gewichtet wird über den ganzen Katalog:
+`ANZAEHL_CHANCE = 0,35`. (Diese Spec hatte hier bis zum 2026-09-26 0,06. Die Zahl
+ist der einzige Hebel, der den passiven Spieler oft erreicht, und sie ist erhöht
+worden, damit das Aussitzen wieder etwas kostet – gezählt 83,0 Anzählungen im Jahr
+statt 19,6. Siehe **Addendum 4** unten.) Auch völlig Fremde kommen in Frage – wer
+groß wird, zieht Feinde an. Gewichtet wird über den ganzen Katalog:
 
 ```
 gewicht = genrenaehe × groessennaehe × (1 + max(0, BEEF_TRAIT_BASIS[charakter]))
@@ -254,8 +257,18 @@ Kontakte, mit denen schon ein Beef offen ist, und Partner (Draht ≥ 50) fallen
 heraus; bei zwei offenen Beefs passiert nichts.
 
 Wer angezählt wird, steht bei **Hitze 25 und 0:1 hinten**, Draht −10. Man kann
-antworten (Disstrack) oder schlucken – Schlucken kostet nichts, aber die Hitze
-kühlt ab und der Beef endet dann als **Niederlage**, weil er die Runde hat.
+antworten (Disstrack) oder schlucken – Schlucken kostet im Moment nichts, aber die
+Hitze kühlt ab und der Beef endet dann als **Niederlage**, weil er die Runde hat.
+
+**Und Schlucken ist die einzige Lage, in der `konter_at` 0 bleibt** (`src/beef.js:418`;
+`settle` schlägt nur bei `konter_at > 0` zu, `src/beef.js:454`): Wer nie antwortet,
+nimmt nie einen Gegenschlag. Ihn erreicht von allen Zahlen dieses Stücks deshalb nur
+das Niederlagen-Fenster – über `ANZAEHL_CHANCE` (wie oft es aufgeht),
+`BONUS_NIEDERLAGE` (wie hart es beißt) und `BONUS_TAGE` (wie lange). Gemessen kostet
+das Aussitzen einen reinen Musiker **−19,9 %** im Jahr und einen Musik+Creator
+**−10,2 %**; ohne das Fenster (Kontrolllauf mit `BONUS_NIEDERLAGE` 1,00) sind es in
+beiden Archetypen **exakt ±0,0 %**, auch bei 4.939 abgerechneten Niederlagen. Siehe
+**Addendum 4**.
 
 ## Die Szene macht dicht
 
@@ -278,7 +291,8 @@ Bei Hitze ≤ 0 rechnet `beef.settle` ab: `runden_ich > runden_er` → `sieg`,
 hatte hier bis zum 2026-09-26 sieben Tage; das war der zweite Teil des
 Geldruckers – der Hype trägt sich selbst weiter, und ein Wochenfenster
 machte aus dem Ausschlag einen Dauerzustand. Die zwei Faktoren selbst sind
-unverändert. Siehe **Addendum 3** unten.)
+unverändert – auch nach Addendum 4, das die HÄUFIGKEIT der Niederlage erhöht hat und
+nicht ihre Wucht. Siehe **Addendum 3** und **Addendum 4** unten.)
 
 | Ende | Wirkung, 1 Tag lang |
 |---|---|
@@ -575,10 +589,15 @@ die Lücke:
 
 ## Addendum 3 nach dem Nachtrag 5d (2026-09-26): der Deckel hält wieder
 
+**Auch dieses Addendum ist inzwischen historisch: Was heute gilt, steht in
+Addendum 4.** Seine Zahlen sind unverändert der Stand, den es gemessen hat; sie gelten
+aber für `ANZAEHL_CHANCE` 0,06 statt 0,35 – geändert hat sich davon die Spalte
+„passiv" und, weil die `sieg-farm` ebenfalls öfter angezählt wird, auch ihre.
+
 **Die Addenda 1 und 2 sind ab hier historisch.** Ihre Zahlen sind unverändert
 der Stand, den sie gemessen haben; sie gelten aber für `spike` 3,0 und
-`BONUS_TAGE` 7 und für einen Kontaktkatalog mit 74 Einträgen. Was heute gilt,
-steht hier. Vollständige Ausgabe aller Läufe:
+`BONUS_TAGE` 7 und für einen Kontaktkatalog mit 74 Einträgen. Was zum Zeitpunkt
+dieses Addendums galt, steht hier. Vollständige Ausgabe aller Läufe:
 `docs/messungen/2026-09-26-beef.txt`, Abschnitt „Nachtrag 5d".
 
 **Warum es diesen Nachtrag gibt.** Der Kontaktkatalog ist auf 90 Einträge
@@ -682,3 +701,112 @@ Kommandozeile); der Beef-Abschnitt war in jedem Vergleich zeilengleich, und
 keine Zahl dieses Addendums kommt aus der Suchphase. (4) Die Grenzen (5) von
 Addendum 2 gelten weiter: Frieden, „Album horten UND Sieg-Farm" und der reine
 Creator sind nicht gemessen.
+
+
+## Addendum 4 nach dem Nachtrag 5e (2026-09-26): das Aussitzen kostet wieder
+
+**Die Addenda 1 bis 3 sind ab hier historisch.** Was heute gilt, steht hier.
+Vollständige Ausgabe aller Läufe: `docs/messungen/2026-09-26-beef.txt`, Abschnitt
+„Nachtrag 5e".
+
+**Warum es diesen Nachtrag gibt.** Addendum 3 hat den Deckel von +25 % wieder
+eingehalten, aber dafür `BONUS_TAGE` von 7 auf 1 gesenkt – und ein kürzeres Fenster
+verkürzt den Sieg UND die Niederlage gleich stark. Der Preis stand in Addendum 3
+selbst: Wer angezählt wird und es aussitzt, verlor mit dem Wochenfenster −23,9 % im
+Jahr und danach nur noch **−5,0 %**; für Musik+Creator waren es +0,2 %, also nichts.
+Der Beef hatte als Drohung keine Zähne mehr.
+
+**Geändert wurde eine Zahl, sonst nichts.**
+
+| Konstante | Datei | alt | neu |
+|---|---|---|---|
+| `ANZAEHL_CHANCE` | `src/data/beef.js` | 0,06 | **0,35** |
+
+Unverändert: `BONUS_NIEDERLAGE` 0,85 · `BONUS_SIEG` 1,25 · `BONUS_TAGE` 1 ·
+Disstrack `spike` 2,1 · `growth` 0,4 · `DISS_AUFMERK` 1,5 · `KONTER_HYPE` 0,25 ·
+`KONTER_HOERER` 0,10 · `HYPE_MAX` 1,7 · der Katalog · jede Formel. **Der Spiegel des
+Zahlensatzes ist damit nicht gebrochen** (Sieg 1,25 gegen Niederlage 0,85, im
+Logarithmus 0,73) – und das ist ein Messergebnis, keine Vorliebe: `BONUS_NIEDERLAGE`
+zu senken war der zweite erlaubte Hebel, ist gemessen worden und sättigt, weil der
+Faktor nur einen Tag greift und der Hype sich danach wieder hochträgt
+(`hype ← 0,7 × hype + 0,3 × Wurf`).
+
+| `BONUS_NIEDERLAGE` (bei `ANZAEHL_CHANCE` 0,06) | passiv, nur Musik, gepaart, 30 Läufe |
+|---|---|
+| 0,85 | −5,2 % |
+| 0,60 | −11,2 % |
+| 0,40 | −12,5 % |
+
+Sechs Prozentpunkte für den ersten Schritt, 1,3 für den zweiten. Die Zahl der Fenster
+sättigt nicht:
+
+| `ANZAEHL_CHANCE` (bei `BONUS_NIEDERLAGE` 0,85) | passiv, nur Musik, gepaart, 60 Läufe |
+|---|---|
+| 0,06 | −5,0 % |
+| 0,25 | −16,4 % |
+| 0,30 | −18,1 % |
+| **0,35** | **−19,9 %** ✔ |
+| 0,40 | −21,7 % |
+| 0,45 | −22,7 % |
+
+**Warum es überhaupt nur diese Zahlen sein konnten.** `anzaehlen` schreibt
+`konter_at: 0` (`src/beef.js:418`), und `settle` schlägt nur bei `konter_at > 0` zu
+(`src/beef.js:454`); `konter_at` bekommt nur dort einen Zeitpunkt, wo der Spieler
+selbst einen Disstrack veröffentlicht (`src/beef.js:327`). Wer schluckt, nimmt also im
+ganzen Jahr keinen Gegenschlag – `KONTER_HYPE` und `KONTER_HOERER` können ihn nicht
+erreichen, und sie zu erhöhen würde nur den aktiven Spieler bestrafen, der bei −51,8 %
+steht. Gegengeprüft ist das nicht nur gelesen, sondern ausgeführt (Handprüfung 5e) und
+gemessen: Der Kontrolllauf mit `BONUS_SIEG` 1,00 und `BONUS_NIEDERLAGE` 1,00 setzt
+„passiv" in BEIDEN Archetypen auf **exakt ±0,0 %**, bei unveränderten 4.939
+abgerechneten Niederlagen – Szene-Malus, Draht und die offene Front kosten kein Geld.
+
+**Der Endstand** (60 Läufe à 365 Tage, ohne jeden Schalter, Mediane / je Seed gepaart
+gegen „ohne Beef"; in Klammern die Seeds im Plus):
+
+| Variante | Musik+Creator | nur Musik |
+|---|---|---|
+| ohne Beef | 358.064/Tag | 104.032/Tag |
+| passiv | 321.828 (−10,1 % / **−10,2 %**, 18/60) | 83.053 (−20,2 % / **−19,9 %**, 4/60) |
+| aktiv | 297.043 (−17,0 % / −17,7 %, 7/60) | 50.344 (−51,6 % / −51,8 %, 0/60) |
+| `diss-isoliert` | 310.926 (−13,2 % / −12,4 %, 15/60) | 53.854 (−48,2 % / −46,9 %, 0/60) |
+| `sieg-farm` | 346.329 (−3,3 % / −1,2 %, 27/60) | 120.874 (**+16,2 % / +15,0 %**, 46/60) |
+| Kontrolle: ohne Beef, Album | 2.741.519 (+665,7 %) | 2.981.641 (+2766,1 %) |
+
+Die größte Zahl der sechzehn Zellen ist **+16,2 %**; der Auslöser „über +25 %" ist in
+keiner erreicht, und der Abstand ist mit 8,8 Prozentpunkten größer als der von
+Addendum 3 (5,3). Das ist kein Zufall, sondern dieselbe Zahl von der anderen Seite:
+Die `sieg-farm` wird ebenfalls öfter angezählt (995 statt 240 Anzählungen in 21.900
+Tagen) und rechnet diese unbeachteten Fronten als Niederlagen ab – ihre Siegquote
+fällt von 87,9 % auf **71,0 %**.
+
+**Die Ursache des Preises, gezählt.** Der passive reine Musiker wird 4.982 mal in
+21.900 Tagen angezählt (83,0 im Jahr) statt 1.174 (19,6), und jede Front endet 0:1:
+4.901 Abrechnungen, Siegquote 0,0 %, **Gegenschläge 0**. Sein Ø Hype über alle Tage
+(Median der Seeds) fällt von 1,13 auf 1,03 und sein Hype am Jahresende von 1,11 auf
+1,00, seine Tantiemen von 91.222/Tag auf 72.653/Tag.
+
+**`diss-isoliert` ist in jeder gemessenen Einstellung Zahl für Zahl dieselbe** – die
+schärfste interne Kontrolle dieses Nachtrags, denn dort ist `anzaehlen` auf beiden
+Seiten stillgelegt und die geänderte Zahl kann die Variante nicht erreichen.
+
+**Ehrliche Grenzen dieses Addendums.** (1) Die Musik+Creator-Zahl ist die schwächste
+veröffentlichte Zahl: −10,2 % bei 60 Läufen, **−6,9 % bei 120**, Spanne je Seed
+−33,8 % … +35,2 %, 18 von 60 Seeds im Plus. Gesichert ist ihr Vorzeichen (exakter
+Vorzeichentest p = 0,0027 bei 60 und 0,0013 bei 120; vorher war es mit 31 von 60 im
+Plus reines Rauschen), nicht ihre Größe. Der Grund ist strukturell und gemessen: Das
+Fenster ist ein Faktor auf den Hype, und beim Musik+Creator hängen nur Tantiemen
+(22 % der Einnahmen) und Konzerte (3 %) daran; Merch fällt 4,4 %, während die
+Tantiemen 22,6 % fallen. Selbst `--anzaehl-chance=1.0` bringt ihn nur auf −5,5 %. Ihn
+weiter zu senken bräuchte einen Verlust, der nicht über den Hype läuft – den gibt es
+in 5b nicht. (2) 0,35 ist eine große Zahl im Spielgefühl, und das ist nicht gemessen:
+alle gut vier Tage eine neue Front. (3) In der 30-Läufe-Suche stehen drei nicht
+gewählte Einstellungen über +25 % (`sieg-farm`, nur Musik); jede mit 60 Läufen
+bestätigte bleibt bei oder unter +16,6 %. (4) Die Suchphase des Messskripts ist weiter
+nicht bit-stabil (hier zwei Zeilen, je 1 Einheit); keine Zahl kommt aus ihr. (5) Nicht
+gemessen ist die Spielweise dazwischen – antworten, gewinnen, Frieden anbieten. Mit 83
+Fronten im Jahr ist sie die interessante Frage, und das Messskript baut sie nicht.
+(6) Kein Test war anzupassen: `test/beef.test.js` nagelt `bonusFaktor` weiter auf 1,25
+und 0,85 fest, seine Prüfung „Über der Chance passiert nichts" liest
+`data.ANZAEHL_CHANCE` statt eine Zahl zu wiederholen, und die Prüfung darunter würfelt
+0,01 – unter 0,06 wie unter 0,35. `ANZAEHL_CHANCE` selbst ist damit von keinem Test
+festgenagelt; wer sie wieder ändert, merkt es nur an dieser Messung.
