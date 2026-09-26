@@ -75,14 +75,19 @@ Weltstar ab 100 Mio.
 - jedes der **8 Genres** ≥ 4 Kontakte in ≥ 3 Sprachen, darunter ≥ 1 mit
   `reach ≥ 100 Mio`;
 - jede der **4 Plattformen** ≥ 3 Creator-Kontakte, davon ≥ 1 über 10 Mio;
+- **Mittelfeld** (nachgezogen, damit das Genre nicht nur Zwerge und
+  Weltstars hat): jedes Genre hat mindestens je einen Kontakt in
+  40k–200k, 200k–1 Mio und 1–5 Mio Hörern, und zwischen zwei aufeinander
+  folgenden Mittelfeld-Kontakten liegt höchstens der Faktor 10;
 - IDs eindeutig; `country` und `language` existieren in `data/world`; `genre`
   existiert in `data/music`; `kind` passt zu den gesetzten Feldern
   (`musik` → `genre` und `reach`; `creator` → `platform` und `reachCreator`;
   `beides` → alle vier).
 
-Ergibt rund 45 Musik- und 20 Creator-Einträge, einige mit Doppelrolle, dazu
-ein paar Quatsch-Namen als unterste Stufe (z. B. „Lil Pfand", lokal, antwortet
-immer, bringt fast nichts).
+Ergibt inzwischen 69 Musik- und 21 Creator-Einträge (Stand nach dem Schließen
+des Mittelfelds, Commit 3db0b2f), einige mit Doppelrolle, dazu ein paar
+Quatsch-Namen als unterste Stufe (z. B. „Lil Pfand", lokal, antwortet immer,
+bringt fast nichts).
 
 ## Passung
 

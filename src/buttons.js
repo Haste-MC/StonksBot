@@ -274,6 +274,12 @@ async function settleMusic(guildId, userId) {
       'du bist wieder frei.');
   }
 
+  // 5b, §4: Der Beef rechnet NACH den Tantiemen ab – die gehören noch der Zeit
+  // davor, und ein Gegenschlag darf sie nicht nachträglich kleiner machen. Im
+  // Text steht er trotzdem vorn: Er ist das Laute, alles andere ist Buchhaltung.
+  const streit = settleBeef(guildId, userId);
+  if (streit) lines.unshift(streit);
+
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -495,6 +501,9 @@ function kontaktNote(res, now = Date.now()) {
       return `😴 Eine Anfrage kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
     }
     if (res.reason === 'unknown') return '❌ Diesen Kontakt gibt es nicht (mehr).';
+    // 5b: Solange ein Beef mit ihm läuft, ist jede der vier Anfragen zwecklos.
+    // Derselbe Satz steht auf dem gesperrten Knopf (`grundText` in ui.js).
+    if (res.reason === 'beef') return '❌ Solange der Beef läuft, nicht.';
     return '❌ Das ging nicht.';
   }
 
@@ -521,6 +530,216 @@ function kontaktNote(res, now = Date.now()) {
   zeilen.push(`⏳ Wieder erreichbar in ${frist(res.gesperrtBis - now)} `
     + `· ⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
 
+  return zeilen.join('\n');
+}
+
+/**
+ * ===========================================================================
+ *  VERÖFFENTLICHUNGEN – Meldung und Absage
+ * ===========================================================================
+ *
+ * Beides steht hier einmal, weil es zwei Aufrufer hat: den Knopf
+ * `mpub|<art>` in der Veröffentlichungsansicht und den Disstrack in der
+ * Kontaktansicht (5b). Der Disstrack IST eine Veröffentlichung – er soll
+ * dieselbe Meldung bekommen und nicht eine zweite, die auseinanderdriftet.
+ */
+function releaseProblem(res, now = Date.now()) {
+  if (res.reason === 'no_songs') {
+    return `🎼 Ein ${res.release.name} braucht **${res.need}** Titel – du hast `
+      + `**${res.have}**. Ab ins Studio.`;
+  }
+  if (res.reason === 'cooldown') {
+    return '⏳ Zu früh. Zwei Veröffentlichungen am selben Tag nimmt dir niemand ab – '
+      + `wieder in **${require('./income').formatRemaining(res.remainingMs)}**.`;
+  }
+  if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
+  if (res.reason === 'no_time') {
+    return `😴 Dafür fehlen die Stunden (**${res.need}** nötig, **${res.left}** übrig).`;
+  }
+  if (res.reason === 'not_started') return '🎤 Starte zuerst deine Karriere.';
+  // Ein Disstrack- oder 🕊️-Knopf aus einer alten Nachricht, dessen Beef
+  // inzwischen abgerechnet ist (§6) – oder `mpub|diss` von Hand.
+  if (res.reason === 'kein_beef') return '❌ Dafür läuft kein Beef.';
+  return '❌ Das ging nicht.';
+}
+
+function releaseNote(res) {
+  const delta = res.listeners - res.listenersBefore;
+  let note = `${res.release.emoji} **${res.release.name}** ist draußen.\n`
+    + `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · `
+    + `Hörer: **${res.listeners.toLocaleString('de-DE')}** `
+    + `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+  // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
+  // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
+  const schub = schubGewirkt(res.kontakt);
+  if (schub) note += `\n${schub}`;
+  if (res.position) note += `\n🏆 **Charts: Platz ${res.position}** – _${res.text}_`;
+  if (res.spill > 0) {
+    note += `\n🔗 Deine Kanäle wachsen mit: **+${res.spill}** je Plattform.`;
+  }
+  if (res.lostToIdle > 0) {
+    note += `\n📉 Die Pause davor hat **${res.lostToIdle.toLocaleString('de-DE')}** `
+      + 'Hörer gekostet.';
+  }
+  if (res.offer) {
+    note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
+  }
+  if (res.event) note += `\n${res.event.text}`;
+  // 5b: Wer chartet, zieht Feinde an. Ohne diese Zeile fängt der Beef
+  // unsichtbar an, und der Spieler findet ihn erst in der Kontaktliste.
+  if (res.angezaehlt?.contact) {
+    note += `\n🔥 **${res.angezaehlt.contact.name}** zählt dich an.`;
+    if (res.angezaehlt.text) note += `\n_${res.angezaehlt.text}_`;
+  }
+  note += incidentNote(res.incident);
+  note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
+  return note;
+}
+
+/**
+ * ===========================================================================
+ *  BEEF – die Meldungen (5b)
+ * ===========================================================================
+ *
+ * Gegenschlag und Abrechnung passieren nicht zu ihrer Zeit, sondern sobald
+ * jemand hinsieht oder handelt (§4). Jede Beef-Aktion und jede
+ * Veröffentlichung rechnet das als Schritt 0 nach und reicht die fälligen
+ * Ereignisse mit heraus – `beef.anstacheln`/`diss`/`frieden` unter `vorher`,
+ * `music.publish`/`music.show` unter `beefVorher`. Zwei Namen, EIN Renderer:
+ * `beefNote` nimmt die Liste, und jede Aufrufstelle reicht das Feld herein,
+ * das ihr Modul benutzt. Fehlt die Zeile irgendwo – auch auf einer Ablehnung –
+ * kostet ein Knopfdruck still Hype und Hörer.
+ */
+function beefNote(events) {
+  const bdata = require('./data/beef');
+  const zeilen = [];
+  for (const e of events ?? []) {
+    const name = e.contact?.name ?? 'ihm';
+    if (e.art === 'konter') {
+      zeilen.push(`🔥 **${name}** hat zurückgeschlagen.`);
+      if (e.text) zeilen.push(`_${e.text}_`);
+      zeilen.push(`📉 Hype −${Math.round(bdata.KONTER_HYPE * e.wucht * 100)} %, `
+        + `${(e.treffer?.verloren ?? 0).toLocaleString('de-DE')} Hörer weg.`);
+    } else if (e.art === 'ende') {
+      const stand = `**${e.rundenIch}:${e.rundenEr}**`;
+      // Die Dauer kommt aus BONUS_TAGE, damit der Text nicht wieder von der
+      // Konstante abdriftet (siehe deren Änderung von 7 auf 1 im Balancing).
+      const tage = bdata.BONUS_TAGE;
+      const dauer = tage === 1 ? 'einen Tag' : `${tage} Tage`;
+      const schluss = e.status === 'sieg'
+        ? `${stand} für dich. Die Straße redet – ${dauer} lang.`
+        : e.status === 'niederlage'
+          ? `${stand} für ihn. Das sitzt ${dauer}.`
+          : `${stand}. Keiner hat gewonnen.`;
+      zeilen.push(`🔥 Der Beef mit **${name}** ist durch: ${schluss}`);
+      if (e.text) zeilen.push(`_${e.text}_`);
+    }
+  }
+  return zeilen.join('\n');
+}
+
+/** Die fälligen Beef-Ereignisse VOR die eigentliche Meldung setzen. */
+function mitBeef(events, note) {
+  const vor = beefNote(events);
+  return vor ? `${vor}\n${note}` : note;
+}
+
+/**
+ * Die faule Beef-Abrechnung (§4) für einen Weg, der sonst keine mitbringt –
+ * und ihr Text.
+ *
+ * Gegenschlag und Abrechnung kosten Hype und Hörer. Gebucht werden dürfen sie
+ * überall, GEMELDET werden können sie nur hier: Eine Ansicht hat keinen
+ * Rückkanal, also rechnet der Handler ab und hängt das Ergebnis an seine
+ * Meldung. Ohne diesen Umweg fällt der Gegenschlag beim Öffnen einer Ansicht
+ * still – der Spieler sieht nur kleinere Zahlen und erfährt nie, warum.
+ * Ist nichts fällig, wird nichts geschrieben und `null` zurückgegeben.
+ */
+function settleBeef(guildId, userId, now = Date.now()) {
+  return beefNote(require('./beef').settle(guildId, userId, now)) || null;
+}
+
+/** Die Drahtbewegung, wie `contacts.moveDraht` sie meldet. */
+function beefDraht(d) {
+  if (!d) return null;
+  const delta = d.nachher - d.vorher;
+  return `🤝 Draht ${drahtBar(d.nachher)} **${d.nachher}** `
+    + `(${delta >= 0 ? '+' : ''}${delta}, ${DRAHT_STUFEN[d.stufe]})`;
+}
+
+/**
+ * Warum eine Beef-Aktion nicht ging. Was hier nicht steht, ist eine Absage
+ * der Veröffentlichung darunter (kein Titel, Sperre) – die kommt unverändert
+ * aus `releaseProblem`, damit kein zweiter Wortlaut entsteht.
+ */
+function beefProblem(res, now = Date.now()) {
+  const bdata = require('./data/beef');
+  if (res.reason === 'laeuft_schon') return '🔥 Mit ihm läuft schon einer.';
+  if (res.reason === 'zu_viele') return '🔥 Zwei Beefs sind genug.';
+  if (res.reason === 'zu_heiss') {
+    return `🔥 Dafür ist es noch zu heiß (Hitze ${Math.round(res.hitze)}, `
+      + `nötig unter ${bdata.HITZE_FRIEDEN_MAX}).`;
+  }
+  if (res.reason === 'zu_frisch') {
+    return '🔥 Die Straße redet noch über die letzte Runde mit ihm – '
+      + `wieder möglich in ${frist(Math.max(0, res.bis - now))}.`;
+  }
+  if (res.reason === 'gesperrt') return `⏳ Melde dich in ${frist(res.remainingMs)} wieder.`;
+  if (res.reason === 'seite') {
+    return '❌ Beef gibt es nur unter Musikern – auf der Creator-Seite nicht.';
+  }
+  if (res.reason === 'unknown') return '❌ Diesen Kontakt gibt es nicht (mehr).';
+  if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
+  if (res.reason === 'no_time') {
+    return `😴 Das kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
+  }
+  return releaseProblem(res, now);
+}
+
+/** Anstacheln: Er steigt ein – oder du stehst mit deiner Zeile allein da. */
+function anstachelnNote(res, now = Date.now()) {
+  if (!res.ok) return beefProblem(res, now);
+  const bdata = require('./data/beef');
+  const zeilen = [];
+  if (res.ein) {
+    zeilen.push(`🔥 **${res.contact.name}** steigt ein.`);
+    if (res.text) zeilen.push(`_${res.text}_`);
+    zeilen.push(`🔥 Hitze ${bdata.HITZE_ANSTACHELN} ${drahtBar(bdata.HITZE_ANSTACHELN)}`);
+    zeilen.push(beefDraht(res.draht));
+    zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
+  } else {
+    zeilen.push(`😶 ${res.contact.name} reagiert nicht.`);
+    if (res.text) zeilen.push(`_${res.text}_`);
+    zeilen.push('📉 Dein Hype hat gelitten.');
+    zeilen.push(beefDraht(res.draht));
+    zeilen.push(`⏱️ Die **${bdata.BEEF_TIME}** Stunden sind trotzdem weg `
+      + `· heute übrig: **${res.zeit?.left ?? 0}**`);
+  }
+  return zeilen.filter(Boolean).join('\n');
+}
+
+/** Der Disstrack: die Veröffentlichungsmeldung plus was der Beef daraus macht. */
+function dissNote(res, now = Date.now()) {
+  if (!res.ok) return beefProblem(res, now);
+  const b = res.beef;
+  let note = releaseNote(res);
+  if (b.haeme) {
+    note += `\n😬 Das ging nach hinten los: ${b.contact.name} ist eine Nummer `
+      + 'zu klein für dich.';
+  } else {
+    note += `\n🔥 Gegen **${b.contact.name}** · Aufmerksamkeit `
+      + `×${b.aufmerksamkeit.toFixed(1).replace('.', ',')} · `
+      + `Runden ${b.rundenIch}:${b.rundenEr}`;
+  }
+  return note;
+}
+
+/** Frieden: der Draht springt dabei nie ins Plus (FRIEDEN_DECKEL). */
+function friedenNote(res, now = Date.now()) {
+  if (!res.ok) return beefProblem(res, now);
+  const zeilen = [`🕊️ Ihr habt Frieden geschlossen. Draht **${res.draht.nachher}**.`];
+  if (res.text) zeilen.push(`_${res.text}_`);
+  zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
   return zeilen.join('\n');
 }
 
@@ -584,10 +803,15 @@ const buttons = {
     // Die Firma rechnet verfallene Vorfälle ab (§4) – derselbe Weg wie beim Studio.
     const firma = entryId === 'firma'
       ? await settleFirma(gid(interaction), uid(interaction)) : null;
+    // 5b: Die Kontaktliste zeigt 🔥 je Beef – abrechnen und melden gehört
+    // hierher, nicht in die Ansicht. Beim Studio steckt es in `settleMusic`.
+    const streit = entryId === 'kontakte'
+      ? settleBeef(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, studio, firma, nudge].filter(Boolean).join('\n\n') || null;
+    const notice = [news, settled, studio, firma, streit, nudge]
+      .filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
       await buildEntryView(entryId, context(interaction, Number(page) || 1, brand)));
@@ -1976,6 +2200,10 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    // 5b, §4: Beim Start gibt es noch keinen Beef – aber dieser Knopf ist auch
+    // der Weg aus einer alten Nachricht (`already_started`), und dann gilt
+    // dasselbe wie überall: abrechnen und melden, nicht in der Ansicht buchen.
+    const streit = settleBeef(guildId, userId);
     const res = require('./music').setup(guildId, userId, genreId, personaId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -1985,7 +2213,9 @@ Object.assign(buttons, {
         'Jetzt fehlen nur noch Songs: ab ins 🎙️ Studio.'
       : (res.reason === 'already_started'
         ? 'ℹ️ Deine Karriere läuft schon.' : '❌ Das ging nicht.');
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Eine Studiosession. */
@@ -1999,6 +2229,9 @@ Object.assign(buttons, {
     // §4 faule Abrechnung: der Verfall läuft, wenn gehandelt wird, nicht nur
     // beim Öffnen – sonst blockierte ein liegengebliebener Vorfall den Wurf.
     await require('./decisions').settle(guildId, userId).catch(() => []);
+    // 5b, §4: Der Gegenschlag steht VOR der Session – und er wird gemeldet,
+    // weil die Ansicht ihn nicht mehr selbst bucht.
+    const streit = settleBeef(guildId, userId);
     const res = music.record(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2026,6 +2259,7 @@ Object.assign(buttons, {
       if (res.event?.id === 'equipment') note += `\n💥 Dein **${music.GEAR}** ist hin (🧰 Ausrüstung).`;
       note += incidentNote(res.incident);
     }
+    if (streit) note = `${streit}\n${note}`;
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -2043,50 +2277,16 @@ Object.assign(buttons, {
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const music = require('./music');
-    const symbol = await getSymbol(guildId);
 
     await require('./decisions').settle(guildId, userId).catch(() => []);
     const res = music.publish(guildId, userId, typeId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
-    let note;
-    if (!res.ok) {
-      if (res.reason === 'no_songs') {
-        note = `🎼 Ein ${res.release.name} braucht **${res.need}** Titel – du hast ` +
-          `**${res.have}**. Ab ins Studio.`;
-      } else if (res.reason === 'cooldown') {
-        note = '⏳ Zu früh. Zwei Veröffentlichungen am selben Tag nimmt dir niemand ab – ' +
-          `wieder in **${require('./income').formatRemaining(res.remainingMs)}**.`;
-      } else if (res.reason === 'exhausted') {
-        note = require('./energy').blockText(res);
-      } else if (res.reason === 'no_time') {
-        note = `😴 Dafür fehlen die Stunden (**${res.need}** nötig, **${res.left}** übrig).`;
-      } else note = '❌ Das ging nicht.';
-    } else {
-      const delta = res.listeners - res.listenersBefore;
-      note = `${res.release.emoji} **${res.release.name}** ist draußen.\n` +
-        `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · ` +
-        `Hörer: **${res.listeners.toLocaleString('de-DE')}** ` +
-        `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
-      // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
-      // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
-      const schub = schubGewirkt(res.kontakt);
-      if (schub) note += `\n${schub}`;
-      if (res.position) note += `\n🏆 **Charts: Platz ${res.position}** – _${res.text}_`;
-      if (res.spill > 0) {
-        note += `\n🔗 Deine Kanäle wachsen mit: **+${res.spill}** je Plattform.`;
-      }
-      if (res.lostToIdle > 0) {
-        note += `\n📉 Die Pause davor hat **${res.lostToIdle.toLocaleString('de-DE')}** ` +
-          'Hörer gekostet.';
-      }
-      if (res.offer) {
-        note += `\n📬 **${res.offer.agency}** hat sich gemeldet – siehe 📜 Anfrage.`;
-      }
-      if (res.event) note += `\n${res.event.text}`;
-      note += incidentNote(res.incident);
-      note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
-    }
+    // 5b: `music.publish` rechnet die faule Beef-Abrechnung als Schritt 0 nach
+    // und meldet sie unter `beefVorher` – auf JEDEM Rückweg, auch auf den
+    // Ablehnungen. Ohne diese Zeile kostet ein abgelehnter Knopfdruck still
+    // Hype und Hörer.
+    const note = mitBeef(res.beefVorher, res.ok ? releaseNote(res) : releaseProblem(res));
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -2132,6 +2332,9 @@ Object.assign(buttons, {
       if (res.event) note += `\n${res.event.text}`;
     }
     if (res.ok) note += incidentNote(res.incident);
+    // 5b: wie bei `mpub` – die fälligen Beef-Ereignisse stehen vor der Meldung,
+    // auch wenn das Konzert abgelehnt wurde.
+    note = mitBeef(res.beefVorher, note);
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
@@ -2140,6 +2343,9 @@ Object.assign(buttons, {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    // 5b, §4: wie bei `mstudio` – abrechnen und melden, bevor die Ansicht
+    // die neuen Zahlen zeigt.
+    const streit = settleBeef(guildId, userId);
     const res = require('./music').reveal(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2153,7 +2359,9 @@ Object.assign(buttons, {
         `**+${res.gained.toLocaleString('de-DE')}** Hörer und ein gewaltiger Schub an ` +
         'Abrufen. Zurück geht es jetzt nicht mehr.'
       : (problems[res.reason] ?? '❌ Das ging nicht.');
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /**
@@ -2162,17 +2370,32 @@ Object.assign(buttons, {
    * braucht (§6), ein unbekannter Filter fällt auf „Alle" zurück.
    */
   async kontakte(interaction, [filter, page]) {
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    // 5b, §4: wie bei `kontakt` – erst abrechnen und MELDEN, dann die Liste
+    // bauen. Sonst nimmt ein fälliger Gegenschlag beim Blättern stumm Hype.
+    const note = settleBeef(guildId, userId);
     await interaction.update(await buildKontakteView({
-      guildId: gid(interaction), userId: uid(interaction),
-      filter, page: Number(page) || 1,
+      guildId, userId, filter, page: Number(page) || 1,
     }));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
   },
 
   /** Ein einzelner Kontakt: `kontakt|<id>|<uid>`. */
   async kontakt(interaction, [contactId]) {
-    await interaction.update(await buildKontaktView({
-      guildId: gid(interaction), userId: uid(interaction), contactId,
-    }));
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    // 5b, §4: Hier wird abgerechnet, nicht in der Ansicht – nur hier kann ein
+    // fälliger Gegenschlag auch GEMELDET werden, statt stumm Hype zu kosten.
+    const note = settleBeef(guildId, userId);
+    await interaction.update(await buildKontaktView({ guildId, userId, contactId }));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral })
+        .catch(() => {});
+    }
   },
 
   /**
@@ -2189,10 +2412,68 @@ Object.assign(buttons, {
     const contactId = trenner > 0 ? String(arg).slice(0, trenner) : String(arg ?? '');
     const requestId = trenner > 0 ? String(arg).slice(trenner + 1) : '';
 
+    // 5b, §4: Erst abrechnen. Sonst weist `contacts.request` die Anfrage mit
+    // Grund `beef` ab, obwohl der Beef längst durch ist.
+    const vorher = require('./beef').settle(guildId, userId);
     const res = require('./contacts').request(guildId, userId, contactId, requestId);
     await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
-    await interaction.followUp({ content: kontaktNote(res), flags: MessageFlags.Ephemeral })
-      .catch(() => {});
+    await interaction.followUp({
+      content: mitBeef(vorher, kontaktNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /**
+   * ===========================================================================
+   *  BEEF (5b) – anstacheln, dissen, Frieden anbieten
+   * ===========================================================================
+   *
+   * Alle drei im Stil von `kanfrage`: abrechnen, handeln, die Ansicht neu
+   * bauen, das Ergebnis ephemer melden. Die faule Abrechnung (§4) bringt jede
+   * der drei Aktionen selbst als Schritt 0 mit und gibt sie unter `vorher`
+   * heraus – ein fälliger Gegenschlag steht damit VOR der neuen Handlung.
+   */
+
+  /** Jemanden anstacheln: `anstacheln|<kontakt>|<uid>`. */
+  async anstacheln(interaction, [contactId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./beef').anstacheln(guildId, userId, contactId);
+    await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
+    await interaction.followUp({
+      content: mitBeef(res.vorher, anstachelnNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /**
+   * Der Disstrack: `diss|<kontakt>|<uid>`.
+   *
+   * `beef.diss` gibt die Abrechnung unter `vorher` heraus. Das durchgereichte
+   * `beefVorher` aus `music.publish` ist hier immer leer – die Abrechnung lief
+   * schon eine Ebene höher –, deshalb wird ausdrücklich `vorher` gemeldet.
+   */
+  async diss(interaction, [contactId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    await require('./decisions').settle(guildId, userId).catch(() => []);
+    const res = require('./beef').diss(guildId, userId, contactId);
+    await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
+    await interaction.followUp({
+      content: mitBeef(res.vorher, dissNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /** Frieden anbieten: `frieden|<kontakt>|<uid>`. */
+  async frieden(interaction, [contactId]) {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./beef').frieden(guildId, userId, contactId);
+    await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
+    await interaction.followUp({
+      content: mitBeef(res.vorher, friedenNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Firma: Aktionen des Inhabers. */
@@ -2551,6 +2832,8 @@ Object.assign(buttons, {
     const guildId = gid(interaction);
     const userId = uid(interaction);
     const symbol = await getSymbol(guildId);
+    // 5b, §4: auch hier – die Ansicht rechnet nicht ab, der Handler tut es.
+    const streit = settleBeef(guildId, userId);
     const res = await require('./music').leave(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2559,7 +2842,9 @@ Object.assign(buttons, {
         `⚠️ Das kostet **${money(symbol, res.penalty)}** und einen Teil deiner Hörer – ` +
         'und die Branche erzählt es weiter.'
       : 'ℹ️ Du stehst unter keinem Vertrag.';
-    await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    await interaction.followUp({
+      content: streit ? `${streit}\n${note}` : note, flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
   },
 
   /** Rangliste der reichsten Staaten. */
@@ -3253,4 +3538,6 @@ const modals = {
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
   homeNudge, settleMusic, kontaktNote,
+  releaseNote, releaseProblem,
+  beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
 };

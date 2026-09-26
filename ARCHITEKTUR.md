@@ -1071,6 +1071,293 @@ Schub auch dort nicht: Er bleibt ein Faktor auf eine bestehende Aktion. Wer die
 Kontakte zur Quelle machen wollte, müsste an den Decken drehen, nicht an den
 Faktoren – und genau das verbietet §3.
 
+**Beef und Disstracks (seit 1.40.0, Stück 5b):** Derselbe Draht wie in 5a,
+andersherum benutzt (`src/beef.js`, Zahlen in `src/data/beef.js`): Anstacheln
+kostet dieselben zwei Stunden wie eine Anfrage, und ob er einsteigt, ist die
+Umkehrung der Antwortchance – beim Gefallen hilft es, klein zu sein, beim
+Streit nicht. Läuft ein Beef, gibt es den **Disstrack** als fünfte
+Veröffentlichungsart, dessen Publikumsfaktor an der Größe des Gegners
+(`wucht`), am Genre und an der **Hitze** hängt, der Uhr des Beefs: Sie steigt
+mit jedem Schlag und kühlt um 6 Punkte am Tag ab, bei 0 wird abgerechnet. Dazu
+kommen sein Gegenschlag (ein bis drei Tage später, einmal je Schlag, nur ab
+Hitze 40), die Häme, wenn du nach unten trittst, die dichte Szene, solange es
+brennt, das Angezähltwerden nach einer Chart-Platzierung – und der Ausgang, der
+**einen Tag** lang auf den Hype wirkt (`BONUS_TAGE` 1 seit dem Balancing vom
+2026-09-26; vorher sieben, siehe unten „Der Deckel von +25 %").
+
+**Die Grenze ist scharf und gewollt:** kein neuer Zufluss (§3). Die
+Aufmerksamkeit ist ein Faktor auf das Publikum **einer** Veröffentlichung, der
+Sieg zahlt ausschließlich über Hype, Hype ist bei `HYPE_MAX` **1,7** hart
+gedeckelt – und in `src/beef.js` und `src/data/beef.js` steht kein einziger
+`unb`-Aufruf. Der Disstrack bewegt also weder eine Decke noch legt er einen
+Hahn: Er ist eine Veröffentlichungsart wie die anderen vier, mit anderen Zahlen.
+
+**`spike` und `growth` zusammen, nicht `growth` allein.** In früheren Fassungen
+stand hier, sein `growth` von 0,4 – der niedrigste im Spiel – sei die Bremse,
+denn „die Hörer, die bleiben, hängen am Growth". Das ist falsch, und
+`src/music.js` sagt warum: Die gewonnenen Hörer sind `audience × CONVERSION ×
+TEMPO × boost × type.growth × …`, und `audience` enthält seinerseits
+`type.spike`. Beide Zahlen zählen also zusammen, und der Buzz zählt `spike`
+sogar zweimal (`buzz = audience × 9 × spike`, vereinfacht – der Code
+multipliziert zusätzlich mit `p.plays`, der Persona-Zahl, `src/music.js:467`).
+Je **aufgenommenem Titel** –
+Titel sind der Preis, den `songs` verlangt – steht damit (nachgerechnet aus
+`RELEASES` in `src/data/music.js`):
+
+| Art | `songs` | `spike` | `growth` | Hörer je Titel (`spike × growth / songs`) | Buzz je Titel (`spike² / songs`) |
+| --- | --- | --- | --- | --- | --- |
+| Single | 1 | 1,0 | 1,0 | 1,00 | 1,00 |
+| EP | 3 | 2,6 | 1,5 | 1,30 | 2,25 |
+| Album | 6 | 5,5 | 2,4 | **2,20** | 5,04 |
+| Deluxe / Remix | 2 | 1,6 | 0,7 | 0,56 | 1,28 |
+| Disstrack | 1 | 2,1 | 0,4 | 0,84 | 4,41 |
+
+**Bis zum 2026-09-26 stand hier `spike` 3,0, und damit 1,20 Hörer je Titel –
+mehr als die Single.** Der Disstrack war also die bleibendere Veröffentlichung,
+obwohl sein Blurb „viel Lärm, wenig Bleibendes" verspricht, und genau daran hing
+der Geldrucker, den die Messung gefunden hat. Mit `spike` 2,1 ist das Produkt
+0,84 und liegt unter der Single, während der Buzz je Titel mit 4,41 der
+**zweithöchste im Spiel** bleibt (nur das Album liegt mit 5,04 darüber). Der
+Disstrack ist damit die zweitlauteste und die am wenigsten bleibende Art – das,
+was sein Blurb sagt. `test/music.test.js` hält die Richtung fest („mehr spike,
+weniger growth als die Single") und ist unverändert: 2,1 > 1,0 und 0,4 < 1,0.
+
+**Die zweite Bremse ist der geteilte Veröffentlichungsplatz.** Ein Disstrack ist
+eine Veröffentlichung: Er kostet einen Titel aus demselben Vorrat und verbraucht
+denselben Platz, den die `cooldown`-Sperre auf gut einen am Tag begrenzt. Ein
+Disstrack-Tag ist damit ein Tag ohne EP und ohne Album – und beim Album stehen je
+Titel 2,20 Hörer gegen 0,84. Hörer sind die Größe, die sich verzinst (`audience`
+hängt über `reachOf` an der Hörerzahl, der Buzz hängt an `audience`); ein
+einmalig hoher Buzz hängt an nichts. Genau das misst die Kontrollvariante weiter
+unten in diesem Abschnitt („Die Veröffentlichungsart ist der große Hebel"): Die
+Beef-Spielweise liegt **89,2 %** bzw. **98,3 %** unter demselben Spieler, der
+ohne jeden Beef auf sechs Titel und ein Album wartet.
+
+**Gemessen** (`node scripts/messung-geldquellen.js 60 365 --nur=beef`, vollständige
+Ausgabe in `docs/messungen/2026-09-26-beef.txt`, Abschnitt „Nachtrag 5e"; fester
+Würfel `rng(1000+i)`, Beefwürfe `rng(701000+i)`, in allen sechs Varianten dieselbe
+je Archetyp einmal gesuchte Strategie, eigene Welt und eigenes Konto je Variante).
+Sechs Varianten, zwei Archetypen; gezeigt ist der Median je Tag und die Differenz
+gegen „ohne Beef" als *Mediane / je Seed gepaart*:
+
+| Variante | Musik+Creator | nur Musik |
+| --- | --- | --- |
+| ohne Beef (wie vor 1.40.0) | 358.064/Tag | 104.032/Tag |
+| passiv (angezählt, nie geantwortet) | 321.828 (−10,1 % / **−10,2 %**) | 83.053 (−20,2 % / **−19,9 %**) |
+| aktiv (jeden Tag Disstrack) | 297.043 (−17,0 % / −17,7 %) | 50.344 (−51,6 % / −51,8 %) |
+| `diss-isoliert` (nur „Disstrack statt Single") | 310.926 (−13,2 % / −12,4 %) | 53.854 (−48,2 % / −46,9 %) |
+| `sieg-farm` (ein Disstrack je Front, dann auskühlen) | 346.329 (−3,3 % / −1,2 %) | 120.874 (**+16,2 % / +15,0 %**) |
+| Kontrolle: ohne Beef, Album statt Single | 2.741.519 (+665,7 %) | 2.981.641 (+2766,1 %) |
+
+**Der Deckel von +25 % hält, und er hat zwei Konstanten gekostet.** Der Plan zu 5b
+sieht vor: Liegt eine Spielweise über **+25 %** gegen „wie bisher", wird nachjustiert
+und neu gemessen (`docs/superpowers/plans/2026-09-25-beef.md`, Task 5). Nach der
+Erweiterung des Kontaktkatalogs auf 90 Einträge war er gerissen – für den reinen
+Musiker stand `sieg-farm` bei **+165,9 %** (gepaart) und `diss-isoliert` bei
++38,3 %, für Musik+Creator `sieg-farm` bei +46,6 %. Geändert wurden daraufhin
+**zwei** Zahlen, sonst nichts:
+
+* `spike` des Disstracks **3,0 → 2,1** (`src/data/music.js`) – das ist der Hebel
+  von `diss-isoliert`, weil dort 98,7 % aller Veröffentlichungen Disstracks sind.
+* `BONUS_TAGE` **7 → 1** (`src/data/beef.js`) – das ist der Hebel von `sieg-farm`,
+  weil die ihren Zuwachs über das Hype-Fenster holt und der Disstrack bei ihr nur
+  14,2 % der Veröffentlichungen belegt (Endstand, nur Musik; 15,1 % war der
+  ältere 5d-Wert vor Nachtrag 5e).
+
+Eine dritte Zahl kam im Nachtrag danach hinzu, und zwar aus dem umgekehrten Grund –
+nicht weil eine Spielweise zu viel einbrachte, sondern weil das Aussitzen zu wenig
+kostete (siehe „Der Preis des kurzen Fensters" unten):
+
+* `ANZAEHL_CHANCE` **0,06 → 0,35** (`src/data/beef.js`) – das ist der einzige Hebel,
+  der den passiven Spieler überhaupt erreicht. Er senkt außerdem die `sieg-farm`
+  weiter, weil sie die Fronten, die das Angezähltwerden aufmacht, als Niederlagen
+  abrechnet.
+
+**`BONUS_SIEG` 1,25 und `BONUS_NIEDERLAGE` 0,85 sind unverändert.** Der Sieg und die
+Niederlage behalten ihre volle Wucht; nur das Fenster ist kürzer. Der Spiegel des
+Zahlensatzes (im Logarithmus wiegt die Niederlage 0,73 des Siegs) ist also auch nach
+5e unangetastet – und das ist gemessen und keine Vorliebe: `BONUS_NIEDERLAGE` zu
+senken war der erlaubte zweite Hebel von 5e, ist gemessen worden und sättigt
+(0,85 → 0,60 bringt dem passiven Musiker 6,0 Prozentpunkte, 0,60 → 0,40 nur noch
+1,3), weil der Faktor nur einen Tag greift und der Hype sich danach wieder hochträgt.
+`DISS_AUFMERK` steht weiter auf 1,5 – die Messung von 5c hatte gezeigt, dass es nicht
+das Stellrad ist (gepaart +45,5 % → +26,3 % bei `--diss-aufmerk=0`, also weiter über
+der Schwelle), und diese Messung bestätigt es.
+
+**Warum `BONUS_TAGE` 7 der Fehler war, und zwar rechnerisch.** Der Hype trägt sich
+selbst weiter, und der Ausgangsfaktor greift auf JEDE Veröffentlichung und JEDES
+Konzert im Fenster (`src/music.js`):
+
+* Veröffentlichen: `hype ← clamp(0,6…1,7 , clamp(0,6…1,7 , 0,7 × hype + 0,3 × Wurf) × B)`,
+  Fixpunkt `h* = 0,3 × Wurf × B / (1 − 0,7 × B)`. Bei `B` = 1,25 ist das
+  3,0 × Wurf, bei einem mittleren Wurf von 1,05 also 3,15 – weit über `HYPE_MAX` 1,7.
+* Konzert: `hype ← clamp(0,6…1,7 , (0,8 × hype + 0,3 × Güte) × B)`, Fixpunkt
+  `h* = 0,3 × Güte × B / (1 − 0,8 × B)`. Bei `B` = 1,25 ist der Nenner **genau 0** –
+  es gibt keinen Fixpunkt mehr, die Folge läuft monoton in den Deckel. 1,25 ist der
+  Kehrwert von 0,8.
+
+Wer regelmäßig gewann, klebte damit dauerhaft an der Decke statt einen Ausschlag zu
+bekommen. Gemessen (Kontrolllauf, der sich von der Endeinstellung in NICHTS außer
+`BONUS_TAGE` unterscheidet, Archetyp „nur Musik"): bei sieben Tagen **14.335 von
+21.900 Tagen** im Siegfenster, Ø Hype dort **1,519**, über alle Tage **1,46**, am
+Jahresende **1,59**; bei einem Tag **2.824 von 21.900 Tagen**, Ø Hype im Fenster
+**1,173**, über alle Tage **1,19**, am Jahresende **1,23**. Und die Spielweise
+selbst: **+95,2 %** gegen +19,7 % (gepaart). Dieser Kontrolllauf ist der von 5d und
+damit bei `ANZAEHL_CHANCE` 0,06 gemessen; 5e hat ihn nicht wiederholt, weil er die
+Wirkung von `BONUS_TAGE` zeigt und nicht die des Angezähltwerdens.
+
+**Der Sieg ist weiter spürbar – gemessen, nicht behauptet.** Ein zweiter
+Kontrolllauf fährt die Endeinstellung mit `BONUS_SIEG` 1,00 und `BONUS_NIEDERLAGE`
+1,00, also mit abgeschaltetem Ausgang. Für den reinen Musiker bringt die Sieg-Farm
+dann 106.225/Tag (**−1,4 %** gepaart) statt 120.874 (+15,0 %) – der Ausgang trägt
+ihr also **16,4 Prozentpunkte** ihres Jahresertrags –, und ihr Ø Hype über alle Tage
+liegt bei 1,11 statt 1,18. Der passive Spieler landet ohne Ausgangsfaktor bei **exakt
+±0,0 %**, und zwar in BEIDEN Archetypen und bei 4.939 abgerechneten Niederlagen:
+Seine Zeile ist Zahl für Zahl die von „ohne Beef" (104.032/Tag, 858.428 Follower,
+591.809 Hörer, Hype 1,11). Das ist die Kontrolle, die belegt, dass das
+Angezähltwerden selbst – Szene-Malus, Draht, die offene Front – kein Geld kostet und
+ausschließlich das Niederlagen-Fenster es tut.
+
+**Der Preis des kurzen Fensters, und wie er bezahlt wurde.** Wer angezählt wird und
+es aussitzt, verlor mit dem Wochenfenster **−23,9 %** (nur Musik) bzw. −10,4 %
+(Musik+Creator) im Jahr. Mit dem Tagesfenster von 5d waren es nur noch **−5,0 %**
+bzw. +0,2 %, bei Musik+Creator also nicht mehr von null zu unterscheiden – ein
+kürzeres Fenster verkürzt den Sieg und die Niederlage gleich stark, und die
+Niederlage war die Zahl, mit der 1.40.0 geworben hat. Nachtrag 5e holt sie zurück,
+ohne das Fenster wieder zu verlängern: **häufiger statt länger.** `ANZAEHL_CHANCE`
+0,06 → 0,35 heißt gezählt 83,0 Anzählungen im Jahr statt 19,6 (nur Musik, Variante
+„passiv", 60 Läufe), und jede davon endet 0:1 – 4.901 Abrechnungen, Siegquote 0,0 %,
+Gegenschläge **0**. Das Ergebnis: **−19,9 %** (nur Musik, gepaart) statt −5,0 %,
+56 von 60 Seeds tragen das Vorzeichen, und **−10,2 %** statt +0,2 % bei
+Musik+Creator (18 von 60 Seeds im Plus, bei 120 Läufen −6,9 % – das Vorzeichen ist
+gesichert, die Größe nicht).
+
+**Warum `ANZAEHL_CHANCE` und nicht `BONUS_NIEDERLAGE`.** Weil es die einzige Zahl
+ist, die den passiven Spieler oft erreicht, und das steht im Code: `anzaehlen`
+schreibt `konter_at: 0` (`src/beef.js:418`), und `settle` schlägt nur bei
+`konter_at > 0` zu (`src/beef.js:454`). Wer schluckt, nimmt also im ganzen Jahr
+**keinen** Gegenschlag; `KONTER_HYPE` und `KONTER_HOERER` können ihn nicht treffen,
+und sie zu erhöhen würde nur den aktiven Spieler bestrafen, der bei −51,8 % steht.
+Von allen Beef-Zahlen erreichen ihn damit genau drei: wie oft ein Niederlagen-Fenster
+aufgeht, wie hart es beißt und wie lange es offen bleibt. `BONUS_NIEDERLAGE` ist
+gemessen worden und ist der schwächere Hebel (siehe oben, er sättigt); die Zahl der
+Fenster sättigt nicht. **Wo diese Messung an ihre Grenze kommt:** Musik+Creator
+lässt sich so nicht weit ins Minus holen, weil das Fenster ein Faktor auf den Hype
+ist und bei ihm nur Tantiemen (22 % seiner Einnahmen) und Konzerte (3 %) daran
+hängen – Merch (59 %) fällt nur 4,4 %, während die Tantiemen 22,6 % fallen. Selbst
+`--anzaehl-chance=1.0` bringt ihn nur auf −5,5 %. Was ihn wirklich treffen würde,
+wäre ein Verlust, der nicht über den Hype läuft; eine solche Zahl gibt es in 5b
+nicht, und diese Messung durfte sie nicht erfinden.
+
+**Die Sieg-Farm bleibt die stärkste Beef-Spielweise, und sie sieht den Sieg.** Sie
+macht EINEN Disstrack je Front und lässt sie dann auskühlen; das Ziel wird so
+gewählt, dass `wuchtOf` unter 0,19 bleibt (95 % von `KONTER_LAECHERLICH` 0,20, damit
+sein Gegenschlag die Runde für *mich* holt) und `haemeOf` so klein ist, wie es das
+Genre zulässt. Ergebnis über 21.900 Tage: 3.843 Abrechnungen, **Sieg 2.730
+(Siegquote 71,0 %)**, Niederlage 1.065 (27,7 %), Unentschieden 48 (1,2 %); ihr Ø
+Aufmerksamkeitsfaktor **1,068** ist der einzige über 1 in der ganzen Messung, ihre
+Häme-Quote liegt bei 4,4 % statt 23,3 %. Die Siegquote ist mit 5e gefallen (vorher
+2.875 von 3.270 = 87,9 %), und zwar nicht in ihrer eigenen Spielweise: Die 995
+Fronten, die das Angezähltwerden nebenbei aufmacht, kühlen unbeachtet aus und
+rechnen als Niederlage ab. Was sie **nicht** mehr ist: die Spielweise, die auch
+Hörer bringt. Ihre 565.692 Hörer am Jahresende liegen unter den 591.809 des Spielers
+ohne Beef; mit `spike` 3,0 und dem Wochenfenster lagen sie mit 968.915 weit darüber.
+
+**Die Spielweise „jeden Tag ein Disstrack" ist jetzt messbar teuer.** „aktiv" liegt
+für den reinen Musiker bei **−51,8 %**, `diss-isoliert` bei −46,9 % (gepaart), für
+Musik+Creator bei −17,7 % bzw. −12,4 %. Der Grund ist die Verzinsung: Wer 365 Tage
+lang eine Art mit 0,84 Hörern je Titel statt 1,00 bringt, endet mit 79.941 statt
+591.809 Hörern. Die zwei Prozentpunkte, die 5e draufgelegt hat (−49,6 % → −51,8 %),
+sind das häufigere Angezähltwerden: Es trifft ihn schwächer als den passiven
+Spieler, weil seine zwei Frontplätze meist von seinem eigenen Dauerbeef belegt sind
+(3.032 Anzählungen statt 4.982). Der Satz „Wer streitet, sollte gewinnen wollen und nicht ewig
+weitermachen" war bis hierher eine Absicht; jetzt ist er eine Messung.
+
+**Der Sieg zahlt der Spielweise „aktiv" weiterhin nie.** Alle **2.986**
+Abrechnungen dieser Variante gingen **0:1** aus, Siegquote **0,0 %**, und keine
+abgerechnete Front war eine, in die der Spieler je einen Disstrack gesteckt hatte.
+Das ist keine stille Null, sondern die Mechanik: `zielFor` nimmt die heißeste Front,
+und wer sie täglich auf `HITZE_MAX` hält (Ø Hitze beim Disstrack 95,5), rechnet sie
+im ganzen Jahr nicht ab; abgerechnet wird die **zweite** Front, die das
+Angezähltwerden nebenbei aufgemacht hat und die unbeachtet auskühlt. Widerlegt ist
+der Sieg damit nicht – `test/beef.test.js` rechnet alle drei Ausgänge durch, und die
+Sieg-Farm kommt auf 71,0 % –, aber in DIESER Spielweise trägt er nicht.
+
+**`haemeOf` klemmt nur in Hip-Hop auf 0.** Bei derselben Messreihe aufgefallen und
+hier festgehalten, weil es nirgends stand: `Math.max(1, meine / seine)` klemmt das
+Größenverhältnis bei 1, nicht den Logarithmus bei 0 – der erste Summand verschwindet
+bei jedem Gegner, der mindestens so groß ist wie ich, der Genre-Summand
+`0,2 × (1 − genrefaktor)` bleibt aber stehen. Für einen Pop-Künstler bleibt damit ein
+Häme-Risiko von **0,0462** je Disstrack, egal wie groß der Gegner ist (gemessen in
+jedem Block als gewählte Wahrscheinlichkeit 0,0462). Null ist der Boden nur bei
+`genrefaktor` 1, also `risk` 1,3 – und das hat allein Hip-Hop.
+
+**Die Veröffentlichungsart ist der große Hebel, und sie hat mit dem Beef nichts zu
+tun.** Als Kontrolle lief derselbe Spieler ohne jeden Beef, aber mit „warten bis
+sechs Titel, dann Album" statt der täglichen Single: **+665,7 %** (2.741.519/Tag)
+bzw. **+2766,1 %** (2.981.641/Tag), 60 von 60 Seeds, und die Beef-Spielweise liegt
+89,2 % bzw. 98,3 % darunter. Das ist ein Befund über die Musik und über die
+Spielweise des Messskripts, nicht über 5b: Die Zahlen der Archetypen oben messen
+„jeden Tag die Single, die fertig ist" und damit **nicht** die beste Spielweise. Wer
+die Rangfolge oben fortschreibt, muss das wissen.
+
+**Ehrliche Grenzen:** (1) **Der Rand ist nah, aber weniger nah als nach 5d.** Die
+Endeinstellung liegt mit +16,2 % 8,8 Prozentpunkte unter dem Deckel (nach 5d
+waren es +19,7 % und gut fünf), und `spike` 2,2 statt 2,1 riss ihn damals schon
+(+25,3 %, gemessen). Wer am Kontaktkatalog, an `ANZAEHL_CHANCE`, an `HYPE_MAX` oder
+an den Genres dreht, muss diese Messung wiederholen. (2) **Die Streuung ist größer
+als der Effekt.** Bei 10 Seeds wackelt derselbe Punkt der Suche um gut zehn
+Prozentpunkte – dieselbe Einstellung liefert dort für `sieg-farm` +15,2 % statt
++19,7 %. Deshalb ist mit 30 Seeds gesucht und mit 60 bestätigt; die Rangfolge der
+Spielweisen ist über alle drei Seedzahlen stabil, die Größe der Zahlen nicht. Bei der
+`sieg-farm` gilt das auch für 30 Seeds: In der Suche von 5e stehen drei nicht
+gewählte Einstellungen über +25 %, alle mit 30 Läufen gemessen, während jede mit 60
+bestätigte bei oder unter +16,6 % bleibt. **Die schwächste veröffentlichte Zahl ist
+die des passiven Musik+Creators** (−10,2 % bei 60 Läufen, −6,9 % bei 120, Spanne je
+Seed −33,8 % … +35,2 %): Ihr Vorzeichen ist gesichert, ihre Größe nicht. (3)
+Die Zahlen der Spielweise „aktiv" gelten für genau eine Spielweise, und zwar die
+teure: jeden Tag ein Disstrack auf die heißeste Front, **kein Frieden**. **Nicht**
+gemessen sind der Spieler, der Frieden anbietet, und die Kombination „Album horten
+**und** Disstrack" – Songs und Veröffentlichungsplatz sind zwischen beiden geteilt.
+Auch **nicht gemessen** ist die Kombination aus Beef-Sieg und Kontakt-Zusage:
+Keine Beef-Variante des Messskripts setzt `strat.kontakte`
+(`scripts/messung-geldquellen.js:826` gegen die Variantenkonstruktion an
+`:2740-2752` – dort fehlt `kontakte: true`, anders als in der 5a-Kontaktmessung),
+also gab es in keinem gemessenen Beef-Jahr eine einzige 5a-Kontaktanfrage. Das ist
+kein Randfall: Eine `feature`-Zusage multipliziert denselben `audienceFactor` einer
+Veröffentlichung mit bis zu `kb.factor` **6** (`src/contacts.js:90`), den auch die
+Aufmerksamkeit des Disstracks speist (dort höchstens 2,5) – und anders als die
+Hype-Seite (`HYPE_MAX`) ist dieser Faktor auf einer einzelnen Veröffentlichung
+nicht gedeckelt. Was ein gewonnener Beef zusammen mit einer frischen
+Feature-Zusage bringt, ist damit **nicht gemessen**, und diese Messung schätzt es
+nicht. Auch die `sieg-farm` ist die beste **gemessene** und nicht die beste mögliche. (4)
+**`diss-isoliert` ist eine Messvariante und kein Spielzustand:** Kein Spieler kann
+`anzaehlen` abschalten. Die Zahl sagt, was der Disstrack als Veröffentlichung wert
+ist, nicht was ein Spieler verdient. (5) Der **reine Creator fehlt** – er hat keinen
+Disstrack. (6) Alles hängt an `ANZAEHL_CHANCE` (35 % je Chart-Platzierung, seit 5e):
+Wer nie chartet, sieht nie einen fremden Beef – und für ihn ist der ganze Abschnitt
+wirkungslos. Wie sich 83 Anzählungen im Jahr statt 20 anfühlen, ist **nicht**
+gemessen; gemessen ist nur, was sie kosten. Ungenannt bisher: In derselben
+Sieg-Farm blockieren fremd geöffnete Fronten den eigenen 🔥-Anstacheln-Knopf mit
+dem Grund `zu_viele` („Zwei Beefs sind genug.") an 11.917 von 21.900 Tagen –
+**54,4 %**, also an rund jedem zweiten Tag (`docs/messungen/2026-09-26-beef.txt`,
+„Sieg-Farm, Tage ohne Anstacheln … beide Fronten belegt"). Auch das ist nur
+gezählt, nicht als Spielgefühl bewertet. (7) Ein Eingriff des Messwerkzeugs: Der
+Anzähl-Wurf läuft dort für „passiv" und „aktiv" auf dem Beefwürfel; für „ohne Beef"
+(und „Album") entfällt er ganz, statt gezogen und weggeworfen zu werden. (8) Die
+Strategie-Suchphase des Messskripts ist **nicht bit-stabil**: Zwei Aufrufe derselben
+Kommandozeile unterscheiden sich dort in fünf Zeilen um je 1 Einheit (in 5e waren es
+zwei Zeilen, und bei zwei Aufrufen derselben Kommandozeile trat es gar nicht auf).
+Der Beef-Abschnitt war in jedem Vergleich zeilengleich; woher die Abweichung kommt,
+ist nicht geklärt. (9) Die Messung ist eine reine Geldfrage; was der Beef an Spielgefühl
+und Texten bringt, misst sie nicht. (10) Für **jede** gemessene Beef-Spielweise ist
+der Beef damit **keine** Geldquelle in der Rangfolge oben, sondern ein Risiko, das
+man verwaltet – die stärkste liegt bei +16,2 %, und die Album-Spielweise ohne jeden
+Beef liegt mit 2.981.641/Tag gegen 120.874/Tag eine Größenordnung darüber. (11) Was
+5e aufwirft und nicht messen konnte: Mit 83 Fronten im Jahr ist „jede beantworten"
+keine Spielweise mehr (−51,8 %) und „alle aussitzen" kostet −19,9 %; die Spielweise
+dazwischen – antworten, gewinnen, Frieden anbieten – ist im Messskript nicht gebaut.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,

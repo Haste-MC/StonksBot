@@ -40,7 +40,7 @@ function passungOf({ meine, seine, seite = 'musik' }) {
 
 /** Antwortchance (Wurf 1) – alle Summanden aus der Spec. */
 function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, sprache, genre,
-  draht = 0, tuerOeffner = 0, hype = 1, trait = 'launisch', partner = false }) {
+  draht = 0, tuerOeffner = 0, hype = 1, trait = 'launisch', partner = false, szene = 0 }) {
   const ratio = Math.max(100, meineReichweite || 0) / Math.max(1, seineReichweite);
   const basis = Math.min(data.CHANCE_MAX, 0.6 * Math.sqrt(ratio));
   const r = data.REQUESTS.find((x) => x.id === request);
@@ -50,7 +50,10 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
     basis + (r?.schwierigkeit ?? 0)
     + (gleichesLand ? 0.05 : 0) + sprachbonus + genrebonus
     + (draht / 100) * 0.25 + clamp(0, 0.15, tuerOeffner)
-    + (hype - 1) * 0.1 + (data.TRAIT_BONUS[trait] ?? 0) + (partner ? 0.10 : 0));
+    + (hype - 1) * 0.1 + (data.TRAIT_BONUS[trait] ?? 0) + (partner ? 0.10 : 0)
+    // Solange ein Beef offen ist, macht die Szene des Gegners dicht (5b). Die
+    // reine Hälfte holt sich das nicht selbst – sie bekommt es gereicht.
+    + szene);
 }
 
 /** Wie verbindlich die Antwort ausfällt (Wurf 2). */
@@ -240,12 +243,13 @@ function tuerOeffnerFor(zeilen, contact, now) {
 }
 
 /** Die Antwortchance für genau dieses Paar und diese Anfrageart. */
-function chanceFor({ contact, ich, k, requestId, draht, tuerOeffner, partner }) {
+function chanceFor({ guildId, userId, now, contact, ich, k, requestId, draht, tuerOeffner, partner }) {
   return chanceOf({
     meineReichweite: k.meine, seineReichweite: k.seine, request: requestId,
     gleichesLand: contact.country === ich.country,
     sprache: k.sprache, genre: k.genre,
     draht, tuerOeffner, hype: ich.hype, trait: contact.trait, partner,
+    szene: require('./beef').szeneMalus(guildId, userId, contact, now),
   });
 }
 
@@ -281,7 +285,7 @@ function listFor(guildId, userId, { filter = 'alle', now = Date.now() } = {}) {
     out.push({
       contact, seite, draht, stufe: drahtStufe(draht),
       passung: k.passung,
-      chance: chanceFor({ contact, ich, k, requestId: LIST_REQUEST, draht,
+      chance: chanceFor({ guildId, userId, now, contact, ich, k, requestId: LIST_REQUEST, draht,
         tuerOeffner: tuerOeffnerFor(zeilen, contact, now), partner }),
       gesperrtBis: gesperrtBisOf(row),
       tries: row?.tries ?? 0, yes: row?.yes ?? 0, partner,
@@ -308,17 +312,22 @@ function detail(guildId, userId, contactId, now = Date.now()) {
   const seite = seiteFuer(contact, ich);
   const k = seite ? kontextFor(contact, ich, seite) : null;
 
+  // Solange ein Beef mit ihm offen ist, ist jede Anfrage zwecklos – das wird
+  // VOR Draht und Sperre geprüft, weil es der handfestere Grund ist (5b).
+  const beefOffen = require('./beef').offenerBeef(guildId, userId, contact.id, now);
+
   const requests = data.REQUESTS.map((r) => {
     // Die Anfrageart kann eine andere Seite verlangen als die Leitseite.
     const s = seiteFuer(contact, ich, r.id);
     const ks = s === seite ? k : (s ? kontextFor(contact, ich, s) : null);
     const grund = !ks ? 'seite'
-      : (r.minDraht !== null && draht < r.minDraht) ? 'draht'
-        : gesperrtBis > now ? 'gesperrt' : null;
+      : beefOffen ? 'beef'
+        : (r.minDraht !== null && draht < r.minDraht) ? 'draht'
+          : gesperrtBis > now ? 'gesperrt' : null;
     return {
       ...r,
       seite: s,
-      chance: ks ? chanceFor({ contact, ich, k: ks, requestId: r.id, draht, tuerOeffner, partner }) : 0,
+      chance: ks ? chanceFor({ guildId, userId, now, contact, ich, k: ks, requestId: r.id, draht, tuerOeffner, partner }) : 0,
       moeglich: grund === null,
       grund,
     };
@@ -358,6 +367,31 @@ function consumeBoost(guildId, userId, kind, now = Date.now()) {
 }
 
 /**
+ * Bewegt den Draht – die einzige Stelle, an der ihn jemand von außen
+ * schreibt. Das Abklingen wird vorher faul eingerechnet (§4), damit ein alter
+ * Wert nicht konserviert wird. `sperre` setzt zusätzlich `last_try` (drei
+ * Tage Ruhe).
+ *
+ * (`request` unten schreibt seine Zeile weiterhin selbst: Es setzt in
+ * DERSELBEN Anweisung auch `yes` und `ignored_at` – ein Beef tut das nie.)
+ */
+function moveDraht(guildId, userId, contactId, delta, now = Date.now(), { sperre = false } = {}) {
+  const zeilen = db.contactsOf(guildId, userId);
+  const row = zeilen.find((z) => z.contact_id === contactId) ?? null;
+  const vorher = drahtJetzt(row, now);
+  const nachher = Math.max(-100, Math.min(100, vorher + delta));
+  db.saveContact(guildId, userId, contactId, {
+    draht: nachher,
+    tries: (row?.tries ?? 0) + (sperre ? 1 : 0),
+    yes: row?.yes ?? 0,
+    last_try: sperre ? now : (row?.last_try ?? 0),
+    last_move: now,
+    ignored_at: row?.ignored_at ?? 0,
+  });
+  return { vorher, nachher, stufe: drahtStufe(nachher) };
+}
+
+/**
  * Jemanden anschreiben.
  *
  * Reihenfolge ist hier die halbe Miete: erst prüfen, dann die Zeit buchen,
@@ -372,6 +406,13 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
   const ich = ichFor(guildId, userId, now);
   const seite = seiteFuer(contact, ich, requestId);
   if (!seite) return { ok: false, reason: 'seite', contact, request: r };
+
+  // Solange ein Beef mit ihm offen ist, ist jede Zusammenarbeit zwecklos –
+  // derselbe Grund, den `detail` meldet, hier als Riegel gegen einen alten
+  // Knopf. Er steht wie dort vor Draht und Sperre und vor der Zeitbuchung.
+  if (require('./beef').offenerBeef(guildId, userId, contact.id, now)) {
+    return { ok: false, reason: 'beef', contact, request: r };
+  }
 
   const zeilen = db.contactsOf(guildId, userId);
   const row = zeilen.find((z) => z.contact_id === contact.id) ?? null;
@@ -395,7 +436,7 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
   const k = kontextFor(contact, ich, seite);
   const tuerOeffner = tuerOeffnerFor(zeilen, contact, now);
-  const chance = chanceFor({ contact, ich, k, requestId, draht, tuerOeffner, partner });
+  const chance = chanceFor({ guildId, userId, now, contact, ich, k, requestId, draht, tuerOeffner, partner });
 
   // Wurf 1: antwortet er überhaupt? Wurf 2: wie verbindlich?
   const ratio = Math.max(100, k.meine || 0) / Math.max(1, k.seine);
@@ -471,5 +512,5 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 module.exports = {
   passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
   VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, tuerOeffnerFor,
-  listFor, detail, request, activeBoost, consumeBoost, LIST_REQUEST,
+  listFor, detail, request, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
 };

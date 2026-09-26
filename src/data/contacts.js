@@ -11,14 +11,19 @@
  * src/contacts.js rechnet. Reine Daten, kein Zustand, keine Datenbank.
  *
  * ---------------------------------------------------------------------------
- *  Alles hier ist Spielfiktion
+ *  Echte Namen, erfundene Zahlen und Zeilen
  * ---------------------------------------------------------------------------
- * Die Namen sind Anklänge an bekannte Künstler, damit die Welt vertraut wirkt –
- * dazwischen stehen bewusst erfundene Quatsch-Namen als lokale Ebene. Die
- * Texte in LINES sind KEINE Zitate und geben niemandes Meinung wieder: Sie
- * handeln ausschließlich von Musik, Streams, Terminen und Zusammenarbeit.
- * Keine Aussagen zu realen Personen, Politik oder Weltgeschehen. Wer hier
- * etwas ergänzt, hält sich daran.
+ * Die meisten Einträge tragen den echten Namen einer realen Künstlerin, eines
+ * realen Künstlers oder Creators, damit die Welt vertraut wirkt – dazwischen
+ * stehen bewusst erfundene Quatsch-Namen als lokale Ebene (z. B. „Steffi
+ * Stream-Schnecke", „Der Timeline-Troll"). `reach`/`reachCreator` sind für
+ * ALLE Einträge Spielfiktion in einer plausiblen Größenordnung, keine
+ * recherchierten Werte. Die Texte in LINES sind KEINE Zitate und geben
+ * niemandes Meinung wieder: Sie handeln ausschließlich von Musik, Streams,
+ * Terminen und Zusammenarbeit – nichts über die Meinung, den Charakter, das
+ * Aussehen, die Herkunft (außer der Staatsangehörigkeit), die Familie, die
+ * Gesundheit oder das Privatleben der realen Person. Keine Aussagen zu
+ * Politik oder Weltgeschehen. Wer hier etwas ergänzt, hält sich daran.
  *
  * ---------------------------------------------------------------------------
  *  Abdeckung – eine Verpflichtung, kein Wunsch
@@ -33,6 +38,14 @@
  *   Genre      jedes Genre hat ≥ 4 Kontakte aus ≥ 3 Sprachen und ≥ 1 Weltstar
  *              (ab 100 Mio Hörern)
  *   Plattform  jede Plattform hat ≥ 3 Creator, davon ≥ 1 über 10 Mio
+ *   Mittelfeld jedes Genre hat mindestens je einen Kontakt in 40k–200k,
+ *              200k–1 Mio und 1–5 Mio, und zwischen zwei aufeinander
+ *              folgenden Mittelfeld-Kontakten liegt höchstens der Faktor 10
+ *
+ * Das Mittelfeld ist keine Kosmetik: Sowohl die Antwortchance in 5a als auch
+ * der ganze Beef in 5b hängen am Größenverhältnis der beiden Künstler. Wer
+ * 100.000 Hörer hat, braucht im eigenen Genre jemanden in seiner Liga –
+ * sonst gibt es nur Zwerge und Weltstars und dazwischen nichts.
  *
  * ---------------------------------------------------------------------------
  *  Felder eines Eintrags
@@ -44,8 +57,10 @@
  *   language      Sprache aus world.js (steuert die Passung am stärksten)
  *   genre         Genre aus music.js      – nur bei musik/beides
  *   reach         monatliche Hörer         – nur bei musik/beides
+ *                 (Spielfiktion in plausibler Größenordnung, nicht recherchiert)
  *   platform      Plattform aus creator.js – nur bei creator/beides
  *   reachCreator  Follower                 – nur bei creator/beides
+ *                 (dieselbe Spielfiktion wie `reach`)
  *   trait         Charakterzug: steuert Antwortchance (TRAIT_BONUS) und Ton
  *   blurb         ein Satz, der den Kontakt greifbar macht
  */
@@ -244,7 +259,8 @@ const RELATED_GENRES = [
 /**
  * Die Künstler und Creator, die man anschreiben kann. Sortiert nach Sprache,
  * damit die Abdeckung beim Lesen sichtbar bleibt. `reach` sind monatliche
- * Hörer, `reachCreator` sind Follower.
+ * Hörer, `reachCreator` sind Follower – beides Spielfiktion in plausibler
+ * Größenordnung, nicht recherchiert (siehe Kopf der Datei).
  */
 const CONTACTS = [
   // --- Deutsch -------------------------------------------------------------
@@ -266,6 +282,9 @@ const CONTACTS = [
   { id: 'hanszimmer', name: 'Hans Zimmer', emoji: '🎬', kind: 'musik', country: 'de', language: 'deutsch',
     genre: 'klassik', reach: 110_000_000, trait: 'geschaeftlich',
     blurb: 'Schreibt Musik für halbe Kinojahrgänge. Termine laufen übers Büro.' },
+  { id: 'igorlevit', name: 'Igor Levit', emoji: '🕯️', kind: 'musik', country: 'de', language: 'deutsch',
+    genre: 'klassik', reach: 400_000, trait: 'geschaeftlich',
+    blurb: 'Spielt ganze Sonatenzyklen an einem Abend. Termine laufen über die Konzertagentur.' },
 
   // --- Englisch ------------------------------------------------------------
   { id: 'taylorswift', name: 'Taylor Swift', emoji: '✨', kind: 'musik', country: 'us', language: 'englisch',
@@ -289,6 +308,9 @@ const CONTACTS = [
   { id: 'bopworth', name: 'Sir Reginald Bopworth', emoji: '🎻', kind: 'musik', country: 'gb', language: 'englisch',
     genre: 'klassik', reach: 3_900, trait: 'kollegial',
     blurb: 'Komponiert Fanfaren für Dorffeste und freut sich über jede Nachricht.' },
+  { id: 'protesthero', name: 'Protest the Hero', emoji: '🗡️', kind: 'musik', country: 'ca', language: 'englisch',
+    genre: 'metal', reach: 280_000, trait: 'launisch',
+    blurb: 'Verschachtelte Riffs, Clubtouren durch halb Kanada, Jahre zwischen zwei Platten.' },
 
   // --- Spanisch ------------------------------------------------------------
   { id: 'rosalia', name: 'Rosalía', emoji: '🌹', kind: 'musik', country: 'es', language: 'spanisch',
@@ -300,6 +322,9 @@ const CONTACTS = [
   { id: 'churros', name: 'Los Churros Eléctricos', emoji: '🍩', kind: 'musik', country: 'es', language: 'spanisch',
     genre: 'elektro', reach: 31_000, trait: 'kollegial',
     blurb: 'Spielen jeden Samstag im Strandlokal und nehmen jeden mit auf die Bühne.' },
+  { id: 'lospunsetes', name: 'Los Punsetes', emoji: '🎸', kind: 'musik', country: 'es', language: 'spanisch',
+    genre: 'indie', reach: 90_000, trait: 'kuehl',
+    blurb: 'Trockene Gitarrenplatten und kleine, volle Säle in Madrid.' },
 
   // --- Portugiesisch -------------------------------------------------------
   { id: 'anitta', name: 'Anitta', emoji: '🔆', kind: 'beides', country: 'br', language: 'portugiesisch',
@@ -314,6 +339,9 @@ const CONTACTS = [
   { id: 'zedopandeiro', name: 'Zé do Pandeiro', emoji: '🥁', kind: 'musik', country: 'br', language: 'portugiesisch',
     genre: 'indie', reach: 12_000, trait: 'kollegial',
     blurb: 'Nimmt alles auf dem Balkon auf, Papageien inklusive.' },
+  { id: 'guiboratto', name: 'Gui Boratto', emoji: '🎧', kind: 'musik', country: 'br', language: 'portugiesisch',
+    genre: 'elektro', reach: 450_000, trait: 'kuehl',
+    blurb: 'Baut lange Technobögen in São Paulo und spielt sie auf europäischen Festivals.' },
 
   // --- Französisch ---------------------------------------------------------
   { id: 'davidguetta', name: 'David Guetta', emoji: '🎛️', kind: 'musik', country: 'fr', language: 'franzoesisch',
@@ -328,6 +356,12 @@ const CONTACTS = [
   { id: 'baguettesauvage', name: 'Baguette Sauvage', emoji: '🥖', kind: 'musik', country: 'fr', language: 'franzoesisch',
     genre: 'rock', reach: 7_600, trait: 'launisch',
     blurb: 'Vier Leute, ein Proberaum über der Bäckerei, ständig neue Bandnamen.' },
+  { id: 'oxmopuccino', name: 'Oxmo Puccino', emoji: '🖋️', kind: 'musik', country: 'fr', language: 'franzoesisch',
+    genre: 'hiphop', reach: 350_000, trait: 'kollegial',
+    blurb: 'Rappt seit Jahrzehnten in Bildern und tourt durch französische Theatersäle.' },
+  { id: 'vanessawagner', name: 'Vanessa Wagner', emoji: '🌫️', kind: 'musik', country: 'fr', language: 'franzoesisch',
+    genre: 'klassik', reach: 45_000, trait: 'kollegial',
+    blurb: 'Klavierabende zwischen Minimal Music und Klassik, meist in kleinen Sälen.' },
 
   // --- Italienisch ---------------------------------------------------------
   { id: 'maneskin', name: 'Måneskin', emoji: '⚡', kind: 'musik', country: 'it', language: 'italienisch',
@@ -342,6 +376,9 @@ const CONTACTS = [
   { id: 'nonnabeat', name: 'Nonna Beat', emoji: '🍝', kind: 'musik', country: 'it', language: 'italienisch',
     genre: 'elektro', reach: 9_800, trait: 'kollegial',
     blurb: 'Baut Techno aus Küchengeräuschen. Kocht beim Abmischen.' },
+  { id: 'vascorossi', name: 'Vasco Rossi', emoji: '🏟️', kind: 'musik', country: 'it', language: 'italienisch',
+    genre: 'rock', reach: 2_500_000, trait: 'geschaeftlich',
+    blurb: 'Füllt seit Jahrzehnten italienische Stadien. Die Tour steht ein Jahr vorher.' },
 
   // --- Türkisch ------------------------------------------------------------
   { id: 'sezenaksu', name: 'Sezen Aksu', emoji: '🕊️', kind: 'musik', country: 'tr', language: 'tuerkisch',
@@ -353,6 +390,12 @@ const CONTACTS = [
   { id: 'doenerdeluxe', name: 'Döner Deluxe', emoji: '🌯', kind: 'musik', country: 'tr', language: 'tuerkisch',
     genre: 'hiphop', reach: 15_000, trait: 'kollegial',
     blurb: 'Rappt nachts im Imbiss seines Onkels und lädt jeden zum Feature ein.' },
+  { id: 'sertaberener', name: 'Sertab Erener', emoji: '🌺', kind: 'musik', country: 'tr', language: 'tuerkisch',
+    genre: 'pop', reach: 650_000, trait: 'geschaeftlich',
+    blurb: 'Hat den großen Songwettbewerb gewonnen und spielt seither jede Sommerbühne am Bosporus.' },
+  { id: 'mezarkabul', name: 'Mezarkabul', emoji: '🐺', kind: 'musik', country: 'tr', language: 'tuerkisch',
+    genre: 'metal', reach: 140_000, trait: 'kuehl',
+    blurb: 'Türkischer Metal seit den Achtzigern, laute Hallen in Istanbul und Ankara.' },
 
   // --- Polnisch ------------------------------------------------------------
   { id: 'podsiadlo', name: 'Dawid Podsiadło', emoji: '🎈', kind: 'musik', country: 'pl', language: 'polnisch',
@@ -364,6 +407,9 @@ const CONTACTS = [
   { id: 'pierogisound', name: 'Pierogi Sound System', emoji: '🥟', kind: 'musik', country: 'pl', language: 'polnisch',
     genre: 'elektro', reach: 18_000, trait: 'kollegial',
     blurb: 'Legt auf jeder Hochzeit auf und hat für jeden Remix zehn Minuten Zeit.' },
+  { id: 'riverside', name: 'Riverside', emoji: '🌊', kind: 'musik', country: 'pl', language: 'polnisch',
+    genre: 'rock', reach: 160_000, trait: 'kuehl',
+    blurb: 'Zehnminütige Stücke, ganze Konzeptalben, Clubtouren quer durch Europa.' },
 
   // --- Japanisch -----------------------------------------------------------
   { id: 'yoasobi', name: 'YOASOBI', emoji: '🌸', kind: 'musik', country: 'jp', language: 'japanisch',
@@ -378,6 +424,15 @@ const CONTACTS = [
   { id: 'karaokeken', name: 'Karaoke-Kaiser Ken', emoji: '🎤', kind: 'musik', country: 'jp', language: 'japanisch',
     genre: 'rock', reach: 24_000, trait: 'launisch',
     blurb: 'Hausband einer Karaokebar in Osaka, spielt alles – auch um vier Uhr früh.' },
+  { id: 'tofubeats', name: 'tofubeats', emoji: '🍥', kind: 'musik', country: 'jp', language: 'japanisch',
+    genre: 'elektro', reach: 190_000, trait: 'launisch',
+    blurb: 'Produziert in Kobe und schiebt zwischen zwei Alben ständig Remixe nach.' },
+  { id: 'wedcampanella', name: 'Wednesday Campanella', emoji: '🎏', kind: 'musik', country: 'jp', language: 'japanisch',
+    genre: 'jpop', reach: 800_000, trait: 'launisch',
+    blurb: 'Videos wie Kurzfilme, Auftritte auf Festivals von Sapporo bis Fukuoka.' },
+  { id: 'aimer', name: 'Aimer', emoji: '❄️', kind: 'musik', country: 'jp', language: 'japanisch',
+    genre: 'jpop', reach: 3_000_000, trait: 'kuehl',
+    blurb: 'Singt Titellieder für halbe Serienstaffeln. Anfragen gehen ans Label.' },
 
   // --- Koreanisch ----------------------------------------------------------
   { id: 'bts', name: 'BTS', emoji: '💜', kind: 'musik', country: 'kr', language: 'koreanisch',
@@ -389,6 +444,9 @@ const CONTACTS = [
   { id: 'kimchikid', name: 'Kimchi Kid', emoji: '🥬', kind: 'musik', country: 'kr', language: 'koreanisch',
     genre: 'hiphop', reach: 41_000, trait: 'kollegial',
     blurb: 'Rappt über Mittagspausen und schickt jedem seine Beats zum Ausprobieren.' },
+  { id: 'neonkimbap', name: 'Neon Kimbap', emoji: '🍙', kind: 'musik', country: 'kr', language: 'koreanisch',
+    genre: 'jpop', reach: 130_000, trait: 'kollegial',
+    blurb: 'Fünf Rookies, eine Bühne im Kaufhaus von Busan, jeden Samstag um vier.' },
 
   // --- Hindi ---------------------------------------------------------------
   { id: 'arijitsingh', name: 'Arijit Singh', emoji: '🪔', kind: 'musik', country: 'in', language: 'hindi',
@@ -433,6 +491,12 @@ const CONTACTS = [
   { id: 'innerohrwurm', name: 'Inner Ohrwurm', emoji: '🐛', kind: 'musik', country: 'nl', language: 'niederlaendisch',
     genre: 'elektro', reach: 12_000, trait: 'kollegial',
     blurb: 'Produziert auf einem Hausboot und schickt ungefragt Demos.' },
+  { id: 'stroopwafels', name: 'Stroopwafel Sisters', emoji: '🧇', kind: 'musik', country: 'nl', language: 'niederlaendisch',
+    genre: 'pop', reach: 120_000, trait: 'kollegial',
+    blurb: 'Zwei Schwestern mit Akkordeon, die jedes Dorffest zwischen Utrecht und Groningen spielen.' },
+  { id: 'joepbeving', name: 'Joep Beving', emoji: '🕰️', kind: 'musik', country: 'nl', language: 'niederlaendisch',
+    genre: 'klassik', reach: 2_000_000, trait: 'kuehl',
+    blurb: 'Leise Klavierstücke, die in Millionen Playlists liegen; spielt Kirchen und alte Säle.' },
 
   // --- Rumänisch -----------------------------------------------------------
   { id: 'inna', name: 'INNA', emoji: '🌞', kind: 'musik', country: 'ro', language: 'rumaenisch',

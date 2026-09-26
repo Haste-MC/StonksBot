@@ -93,7 +93,22 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
   console.log('--- Die Daten ---');
   {
     check(`${music.GENRES.length} Genres, ${music.RELEASES.length} Veröffentlichungsarten`,
-      music.GENRES.length >= 6 && music.RELEASES.length >= 3);
+      music.GENRES.length >= 6 && music.RELEASES.length === 5);
+    // Der Disstrack (5b) ist die fünfte Art. Er steht in derselben Liste, wird
+    // aber nur über den Beef ausgelöst – die Musikansicht bietet ihn nicht an.
+    check('der Disstrack schlägt härter ein und hält weniger als eine Single',
+      music.release('diss').spike > music.release('single').spike
+      && music.release('diss').growth < music.release('single').growth,
+      JSON.stringify(music.release('diss')));
+    // §3: Der Geldrucker vom alten spike 3,0 hing daran, dass spike × growth
+    // des Disstracks über dem der Single lag (spike allein reicht als
+    // Zusicherung nicht, siehe die alte spike 3,0 / growth 0,4 = 1,20 gegen
+    // 1,0 × 1,0 = 1,00 der Single). Balancing vom 2026-09-26 hat spike auf
+    // 2,1 gesenkt, damit das Produkt wieder darunter liegt.
+    check('der Disstrack bringt weniger bleibende Hörer je Titel als eine Single (spike × growth)',
+      music.release('diss').spike * music.release('diss').growth
+      < music.release('single').spike * music.release('single').growth,
+      JSON.stringify({ diss: music.release('diss'), single: music.release('single') }));
     check('jedes Genre ist vollständig',
       music.GENRES.every((g) => g.id && g.name && g.emoji && g.reach > 0 && g.royalty > 0
         && g.live > 0 && g.blurb));
@@ -211,6 +226,10 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
 
     check('ohne Titel keine Veröffentlichung',
       music.publish(G, U, 'single', t0, Math.random, { events: false }).reason === 'no_songs');
+    // §6: Der Disstrack geht immer gegen jemanden. Ein alter Knopf ohne
+    // offenen Beef darf nichts auslösen – die Wirkung rechnet beef.diss.
+    check('ein Disstrack ohne offenen Beef wird abgewiesen',
+      music.publish(G, U, 'diss', t0, Math.random, { events: false }).reason === 'kein_beef');
 
     const rec = music.record(G, U, t0, Math.random, { events: false });
     check('eine Session bringt einen Titel', rec.ok && rec.songs === 1, rec.reason ?? '');
