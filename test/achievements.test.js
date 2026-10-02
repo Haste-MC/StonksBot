@@ -959,6 +959,36 @@ const A = 'fx:anton', B = 'fx:berta';
   check('ein frisches Konto bekommt beim ersten Blick seinen Nachtrag',
     Boolean(db.getClaim(WVIEW, FRISCH, 'ach_backfill')));
 
+  console.log('--- Eine faule Abrechnung prueft den Zustand mit, gedrosselt ---');
+  /*
+   * Wer nur spielt und keine Ansicht oeffnet, bekaeme seinen Erfolg sonst
+   * erst beim naechsten Blick. `onSettle` haengt an den vier fauligen
+   * Sammlern in buttons.js und drosselt selbst, weil networth.of() ohne
+   * Zwischenspeicher an die API geht.
+   */
+  const SPIELT = 'fx:spielt-nur';
+  let worthAufrufeSettle = 0;
+  networth.of = async () => { worthAufrufeSettle++; return { total: 600_000 }; };
+  await ach.backfill(WVIEW, SPIELT).catch(() => {});
+  check('Nachtrag bei 600.000 gibt noch keinen Millionaer',
+    !db.achievementsOf(WVIEW, SPIELT).some((r) => r.ach_id === 'worth_1m'));
+
+  const t0 = Date.now();
+  networth.of = async () => { worthAufrufeSettle++; return { total: 1_105_621 }; };
+  check('der erste Anstoss wird angenommen', ach.onSettle(WVIEW, SPIELT, t0) === true);
+  await new Promise((r) => setImmediate(r));   // state() laeuft ohne await weiter
+  check('und vergibt den Millionaer ohne jede Ansicht',
+    db.achievementsOf(WVIEW, SPIELT).some((r) => r.ach_id === 'worth_1m'),
+    db.achievementsOf(WVIEW, SPIELT).map((r) => r.ach_id).join(','));
+
+  const vorDrossel = worthAufrufeSettle;
+  check('ein zweiter Anstoss in derselben Minute wird abgewiesen',
+    ach.onSettle(WVIEW, SPIELT, t0 + 59_000) === false);
+  check('und kostet keine Vermoegensabfrage', worthAufrufeSettle === vorDrossel,
+    `${worthAufrufeSettle} statt ${vorDrossel}`);
+  check('nach einer Minute darf wieder geprueft werden',
+    ach.onSettle(WVIEW, SPIELT, t0 + 60_001) === true);
+
   networth.of = echtesOf;
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

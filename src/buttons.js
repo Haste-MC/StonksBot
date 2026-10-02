@@ -198,6 +198,10 @@ async function settle(interaction) {
       `\nErlös insgesamt: ${money(symbol, cap.total)}`);
   }
 
+  // Eine faule Abrechnung, die wirklich etwas gebucht hat, ist der Zeitpunkt,
+  // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
+  // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
+  if (lines.length) require('./achievements').onSettle(guildId, userId);
   return lines.length ? lines.join('\n\n') : null;
 }
 
@@ -232,6 +236,10 @@ async function settleCreator(guildId, userId) {
       `Das kostet **${money(symbol, deals.failed.penalty)}**.`);
   }
 
+  // Eine faule Abrechnung, die wirklich etwas gebucht hat, ist der Zeitpunkt,
+  // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
+  // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
+  if (lines.length) require('./achievements').onSettle(guildId, userId);
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -280,6 +288,10 @@ async function settleMusic(guildId, userId) {
   const streit = settleBeef(guildId, userId);
   if (streit) lines.unshift(streit);
 
+  // Eine faule Abrechnung, die wirklich etwas gebucht hat, ist der Zeitpunkt,
+  // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
+  // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
+  if (lines.length) require('./achievements').onSettle(guildId, userId);
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -289,6 +301,10 @@ async function settleFirma(guildId, userId) {
   for (const gone of await require('./decisions').settle(guildId, userId).catch(() => [])) {
     lines.push(`⚠️ **${gone.decision.emoji} ${gone.decision.title}** – du hast nicht reagiert.\n_${gone.outcome.text}_`);
   }
+  // Eine faule Abrechnung, die wirklich etwas gebucht hat, ist der Zeitpunkt,
+  // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
+  // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
+  if (lines.length) require('./achievements').onSettle(guildId, userId);
   return lines.length ? lines.join('\n') : null;
 }
 

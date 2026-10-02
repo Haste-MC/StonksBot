@@ -469,6 +469,43 @@ async function state(guildId, userId, worth = null, now = Date.now()) {
 }
 
 /**
+ * Andockpunkt 2b: eine faule Abrechnung hat gerade etwas gebucht.
+ *
+ * `state()` hing an Ansichten – Heimat, Profil, Erfolge. Wer nur spielt und
+ * keine davon öffnet, bekäme seinen „Millionär" erst beim nächsten Blick,
+ * obwohl die Tantiemen ihn längst dorthin gebracht haben. Eine faule
+ * Abrechnung, die wirklich etwas gebucht hat, ist der ehrlichste Zeitpunkt:
+ * Genau dann hat sich das Vermögen bewegt.
+ *
+ * **Gedrosselt**, und zwar aus einem gemessenen Grund: `networth.of()` hat
+ * keinen Zwischenspeicher und holt das Guthaben über die API
+ * (`src/networth.js:64`), während eine faule Abrechnung bei fast jeder
+ * Ansicht und jeder Aktion feuert. Ungedrosselt wäre das ein API-Aufruf je
+ * Klick. Einmal je Minute und Konto reicht – ein Erfolg ist nicht
+ * zeitkritisch. Der billige Kurzschluss in `state()` trägt den Rest: Wer
+ * keinen Zustands-Erfolg mehr offen hat, zahlt ohnehin nur zwei
+ * Datenbankabfragen.
+ *
+ * Die Drossel lebt im Speicher und überlebt keinen Neustart. Das ist
+ * gewollt: Nach einem Neustart darf der erste Zug wieder prüfen.
+ */
+const ZUSTAND_PAUSE_MS = 60_000;
+const ZUSTAND_MERKER_MAX = 5_000;
+const zuletztGeprueft = new Map();
+
+function onSettle(guildId, userId, now = Date.now()) {
+  const key = `${guildId}|${userId}`;
+  if (now - (zuletztGeprueft.get(key) ?? 0) < ZUSTAND_PAUSE_MS) return false;
+  // Der Merker wächst sonst mit jedem Konto, das je gespielt hat. Einmal ganz
+  // leeren ist billiger als eine Verfallsliste – es kostet höchstens, dass
+  // einige Konten einmal zu früh wieder prüfen dürfen.
+  if (zuletztGeprueft.size >= ZUSTAND_MERKER_MAX) zuletztGeprueft.clear();
+  zuletztGeprueft.set(key, now);
+  state(guildId, userId, null, now).catch(() => {});
+  return true;
+}
+
+/**
  * Andockpunkt 3: die Hintertür für Ereignisse ohne Geldbuchung.
  *
  * Derselbe Sicherheitsnetz-Nachtrag wie in `onActivity` (siehe dort): auch
@@ -820,6 +857,6 @@ function titlesFor(guildId, userId) {
 
 module.exports = {
   TIERS, RULES, byId, rarityRank,
-  baseCtx, stateCtx, check, onActivity, state, fire,
+  baseCtx, stateCtx, check, onActivity, state, onSettle, fire,
   backfill, backfillWorld, listFor, board, badgesFor, titlesFor,
 };
