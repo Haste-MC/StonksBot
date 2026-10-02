@@ -517,6 +517,72 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       idol === 2 * ohne, `${de(idol)} vs ${de(2 * ohne)}`);
   }
 
+  console.log('\n--- Das Label rechnet Konzert und Zuwachs mit eigenen Zahlen ---');
+  {
+    /**
+     * Zwei Rechenstellen, die `payGig` nicht mitprüft: die Gage und der Anteil
+     * im Konzert (`show`) und der Zuwachs beim Veröffentlichen (`publish`).
+     * Beide lasen früher `data.IDOL`; wer sie zurückdreht, zöge 50 % statt
+     * 30 %, zahlte ×1,6 statt ×1,2 und ließe die Hörer ×2,2 statt ×1,5
+     * wachsen – und kein anderer Test fiele um.
+     *
+     * Gleicher Würfel, gleiche Uhrzeit, gleiche Hörerzahl, frischer Künstler:
+     * Der Vertrag ist der EINZIGE Unterschied, also misst der Vergleich ihn.
+     */
+    const t = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+    const mitte = () => 0.5;
+    const kuenstler = async (kind) => {
+      const U = await player('de', 'deutsch', 'pop', 'face');
+      db.saveArtist(G, U, {
+        ...db.getArtist(G, U, t), listeners: 50_000, songs: 1, hype: 1,
+        touched_at: t, last_show_at: 0, last_release_at: 0,
+      });
+      if (kind) {
+        const c = db.insertContract({
+          guildId: G, userId: U, kind, agency: 'Testlabel', country: 'de',
+          createdAt: t, expiresAt: t + DAY_MS,
+        });
+        db.setContractStatus(G, c.id, 'active', { signedAt: t, endsAt: t + 60 * DAY_MS });
+      }
+      return U;
+    };
+    // Auf die Rundung genau: Die Vergleichszahl ist selbst schon gerundet, ihr
+    // halber Schritt wächst mit dem Faktor mit.
+    const nah = (ist, ohne, faktor) => Math.abs(ist - ohne * faktor) <= 0.5 * faktor + 0.5;
+
+    const konzert = async (kind) => music.show(
+      G, await kuenstler(kind), t, mitte, { events: false });
+    const ohneS = await konzert(null);
+    const labelS = await konzert('label');
+    const idolS = await konzert('idol');
+    check('alle drei Konzerte gingen durch', ohneS.ok && labelS.ok && idolS.ok,
+      `${ohneS.reason ?? 'ok'} / ${labelS.reason ?? 'ok'} / ${idolS.reason ?? 'ok'}`);
+    check('ohne Vertrag gibt es keinen Anteil', ohneS.cut === 0, String(ohneS.cut));
+    check('das Label hebt die Gage um ×1,2 – nicht um ×1,6 wie das Idol',
+      nah(labelS.gross, ohneS.gross, 1.2) && nah(idolS.gross, ohneS.gross, 1.6)
+      && labelS.gross < idolS.gross,
+      `ohne ${ohneS.gross} · label ${labelS.gross} · idol ${idolS.gross}`);
+    check('und nimmt 30 % davon als Anteil – nicht 50 %',
+      labelS.cut === Math.round(labelS.gross * 0.3)
+      && idolS.cut === Math.round(idolS.gross * 0.5),
+      `label ${labelS.cut}/${labelS.gross} · idol ${idolS.cut}/${idolS.gross}`);
+
+    const veroeffentlichen = async (kind) => music.publish(
+      G, await kuenstler(kind), 'single', t, mitte, { events: false });
+    const ohneP = await veroeffentlichen(null);
+    const labelP = await veroeffentlichen('label');
+    const idolP = await veroeffentlichen('idol');
+    check('alle drei Veröffentlichungen gingen durch', ohneP.ok && labelP.ok && idolP.ok,
+      `${ohneP.reason ?? 'ok'} / ${labelP.reason ?? 'ok'} / ${idolP.reason ?? 'ok'}`);
+    check('das Label beschleunigt den Zuwachs um ×1,5 – nicht um ×2,2 wie das Idol',
+      nah(labelP.gained, ohneP.gained, 1.5) && nah(idolP.gained, ohneP.gained, 2.2)
+      && labelP.gained < idolP.gained,
+      `ohne ${ohneP.gained} · label ${labelP.gained} · idol ${idolP.gained}`);
+    check('und im selben Maß den Abgang – schneller, nicht größer',
+      nah(labelP.lost, ohneP.lost, 1.5) && nah(idolP.lost, ohneP.lost, 2.2),
+      `ohne ${ohneP.lost} · label ${labelP.lost} · idol ${idolP.lost}`);
+  }
+
   console.log('\n--- Musik und Kanäle hängen zusammen ---');
   {
     const U = await player('de', 'deutsch', 'pop', 'face');
