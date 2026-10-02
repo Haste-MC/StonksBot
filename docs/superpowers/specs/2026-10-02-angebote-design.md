@@ -68,7 +68,7 @@ angebot_uhr (guild_id, user_id, last_roll, abgelehnt_folge,
 `abgelehnt_folge` zählt, wie oft hintereinander eine Anfrage nicht angenommen
 wurde – nach drei Mal ruht der Zustellweg (`PAUSE_TAGE`).
 
-## Die fünf Anfragearten
+## Die sechs Anfragearten
 
 | Art | Was er will | Zeit | Was du bekommst | Ab Draht |
 |---|---|---|---|---|
@@ -160,7 +160,7 @@ gedeckelt auf die eigene Hörerschaft:
 
 ```
 extraHoerer = min(meine, seine × VORGRUPPE_ANTEIL)     VORGRUPPE_ANTEIL = 0,05
-gage        = SHOW_PAY × (meine + extraHoerer)^SHOW_EXp
+gage        = SHOW_PAY × (meine + extraHoerer)^SHOW_EXP
 ```
 
 Von Hand: bei 10.000 eigenen Hörern bringt eine Vorgruppe bei Oxmo (350.000)
@@ -269,8 +269,10 @@ gemessen, nicht nur die Summe.**
 
 Decken, jede gerechnet:
 - **Honorar:** `3 × seine^0,6`, gedeckelt auf 30 Tage eigener Tantiemen. Höchster
-  möglicher Einzelbetrag im Katalog: `3 × 130.000.000^0,6` = 221.000, und das
-  nur für einen Spieler, dessen Deckel darüber liegt (ab ~15.000 Hörern).
+  möglicher Einzelbetrag im Katalog: `3 × 130.000.000^0,6` = **221.558**, und das
+  nur für einen Spieler, dessen Deckel darüber liegt – nachgerechnet **ab 55.285
+  eigenen Hörern**. Darunter bindet immer der Deckel, und das Honorar ist dann
+  exakt 30 Tage eigener Tantiemen.
 - **Gage:** höchstens `2^0,7` = ×1,62 einer eigenen Konzert-Gage, weil sein
   Publikum auf die eigene Hörerschaft gedeckelt ist.
 - **Kollabo:** höchstens ×2,0 Publikum **einer** Veröffentlichung, gegen 15
