@@ -1071,6 +1071,47 @@ db.exec(`
     bonus_until INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id, contact_id)
   );
+
+  -- Eine Gegenanfrage: Ein Kontakt meldet sich von sich aus. Höchstens zwei
+  -- offene je Konto, jede mit Frist – wer sie verstreichen lässt, zahlt mehr
+  -- Draht als wer absagt.
+  CREATE TABLE IF NOT EXISTS angebote (
+    guild_id   TEXT    NOT NULL,
+    user_id    TEXT    NOT NULL,
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    art        TEXT    NOT NULL,
+    contact_id TEXT    NOT NULL,
+    erstellt   INTEGER NOT NULL,
+    frist      INTEGER NOT NULL,
+    status     TEXT    NOT NULL DEFAULT 'offen'   -- offen | an | ab | verfallen
+  );
+  CREATE INDEX IF NOT EXISTS idx_angebote ON angebote (guild_id, user_id, status);
+
+  -- Ein großes Format ist ein Stundenkonto, das man an Tagen seiner Wahl
+  -- füllt – kein Sonderweg um §17 herum.
+  CREATE TABLE IF NOT EXISTS projekte (
+    guild_id      TEXT    NOT NULL,
+    user_id       TEXT    NOT NULL,
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    art           TEXT    NOT NULL,
+    contact_id    TEXT    NOT NULL,
+    stunden_soll  REAL    NOT NULL,
+    stunden_ist   REAL    NOT NULL DEFAULT 0,
+    frist         INTEGER NOT NULL,
+    status        TEXT    NOT NULL DEFAULT 'offen'  -- offen | fertig | verfallen
+  );
+  CREATE INDEX IF NOT EXISTS idx_projekte ON projekte (guild_id, user_id, status);
+
+  -- Die Uhr des Zustellwegs: wann zuletzt gewürfelt wurde und wie oft
+  -- hintereinander nicht angenommen.
+  CREATE TABLE IF NOT EXISTS angebot_uhr (
+    guild_id        TEXT    NOT NULL,
+    user_id         TEXT    NOT NULL,
+    last_roll       INTEGER NOT NULL DEFAULT 0,
+    abgelehnt_folge INTEGER NOT NULL DEFAULT 0,
+    pause_bis       INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id)
+  );
 `);
 
 // --------------------------------------------------------------- HEISTS
@@ -2260,6 +2301,38 @@ const stmt = {
        angefangen = excluded.angefangen, status = excluded.status,
        bonus_until = excluded.bonus_until`),
   clearBeefsOf: db.prepare('DELETE FROM beefs WHERE guild_id = ? AND user_id = ?'),
+
+  // --- Gegenanfragen, Projekte, Zustelluhr (5c) ---
+  angeboteOf: db.prepare(
+    'SELECT * FROM angebote WHERE guild_id = ? AND user_id = ? ORDER BY id'),
+  angebotRow: db.prepare('SELECT * FROM angebote WHERE guild_id = ? AND id = ?'),
+  insertAngebot: db.prepare(
+    `INSERT INTO angebote (guild_id, user_id, art, contact_id, erstellt, frist, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+  saveAngebot: db.prepare('UPDATE angebote SET status = ? WHERE guild_id = ? AND id = ?'),
+  clearAngeboteOf: db.prepare('DELETE FROM angebote WHERE guild_id = ? AND user_id = ?'),
+
+  projekteOf: db.prepare(
+    'SELECT * FROM projekte WHERE guild_id = ? AND user_id = ? ORDER BY id'),
+  projektRow: db.prepare('SELECT * FROM projekte WHERE guild_id = ? AND id = ?'),
+  insertProjekt: db.prepare(
+    `INSERT INTO projekte (guild_id, user_id, art, contact_id, stunden_soll,
+                           stunden_ist, frist, status)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *`),
+  saveProjekt: db.prepare(
+    `UPDATE projekte SET stunden_ist = ?, frist = ?, status = ?
+     WHERE guild_id = ? AND id = ?`),
+  clearProjekteOf: db.prepare('DELETE FROM projekte WHERE guild_id = ? AND user_id = ?'),
+
+  angebotUhr: db.prepare('SELECT * FROM angebot_uhr WHERE guild_id = ? AND user_id = ?'),
+  // Die Uhr = EINE Anweisung (§7).
+  saveAngebotUhr: db.prepare(
+    `INSERT INTO angebot_uhr (guild_id, user_id, last_roll, abgelehnt_folge, pause_bis)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id) DO UPDATE SET
+       last_roll = excluded.last_roll, abgelehnt_folge = excluded.abgelehnt_folge,
+       pause_bis = excluded.pause_bis`),
+  clearAngebotUhr: db.prepare('DELETE FROM angebot_uhr WHERE guild_id = ? AND user_id = ?'),
 
   boostRow: db.prepare(
     'SELECT * FROM contact_boosts WHERE guild_id = ? AND user_id = ? AND kind = ?'),
@@ -3734,6 +3807,82 @@ function saveBeef(guildId, userId, contactId, b) {
     b.angefangen ?? 0, b.status ?? 'offen', b.bonus_until ?? 0);
 }
 
+// ------------------------------------------- Gegenanfragen und Projekte (5c)
+
+/** Alle Gegenanfragen eines Spielers – offene wie erledigte, aufsteigend. */
+function angeboteOf(guildId, userId) {
+  return stmt.angeboteOf.all(guildId, String(userId));
+}
+
+/** EINE Gegenanfrage über ihre Id – null, wenn es sie nicht (mehr) gibt. */
+function angebotRow(guildId, id) {
+  return stmt.angebotRow.get(guildId, Number(id)) ?? null;
+}
+
+/** Legt eine Gegenanfrage an und gibt die Zeile MIT `id` zurück. */
+function insertAngebot(d) {
+  return stmt.insertAngebot.get(
+    d.guildId, String(d.userId), String(d.art), String(d.contactId),
+    d.erstellt, d.frist, d.status ?? 'offen');
+}
+
+/** Schreibt den Status fort und gibt die neue Zeile zurück. */
+function saveAngebot(guildId, id, a = {}) {
+  const row = angebotRow(guildId, id);
+  if (!row) return null;
+  stmt.saveAngebot.run(a.status ?? row.status, guildId, Number(id));
+  return angebotRow(guildId, id);
+}
+
+/** Alle großen Formate eines Spielers – offene wie erledigte. */
+function projekteOf(guildId, userId) {
+  return stmt.projekteOf.all(guildId, String(userId));
+}
+
+/** EIN Projekt über seine Id. */
+function projektRow(guildId, id) {
+  return stmt.projektRow.get(guildId, Number(id)) ?? null;
+}
+
+/** Legt ein Projekt an und gibt die Zeile MIT `id` zurück (Felder in camelCase). */
+function insertProjekt(d) {
+  return stmt.insertProjekt.get(
+    d.guildId, String(d.userId), String(d.art), String(d.contactId),
+    d.stundenSoll, d.stundenIst ?? 0, d.frist, d.status ?? 'offen');
+}
+
+/** Schreibt ein Projekt fort (Felder in camelCase) und gibt die neue Zeile zurück. */
+function saveProjekt(guildId, id, p = {}) {
+  const row = projektRow(guildId, id);
+  if (!row) return null;
+  stmt.saveProjekt.run(
+    p.stundenIst ?? row.stunden_ist, p.frist ?? row.frist, p.status ?? row.status,
+    guildId, Number(id));
+  return projektRow(guildId, id);
+}
+
+/**
+ * Die Uhr des Zustellwegs – immer eine Zeile, auch wenn noch keine
+ * geschrieben wurde. Lesen darf nichts anlegen (§4).
+ */
+function angebotUhr(guildId, userId) {
+  return stmt.angebotUhr.get(guildId, String(userId))
+    ?? { guild_id: guildId, user_id: String(userId), last_roll: 0, abgelehnt_folge: 0, pause_bis: 0 };
+}
+
+/** Die Uhr = EINE Anweisung (§7). */
+function saveAngebotUhr(guildId, userId, u = {}) {
+  stmt.saveAngebotUhr.run(guildId, String(userId),
+    u.last_roll ?? 0, u.abgelehnt_folge ?? 0, u.pause_bis ?? 0);
+}
+
+/** Löscht Gegenanfragen, Projekte und Uhr eines Spielers (Tests, Admin). */
+function clearAngebote(guildId, userId) {
+  stmt.clearAngeboteOf.run(guildId, String(userId));
+  stmt.clearProjekteOf.run(guildId, String(userId));
+  stmt.clearAngebotUhr.run(guildId, String(userId));
+}
+
 /** Der Schub dieser Art, sofern er noch gilt – abgelaufene zählen nicht. */
 function getBoost(guildId, userId, kind, now = Date.now()) {
   return stmt.getBoost.get(guildId, String(userId), String(kind), now) ?? null;
@@ -4453,6 +4602,9 @@ module.exports = {
   contractHistory,
   getContact, contactsOf, saveContact, getBoost, setBoost, deleteBoost, clearContacts,
   beefsOf, beefRow, saveBeef,
+  angeboteOf, angebotRow, insertAngebot, saveAngebot,
+  projekteOf, projektRow, insertProjekt, saveProjekt,
+  angebotUhr, saveAngebotUhr, clearAngebote,
   getCreator, allCreator, saveCreator, addCreatorFollowers,
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,

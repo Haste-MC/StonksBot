@@ -634,6 +634,56 @@ function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now =
 }
 
 /**
+ * Eine Nebeneinnahme der Musikseite auszahlen – Honorar und Gage aus 5c.
+ *
+ * Genau die Reihenfolge des Konzerts (`show`), und zwar an EINER Stelle, damit
+ * es keine zweite Kasse gibt (§3):
+ *
+ *   1. erst der Anteil der Agentur vom Brutto (Idol-Vertrag),
+ *   2. dann der Level-Zuschlag auf das, was übrig bleibt,
+ *   3. dann GENAU EINE Buchung mit `{ kind: 'music' }` – an diesem Merkmal
+ *      hängen Erfahrung und Level, eine Buchung ohne das Merkmal zahlt Geld
+ *      ohne Erfahrung aus.
+ *
+ * Bei 0 wird nicht gebucht: Die UnbelievaBoat-API lehnt Nulländerungen ab.
+ */
+async function payGig(guildId, userId, gross, grund) {
+  const brutto = Math.max(0, Math.round(Number(gross) || 0));
+  const idol = db.activeContract(guildId, userId) ? data.IDOL : null;
+  const cut = idol ? Math.round(brutto * idol.cut) : 0;
+  const net = require('./perks').payout(guildId, userId, brutto - cut);
+  const balance = net !== 0
+    ? await changeCash(guildId, userId, net, grund, { kind: 'music' })
+    : null;
+  return { gross: brutto, cut, amount: net, balance };
+}
+
+/**
+ * Ein Auftritt als Vorgruppe (5c): das Buchwerk eines Konzerts ohne Gage.
+ *
+ * Steht hier und nicht in angebote.js, weil nur hier der Leerlauf-Verfall
+ * (`decayed`) vor dem Schreiben eingerechnet wird – ohne den würde ein
+ * Auftritt die seit Tagen fälligen Hörerverluste konservieren. Die
+ * mitgebrachten Hörer bleiben auf die eigene Hörerschaft gedeckelt (dieselbe
+ * Deckelung, die `show` dem zugesagten Konzert gibt), und die Konzert-Sperre
+ * (`last_show_at`) wird gesetzt: Eine Vorgruppe ist ein Konzert.
+ */
+function bookSupportShow(guildId, userId, extraHoerer = 0, now = Date.now()) {
+  const row = db.getArtist(guildId, userId, now);
+  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
+  const market = marketOf(guildId, userId);
+  const before = decayed(row, market, now);
+  const dazu = Math.max(0, Math.round(Math.min(before.listeners, extraHoerer)));
+  const listeners = Math.round(before.listeners) + dazu;
+  db.saveArtist(guildId, userId, {
+    ...row, shows: row.shows + 1, listeners,
+    peak_listeners: Math.max(row.peak_listeners, listeners),
+    last_action_at: now, last_show_at: now, touched_at: now,
+  });
+  return { ok: true, gained: dazu, listeners, lostToIdle: before.lost };
+}
+
+/**
  * Ein Konzert. Zahlt sofort und richtig – aber nur, wer genug Hörer hat,
  * bekommt eine Halle voll.
  */
@@ -938,5 +988,6 @@ module.exports = {
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,
   reachOf, reachBonus, contractOf, terms, simulateRelease,
   setup, setGenre, reveal, record, publish, applyBeefTreffer, show, settle, status,
+  payGig, bookSupportShow,
   rollContract, sign, decline, leave, settleContracts,
 };

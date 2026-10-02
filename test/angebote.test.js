@@ -71,6 +71,16 @@ check('und darüber wird es nicht mehr', g(10_000, 110_000_000) === 8_200);
 check('wer selbst groß ist, merkt Oxmo kaum', g(100_000, 350_000) === 28_322);
 check('die Deckelung ist genau 2^0,7',
   nah(g(10_000, 110_000_000) / Math.round(8 * Math.pow(10_000, 0.7)), Math.pow(2, 0.7), 1e-3));
+/**
+ * Kein Aufrufer kann eine negative Reichweite liefern – aber `Math.pow` eines
+ * negativen Werts mit einem gebrochenen Exponenten ist NaN, und NaN käme hier
+ * bis in eine Geldbuchung. Darum derselbe Boden wie in `honorarOf`.
+ */
+check('eine negative eigene Reichweite ergibt 0, nicht NaN', g(-5, 8_400) === 0);
+check('eine negative fremde Reichweite ergibt die eigene Gage',
+  g(10_000, -8_400) === Math.round(8 * Math.pow(10_000, 0.7)));
+check('ein negatives Gewicht gibt es nicht',
+  ang.gewichtOf({ draht: 60, passung: -1 }) === 0);
 
 console.log('--- Kollabo-Faktor ---');
 /**
@@ -186,5 +196,284 @@ check('eine unbekannte Lage gibt leer zurück',
 check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   !ang.textFor('arrogant', 'zusage', 'Rammstein', () => 0.5).includes('{name}'));
 
-console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
-process.exit(fail === 0 ? 0 : 1);
+/**
+ * ===========================================================================
+ *  STÜCK 2: DER ZUSTAND – ZUSTELLUNG, ANNEHMEN, ABLEHNEN
+ * ===========================================================================
+ *
+ * Ab hier mit Datenbank. Jede Prüfung baut sich ihre eigene Welt (eigene
+ * `guild_id`), damit keine Reihenfolge eine andere trägt. Der Zufall wird
+ * immer hereingereicht: `immer` trifft jeden Wurf und nimmt bei jeder Auswahl
+ * das erste Feld, `nie` trifft nie.
+ */
+(async () => {
+  // Die Kasse wird abgefangen – geprüft wird, WAS gebucht wird (Betrag,
+  // Grund, `kind`), nicht dass UnbelievaBoat erreichbar ist.
+  const unb = require('../src/unb');
+  unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
+  const gebucht = [];
+  unb.changeCash = async (g, u, amount, reason, opts = {}) => {
+    gebucht.push({ guildId: g, userId: u, amount, reason, opts });
+    return { cash: 0, bank: 0, total: 0 };
+  };
+
+  const db = require('../src/db');
+  const music = require('../src/music');
+  const creator = require('../src/creator');
+  const home = require('../src/home');
+  const contacts = require('../src/contacts');
+  const cdata = require('../src/data/contacts');
+
+  const STAMP = Date.now();
+  let nr = 0;
+  // Morgen früh um sechs: ein voller Tageshaushalt, volle Energie.
+  const T0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + 24 * 3600e3;
+  const immer = () => 0;
+  const nie = () => 0.9999;
+
+  /** Eine frische Welt: ein deutscher Rapper mit 10.000 Hörern. */
+  const welt = async (listeners = 10_000, t = T0) => {
+    const G = `ANGEBOT_T${STAMP}_${++nr}`;
+    const U = 'a1';
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(G, U, {
+      ...db.getArtist(G, U, t), listeners,
+      touched_at: t, last_action_at: t, paid_through: t,
+    });
+    return { G, U };
+  };
+
+  /** Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). */
+  const draht = (G, U, contactId, wert, t = T0) => db.saveContact(G, U, contactId,
+    { draht: wert, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
+
+  /** Eine Anfrage, die genau jetzt eingegangen ist. */
+  const anfrage = (G, U, art, contactId, t = T0) => db.insertAngebot({
+    guildId: G, userId: U, art, contactId, erstellt: t, frist: ang.fristOf(t) });
+
+  const LILPFAND = cdata.byId('lilpfand');      // deutsch, Hip-Hop, 8.400
+  const OXMO = cdata.byId('oxmopuccino');       // franzoesisch, Hip-Hop, 350.000
+
+  console.log('--- Tabellen ---');
+  {
+    const { G, U } = await welt();
+    const row = db.insertAngebot({ guildId: G, userId: U, art: 'gastpart',
+      contactId: 'apache', erstellt: T0, frist: T0 + 3 * TAG });
+    check('ein Angebot bekommt eine id', row && row.id > 0);
+    check('und steht in der Liste', db.angeboteOf(G, U).some((a) => a.id === row.id));
+    check('die Uhr hat Vorgaben', db.angebotUhr(G, 'wer-auch-immer').last_roll === 0);
+    check('und legt beim Lesen keine Zeile an (§4)',
+      db.angebotUhr(G, 'wer-auch-immer').pause_bis === 0);
+    const p = db.insertProjekt({ guildId: G, userId: U, art: 'kollabo',
+      contactId: 'apache', stundenSoll: 18, frist: T0 + 14 * TAG });
+    check('ein Projekt bekommt eine id und beginnt bei 0 Stunden',
+      p && p.id > 0 && p.stunden_ist === 0 && p.stunden_soll === 18);
+    check('Projektstunden lassen sich in camelCase fortschreiben',
+      db.saveProjekt(G, p.id, { stundenIst: 4 }).stunden_ist === 4);
+    check('und der Status eines Angebots auch',
+      db.saveAngebot(G, row.id, { status: 'ab' }).status === 'ab');
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 2, pause_bis: T0 + TAG });
+    check('die Uhr behält, was sie bekommt',
+      db.angebotUhr(G, U).last_roll === T0 && db.angebotUhr(G, U).abgelehnt_folge === 2
+      && db.angebotUhr(G, U).pause_bis === T0 + TAG);
+    db.clearAngebote(G, U);
+    check('clearAngebote räumt Anfragen, Projekte und Uhr ab',
+      db.angeboteOf(G, U).length === 0 && db.projekteOf(G, U).length === 0
+      && db.angebotUhr(G, U).last_roll === 0);
+  }
+
+  console.log('--- Zustellung ---');
+  {
+    const { G, U } = await welt();
+    db.saveAngebotUhr(G, U, { last_roll: T0 - 10 * TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const ev = ang.settle(G, U, T0, immer);
+    check('bei Draht 0 meldet sich niemand – auch nach zehn Tagen nicht',
+      ev.length === 0 && ang.offeneAngebote(G, U, T0).length === 0, JSON.stringify(ev));
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0 - 10 * TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const ev = ang.settle(G, U, T0, immer);
+    const neu = ev.filter((e) => e.art === 'neu');
+    check('bei Draht 60 kommt eine Anfrage, und zwar von ihm',
+      neu.length >= 1 && neu[0].contact.id === LILPFAND.id, JSON.stringify(ev));
+    check('mit Frist von drei Tagen und einer Zeile im Ton des Kontakts',
+      neu[0].angebot.frist === T0 + data.FRIST_TAGE * TAG
+      && neu[0].text.includes(LILPFAND.name), JSON.stringify(neu[0]));
+    check('und nie mehr als ANFRAGEN_MAX offene',
+      ang.offeneAngebote(G, U, T0).length === data.ANFRAGEN_MAX,
+      String(ang.offeneAngebote(G, U, T0).length));
+  }
+  {
+    const { G, U } = await welt();
+    db.saveAngebotUhr(G, U, { last_roll: T0 - 30 * TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    let rufe = 0;
+    ang.settle(G, U, T0, () => { rufe++; return 0.9999; });
+    check('30 Tage Abwesenheit geben höchstens ROLL_TAGE_MAX Würfe',
+      rufe === data.ROLL_TAGE_MAX, String(rufe));
+    check('und die Uhr rückt auf jetzt vor (sonst würfelt der nächste Blick erneut)',
+      db.angebotUhr(G, U).last_roll === T0);
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0 - 2 * TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const erst = ang.settle(G, U, T0, immer);
+    const liste = JSON.stringify(db.angeboteOf(G, U));
+    const uhr = JSON.stringify(db.angebotUhr(G, U));
+    const zweit = ang.settle(G, U, T0, immer);
+    check('settle ist idempotent: der zweite Lauf ändert nichts',
+      erst.length === 2 && zweit.length === 0
+      && JSON.stringify(db.angeboteOf(G, U)) === liste
+      && JSON.stringify(db.angebotUhr(G, U)) === uhr, JSON.stringify(zweit));
+  }
+
+  console.log('--- Verfallen ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    const row = anfrage(G, U, 'tausch', LILPFAND.id);
+    const spaet = T0 + 4 * TAG;
+    const zeitVor = creator.budget(G, U, spaet).left;
+    const r = await ang.annehmen(G, U, row.id, spaet, nie);
+    check('eine verstrichene Anfrage lässt sich nicht annehmen',
+      r.ok === false, JSON.stringify(r));
+    check('sie kostet dabei keine Zeit – die Zeitbuchung steht hinter jeder Prüfung',
+      creator.budget(G, U, spaet).left === zeitVor);
+    check('ihr Status ist "verfallen", nicht "an"',
+      db.angebotRow(G, row.id).status === 'verfallen');
+    check('Verfallen kostet 8 Draht',
+      db.getContact(G, U, LILPFAND.id).draht === 60 + data.DRAHT_VERFALL,
+      String(db.getContact(G, U, LILPFAND.id).draht));
+    check('und zählt als nicht angenommen', db.angebotUhr(G, U).abgelehnt_folge === 1);
+    check('das Verfallen steht in `vorher` genau dieses Klicks',
+      (r.vorher ?? []).some((e) => e.art === 'verfallen' && e.angebot.id === row.id),
+      JSON.stringify(r.vorher));
+    const nochmal = await ang.annehmen(G, U, row.id, spaet, nie);
+    check('ein zweiter Klick darauf meldet nur noch "weg"',
+      nochmal.ok === false && nochmal.reason === 'weg' && nochmal.vorher.length === 0,
+      JSON.stringify(nochmal));
+  }
+
+  console.log('--- Annehmen und Ablehnen ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 30);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 2, pause_bis: 0 });
+    const row = anfrage(G, U, 'tausch', LILPFAND.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const kasseVor = gebucht.length;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('tausch lässt sich annehmen', r.ok === true, JSON.stringify(r));
+    check('Status "an"', db.angebotRow(G, row.id).status === 'an');
+    check('Draht +8', db.getContact(G, U, LILPFAND.id).draht === 30 + data.DRAHT_AN,
+      String(db.getContact(G, U, LILPFAND.id).draht));
+    check('abgelehnt_folge zurück auf 0', db.angebotUhr(G, U).abgelehnt_folge === 0);
+    check('zwei Stunden gebucht', creator.budget(G, U, T0).left === zeitVor - 2,
+      String(creator.budget(G, U, T0).left));
+    // Derselbe Schub, den ein shoutout in 5a setzt: 1 + 3 × Stärke, Stufe 'zusage'.
+    const staerke = contacts.staerkeOf({ seineReichweite: LILPFAND.reach,
+      meineReichweite: 10_000, passung: 1, stufe: 'zusage' });
+    const boost = contacts.activeBoost(G, U, 'release', T0);
+    check('tausch setzt den Reichweiten-Schub (1 + 3 × Stärke)',
+      boost && nah(boost.factor, Math.min(4, 1 + 3 * staerke)) && nah(boost.factor, 1.264824, 1e-5),
+      JSON.stringify(boost));
+    check('und kostet die Kasse nichts', r.geld === null && gebucht.length === kasseVor);
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 30);
+    const row = anfrage(G, U, 'tausch', LILPFAND.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r = ang.ablehnen(G, U, row.id, T0, nie);
+    check('Ablehnen klappt und erzählt die Absage',
+      r.ok === true && r.text.includes(LILPFAND.name), JSON.stringify(r));
+    check('Draht −5', db.getContact(G, U, LILPFAND.id).draht === 30 + data.DRAHT_AB,
+      String(db.getContact(G, U, LILPFAND.id).draht));
+    check('Ablehnen kostet keine Zeit', creator.budget(G, U, T0).left === zeitVor);
+    check('Status "ab", und es zählt als nicht angenommen',
+      db.angebotRow(G, row.id).status === 'ab' && db.angebotUhr(G, U).abgelehnt_folge === 1);
+  }
+
+  console.log('--- Honorar und Gage ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 30);
+    const row = anfrage(G, U, 'gastpart', LILPFAND.id);
+    const kasseVor = gebucht.length;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    // 3 × 8.400^0,6 = 679; der Deckel (30 × ~949/Tag = 28.468) greift nicht.
+    check('gastpart zahlt das Honorar von 679',
+      r.ok === true && r.honorar === 679 && r.geld?.amount === 679, JSON.stringify(r.geld));
+    check('genau eine Buchung, mit `kind: music` – daran hängt die Erfahrung',
+      gebucht.length === kasseVor + 1 && gebucht.at(-1).amount === 679
+      && gebucht.at(-1).opts.kind === 'music', JSON.stringify(gebucht.at(-1)));
+    check('die Buchung nennt den Kontakt', gebucht.at(-1).reason.includes(LILPFAND.name),
+      gebucht.at(-1).reason);
+    check('und gastpart setzt denselben Schub wie tausch',
+      nah(contacts.activeBoost(G, U, 'release', T0)?.factor ?? 0, 1.264824, 1e-5));
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, OXMO.id, 30);
+    const row = anfrage(G, U, 'vorgruppe', OXMO.id);
+    const kasseVor = gebucht.length;
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    // 8 × (10.000 + min(10.000, 350.000 × 0,05))^0,7 = 8 × 20.000^0,7 = 8.200
+    check('vorgruppe zahlt die Gage von 8.200',
+      r.ok === true && r.gage === 8_200 && r.geld?.amount === 8_200, JSON.stringify(r.geld));
+    check('die mitgebrachten Hörer sind auf die eigene Hörerschaft gedeckelt',
+      r.extraHoerer === 10_000 && music.status(G, U, T0).listeners === 20_000,
+      JSON.stringify({ extra: r.extraHoerer, h: music.status(G, U, T0).listeners }));
+    check('die Vorgruppe zählt als Konzert und setzt dessen Sperre',
+      music.status(G, U, T0).showMs > 0 && music.status(G, U, T0).shows === 1);
+    check('vier Stunden gebucht', creator.budget(G, U, T0).left === zeitVor - 4);
+    check('auch hier genau eine Buchung mit `kind: music`',
+      gebucht.length === kasseVor + 1 && gebucht.at(-1).opts.kind === 'music');
+  }
+
+  console.log('--- Pause nach drei Mal ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    for (let i = 0; i < data.PAUSE_SCHWELLE; i++) {
+      const row = anfrage(G, U, 'tausch', LILPFAND.id);
+      ang.ablehnen(G, U, row.id, T0, nie);
+    }
+    check('dreimal abgelehnt wird gezählt', db.angebotUhr(G, U).abgelehnt_folge === 3,
+      String(db.angebotUhr(G, U).abgelehnt_folge));
+    ang.settle(G, U, T0, nie);
+    const uhr = db.angebotUhr(G, U);
+    check('danach ruht der Zustellweg 14 Tage, und der Zähler steht wieder auf 0',
+      uhr.pause_bis === T0 + data.PAUSE_TAGE * TAG && uhr.abgelehnt_folge === 0,
+      JSON.stringify(uhr));
+    const inPause = ang.settle(G, U, T0 + 7 * TAG, immer);
+    check('in der Pause meldet sich niemand',
+      inPause.filter((e) => e.art === 'neu').length === 0, JSON.stringify(inPause));
+    const danach = ang.settle(G, U, T0 + 15 * TAG, immer);
+    check('nach der Pause wieder', danach.some((e) => e.art === 'neu'),
+      JSON.stringify(danach));
+  }
+
+  console.log('--- Was Task 3 und 4 noch bauen ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    const row = anfrage(G, U, 'label', LILPFAND.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('label antwortet bis Task 4 mit "noch_nicht"',
+      r.ok === false && r.reason === 'noch_nicht', JSON.stringify(r));
+    check('und kostet dabei weder Zeit noch Status',
+      creator.budget(G, U, T0).left === zeitVor
+      && db.angebotRow(G, row.id).status === 'offen');
+  }
+
+  console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
+  process.exit(fail === 0 ? 0 : 1);
+})();
