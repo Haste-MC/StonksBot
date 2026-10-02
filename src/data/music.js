@@ -110,6 +110,7 @@ const IDOL = {
   liveBonus: 1.6,           // und die Hallen sind größer
   scandalFactor: 2.0,       // ein Fehltritt kostet das Doppelte
   exitPenaltyDays: 30,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
+  advanceDays: 25,          // Vorschuss bei Unterschrift, in Tagen Tantiemen
   blurb: 'Trainingsplan, Choreografie, Zeitplan – und ein Vertrag, der '
     + 'bestimmt, was du sagst, mit wem du dich zeigst und wann du frei hast.',
   rules: [
@@ -120,6 +121,38 @@ const IDOL = {
     '🚫 Kein Wechsel zu anonym, kein Umzug ins Ausland.',
     '⚠️ Skandale kosten doppelt – die Agentur duldet nichts.',
     '📆 90 Tage Laufzeit. Vorzeitiger Ausstieg kostet 30 Tage Einnahmen.',
+  ],
+};
+
+/**
+ * Label-Vertrag (jedes Land, mit oder ohne Gesicht).
+ *
+ * Die zweite Vertragsart – und der erste Weg zu einem Vertrag, der nicht über
+ * Tokio oder Seoul führt: Ein Partner führt einen bei seinem Label ein
+ * (`label` in src/data/angebote.js). Weniger Schub als beim Idol, aber auch
+ * weniger Fessel – keine Vorschriften über das Auftreten, kein doppelter
+ * Skandalschaden, halb so lange Laufzeit und eine halb so teure Tür hinaus.
+ *
+ * Dieselben Felder wie IDOL, Feld für Feld: Beide gehen über `terms(kind)`
+ * durch dieselben Rechenwege (src/music.js). Ein Feld, das hier fehlt, fehlt
+ * dort als `undefined` mitten in einer Multiplikation.
+ */
+const LABEL = {
+  minListeners: 25_000,
+  durationDays: 60,
+  cut: 0.30,                // Anteil der Musikeinnahmen für das Label
+  growth: 1.5,              // dafür wächst die Hörerschaft halb so schnell wieder dazu
+  liveBonus: 1.2,           // etwas größere Hallen
+  scandalFactor: 1.0,       // ein Fehltritt kostet wie ohne Vertrag
+  exitPenaltyDays: 15,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
+  advanceDays: 10,          // Vorschuss bei Unterschrift, in Tagen Tantiemen
+  blurb: 'Ein Vertrag über zwei Jahre Musik, ohne Trainingsplan und ohne '
+    + 'Vorschriften, mit wem du dich zeigst.',
+  rules: [
+    '💰 Vorschuss bei Unterschrift: 10 Tage Tantiemen, sofort auf die Hand.',
+    '💴 Danach gehen 30 % deiner Musikeinnahmen an das Label.',
+    '📈 Dafür wächst deine Hörerschaft halb so schnell wieder dazu.',
+    '🎤 Etwas größere Hallen: Konzerte bringen 20 % mehr.',
   ],
 };
 
@@ -140,4 +173,4 @@ const PERSONAS = [
   },
 ];
 
-module.exports = { GENRES, RELEASES, STUDIO, SHOWS, CHART_NEWS, IDOL, PERSONAS };
+module.exports = { GENRES, RELEASES, STUDIO, SHOWS, CHART_NEWS, IDOL, LABEL, PERSONAS };

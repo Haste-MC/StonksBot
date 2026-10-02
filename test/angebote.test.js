@@ -611,18 +611,187 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       JSON.stringify(danach));
   }
 
-  console.log('--- Was Task 4 noch baut ---');
+  /**
+   * ===========================================================================
+   *  STÜCK 4: DIE LABEL-TÜR
+   * ===========================================================================
+   *
+   * Bis hierher konnte nur ein Idol in Japan oder Korea etwas unterschreiben –
+   * ein deutscher Rapper nie. `label` ist die Tür, die das ändert: weniger
+   * Schub als der Idol-Vertrag, aber auch weniger Fessel, und in JEDEM Markt.
+   *
+   * Geprüft wird darum nicht nur, DASS ein Angebot entsteht, sondern dass es
+   * das richtige ist (Art, Label, Land, Frist) – und was der Klick kostet,
+   * wenn er ins Leere geht.
+   */
+  console.log('--- Die Label-Tür: die Schwelle ---');
   {
-    const { G, U } = await welt();
+    const { G, U } = await welt();              // 10.000 Hörer, unter 25.000
     draht(G, U, LILPFAND.id, 60);
     const row = anfrage(G, U, 'label', LILPFAND.id);
     const zeitVor = creator.budget(G, U, T0).left;
     const r = await ang.annehmen(G, U, row.id, T0, nie);
-    check('label antwortet bis Task 4 mit "noch_nicht"',
-      r.ok === false && r.reason === 'noch_nicht', JSON.stringify(r));
-    check('und kostet dabei weder Zeit noch Status',
+    check('unter 25.000 Hörern antwortet `label` mit "zu_klein"',
+      r.ok === false && r.reason === 'zu_klein' && r.need === 25_000, JSON.stringify(r));
+    check('die Schwelle ist die des Labels, nicht die des Idols (25.000 < 100.000)',
+      music.LABEL.minListeners === 25_000 && music.IDOL.minListeners === 100_000);
+    /**
+     * Der Punkt, an dem Task 2 den Maßstab gesetzt hat: Eine Voraussetzung ist
+     * kein Ergebnis. Eine Absage darf die zwei Stunden nicht kosten und keine
+     * Zeile anfassen – sonst zahlt man für ein „zu klein".
+     */
+    check('und kostet weder Zeit noch Status noch eine Vertragszeile',
+      creator.budget(G, U, T0).left === zeitVor
+      && db.angebotRow(G, row.id).status === 'offen'
+      && db.openContract(G, U, T0) === null);
+  }
+
+  console.log('--- Die Label-Tür: der Regelfall ---');
+  {
+    const { G, U } = await welt(30_000);
+    draht(G, U, LILPFAND.id, 60);
+    const row = anfrage(G, U, 'label', LILPFAND.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const kasseVor = gebucht.length;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('ab 25.000 Hörern öffnet der Partner die Tür', r.ok === true, JSON.stringify(r));
+    const offer = db.openContract(G, U, T0);
+    check('es entsteht ein Vertragsangebot der Art `label`',
+      Boolean(offer) && offer.kind === 'label' && offer.status === 'offer',
+      JSON.stringify(offer));
+    check('bei SEINEM Label und in SEINEM Land – kein Umzug nach Tokio',
+      offer.agency === LILPFAND.name && offer.country === LILPFAND.country,
+      `${offer.agency} / ${offer.country}`);
+    check('die Rückgabe trägt dasselbe Angebot mit hinaus',
+      r.vertragsangebot?.id === offer.id, JSON.stringify(r.vertragsangebot));
+    check('mit derselben Drei-Tage-Frist wie das Idol-Angebot',
+      music.CONTRACT_OFFER_MS === 3 * TAG && offer.expires_at === T0 + 3 * TAG,
+      String(offer.expires_at - T0));
+    check('die Einführung kostet die zwei Stunden aus der Spec',
+      creator.budget(G, U, T0).left === zeitVor - 2,
+      String(zeitVor - creator.budget(G, U, T0).left));
+    check('aber kein Geld – der Vorschuss hängt an der Unterschrift, nicht an der Zusage',
+      gebucht.length === kasseVor && r.geld === null);
+    check('die Anfrage ist angenommen', db.angebotRow(G, row.id).status === 'an');
+
+    // Die Frist läuft wie beim Idol-Angebot ab.
+    check('nach drei Tagen ist das Angebot weg',
+      db.openContract(G, U, T0 + 3 * TAG) === null);
+    check('und es wurde nie ein Vertrag daraus', music.contractOf(G, U) === null);
+  }
+
+  console.log('--- Die Label-Tür: der Vertrag selbst ---');
+  {
+    const { G, U } = await welt(30_000);
+    draht(G, U, LILPFAND.id, 60);
+    const row = anfrage(G, U, 'label', LILPFAND.id);
+    await ang.annehmen(G, U, row.id, T0, nie);
+    const offer = db.openContract(G, U, T0);
+
+    const tSign = T0 + 3600e3;
+    const perTag = music.royaltyPerDay(
+      db.getArtist(G, U, tSign).listeners, music.marketOf(G, U));
+    const kasseVor = gebucht.length;
+    const signed = await music.sign(G, U, offer.id, tSign);
+    check('unterschreiben bringt 10 Tage Tantiemen, nicht 25 wie beim Idol',
+      signed.ok === true
+      && signed.advance === require('../src/perks').payout(G, U, Math.round(perTag * 10)),
+      JSON.stringify({ a: signed.advance, soll: Math.round(perTag * 10) }));
+    check('und zwar als genau eine Buchung', gebucht.length === kasseVor + 1
+      && gebucht.at(-1).amount === signed.advance
+      && gebucht.at(-1).reason === `Vorschuss: ${LILPFAND.name}`,
+      JSON.stringify(gebucht.at(-1)));
+    check('der Vertrag läuft 60 Tage, nicht 90',
+      signed.contract.ends_at === tSign + 60 * TAG,
+      String((signed.contract.ends_at - tSign) / TAG));
+    check('die zurückgegebenen Konditionen sind die des Labels',
+      signed.terms === music.LABEL);
+
+    /**
+     * Die Stelle, vor der das Aufgabenheft gewarnt hat: `payGig` ist die EINE
+     * Geldtür für Honorar und Gage. Stünde dort noch `data.IDOL`, zöge dieser
+     * Vertrag 50 % statt 30 % ab – 20 Punkte, die niemand im Spiel wiederfindet.
+     */
+    const geld = await music.payGig(G, U, 1_000, 'Test');
+    check('das Label nimmt 30 % von jedem Honorar und jeder Gage, nicht 50 %',
+      geld.cut === 300 && geld.amount === 700, JSON.stringify(geld));
+    check('die Anzeige rechnet mit denselben 30 %',
+      music.status(G, U, tSign).perDay === Math.round(
+        music.royaltyPerDay(music.status(G, U, tSign).listeners, music.marketOf(G, U)) * 0.7),
+      String(music.status(G, U, tSign).perDay));
+
+    // Raus kostet 15 Tage, nicht 30.
+    const kasse2 = gebucht.length;
+    // Der Tagessatz VOR dem Ausstieg: `leave` kostet auch 10 % der Hörerschaft,
+    // und danach ist der Satz ein anderer.
+    const perTag2 = music.royaltyPerDay(
+      db.getArtist(G, U, tSign + 10 * TAG).listeners, music.marketOf(G, U));
+    const left = await music.leave(G, U, tSign + 10 * TAG);
+    check('vorzeitig raus kostet 15 Tage Einnahmen, nicht 30',
+      left.ok === true && left.penalty === Math.round(perTag2 * 15),
+      JSON.stringify({ p: left.penalty, soll: Math.round(perTag2 * 15) }));
+    check('und zwar als eine Abbuchung',
+      gebucht.length === kasse2 + 1 && gebucht.at(-1).amount === -left.penalty);
+    check('danach ist man frei', music.contractOf(G, U) === null);
+  }
+
+  console.log('--- Die Label-Tür: kein Gesicht nötig ---');
+  {
+    /**
+     * Der Unterschied zum Idol-Angebot, auf den es ankommt: Das Label fragt
+     * nicht nach dem Gesicht. Ein anonymer Künstler bekommt NIE ein
+     * Idol-Angebot (`rollContract`), aber sehr wohl einen Label-Vertrag.
+     */
+    const G = `ANGEBOT_T${STAMP}_${++nr}`;
+    const U = 'anonym';
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', 'anon');
+    db.saveArtist(G, U, {
+      ...db.getArtist(G, U, T0), listeners: 30_000,
+      touched_at: T0, last_action_at: T0, paid_through: T0,
+    });
+    draht(G, U, LILPFAND.id, 60);
+    const row = anfrage(G, U, 'label', LILPFAND.id);
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('ein anonymer Künstler bekommt den Label-Vertrag',
+      r.ok === true && db.openContract(G, U, T0)?.kind === 'label', JSON.stringify(r));
+    check('obwohl ihm ein Idol-Angebot verwehrt bliebe',
+      music.rollContract(G, U, 300_000, { ...music.marketOf(G, U), idol: true },
+        T0, () => 0) === null);
+    check('und er bleibt anonym – das Label schreibt ihm das Auftreten nicht vor',
+      music.status(G, U, T0).persona.id === 'anon');
+  }
+
+  console.log('--- Die Label-Tür: nur einmal ---');
+  {
+    const { G, U } = await welt(30_000);
+    draht(G, U, LILPFAND.id, 60);
+    const laeuft = db.insertContract({ guildId: G, userId: U, kind: 'idol', agency: 'A',
+      country: 'jp', createdAt: T0, expiresAt: T0 + 2 * TAG });
+    db.setContractStatus(G, laeuft.id, 'active', { signedAt: T0, endsAt: T0 + 90 * TAG });
+    const row = anfrage(G, U, 'label', LILPFAND.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    /**
+     * `artenFuer` lässt die Anfrage gar nicht erst zustellen – aber zwischen
+     * Zustellung und Klick liegen bis zu drei Tage. Ohne diese zweite Prüfung
+     * stünde hier ein zweiter Vorschuss auf denselben Künstler.
+     */
+    check('ein laufender Vertrag macht die Zusage unmöglich',
+      r.ok === false && r.reason === 'vertrag_offen', JSON.stringify(r));
+    check('auch das kostet keine Zeit und keinen Status',
       creator.budget(G, U, T0).left === zeitVor
       && db.angebotRow(G, row.id).status === 'offen');
+    // Und genauso bei einem noch OFFENEN Angebot.
+    const { G: G2, U: U2 } = await welt(30_000);
+    draht(G2, U2, LILPFAND.id, 60);
+    db.insertContract({ guildId: G2, userId: U2, kind: 'idol', agency: 'A',
+      country: 'jp', createdAt: T0, expiresAt: T0 + 2 * TAG });
+    const row2 = anfrage(G2, U2, 'label', LILPFAND.id);
+    const r2 = await ang.annehmen(G2, U2, row2.id, T0, nie);
+    check('ein offenes Angebot ebenso – kein zweites daneben',
+      r2.ok === false && r2.reason === 'vertrag_offen', JSON.stringify(r2));
   }
 
   /**

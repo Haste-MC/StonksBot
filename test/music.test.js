@@ -10,8 +10,9 @@
  *  2. **Das Land entscheidet mit**: Szene skaliert die Decke, Tantiemen das
  *     Geld, Strenge das Vergessen.
  *  3. **Die beiden Wege unterscheiden sich wirklich** – Gesicht gegen anonym.
- *  4. **Der Idol-Vertrag ist ein Handel**, kein Geschenk: Vorschuss und Tempo
- *     gegen die Hälfte der Einnahmen.
+ *  4. **Ein Vertrag ist ein Handel**, kein Geschenk: Vorschuss und Tempo
+ *     gegen einen Anteil der Einnahmen – beim Idol die Hälfte, beim Label 30 %.
+ *     Welche Zahl gilt, steht an EINER Stelle (`terms(kind)`).
  *
  * Aufruf: node test/music.test.js
  */
@@ -433,6 +434,87 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
     check('ein Skandal kostet unter Vertrag mehr',
       Math.abs(withContract.followers) > Math.abs(without.followers),
       `${de(withContract.followers)} vs ${de(without.followers)}`);
+  }
+
+  /**
+   * ===========================================================================
+   *  DIE ZWEITE VERTRAGSART: DAS LABEL
+   * ===========================================================================
+   *
+   * Vor dieser Vertragsart stand `data.IDOL` an fünf Rechenstellen fest im
+   * Code. Jetzt geht jede über `terms(kind)` – und das ist die Stelle, an der
+   * das geprüft wird: Eine Zahl, die an einer dieser Stellen aus der falschen
+   * Vertragsart kommt, fällt im Spiel niemandem auf, dem Geld aber schon.
+   */
+  console.log('\n--- terms(kind): die EINE Abbildung von Art auf Zahlen ---');
+  {
+    check('idol und label sind die beiden gebauten Arten',
+      music.terms('idol') === music.IDOL && music.terms('label') === music.LABEL);
+    check('eine Art, die es nicht gibt, hat keine Konditionen',
+      music.terms('plattenladen') === null && music.terms(undefined) === null);
+    check('ohne Vertrag gibt es keine Konditionen', music.termsOf(null) === null);
+    check('eine Vertragszeile führt zu ihren eigenen Konditionen',
+      music.termsOf({ kind: 'label' }) === music.LABEL
+      && music.termsOf({ kind: 'idol' }) === music.IDOL);
+    /**
+     * Der Rückfall ist Absicht und er ist der strengere der beiden: So kostet
+     * eine kaputte Zeile in der Tabelle nie zu WENIG – und der Umbau bleibt
+     * für alles, was heute in der Datenbank steht, verhaltensneutral.
+     */
+    check('eine unbekannte Art fällt auf den strengeren Idol-Vertrag zurück',
+      music.termsOf({ kind: 'quatsch' }) === music.IDOL);
+    check('beide Arten tragen dieselben Felder – kein undefined in einer Multiplikation',
+      Object.keys(music.IDOL).every((k) => music.LABEL[k] !== undefined),
+      Object.keys(music.IDOL).filter((k) => music.LABEL[k] === undefined).join(','));
+    check('der Vorschuss steht jetzt in den Konditionen, und 25 bleibt 25',
+      music.IDOL.advanceDays === 25 && music.LABEL.advanceDays === 10);
+    check('das Label ist der schwächere Schub und die leichtere Fessel',
+      music.LABEL.cut < music.IDOL.cut
+      && music.LABEL.growth < music.IDOL.growth
+      && music.LABEL.liveBonus < music.IDOL.liveBonus
+      && music.LABEL.minListeners < music.IDOL.minListeners
+      && music.LABEL.durationDays < music.IDOL.durationDays
+      && music.LABEL.exitPenaltyDays < music.IDOL.exitPenaltyDays);
+  }
+
+  console.log('\n--- Der Label-Vertrag duldet, was die Agentur nicht duldet ---');
+  {
+    /**
+     * `scandalFactor` ist der einzige Vertragspunkt, der AUSSERHALB von
+     * src/music.js wirkt (src/decisions.js). Das Label verspricht in seinen
+     * Regeln keinen doppelten Schaden – also darf dort auch keiner stehen.
+     */
+    check('das Label verdoppelt den Skandalschaden nicht, die Agentur schon',
+      music.LABEL.scandalFactor === 1 && music.IDOL.scandalFactor === 2);
+
+    const decisions = require('../src/decisions');
+    const t0 = Date.now();
+    const schaden = async (kind) => {
+      const U = await player('de', 'deutsch', 'pop', 'face');
+      db.saveArtist(G, U, { ...db.getArtist(G, U), listeners: 30_000, touched_at: t0 });
+      if (kind) {
+        const c = db.insertContract({
+          guildId: G, userId: U, kind, agency: 'Testlabel', country: 'de',
+          createdAt: t0, expiresAt: t0 + DAY_MS,
+        });
+        db.setContractStatus(G, c.id, 'active', { signedAt: t0, endsAt: t0 + 60 * DAY_MS });
+      }
+      const event = db.insertEvent({
+        guildId: G, userId: U, kind: 'shitstorm_test', platform: '',
+        createdAt: t0, expiresAt: t0 + DAY_MS,
+      });
+      db.saveCreator(G, U, 'twitch',
+        { ...db.getCreator(G, U, 'twitch', t0), followers: 100_000, touched_at: t0 });
+      const r = await decisions.apply(G, U, { ...event, platform: '' }, { followersAll: -0.1 }, t0);
+      return Math.abs(r.followers);
+    };
+    const ohne = await schaden(null);
+    const label = await schaden('label');
+    const idol = await schaden('idol');
+    check('ein Skandal unter Label-Vertrag kostet so viel wie ohne Vertrag',
+      label === ohne, `${de(label)} vs ${de(ohne)}`);
+    check('unter Idol-Vertrag kostet derselbe Skandal das Doppelte',
+      idol === 2 * ohne, `${de(idol)} vs ${de(2 * ohne)}`);
   }
 
   console.log('\n--- Musik und Kanäle hängen zusammen ---');

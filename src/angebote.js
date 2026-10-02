@@ -379,11 +379,11 @@ function pruefen(guildId, userId, id, now, vorher) {
 }
 
 /**
- * Die Arten, deren Wirkung in diesem Stück gebaut ist. Task 4 nimmt `label`
- * hier auf, sobald es die Wirkung dazuschreibt – eine Art ohne Wirkung darf
- * nicht annehmbar sein (siehe Schritt 5b in `annehmen`).
+ * Die Arten, deren Wirkung in diesem Stück gebaut ist – eine Art ohne Wirkung
+ * darf nicht annehmbar sein (siehe Schritt 5b in `annehmen`). Mit `label` sind
+ * jetzt alle sechs darin; eine SIEBTE müsste hier wieder dazukommen.
  */
-const GEBAUTE_ARTEN = new Set(['tausch', 'gastpart', 'vorgruppe', 'kollabo', 'tour']);
+const GEBAUTE_ARTEN = new Set(['tausch', 'gastpart', 'vorgruppe', 'kollabo', 'tour', 'label']);
 
 /** Wie viele Stunden das Konto einer Art fasst – 0 heißt: kein Projekt. */
 function stundenSollFor(artId) {
@@ -414,6 +414,7 @@ function schubFor(guildId, userId, { art, contact, meine, lage, now }) {
  *   0. faul abrechnen, Ergebnis unter `vorher` – auch an jede Ablehnung danach
  *   1.–4. prüfen (weg · abgelaufen · unknown)
  *   5. die Musikseite, und ob diese Art überhaupt schon gebaut ist
+ *      (dazu die Voraussetzungen der großen Formate und von `label`)
  *   6. ZEIT BUCHEN – davor schreibt diese Aktion nichts
  *   7. die Wirkung der Art (alle Schreibvorgänge synchron)
  *   8. Status, Draht, Zähler
@@ -443,12 +444,12 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
   const meine = musikIch(guildId, userId, now);
   if (!meine) return { ok: false, reason: 'seite', contact, vorher };
 
-  // 5b. Was Task 3 (`kollabo`, `tour`) und Task 4 (`label`) bauen, gibt es hier
-  //     noch nicht. Zwei Dinge daran sind Absicht:
+  // 5b. Eine Art, deren Wirkung noch niemand geschrieben hat, wird hier
+  //     abgewiesen. Zwei Dinge daran sind Absicht:
   //
   //     • Die Prüfung steht VOR der Zeitbuchung. Sie ist eine Voraussetzung,
-  //       kein Ergebnis – sonst kostete ein Klick auf `label` zwei Stunden
-  //       für eine Absage, und die Datenbank bliebe nicht unberührt.
+  //       kein Ergebnis – sonst kostete ein Klick zwei Stunden für eine
+  //       Absage, und die Datenbank bliebe nicht unberührt.
   //     • Gefragt wird nach dem, was GEBAUT ist, nicht nach dem, was fehlt.
   //       Eine neue Art in `data.ARTEN` antwortet damit von selbst
   //       `noch_nicht`, statt unten in den letzten Zweig zu fallen und eine
@@ -480,6 +481,30 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     }
   }
 
+  // 5d. Die zwei Voraussetzungen der Label-Tür. Beide stehen – aus demselben
+  //     Grund wie 5b und 5c – VOR der Zeitbuchung: Eine Einführung, die gar
+  //     nicht stattfinden kann, darf keine zwei Stunden kosten.
+  //
+  //     • Kein zweiter Vertrag und kein zweites Angebot. `artenFuer` hält die
+  //       Anfrage schon bei der Zustellung zurück, aber das kann nicht das
+  //       letzte Wort sein: Zwischen Zustellung und Klick liegen bis zu drei
+  //       Tage, und wer in der Zwischenzeit beim Idol unterschrieben hat,
+  //       bekäme hier sonst einen zweiten Vorschuss auf denselben Künstler.
+  //     • Die Hörerschwelle des Labels (25.000). Sie ist niedriger als die des
+  //       Idol-Angebots (100.000) und gilt in JEDEM Markt – aber ein Label,
+  //       das niemand kennt, führt niemand ein.
+  if (art.id === 'label') {
+    const vertrag = db.activeContract(guildId, userId)
+      ?? db.openContract(guildId, userId, now);
+    if (vertrag) {
+      return { ok: false, reason: 'vertrag_offen', contact, angebot: row, art, vertrag, vorher };
+    }
+    const schwelle = music.LABEL.minListeners;
+    if (music.status(guildId, userId, now).listeners < schwelle) {
+      return { ok: false, reason: 'zu_klein', need: schwelle, contact, angebot: row, art, vorher };
+    }
+  }
+
   // 6. Die Stunden – ab hier wird geschrieben, vorher nicht. `kollabo` und
   //    `tour` kosten bei der Annahme nichts (`time: 0`); dort wird gar nicht
   //    erst gebucht, weil die API eine Nullbuchung nicht braucht.
@@ -495,6 +520,7 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
   let extraHoerer = 0;
   let auftritt = null;
   let projekt = null;
+  let vertragsangebot = null;
   let brutto = 0;
   let grund = '';
 
@@ -536,6 +562,21 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
       stundenSoll: stundenSollFor(art.id),
       frist: now + data.PROJEKT_FRIST_TAGE * DAY_MS,
     });
+  } else if (art.id === 'label') {
+    // Ein Partner öffnet die Tür bei SEINEM Label – in SEINEM Land. Damit
+    // bekommt erstmals jeder Markt einen Weg zu einem Vertrag, nicht nur Japan
+    // und Korea: Ein deutscher Rapper konnte bisher nichts unterschreiben.
+    //
+    // Hier entsteht nur das ANGEBOT, nicht der Vertrag. Unterschrift
+    // (`music.sign`), Ablehnung (`music.decline`), Ausstieg (`music.leave`) und
+    // Abrechnung laufen danach durch denselben Weg wie beim Idol-Angebot – und
+    // mit derselben Drei-Tage-Frist. Geld fließt an dieser Stelle keines: Der
+    // Vorschuss hängt an der Unterschrift, nicht an der Zusage.
+    vertragsangebot = db.insertContract({
+      guildId, userId, kind: 'label',
+      agency: contact.name, country: contact.country,
+      createdAt: now, expiresAt: now + music.CONTRACT_OFFER_MS,
+    });
   }
 
   // 8. Jetzt ist es verbindlich: Status, Draht, Zähler.
@@ -551,7 +592,7 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
   return {
     ok: true, contact, art, draht, zeit, vorher,
     angebot: { ...angebot, artInfo: art, contact },
-    honorar, gage, extraHoerer, auftritt, schub, geld,
+    honorar, gage, extraHoerer, auftritt, schub, geld, vertragsangebot,
     projekt: projekt ? { ...projekt, artInfo: art, contact } : null,
     text: textFor(contact.trait, 'zusage', contact.name, random),
   };

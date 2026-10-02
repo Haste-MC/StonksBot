@@ -258,9 +258,30 @@ function contractOf(guildId, userId) {
   return db.activeContract(guildId, userId);
 }
 
-/** Die Vertragsbedingungen (aktuell nur Idol). */
+/**
+ * Die Konditionen einer Vertragsart. Es gibt zwei: das Idol-Angebot aus
+ * Japan/Korea und den Label-Vertrag, den ein Partner öffnet (5c).
+ */
+const CONTRACT_TERMS = { idol: data.IDOL, label: data.LABEL };
+
 function terms(kind) {
-  return kind === 'idol' ? data.IDOL : null;
+  return CONTRACT_TERMS[String(kind ?? '')] ?? null;
+}
+
+/**
+ * Die Konditionen zu einem Vertrag – die EINZIGE Stelle, die von einer
+ * Vertragszeile auf Zahlen schließt. Jede Rechnung, die einen Anteil, einen
+ * Schub, eine Halle, eine Strafe oder einen Vorschuss braucht, holt sie hier:
+ * Sonst stünde die Vertragsart an einer Stelle fest verdrahtet und ein zweiter
+ * Vertrag zöge stillschweigend die Prozente des ersten ab.
+ *
+ * Eine unbekannte Art fällt bewusst auf den Idol-Vertrag zurück – das ist der
+ * strengere der beiden. So kostet ein Datenfehler nie zu WENIG, und der Umbau
+ * auf `terms(kind)` bleibt für jede Zeile, die heute in der Tabelle steht,
+ * verhaltensneutral.
+ */
+function termsOf(contract) {
+  return contract ? (terms(contract.kind) ?? data.IDOL) : null;
 }
 
 /** Gemeinsames Tagesbudget mit den Kanälen. */
@@ -438,7 +459,7 @@ function record(guildId, userId, now = Date.now(), random = Math.random, { event
  * nachrechnen lässt (test/music.test.js). Dieselbe Trennung wie beim Creator.
  */
 function simulateRelease(state, {
-  type, genre: g, persona: p, market, idol = null,
+  type, genre: g, persona: p, market, kond = null,
   idleDays: idle = 0, random = Math.random, audienceFactor = 1,
 }) {
   // 1. Was die Pause gekostet hat.
@@ -457,7 +478,7 @@ function simulateRelease(state, {
    *    Zuwachs UND Abgang: schneller, nicht größer. Die Decke bestimmen
    *    allein Szene und Genre (§3).
    */
-  const boost = (idol ? idol.growth : 1) * market.speed;
+  const boost = (kond ? kond.growth : 1) * market.speed;
   const gained = Math.round(
     audience * CONVERSION * TEMPO * boost * type.growth * g.reach * p.growth);
   const lost = Math.round(startListeners * CHURN_PER_RELEASE * TEMPO * boost);
@@ -532,8 +553,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const market = marketOf(guildId, userId);
   const g = genre(row.genre);
   const p = persona(row.persona);
-  const contract = db.activeContract(guildId, userId);
-  const idol = contract ? data.IDOL : null;
+  const kond = termsOf(db.activeContract(guildId, userId));
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record). Achtung:
   // zwischen Ereignis- und Vorfallswürfel kann rollContract in Idol-Märkten
@@ -541,7 +561,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const event = events ? rollMusicEvent('publish', g, random) : NO_EVENT;
 
   const sim = simulateRelease(row, {
-    type, genre: g, persona: p, market, idol,
+    type, genre: g, persona: p, market, kond,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
     audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor * (kb?.factor ?? 1),
   });
@@ -649,14 +669,12 @@ function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now =
  */
 async function payGig(guildId, userId, gross, grund) {
   const brutto = Math.max(0, Math.round(Number(gross) || 0));
-  // ACHTUNG, AUFRUFSTELLE FÜR DEN UMBAU AUF `terms(kind)`: Hier steht `data.IDOL`
-  // fest verdrahtet – richtig, solange es nur den Idol-Vertrag gibt, und genauso
-  // wie in `show`. Sobald 5c/Task 4 den Label-Vertrag dazubaut, MUSS diese Zeile
-  // mit auf `terms(contract.kind)` umgestellt werden. Wird sie vergessen, zieht
-  // ein Label-Vertrag von jedem Honorar und jeder Gage 50 % ab (Idol) statt
-  // seiner eigenen 30 % – Geld, das niemand im Spiel wiederfindet.
-  const idol = db.activeContract(guildId, userId) ? data.IDOL : null;
-  const cut = idol ? Math.round(brutto * idol.cut) : 0;
+  // Der Anteil kommt aus den Konditionen DIESES Vertrags (`termsOf`), nicht aus
+  // einer festen Zahl: Ein Label-Vertrag nimmt 30 %, ein Idol-Vertrag 50 % – von
+  // jedem Honorar und jeder Gage. Stünde hier wieder `data.IDOL`, zöge ein
+  // Label-Vertrag 20 Punkte zu viel ab, und das Geld fände niemand wieder.
+  const kond = termsOf(db.activeContract(guildId, userId));
+  const cut = kond ? Math.round(brutto * kond.cut) : 0;
   const net = require('./perks').payout(guildId, userId, brutto - cut);
   const balance = net !== 0
     ? await changeCash(guildId, userId, net, grund, { kind: 'music' })
@@ -797,8 +815,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
 
   const g = genre(row.genre);
   const p = persona(row.persona);
-  const contract = db.activeContract(guildId, userId);
-  const idol = contract ? data.IDOL : null;
+  const kond = termsOf(db.activeContract(guildId, userId));
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
   const event = events ? rollMusicEvent('show', g, random) : NO_EVENT;
@@ -806,7 +823,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
   const gross = Math.round(
     Math.pow(before.listeners + extraHoerer, SHOW_EXP) * SHOW_PAY
     * market.scene * market.deal * g.live * p.live * quality
-    * (idol ? idol.liveBonus : 1)
+    * (kond ? kond.liveBonus : 1)
     * (event.pay ?? 1));
 
   // Ein Konzert bindet: Wer live gesehen hat, bleibt eher. Dieselbe Stelle, die
@@ -830,7 +847,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
     ? require('./decisions').roll(guildId, userId, before.listeners + gained, now, random, 'music')
     : null;
 
-  const cut = idol ? Math.round(gross * idol.cut) : 0;
+  const cut = kond ? Math.round(gross * kond.cut) : 0;
   // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
   const net = cancelled ? 0 : require('./perks').payout(guildId, userId, gross - cut);
   // Bei 0 wird nicht gebucht: Die UnbelievaBoat-API lehnt Nulländerungen ab.
@@ -884,8 +901,8 @@ async function settle(guildId, userId, now = Date.now()) {
   const jeStream = steady > 0 ? steadyGeld / steady : 0;
   const gross = Math.round(steadyGeld + fromBuzz * jeStream);
 
-  const contract = db.activeContract(guildId, userId);
-  const cut = contract ? Math.round(gross * data.IDOL.cut) : 0;
+  const kond = termsOf(db.activeContract(guildId, userId));
+  const cut = kond ? Math.round(gross * kond.cut) : 0;
   const net = gross - cut;
 
   db.saveArtist(guildId, userId, {
@@ -932,9 +949,6 @@ function rollContract(guildId, userId, listeners, market, now = Date.now(), rand
 }
 
 /** Ein Angebot annehmen. */
-/** Der Vorschuss bei Unterschrift, in Tagen laufender Tantiemen. */
-const IDOL_ADVANCE_DAYS = 25;
-
 async function sign(guildId, userId, contractId, now = Date.now()) {
   const row = db.getContract(guildId, contractId);
   if (!row || row.user_id !== String(userId)) return { ok: false, reason: 'not_found' };
@@ -945,22 +959,25 @@ async function sign(guildId, userId, contractId, now = Date.now()) {
   }
   if (db.activeContract(guildId, userId)) return { ok: false, reason: 'busy' };
 
-  const ends = now + data.IDOL.durationDays * DAY_MS;
+  // Ab hier zählen die Konditionen DIESER Vertragsart: Laufzeit, Vorschuss und
+  // der Anteil stehen in `terms(kind)`, nicht als Konstante daneben.
+  const kond = termsOf(row);
+  const ends = now + kond.durationDays * DAY_MS;
   db.setContractStatus(guildId, row.id, 'active', { signedAt: now, endsAt: ends });
 
-  // Vorschuss: Die Agentur zahlt bei Unterschrift. Ohne ihn wäre der Vertrag
+  // Vorschuss: Die Gegenseite zahlt bei Unterschrift. Ohne ihn wäre der Vertrag
   // nur ein Abzug mit Zusatzregeln – niemand würde ihn nehmen.
   const artist = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
   const advance = require('./perks').payout(guildId, userId, Math.round(
-    royaltyPerDay(artist.listeners, market) * IDOL_ADVANCE_DAYS));
+    royaltyPerDay(artist.listeners, market) * kond.advanceDays));
   const balance = advance > 0
     ? await changeCash(guildId, userId, advance, `Vorschuss: ${row.agency}`) : null;
 
   return {
     ok: true, advance, balance,
     contract: { ...row, status: 'active', signed_at: now, ends_at: ends },
-    terms: data.IDOL,
+    terms: kond,
   };
 }
 
@@ -984,7 +1001,7 @@ async function leave(guildId, userId, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
   const perDay = royaltyPerDay(row.listeners, market);
-  const penalty = Math.round(perDay * data.IDOL.exitPenaltyDays);
+  const penalty = Math.round(perDay * termsOf(contract).exitPenaltyDays);
 
   db.setContractStatus(guildId, contract.id, 'broken', {
     signedAt: contract.signed_at, endsAt: now,
@@ -1021,13 +1038,14 @@ function status(guildId, userId, now = Date.now()) {
   const g = genre(row.genre);
   const p = persona(row.persona);
   const contract = db.activeContract(guildId, userId);
+  const kond = termsOf(contract);
   const offer = db.openContract(guildId, userId, now);
   const after = decayed(row, market, now);
 
   const budget = require('./creator').budget(guildId, userId, now);
   const perDay = Math.round(
     royaltyPerDay(after.listeners, market) * (p.plays ?? 1)
-    * (contract ? 1 - data.IDOL.cut : 1));
+    * (kond ? 1 - kond.cut : 1));
 
   return {
     ...row,
@@ -1053,7 +1071,8 @@ function status(guildId, userId, now = Date.now()) {
 }
 
 module.exports = {
-  GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS, IDOL: data.IDOL,
+  GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS,
+  IDOL: data.IDOL, LABEL: data.LABEL,
   BASE_REACH, REACH_K, REACH_EXP, CHURN_PER_RELEASE, CHURN_PER_DAY, MAX_IDLE_DAYS,
   IDLE_GRACE_DAYS, MUSIC_TO_CREATOR, SOCIAL_SPILL,
   PLAYS_PER_LISTENER, ROYALTY, ROYALTY_EXP, ROYALTY_ANCHOR, ROYALTY_K, royaltyPerDay, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
@@ -1063,7 +1082,7 @@ module.exports = {
   GEAR, HYPE_MIN, HYPE_MAX, CONTRACT_CHANCE, CONTRACT_OFFER_MS, AGENCIES,
   GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH, MUSIC_EVENTS, NO_EVENT, rollMusicEvent,
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,
-  reachOf, reachBonus, contractOf, terms, simulateRelease,
+  reachOf, reachBonus, contractOf, terms, termsOf, simulateRelease,
   setup, setGenre, reveal, record, publish, applyBeefTreffer, show, settle, status,
   payGig, bookSupportShow,
   rollContract, sign, decline, leave, settleContracts,

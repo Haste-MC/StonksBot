@@ -171,7 +171,8 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
  * (Vertragsbruch ODER Geld – nie beides, siehe Katalogtest, §9).
  *
  * Verluste werden wie beim Creator verstärkt: Härte nach Größe, × 1,6 bei
- * Schweigen, × 2 unter Idol-Vertrag. Gewinne nicht.
+ * Schweigen, × `scandalFactor` des laufenden Vertrags (Idol × 2, Label × 1).
+ * Gewinne nicht.
  */
 async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
   const music = require('./music');
@@ -180,7 +181,7 @@ async function applyMusic(guildId, userId, row, effect, now, ignored, random) {
   const contract = music.contractOf(guildId, userId);
   const weight = severityFor(artist.listeners)
     * (ignored ? IGNORE_PENALTY : 1)
-    * (contract ? music.IDOL.scandalFactor : 1);
+    * (music.termsOf(contract)?.scandalFactor ?? 1);
   const scaled = (v) => (v < 0 ? v * weight : v);
   const done = {
     listeners: 0, songs: 0, cash: 0, hype: effect.hype ?? 0,
@@ -333,11 +334,16 @@ async function apply(guildId, userId, row, effect, now = Date.now(), ignored = f
    * Unter Idol-Vertrag duldet die Agentur nichts: Jeder Fehltritt kostet das
    * Doppelte. Genau dafür gibt es den Vertragspunkt – ohne diese Stelle wäre
    * er nur ein Satz im Angebot.
+   *
+   * Der Faktor kommt aus den Konditionen DES laufenden Vertrags: Das Label
+   * duldet durchaus etwas (× 1,0), und sein Vertrag verspricht keinen
+   * doppelten Schaden. Mit fest verdrahtetem `IDOL` stünde hier eine Strafe,
+   * die in keinem Label-Angebot steht.
    */
   let contractFactor = 1;
   try {
     const music = require('./music');
-    if (music.contractOf(guildId, userId)) contractFactor = music.IDOL.scandalFactor;
+    contractFactor = music.termsOf(music.contractOf(guildId, userId))?.scandalFactor ?? 1;
   } catch { /* egal */ }
 
   const weight = severity * (ignored ? IGNORE_PENALTY : 1) * contractFactor;
