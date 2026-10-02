@@ -611,7 +611,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       JSON.stringify(danach));
   }
 
-  console.log('--- Was Task 3 und 4 noch bauen ---');
+  console.log('--- Was Task 4 noch baut ---');
   {
     const { G, U } = await welt();
     draht(G, U, LILPFAND.id, 60);
@@ -623,6 +623,305 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('und kostet dabei weder Zeit noch Status',
       creator.budget(G, U, T0).left === zeitVor
       && db.angebotRow(G, row.id).status === 'offen');
+  }
+
+  /**
+   * =========================================================================
+   *  STÜCK 3: DIE PROJEKTE – KOLLABO-ALBUM UND TOUR
+   * =========================================================================
+   *
+   * Ein Projekt ist ein Stundenkonto aus demselben Tagesbudget wie alles
+   * andere. Geprüft wird darum nicht nur, DASS das Ergebnis kommt, sondern vor
+   * allem, was es KOSTET und was es NICHT anfasst:
+   *
+   *   • 18 Stunden für das Kollabo, nicht 18 + 3 für die Platte dazu
+   *   • 24 Stunden für die Tour, nicht 24 + 20 für fünf Konzerte dazu
+   *   • sein Publikum hebt die GAGE eines Abends, nie die Hörerschaft
+   *   • die Konzert-Sperre gilt nach der Tour wieder wie immer
+   *   • eine gerissene Frist frisst die investierten Stunden (Absicht)
+   *   • `vorher` kommt auf JEDEM Rückweg mit heraus, auch auf jedem
+   *     abgewiesenen – sonst verschluckt ein ins Leere gehender Klick eine
+   *     verfallene Anfrage samt Draht-Verlust.
+   *
+   * Die Uhr wird in jedem Block auf `jetzt` gesetzt: Sonst holt Schritt 0
+   * einen Tageswurf nach, verbraucht Zufall und verschiebt jede Zahl danach.
+   */
+  console.log('--- Projekt annehmen ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 2, pause_bis: 0 });
+    const row = anfrage(G, U, 'kollabo', RAF.id);
+    const zeitVor = creator.budget(G, U, T0).left;
+    const kasseVor = gebucht.length;
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('kollabo lässt sich annehmen und öffnet ein Projekt',
+      r.ok === true && r.projekt?.art === 'kollabo', JSON.stringify(r.reason ?? r.projekt));
+    check('18 Stunden zu füllen, bei 0 angefangen, Frist 14 Tage',
+      r.projekt.stunden_soll === data.KOLLABO_STUNDEN && r.projekt.stunden_ist === 0
+      && r.projekt.frist === T0 + data.PROJEKT_FRIST_TAGE * TAG, JSON.stringify(r.projekt));
+    check('die Annahme selbst kostet keine Zeit (time: 0)',
+      creator.budget(G, U, T0).left === zeitVor, String(creator.budget(G, U, T0).left));
+    check('und keinen Cent – das Kollabo zahlt erst, wenn es erscheint',
+      r.geld === null && gebucht.length === kasseVor);
+    check('Status "an", Draht +8, Zähler zurück auf 0',
+      db.angebotRow(G, row.id).status === 'an'
+      && db.getContact(G, U, RAF.id).draht === 60 + data.DRAHT_AN
+      && db.angebotUhr(G, U).abgelehnt_folge === 0);
+    const offen = ang.offeneProjekte(G, U, T0);
+    check('es steht in offeneProjekte, mit Kontakt und Restzeit',
+      offen.length === 1 && offen[0].contact.id === RAF.id
+      && offen[0].restMs === data.PROJEKT_FRIST_TAGE * TAG, JSON.stringify(offen[0]?.restMs));
+    // Und das Gegenstück zur dritten Ausnahme in `artenFuer`, diesmal über den
+    // ganzen Weg: Wer ein Konto offen hat, bekommt kein zweites angeboten.
+    db.saveAngebotUhr(G, U, { last_roll: T0 - TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const ev = ang.settle(G, U, T0, folge(0, 0));
+    const arten = ev.filter((e) => e.art === 'neu').map((e) => e.angebot.art);
+    check('solange es offen ist, kommt keine zweite kollabo- oder tour-Anfrage',
+      arten.length === 1 && !arten.some((a) => ['kollabo', 'tour'].includes(a)),
+      arten.join(','));
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    const row = anfrage(G, U, 'tour', RAF.id);
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    check('tour öffnet ein Konto über 24 Stunden',
+      r.ok === true && r.projekt?.art === 'tour'
+      && r.projekt.stunden_soll === data.TOUR_STUNDEN, JSON.stringify(r.reason ?? r.projekt));
+  }
+
+  console.log('--- arbeiten: zwei Stunden je Druck ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    const row = anfrage(G, U, 'tour', RAF.id);
+    const an = await ang.annehmen(G, U, row.id, T0, nie);
+    const id = an.projekt.id;
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r1 = await ang.arbeiten(G, U, id, T0, nie);
+    check('arbeiten bucht zwei Stunden und zählt sie auf stunden_ist',
+      r1.ok === true && r1.fertig === false && r1.ist === data.ARBEIT_STUNDEN
+      && r1.soll === data.TOUR_STUNDEN
+      && creator.budget(G, U, T0).left === zeitVor - data.ARBEIT_STUNDEN,
+      JSON.stringify({ r: r1.reason, ist: r1.ist, left: creator.budget(G, U, T0).left }));
+    check('und `vorher` kommt mit heraus', Array.isArray(r1.vorher));
+    const r2 = await ang.arbeiten(G, U, id, T0, nie);
+    check('zweimal am selben Tag ist erlaubt, solange das Budget trägt',
+      r2.ok === true && r2.ist === 2 * data.ARBEIT_STUNDEN
+      && creator.budget(G, U, T0).left === zeitVor - 2 * data.ARBEIT_STUNDEN,
+      JSON.stringify({ ist: r2.ist, left: creator.budget(G, U, T0).left }));
+    check('die Stunden stehen auch in der Tabelle',
+      db.projektRow(G, id).stunden_ist === 4, String(db.projektRow(G, id).stunden_ist));
+    const fremd = await ang.arbeiten(G, 'jemand-anders', id, T0, nie);
+    const weg = await ang.arbeiten(G, U, 999_999, T0, nie);
+    check('ein Projekt, das es nicht gibt, meldet "weg" – mit `vorher`',
+      weg.ok === false && weg.reason === 'weg' && Array.isArray(weg.vorher),
+      JSON.stringify(weg));
+    check('und ein fremdes Projekt genauso',
+      fremd.ok === false && fremd.reason === 'weg', JSON.stringify(fremd.reason));
+    check('beides lässt die Stunden unberührt',
+      db.projektRow(G, id).stunden_ist === 4, String(db.projektRow(G, id).stunden_ist));
+  }
+  {
+    /**
+     * Ohne Stunden passiert nichts – und der abgewiesene Klick darf die
+     * verfallene Anfrage nicht verschlucken (der Fehler aus 5b).
+     */
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    const pr = db.insertProjekt({ guildId: G, userId: U, art: 'kollabo',
+      contactId: RAF.id, stundenSoll: data.KOLLABO_STUNDEN, frist: T0 + 14 * TAG });
+    db.insertAngebot({ guildId: G, userId: U, art: 'tausch', contactId: LILPFAND.id,
+      erstellt: T0 - 4 * TAG, frist: T0 - TAG });
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    // Eine Stunde bleibt stehen – arbeiten braucht zwei. Ohne Ermüdung
+    // gebucht, damit die Ablehnung an den Stunden hängt und nicht an der Wand.
+    creator.useTime(G, U, creator.budget(G, U, T0).left - 1, T0, { fatigueFactor: 0 });
+    const r = await ang.arbeiten(G, U, pr.id, T0, nie);
+    check('ohne Zeitbudget: reason no_time, und die Stunden bleiben unverändert',
+      r.ok === false && r.reason === 'no_time' && r.need === data.ARBEIT_STUNDEN
+      && db.projektRow(G, pr.id).stunden_ist === 0, JSON.stringify(r.reason));
+    check('und die verfallene Anfrage steht trotzdem in `vorher`',
+      (r.vorher ?? []).some((e) => e.art === 'verfallen'), JSON.stringify(r.vorher));
+  }
+
+  console.log('--- Das Kollabo-Album ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    // Ein Konto, dem genau ein Druck fehlt.
+    const pr = db.insertProjekt({ guildId: G, userId: U, art: 'kollabo', contactId: RAF.id,
+      stundenSoll: data.KOLLABO_STUNDEN,
+      stundenIst: data.KOLLABO_STUNDEN - data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
+    const kasseVor = gebucht.length;
+    const ohne = await ang.arbeiten(G, U, pr.id, T0, nie);
+    check('ein volles Konto ohne die sechs Titel schließt NICHT ab',
+      ohne.ok === false && ohne.reason === 'no_songs'
+      && ohne.need === data.KOLLABO_TITEL && ohne.have === 0,
+      JSON.stringify({ r: ohne.reason, n: ohne.need, h: ohne.have }));
+    check('das Projekt bleibt offen stehen, mit voll bezahltem Konto',
+      db.projektRow(G, pr.id).status === 'offen'
+      && db.projektRow(G, pr.id).stunden_ist === data.KOLLABO_STUNDEN,
+      JSON.stringify(db.projektRow(G, pr.id)));
+    check('und es erscheint nichts und kostet nichts',
+      music.status(G, U, T0).releases === 0 && gebucht.length === kasseVor);
+    check('auch hier geht `vorher` mit heraus', Array.isArray(ohne.vorher));
+
+    // Jetzt die Titel – aufgenommen wird nicht, sie werden gesetzt: Sechs
+    // echte Studiosessions wären sechs Würfel in diesem Test.
+    db.saveArtist(G, U, { ...db.getArtist(G, U, T0), songs: data.KOLLABO_TITEL });
+    const zeitVor = creator.budget(G, U, T0).left;
+    const r = await ang.arbeiten(G, U, pr.id, T0, immer);
+    check('mit den Titeln erscheint das Album',
+      r.ok === true && r.fertig === true && r.platte?.ok === true,
+      JSON.stringify({ r: r.reason, p: r.platte?.reason }));
+    /**
+     * Von Hand: log10(1 + 6.500.000 / 10.000) / 3 = log10(651)/3 = 0,937860,
+     * also ×1,937860 – dieselbe Zahl, die der reine Test oben gegen die Spec
+     * hält. `publish` gibt den Faktor unverändert zurück.
+     */
+    check('audienceFactor ist der handgerechnete Kollabo-Faktor',
+      nah(r.platte.audienceFactor, 1.937860, 1e-5), String(r.platte.audienceFactor));
+    check('das Projekt steht auf "fertig", mit 18 von 18 Stunden',
+      db.projektRow(G, pr.id).status === 'fertig'
+      && db.projektRow(G, pr.id).stunden_ist === data.KOLLABO_STUNDEN,
+      JSON.stringify(db.projektRow(G, pr.id)));
+    check('es ist eine echte Veröffentlichung in Albumgröße: sechs Titel weg',
+      music.status(G, U, T0).releases === 1 && music.status(G, U, T0).songs === 0);
+    /**
+     * Der Punkt, an dem das Format steht oder fällt: 18 Stunden, nicht 18 + 3.
+     * Das Album läuft über `force` – ohne das käme die Platte oben drauf, und
+     * eine Release-Sperre von vorgestern könnte das ganze Projekt scheitern
+     * lassen, nachdem die Stunden bezahlt sind.
+     */
+    check('der Abschluss kostet nur die zwei Stunden dieses Drucks',
+      creator.budget(G, U, T0).left === zeitVor - data.ARBEIT_STUNDEN,
+      `${zeitVor} -> ${creator.budget(G, U, T0).left}`);
+    check('danach sind kollabo und tour wieder frei',
+      ang.artenFuer(G, U, 100, T0).length === 6);
+  }
+
+  console.log('--- Die Tour ---');
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    const pr = db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
+      stundenSoll: data.TOUR_STUNDEN,
+      stundenIst: data.TOUR_STUNDEN - data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
+    const kasseVor = gebucht.length;
+    const zeitVor = creator.budget(G, U, T0).left;
+    // `immer` trifft den ersten Eintrag jeder Liste: kein Ereignis (Gewicht
+    // 110 von ~130) und die untere Kante der Güte (0,75).
+    const r = await ang.arbeiten(G, U, pr.id, T0, immer);
+    check('die Tour spielt TOUR_KONZERTE Abende hintereinander',
+      r.ok === true && r.fertig === true && r.abende?.length === data.TOUR_KONZERTE
+      && r.abende.every((a) => a.ok === true),
+      JSON.stringify({ r: r.reason, a: r.abende?.map((x) => x.reason ?? 'ok') }));
+    check('fünf Gagen, jede über den Weg des Konzerts (`kind: music`)',
+      gebucht.length === kasseVor + data.TOUR_KONZERTE
+      && gebucht.slice(-data.TOUR_KONZERTE).every((b) => b.opts.kind === 'music'),
+      String(gebucht.length - kasseVor));
+    check('und die Summe der Gagen steht im Ergebnis',
+      r.verdient === gebucht.slice(-data.TOUR_KONZERTE).reduce((s, b) => s + b.amount, 0),
+      String(r.verdient));
+    const mitGast = r.abende.filter((a) => a.extraHoerer > 0);
+    check('sein Publikum kommt GENAU EINMAL, nicht an jedem Abend',
+      mitGast.length === 1, JSON.stringify(r.abende.map((a) => a.extraHoerer)));
+    const basis = (a) => a.listeners - a.gained;     // die Hörerschaft vor dem Abend
+    check('und auch dann gedeckelt auf die eigene Hörerschaft',
+      mitGast[0].extraHoerer === basis(mitGast[0]),
+      JSON.stringify({ e: mitGast[0].extraHoerer, b: basis(mitGast[0]) }));
+    /**
+     * Sein Publikum steckt ausschließlich in der GAGE dieses einen Abends, und
+     * zwar über `hörer^0,7`: Weil die mitgebrachten Hörer auf die eigene
+     * Hörerschaft gedeckelt sind, ist die Gage des Gastabends genau 2^0,7 =
+     * +62 % der eigenen – nicht das Doppelte. Der Faktor `k` wird aus einem
+     * normalen Abend zurückgerechnet und enthält Markt, Genre, Form und Güte.
+     */
+    const normal = r.abende[0];
+    const k = normal.gross / Math.pow(basis(normal), 0.7);
+    check('der Gastabend zahlt genau 2^0,7 der eigenen Gage',
+      Math.abs(mitGast[0].gross - k * Math.pow(2 * basis(mitGast[0]), 0.7)) < 2,
+      JSON.stringify({ gast: mitGast[0].gross, erwartet: k * Math.pow(2 * basis(mitGast[0]), 0.7) }));
+    check('ein Abend ohne Gast rechnet nur mit der eigenen Hörerschaft',
+      r.abende.slice(0, 4).every((a) => a.extraHoerer === 0));
+    /**
+     * DER BEFUND AUS 5b, hier für die Tour festgehalten: RAF Camora bringt
+     * 5 % von 6,5 Mio = 325.000 Hörer mit. Stünden die in der BASIS, stünden
+     * hier über 300.000 Hörer statt 10.800 – und über `hörer^1,2` in den
+     * Tantiemen wäre das kein Zuschlag, sondern ein Zinssatz. Gewachsen ist
+     * die Hörerschaft an jedem Abend nur um die 2 %, die jedes Konzert bindet.
+     */
+    let erwartet = 10_000;
+    for (const a of r.abende) erwartet += Math.round(erwartet * music.SHOW_GAIN * a.quality);
+    check('die Hörerschaft wächst an jedem Abend nur um die 2 % des Konzerts',
+      music.status(G, U, T0).listeners === erwartet,
+      `${music.status(G, U, T0).listeners} vs ${erwartet}`);
+    check('aus 10.000 werden damit keine 300.000 – sein Publikum bleibt draußen',
+      music.status(G, U, T0).listeners < 11_000,
+      String(music.status(G, U, T0).listeners));
+    check('fünf Konzerte stehen im Konto des Künstlers',
+      music.status(G, U, T0).shows === data.TOUR_KONZERTE,
+      String(music.status(G, U, T0).shows));
+    /**
+     * Die Sperre ist für die Tour umgangen, nicht gelockert: `last_show_at`
+     * steht danach auf jetzt, das nächste EINZELNE Konzert wartet seine drei
+     * Tage wie immer.
+     */
+    const danach = await music.show(G, U, T0 + 3600e3, nie);
+    check('die Konzert-Sperre gilt für den normalen Weg unverändert weiter',
+      danach.ok === false && danach.reason === 'cooldown', JSON.stringify(danach.reason));
+    /**
+     * Und der Preis: 24 Stunden, nicht 24 + 20. Fünf einzelne Konzerte kosten
+     * 20 Stunden und 12 Tage Sperre – würde jeder Abend hier noch einmal
+     * `SHOW_TIME` buchen, wäre die Tour kein Format, sondern eine Strafe.
+     */
+    check('die fünf Abende buchen keine Stunden nach',
+      creator.budget(G, U, T0).left === zeitVor - data.ARBEIT_STUNDEN,
+      `${zeitVor} -> ${creator.budget(G, U, T0).left}`);
+    check('das Projekt steht auf "fertig", mit 24 von 24 Stunden',
+      db.projektRow(G, pr.id).status === 'fertig'
+      && db.projektRow(G, pr.id).stunden_ist === data.TOUR_STUNDEN,
+      JSON.stringify(db.projektRow(G, pr.id)));
+  }
+
+  console.log('--- Frist gerissen: die Stunden sind weg ---');
+  {
+    /**
+     * DIESER TEST HÄLT EINE ABSICHT FEST, DAMIT SIE NIEMAND SPÄTER
+     * „REPARIERT": Ein Projekt zwingt zu nichts – wer es liegen lässt,
+     * verliert die investierten Stunden. Ohne diesen Preis wäre ein offenes
+     * Konto ein Stundenspeicher ohne Risiko.
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    const pr = db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
+      stundenSoll: data.TOUR_STUNDEN,
+      stundenIst: data.TOUR_STUNDEN - data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
+    const spaet = T0 + 15 * TAG;
+    db.saveAngebotUhr(G, U, { last_roll: spaet, abgelehnt_folge: 0, pause_bis: 0 });
+    const kasseVor = gebucht.length;
+    const zeitVor = creator.budget(G, U, spaet).left;
+    const r = await ang.arbeiten(G, U, pr.id, spaet, nie);
+    check('nach der Frist lässt sich nicht weiterarbeiten',
+      r.ok === false && r.reason === 'weg', JSON.stringify(r.reason));
+    check('Schritt 0 hat es auf "verfallen" gesetzt und meldet es unter `vorher`',
+      (r.vorher ?? []).some((e) => e.art === 'projekt_verfallen' && e.projekt.id === pr.id),
+      JSON.stringify(r.vorher));
+    check('die 22 investierten Stunden sind weg – kein Konzert, kein Geld',
+      db.projektRow(G, pr.id).status === 'verfallen'
+      && db.projektRow(G, pr.id).stunden_ist === data.TOUR_STUNDEN - data.ARBEIT_STUNDEN
+      && gebucht.length === kasseVor && music.status(G, U, spaet).shows === 0,
+      JSON.stringify(db.projektRow(G, pr.id)));
+    check('und der abgewiesene Klick kostet keine weitere Stunde',
+      creator.budget(G, U, spaet).left === zeitVor);
+    check('danach ist der Weg für ein neues Projekt wieder frei',
+      ang.artenFuer(G, U, 100, spaet).some((a) => a.id === 'tour'));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

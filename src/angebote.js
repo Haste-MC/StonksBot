@@ -160,12 +160,24 @@ function offeneAngebote(guildId, userId, now = Date.now()) {
     }));
 }
 
-/** Die offenen großen Formate – Task 3 füllt sie mit Stunden. */
-function offeneProjekte(guildId, userId) {
+/**
+ * Die offenen großen Formate, angereichert für die Anzeige.
+ *
+ * Liest nur – und wie bei `offeneAngebote` gilt: Ein Projekt, dessen Frist
+ * durch ist, steht bis zur Abrechnung weiter als `offen` in der Tabelle. DER
+ * AUFRUFER MUSS VORHER ABGERECHNET HABEN (`settle`), sonst zeigt die Anzeige
+ * ein Stundenkonto, das längst verfallen ist.
+ */
+function offeneProjekte(guildId, userId, now = Date.now()) {
   const katalog = require('./data/contacts');
   return db.projekteOf(guildId, userId)
     .filter((r) => r.status === 'offen')
-    .map((r) => ({ ...r, artInfo: artOf(r.art), contact: katalog.byId(r.contact_id) }));
+    .map((r) => ({
+      ...r,
+      artInfo: artOf(r.art),
+      contact: katalog.byId(r.contact_id),
+      restMs: Math.max(0, r.frist - now),
+    }));
 }
 
 /**
@@ -353,11 +365,18 @@ function pruefen(guildId, userId, id, now, vorher) {
 }
 
 /**
- * Die Arten, deren Wirkung in diesem Stück gebaut ist. Task 3 und 4 nehmen
- * ihre Arten hier auf, sobald sie die Wirkung dazuschreiben – eine Art ohne
- * Wirkung darf nicht annehmbar sein (siehe Schritt 5b in `annehmen`).
+ * Die Arten, deren Wirkung in diesem Stück gebaut ist. Task 4 nimmt `label`
+ * hier auf, sobald es die Wirkung dazuschreibt – eine Art ohne Wirkung darf
+ * nicht annehmbar sein (siehe Schritt 5b in `annehmen`).
  */
-const GEBAUTE_ARTEN = new Set(['tausch', 'gastpart', 'vorgruppe']);
+const GEBAUTE_ARTEN = new Set(['tausch', 'gastpart', 'vorgruppe', 'kollabo', 'tour']);
+
+/** Wie viele Stunden das Konto einer Art fasst – 0 heißt: kein Projekt. */
+function stundenSollFor(artId) {
+  if (artId === 'kollabo') return data.KOLLABO_STUNDEN;
+  if (artId === 'tour') return data.TOUR_STUNDEN;
+  return 0;
+}
 
 /** Der Schub, den `tausch` und `gastpart` setzen – derselbe wie ein shoutout in 5a. */
 function schubFor(guildId, userId, { art, contact, meine, lage, now }) {
@@ -438,6 +457,7 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
   let gage = null;
   let extraHoerer = 0;
   let auftritt = null;
+  let projekt = null;
   let brutto = 0;
   let grund = '';
 
@@ -468,6 +488,17 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     auftritt = music.bookSupportShow(guildId, userId, now);
     brutto = gage;
     grund = `Vorgruppe: ${contact.name}`;
+  } else if (art.id === 'kollabo' || art.id === 'tour') {
+    // Die beiden großen Formate bringen hier NICHTS ein – sie öffnen ein
+    // Stundenkonto, und zwar genau eines: `artenFuer` lässt diese zwei Arten
+    // nicht zustellen, solange ein Projekt offen ist. Die Annahme selbst
+    // kostet keine Zeit (`time: 0`); gezahlt wird in Zwei-Stunden-Schritten
+    // über `arbeiten`, und die Frist entscheidet, ob das Konto je voll wird.
+    projekt = db.insertProjekt({
+      guildId, userId, art: art.id, contactId: contact.id,
+      stundenSoll: stundenSollFor(art.id),
+      frist: now + data.PROJEKT_FRIST_TAGE * DAY_MS,
+    });
   }
 
   // 8. Jetzt ist es verbindlich: Status, Draht, Zähler.
@@ -484,6 +515,7 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     ok: true, contact, art, draht, zeit, vorher,
     angebot: { ...angebot, artInfo: art, contact },
     honorar, gage, extraHoerer, auftritt, schub, geld,
+    projekt: projekt ? { ...projekt, artInfo: art, contact } : null,
     text: textFor(contact.trait, 'zusage', contact.name, random),
   };
 }
@@ -517,7 +549,165 @@ function ablehnen(guildId, userId, id, now = Date.now(), random = Math.random) {
   };
 }
 
+/**
+ * ===========================================================================
+ *  DIE BEIDEN GROSSEN FORMATE
+ * ===========================================================================
+ *
+ * Ein Projekt ist ein STUNDENKONTO: `arbeiten` bucht `ARBEIT_STUNDEN` aus
+ * demselben Tagesbudget wie alles andere (§17) und zählt sie auf
+ * `stunden_ist`. Ist das Konto voll, läuft das Ergebnis – ein Album mit
+ * mitgebrachtem Publikum oder fünf Konzerte an einem Stück.
+ *
+ * Was ein Projekt NICHT ist: ein Weg um die Tagesstunden herum. Die Stunden
+ * sind echt, sie sind weg, wenn die Frist reißt (`settle`, Schritt 2), und sie
+ * kaufen nichts, was man nicht auch einzeln kaufen könnte – nur billiger an
+ * Kalendertagen (Tour) oder größer im Publikum (Kollabo).
+ */
+
+/**
+ * Das Ergebnis eines vollen Kontos. Gibt `{ ok: false, … }` zurück, wenn das
+ * Projekt NICHT abgeschlossen werden konnte – dann bleibt es offen stehen.
+ *
+ * Die Reihenfolge ist hier dieselbe Vorsicht wie in `annehmen`:
+ *
+ *   • `kollabo` veröffentlicht ERST und schreibt den Status danach. `publish`
+ *     ist synchron, also kann dazwischen kein zweiter Klick liegen – und nur
+ *     so bleibt das Projekt stehen, wenn die sechs Titel fehlen.
+ *   • `tour` schreibt den Status ZUERST. Fünf Konzerte sind fünf `await`s;
+ *     stünde der Status dahinter, fände ein zweiter Klick das Konto noch als
+ *     offen vor und spielte die Tour ein zweites Mal (§7).
+ */
+async function abschliessen(guildId, userId, p, now, random) {
+  const music = require('./music');
+  const contact = require('./data/contacts').byId(p.contact_id);
+  // Dieselbe Lage wie bei der Annahme. Fehlt sie – der Kontakt ist aus dem
+  // Katalog verschwunden, die Musikkarriere gelöscht –, wird nichts
+  // ausgeführt und nichts verbraucht; das Konto bleibt stehen.
+  const lage = contact ? require('./beef').musikLage(guildId, userId, contact, now) : null;
+  if (!lage) return { ok: false, reason: 'seite', contact };
+
+  const fertig = () => db.saveProjekt(guildId, p.id,
+    { status: 'fertig', stundenIst: p.stunden_soll });
+
+  if (p.art === 'kollabo') {
+    // Sein Publikum kommt hier über den EINEN Hebel, den `publish` dafür hat:
+    // `audience` wirkt vor der Konversion, also auf die Reichweite dieser
+    // Veröffentlichung – höchstens ×2,0 (`kollaboFaktorOf`). `force` übergeht
+    // Sperre und Zeitbudget, denn die 18 Stunden sind bezahlt: Ohne das
+    // kostete das Kollabo 18 + 3 Stunden, und eine Platte von vorgestern
+    // könnte das ganze Projekt an der Release-Sperre scheitern lassen.
+    const audience = kollaboFaktorOf({ meine: lage.meine, seine: lage.seine });
+    const platte = music.publish(guildId, userId, 'album', now, random,
+      { audience, force: true });
+    // Die eine Stelle, an der ein volles Konto nicht abschließt: Ein Album
+    // braucht seine sechs Titel. Das Projekt bleibt offen, die Stunden bleiben
+    // stehen – wer aufnimmt und wiederkommt, schließt es ab.
+    if (!platte.ok) {
+      return {
+        ok: false, reason: platte.reason, need: platte.need, have: platte.have,
+        contact, audience, platte,
+      };
+    }
+    const projekt = fertig();
+    return {
+      ok: true, art: p.art, contact, audience, platte,
+      projekt: { ...projekt, artInfo: artOf(p.art), contact },
+    };
+  }
+
+  if (p.art === 'tour') {
+    const projekt = fertig();
+    // Sein Publikum GENAU EINMAL – nicht je Abend –, und zwar wie bei der
+    // Vorgruppe ausschließlich auf die GAGE dieses einen Abends: `gast` geht in
+    // `hörer^0,7` ein und hebt sie um höchstens 2^0,7 = +62 %. In die
+    // Hörerschaft kommt an keinem der Abende etwas anderes als die 2 %, die
+    // jedes Konzert bindet (`music.showGain`). Stünde fremdes Publikum in der
+    // Basis, verdoppelte ein großer Partner sie auf einen Klick, und über
+    // `hörer^1,2` in den Tantiemen wäre das ein Zinssatz statt eines Zuschlags.
+    const gast = Math.round(Math.max(0, lage.seine) * data.VORGRUPPE_ANTEIL);
+    const abende = [];
+    for (let i = 0; i < data.TOUR_KONZERTE; i++) {
+      // `force`: keine Konzert-Sperre, keine zweite Zeitbuchung – die Tour hat
+      // ihre 24 Stunden bezahlt. Gelockert wird dabei nichts: `last_show_at`
+      // steht danach auf jetzt, das nächste einzelne Konzert wartet wie immer.
+      abende.push(await music.show(guildId, userId, now, random, {
+        force: true, gast: i === data.TOUR_KONZERTE - 1 ? gast : 0,
+      }));
+    }
+    return {
+      ok: true, art: p.art, contact, abende, gast,
+      konzerte: abende.filter((a) => a.ok && !a.cancelled).length,
+      brutto: abende.reduce((s, a) => s + (a.gross ?? 0), 0),
+      verdient: abende.reduce((s, a) => s + (a.amount ?? 0), 0),
+      gewonnen: abende.reduce((s, a) => s + (a.gained ?? 0), 0),
+      projekt: { ...projekt, artInfo: artOf(p.art), contact },
+    };
+  }
+
+  // Unerreichbar: Projekte entstehen nur aus `kollabo` und `tour`. Steht hier
+  // trotzdem, damit eine neue Art nicht stillschweigend ein Konto abschließt,
+  // dessen Wirkung niemand geschrieben hat (dieselbe Vorsicht wie GEBAUTE_ARTEN).
+  return { ok: false, reason: 'noch_nicht', contact };
+}
+
+/**
+ * Zwei Stunden an einem Projekt arbeiten – beliebig oft am Tag, solange das
+ * gemeinsame Tagesbudget trägt.
+ *
+ * Schritt 0 ist auch hier die faule Abrechnung, und ihr Ergebnis geht unter
+ * `vorher` mit hinaus – AUF JEDEM Rückweg, auch auf jedem abgewiesenen. Fehlt
+ * das an einer einzigen Stelle, verschluckt ein ins Leere gehender Klick eine
+ * verfallene Anfrage samt Draht-Verlust.
+ *
+ * Reihenfolge wie überall: prüfen, dann Zeit buchen, dann schreiben. Ein
+ * Projekt, dessen Frist durch ist, hat `settle` eine Zeile vorher auf
+ * `verfallen` gesetzt – die investierten Stunden sind dann weg, und das ist
+ * Absicht (§ „ein Projekt zwingt zu nichts").
+ */
+async function arbeiten(guildId, userId, id, now = Date.now(), random = Math.random) {
+  const vorher = settle(guildId, userId, now, random);
+
+  const p = db.projektRow(guildId, id);
+  if (!p || String(p.user_id) !== String(userId) || p.status !== 'offen') {
+    return { ok: false, reason: 'weg', vorher };
+  }
+  // Nach Schritt 0 kaum erreichbar – `settle` hat ein verstrichenes Projekt
+  // dann schon auf `verfallen` gesetzt und meldet es unter `vorher`. Die
+  // Prüfung bleibt stehen, weil sie die ist, die hier gilt.
+  if (p.frist <= now) return { ok: false, reason: 'abgelaufen', projekt: p, vorher };
+
+  const zeit = require('./creator').useTime(guildId, userId, data.ARBEIT_STUNDEN, now);
+  if (!zeit.ok) return { ok: false, ...zeit, need: data.ARBEIT_STUNDEN, projekt: p, vorher };
+
+  // Die Stunden werden gebucht, sobald sie bezahlt sind – an EINER Stelle, vor
+  // jeder Verzweigung. Mehr als `stunden_soll` nimmt das Konto nicht an; die
+  // letzten zwei Stunden können also auch nur teilweise hineinpassen.
+  const ist = Math.min(p.stunden_soll, p.stunden_ist + data.ARBEIT_STUNDEN);
+  const stand = db.saveProjekt(guildId, id, { stundenIst: ist });
+  const anzeige = (row) => ({
+    ...row, artInfo: artOf(p.art),
+    contact: require('./data/contacts').byId(p.contact_id),
+  });
+  if (ist < p.stunden_soll) {
+    return {
+      ok: true, fertig: false, ist, soll: p.stunden_soll, zeit, vorher,
+      projekt: anzeige(stand),
+    };
+  }
+
+  const erg = await abschliessen(guildId, userId, p, now, random);
+  // Konnte nicht abgeschlossen werden (fehlende Titel): Das Konto bleibt
+  // offen und voll stehen – wer die Titel aufnimmt und wiederkommt, schließt
+  // es ab. `vorher` geht auch hier mit hinaus.
+  if (!erg.ok) {
+    return { ...erg, ist, soll: p.stunden_soll, projekt: anzeige(stand), zeit, vorher };
+  }
+  return { ok: true, fertig: true, ...erg, ist, soll: p.stunden_soll, zeit, vorher };
+}
+
 module.exports = {
   gewichtOf, honorarOf, gageOf, kollaboFaktorOf, fristOf, rollTage, textFor,
   artOf, artenFuer, offeneAngebote, offeneProjekte, settle, annehmen, ablehnen,
+  arbeiten,
 };

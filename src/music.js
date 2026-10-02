@@ -730,8 +730,30 @@ function bookSupportShow(guildId, userId, now = Date.now()) {
 /**
  * Ein Konzert. Zahlt sofort und richtig – aber nur, wer genug Hörer hat,
  * bekommt eine Halle voll.
+ *
+ * `force` – der Abend einer TOUR (5c). Dasselbe Wort und dieselbe Bedeutung
+ * wie bei `publish`: weder Sperre noch Zeitbudget, dafür die aktuelle Energie
+ * als Faktor. Eine Tour ist ein PROJEKT, das seine 24 Stunden längst bezahlt
+ * hat, bevor der erste Abend beginnt (`angebote.arbeiten`); würde jeder Abend
+ * hier noch einmal `SHOW_TIME` buchen, kostete sie 24 + 20 Stunden, und die
+ * letzten Abende fielen je nach Tageslage aus. Die Konzert-Sperre bleibt für
+ * JEDEN ANDEREN Weg unverändert: `force` kommt ausschließlich aus dem
+ * Tour-Abschluss, und nach der Tour steht `last_show_at` auf jetzt – das
+ * nächste einzelne Konzert wartet also seine drei Tage wie immer.
+ *
+ * `force` übergeht außerdem `SHOW_MIN_LISTENERS`, aus demselben Grund wie die
+ * Vorgruppe (siehe `bookSupportShow`): Auf einer Tour zu zweit füllt der
+ * Hauptact die Halle. Kein Hahn, denn Gage und Zuwachs hängen weiter an der
+ * EIGENEN Hörerschaft – und ohne diese Ausnahme wären 24 investierte Stunden
+ * bei weniger als 5.000 Hörern ersatzlos verloren.
+ *
+ * `gast` – mitgebrachtes Publikum in Hörern, für GENAU diesen Abend. Es wirkt
+ * ausschließlich über `hörer^0,7` auf die Gage (also höchstens 2^0,7 = +62 %)
+ * und steht niemals in der Hörerschaft; was der Abend bleibend bringt, rechnet
+ * `showGain` ohne jedes fremde Publikum (§3, siehe dort).
  */
-async function show(guildId, userId, now = Date.now(), random = Math.random, { events = true } = {}) {
+async function show(guildId, userId, now = Date.now(), random = Math.random,
+  { events = true, force = false, gast = 0 } = {}) {
   // Schritt 0 wie beim Veröffentlichen: erst die faule Abrechnung des Beefs
   // nachholen (§4), denn weiter unten wird `bonusOf` gelesen – ein längst
   // ausgekühlter Sieg zahlte sonst nie. Vor `db.getArtist`, weil ein fälliger
@@ -744,24 +766,30 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
 
   const market = marketOf(guildId, userId);
   const before = decayed(row, market, now);
-  if (before.listeners < SHOW_MIN_LISTENERS) {
+  if (!force && before.listeners < SHOW_MIN_LISTENERS) {
     return {
       ok: false, reason: 'too_small', beefVorher,
       have: Math.round(before.listeners), need: SHOW_MIN_LISTENERS,
     };
   }
 
-  const left = remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now);
+  const left = force ? 0 : remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, beefVorher };
 
-  const time = useTime(guildId, userId, SHOW_TIME, now);
+  // `force` bucht keine Zeit, nimmt aber die aktuelle Energie – wortgleich zu
+  // `publish`, damit ein müder Künstler auch auf Tour schwächer spielt.
+  const time = force
+    ? { ok: true, forced: true, factor: require('./creator').energyOf(guildId, userId, now).factor }
+    : useTime(guildId, userId, SHOW_TIME, now);
   if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time, beefVorher };
 
   // Ein zugesagter Auftritt bringt sein Publikum mit – einmal, für diese Gage.
   // Mehr als die eigene Hörerschaft zählt nicht. Die Gage wächst deshalb um
   // höchstens 2^0,7 = +62 %, nicht aufs Doppelte: Sie hängt an Hörer^0,7 (§3).
+  // Der Tour-Abend (`gast`) und der zugesagte Auftritt (`kb.extra`) gehen in
+  // DIESELBE Deckelung – zusammen also auch nie über +62 %.
   const kb = require('./contacts').consumeBoost(guildId, userId, 'show', now);
-  const extraHoerer = Math.min(before.listeners, kb?.extra ?? 0);
+  const extraHoerer = Math.min(before.listeners, Math.max(0, gast) + (kb?.extra ?? 0));
 
   const g = genre(row.genre);
   const p = persona(row.persona);
