@@ -770,6 +770,23 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('und es erscheint nichts und kostet nichts',
       music.status(G, U, T0).releases === 0 && gebucht.length === kasseVor);
     check('auch hier geht `vorher` mit heraus', Array.isArray(ohne.vorher));
+    /**
+     * Noch ein Druck auf dasselbe vollgelaufene Konto: Er kann nichts bewegen –
+     * mehr als 18 Stunden nimmt das Konto nicht an, und die Titel fehlen
+     * weiter. Also darf er auch nichts kosten; die Prüfung steht VOR
+     * `useTime`. Ohne sie zahlte jeder Klick zwei Stunden für dieselbe Absage.
+     */
+    const zeitLeer = creator.budget(G, U, T0).left;
+    const nochmal = await ang.arbeiten(G, U, pr.id, T0, nie);
+    check('ein weiterer Druck auf das vollgelaufene Konto kostet keine Stunde',
+      nochmal.ok === false && nochmal.reason === 'no_songs'
+      && nochmal.need === data.KOLLABO_TITEL && nochmal.have === 0
+      && creator.budget(G, U, T0).left === zeitLeer,
+      JSON.stringify({ r: nochmal.reason, vor: zeitLeer, nach: creator.budget(G, U, T0).left }));
+    check('und das Konto bleibt offen und voll stehen',
+      db.projektRow(G, pr.id).status === 'offen'
+      && db.projektRow(G, pr.id).stunden_ist === data.KOLLABO_STUNDEN,
+      JSON.stringify(db.projektRow(G, pr.id)));
 
     // Jetzt die Titel – aufgenommen wird nicht, sie werden gesetzt: Sechs
     // echte Studiosessions wären sechs Würfel in diesem Test.
@@ -900,9 +917,28 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
      */
     const { G, U } = await welt();
     draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
     const pr = db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
       stundenSoll: data.TOUR_STUNDEN,
-      stundenIst: data.TOUR_STUNDEN - data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
+      stundenIst: data.TOUR_STUNDEN - 2 * data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
+    /**
+     * Tag 1: ECHT gearbeitet. Die zwei Stunden gehen durch `creator.useTime`
+     * und stehen danach im `time_used` dieses Tages. Darauf kommt es an: Ein
+     * vorgesetztes `stundenIst` hat nie etwas gekostet, also könnte eine
+     * „Reparatur" auch nichts erstatten – der Test hätte nichts zu messen und
+     * ginge grün durch, egal was `settle` beim Verfall täte.
+     */
+    const tag1 = await ang.arbeiten(G, U, pr.id, T0, nie);
+    check('Tag 1: zwei echte Stunden gehen ins Konto',
+      tag1.ok === true && tag1.fertig === false
+      && tag1.ist === data.TOUR_STUNDEN - data.ARBEIT_STUNDEN,
+      JSON.stringify({ r: tag1.reason, i: tag1.ist }));
+    const nachArbeit = creator.budget(G, U, T0);
+    check('und sie stehen im Tagesbudget des Arbeitstages',
+      nachArbeit.used === data.ARBEIT_STUNDEN
+      && nachArbeit.left === nachArbeit.max - data.ARBEIT_STUNDEN,
+      JSON.stringify({ used: nachArbeit.used, left: nachArbeit.left }));
+
     const spaet = T0 + 15 * TAG;
     db.saveAngebotUhr(G, U, { last_roll: spaet, abgelehnt_folge: 0, pause_bis: 0 });
     const kasseVor = gebucht.length;
@@ -918,10 +954,118 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       && db.projektRow(G, pr.id).stunden_ist === data.TOUR_STUNDEN - data.ARBEIT_STUNDEN
       && gebucht.length === kasseVor && music.status(G, U, spaet).shows === 0,
       JSON.stringify(db.projektRow(G, pr.id)));
+    /**
+     * DIE ZEILE, DIE DIE ABSICHT FESTHÄLT: Das `time_used` des Arbeitstages
+     * steht nach dem Verfall noch genau so da wie vorher. Gäbe `settle` die
+     * investierten Stunden zurück – egal ob auf den Arbeitstag oder auf den
+     * Tag des Verfalls –, stünde hier eine andere Zahl, und dieser Test wäre
+     * rot. Ohne ihn wäre „die Stunden sind weg" eine Behauptung ohne Messung.
+     */
+    const nachVerfall = creator.budget(G, U, T0);
+    check('die gearbeiteten Stunden kommen NICHT zurück – time_used unverändert',
+      nachVerfall.used === data.ARBEIT_STUNDEN
+      && nachVerfall.left === nachArbeit.left,
+      `${nachArbeit.used} -> ${nachVerfall.used}`);
     check('und der abgewiesene Klick kostet keine weitere Stunde',
       creator.budget(G, U, spaet).left === zeitVor);
     check('danach ist der Weg für ein neues Projekt wieder frei',
       ang.artenFuer(G, U, 100, spaet).some((a) => a.id === 'tour'));
+  }
+
+  console.log('--- Nur EIN Stundenkonto: beide Ebenen ---');
+  {
+    /**
+     * Die Anfrage-Ebene. `artenFuer` hat bisher nur auf ein offenes PROJEKT
+     * geschaut – eine offene ANFRAGE auf ein großes Format war ihr egal.
+     * Genau wie `label` muss aber auch hier die Anfrage sperren, sonst liegen
+     * zwei Zusagen bereit, von denen nur eine gelten darf.
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    const row = anfrage(G, U, 'kollabo', RAF.id);
+    const offen = ang.artenFuer(G, U, 100, T0).map((a) => a.id);
+    check('eine offene kollabo-Anfrage nimmt kollabo UND tour aus der Auswahl',
+      offen.join(',') === 'tausch,gastpart,vorgruppe,label', offen.join(','));
+    check('eine Anfrage, deren Frist durch ist, sperrt nicht mehr',
+      ang.artenFuer(G, U, 100, T0 + 4 * TAG).length === 6,
+      ang.artenFuer(G, U, 100, T0 + 4 * TAG).map((a) => a.id).join(','));
+    db.saveAngebot(G, row.id, { status: 'ab' });
+    check('ist sie abgelehnt, sind beide wieder da',
+      ang.artenFuer(G, U, 100, T0).length === 6);
+  }
+  {
+    /**
+     * DER WEG, AUF DEM DAS LOCH ENTSTAND: Eine Anfrage liegt drei Tage, ein
+     * Wurf kommt jeden Tag. Tag 1 stellte `tour` zu (kein Projekt offen),
+     * Tag 2 stellte `kollabo` zu (immer noch keines, weil nichts angenommen
+     * ist) – und beide Fristen liefen gleichzeitig. Wer beide annahm, hatte
+     * zwei Stundenkonten.
+     *
+     * `folge(0, 0, 0.7)`: Chance-Wurf trifft, der einzige Kandidat ist RAF,
+     * und 0,7 × 6 = Index 4 – das ist `tour`.
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0 - TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const arten1 = ang.settle(G, U, T0, folge(0, 0, 0.7))
+      .filter((e) => e.art === 'neu').map((e) => e.angebot.art);
+    check('Tag 1 stellt eine tour-Anfrage zu', arten1.join(',') === 'tour', arten1.join(','));
+    const arten2 = ang.settle(G, U, T0 + TAG, folge(0, 0, 0.7))
+      .filter((e) => e.art === 'neu').map((e) => e.angebot.art);
+    check('Tag 2 bringt kein zweites großes Format',
+      arten2.length === 1 && !arten2.some((a) => ['kollabo', 'tour'].includes(a)),
+      arten2.join(','));
+    check('es steht genau EINE Anfrage auf ein großes Format offen',
+      ang.offeneAngebote(G, U, T0 + TAG)
+        .filter((a) => ['kollabo', 'tour'].includes(a.art)).length === 1,
+      JSON.stringify(ang.offeneAngebote(G, U, T0 + TAG).map((a) => a.art)));
+  }
+  {
+    /**
+     * Die Annehmen-Ebene. Sie kann nicht entfallen, auch wenn `artenFuer`
+     * oben sperrt: Zwischen Zustellung und Klick liegen bis zu drei Tage, und
+     * eine Anfrage, die gestern noch die einzige war, trifft heute auf ein
+     * frisch geöffnetes Konto (zum Beispiel, weil beide am selben Tag
+     * zugestellt wurden, als noch keines offen war).
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    const erste = anfrage(G, U, 'kollabo', RAF.id);
+    const zweite = anfrage(G, U, 'tour', RAF.id);
+    const eins = await ang.annehmen(G, U, erste.id, T0, nie);
+    check('die erste Zusage öffnet das Konto',
+      eins.ok === true && eins.projekt?.art === 'kollabo',
+      JSON.stringify(eins.reason ?? eins.projekt?.art));
+    const kasseVor = gebucht.length;
+    const zeitVor = creator.budget(G, U, T0).left;
+    const zwei = await ang.annehmen(G, U, zweite.id, T0, nie);
+    check('die zweite wird abgewiesen: `projekt_offen`',
+      zwei.ok === false && zwei.reason === 'projekt_offen', JSON.stringify(zwei.reason));
+    check('und sie nennt das Konto, das im Weg steht',
+      zwei.projekt?.id === eins.projekt.id && zwei.projekt.art === 'kollabo',
+      JSON.stringify(zwei.projekt));
+    /**
+     * Die Prüfung steht vor der Zeitbuchung und vor jedem Schreibvorgang: Die
+     * Anfrage liegt danach unberührt da, es gibt kein zweites Projekt, keine
+     * Stunde ist gebucht und kein Cent geflossen.
+     */
+    check('die Datenbank bleibt unberührt – ein Konto, ein offenes Angebot, keine Stunde',
+      db.angebotRow(G, zweite.id).status === 'offen'
+      && db.projekteOf(G, U).filter((p) => p.status === 'offen').length === 1
+      && creator.budget(G, U, T0).left === zeitVor
+      && gebucht.length === kasseVor,
+      JSON.stringify({
+        status: db.angebotRow(G, zweite.id).status,
+        offen: db.projekteOf(G, U).filter((p) => p.status === 'offen').length,
+        zeit: creator.budget(G, U, T0).left,
+      }));
+    // Und sie ist nicht verloren: Ist das erste Konto durch, trägt sie wieder.
+    db.saveProjekt(G, eins.projekt.id, { status: 'fertig' });
+    const spaeter = await ang.annehmen(G, U, zweite.id, T0, nie);
+    check('ist das erste Konto durch, lässt sich die zweite annehmen',
+      spaeter.ok === true && spaeter.projekt?.art === 'tour',
+      JSON.stringify(spaeter.reason ?? spaeter.projekt?.art));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

@@ -188,15 +188,29 @@ function offeneProjekte(guildId, userId, now = Date.now()) {
  * Angebot auf dasselbe. `kollabo` und `tour` fallen weg, solange ein Projekt
  * offen ist: Zwei Stundenkonten gleichzeitig wären kein Format mehr, sondern
  * eine zweite Tagesordnung.
+ *
+ * Und – genau wie bei `label` – schon, solange eine ANFRAGE auf ein großes
+ * Format offen ist. Am Projekt allein hängt die Sperre nicht: Eine Anfrage
+ * liegt drei Tage, ein Wurf kommt jeden Tag. Ohne diese Zeile stellte Tag 1
+ * `kollabo` zu (kein Projekt offen) und Tag 2 `tour` (immer noch keines, weil
+ * noch nichts angenommen ist) – und wer beide annimmt, hätte zwei
+ * Stundenkonten. Gesperrt ist dabei JEDES große Format, nicht nur dasselbe:
+ * angenommen werden kann am Ende ohnehin nur eines (`annehmen`,
+ * `projekt_offen`), und ein Angebot, das sicher ins Leere läuft, ist keines.
+ *
+ * Wie `offeneProjekte` liest das den Tabellenstand: Eine Anfrage, deren Frist
+ * durch ist, sperrt nicht mehr – `settle` räumt sie eine Zeile vorher weg.
  */
 function artenFuer(guildId, userId, draht, now) {
   const projektOffen = db.projekteOf(guildId, userId).some((p) => p.status === 'offen');
+  const grossOffen = db.angeboteOf(guildId, userId).some((r) => r.status === 'offen'
+    && r.frist > now && (r.art === 'kollabo' || r.art === 'tour'));
   const vertrag = Boolean(db.activeContract(guildId, userId))
     || Boolean(db.openContract(guildId, userId, now));
   return data.ARTEN.filter((a) => {
     if (draht < a.minDraht) return false;
     if (a.id === 'label') return !vertrag;
-    if (a.id === 'kollabo' || a.id === 'tour') return !projektOffen;
+    if (a.id === 'kollabo' || a.id === 'tour') return !projektOffen && !grossOffen;
     return true;
   });
 }
@@ -443,6 +457,29 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     return { ok: false, reason: 'noch_nicht', contact, angebot: row, art, vorher };
   }
 
+  // 5c. Nur EIN Stundenkonto. Die Sperre in `artenFuer` hält die zweite Anfrage
+  //     zurück, aber sie kann nicht das letzte Wort sein: Zwischen Zustellung
+  //     und Klick liegen bis zu drei Tage, und eine Anfrage, die gestern noch
+  //     erlaubt war, trifft heute auf ein frisch geöffnetes Konto. Ohne diese
+  //     Zeile stünden am Ende zwei Konten offen, und die Rechnung aus §3
+  //     („nur EIN offenes Projekt") wäre keine mehr.
+  //
+  //     Die Prüfung steht – aus demselben Grund wie 5b – VOR der Zeitbuchung,
+  //     auch wenn `kollabo` und `tour` bei der Annahme nichts kosten: Sie ist
+  //     eine Voraussetzung, und die Datenbank bleibt bei einer Absage unberührt.
+  if (art.id === 'kollabo' || art.id === 'tour') {
+    const offen = db.projekteOf(guildId, userId).find((pr) => pr.status === 'offen');
+    if (offen) {
+      return {
+        ok: false, reason: 'projekt_offen', contact, angebot: row, art, vorher,
+        projekt: {
+          ...offen, artInfo: artOf(offen.art),
+          contact: require('./data/contacts').byId(offen.contact_id),
+        },
+      };
+    }
+  }
+
   // 6. Die Stunden – ab hier wird geschrieben, vorher nicht. `kollabo` und
   //    `tour` kosten bei der Annahme nichts (`time: 0`); dort wird gar nicht
   //    erst gebucht, weil die API eine Nullbuchung nicht braucht.
@@ -676,6 +713,26 @@ async function arbeiten(guildId, userId, id, now = Date.now(), random = Math.ran
   // dann schon auf `verfallen` gesetzt und meldet es unter `vorher`. Die
   // Prüfung bleibt stehen, weil sie die ist, die hier gilt.
   if (p.frist <= now) return { ok: false, reason: 'abgelaufen', projekt: p, vorher };
+
+  // Das Konto ist voll und hängt an den fehlenden Titeln: Dann ändern zwei
+  // weitere Stunden nichts – mehr als `stunden_soll` nimmt das Konto nicht an,
+  // und `abschliessen` würde erneut `no_songs` melden. Also VOR der
+  // Zeitbuchung abweisen, sonst kostete jeder Druck zwei Stunden für nichts.
+  // Das Projekt bleibt dabei offen stehen, wie überall auf diesem Weg: Wer die
+  // Titel aufnimmt und wiederkommt, schließt es ab.
+  if (p.art === 'kollabo' && p.stunden_ist >= p.stunden_soll) {
+    const titel = require('./music').status(guildId, userId, now).songs;
+    if (titel < data.KOLLABO_TITEL) {
+      return {
+        ok: false, reason: 'no_songs', need: data.KOLLABO_TITEL, have: titel,
+        ist: p.stunden_ist, soll: p.stunden_soll, vorher,
+        projekt: {
+          ...p, artInfo: artOf(p.art),
+          contact: require('./data/contacts').byId(p.contact_id),
+        },
+      };
+    }
+  }
 
   const zeit = require('./creator').useTime(guildId, userId, data.ARBEIT_STUNDEN, now);
   if (!zeit.ok) return { ok: false, ...zeit, need: data.ARBEIT_STUNDEN, projekt: p, vorher };

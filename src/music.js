@@ -789,7 +789,11 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
   // Der Tour-Abend (`gast`) und der zugesagte Auftritt (`kb.extra`) gehen in
   // DIESELBE Deckelung – zusammen also auch nie über +62 %.
   const kb = require('./contacts').consumeBoost(guildId, userId, 'show', now);
-  const extraHoerer = Math.min(before.listeners, Math.max(0, gast) + (kb?.extra ?? 0));
+  // `Number(gast) || 0` wie beim Geld in `payGig`: `Math.max(0, NaN)` ist NaN,
+  // und NaN liefe von hier über die Gage bis in eine Buchung. Kein Aufrufer
+  // kann das heute auslösen – der Boden kostet ein Wort.
+  const extraHoerer = Math.min(before.listeners,
+    Math.max(0, Number(gast) || 0) + (kb?.extra ?? 0));
 
   const g = genre(row.genre);
   const p = persona(row.persona);

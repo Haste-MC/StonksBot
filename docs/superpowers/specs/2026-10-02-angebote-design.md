@@ -276,7 +276,17 @@ Decken, jede gerechnet:
 - **Gage:** höchstens `2^0,7` = ×1,62 einer eigenen Konzert-Gage, weil sein
   Publikum auf die eigene Hörerschaft gedeckelt ist.
 - **Kollabo:** höchstens ×2,0 Publikum **einer** Veröffentlichung, gegen 15
-  Stunden Mehrkosten gegenüber einem normalen Album.
+  Stunden Mehrkosten gegenüber einem normalen Album. Dazu entfällt – weil das
+  Album über `publish(…, { force: true })` läuft – die 20-Stunden-Sperre
+  zwischen zwei Veröffentlichungen: Gemessen erscheint ein Kollabo eine Minute
+  nach einem normalen Album. Das ist der Preis dafür, dass die bezahlten 18
+  Stunden nicht an einer Platte von vorgestern scheitern (`no_songs` ist die
+  einzige Stelle, an der ein volles Konto nicht abschließt), und ein zweites
+  Kollabo kostet trotzdem wieder 18 Arbeitsstunden aus dem Tagesbudget, also
+  mindestens neun Drücke über mehrere Tage – das ist kein schnellerer Weg zu
+  vielen Platten als die Sperre selbst. Für die Messung in Task 6 heißt das:
+  Die Zahl der Veröffentlichungen je Jahr steigt um die Kollabos, und das ist
+  so gewollt.
 - **Tour:** fünf Konzerte für 24 statt 20 Stunden, sein Publikum einmal; die
   Konzert-Sperre entfällt. Die Decke ist die der fünf Konzerte plus ×1,62 auf
   eines davon.
