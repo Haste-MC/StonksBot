@@ -2855,15 +2855,23 @@ const PROJEKT_KURZ = { kollabo: 'Kollabo', tour: 'Tour' };
  */
 function angeboteZeile(guildId, userId, now = Date.now()) {
   const angebote = require('./angebote');
+  const adata = require('./data/angebote');
   const teile = [];
 
-  const offen = angebote.offeneAngebote(guildId, userId, now).filter((r) => r.restMs > 0);
+  // Gezählt wird GENAU das, was `buildAngeboteView` zeigt – derselbe Filter und
+  // dieselben `slice`. Ohne das verspricht die Zeile „3 Angebote“, während die
+  // Ansicht zwei zeigt und der dritten Zeile ohnehin kein Knopf mehr bliebe
+  // (§16, Reaktionshaushalt).
+  const sichtbar = (r) => r.restMs > 0 && r.artInfo && r.contact;
+  const offen = angebote.offeneAngebote(guildId, userId, now)
+    .filter(sichtbar).slice(0, adata.ANFRAGEN_MAX);
   if (offen.length) {
     teile.push(`📬 **${offen.length} ${offen.length === 1 ? 'Angebot' : 'Angebote'}** `
       + `${offen.length === 1 ? 'wartet' : 'warten'}`);
   }
 
-  for (const p of angebote.offeneProjekte(guildId, userId, now).filter((x) => x.restMs > 0)) {
+  for (const p of angebote.offeneProjekte(guildId, userId, now)
+    .filter(sichtbar).slice(0, 1)) {
     teile.push(`${p.artInfo?.emoji ?? '💿'} ${PROJEKT_KURZ[p.art] ?? 'Projekt'} mit `
       + `*${p.contact?.name ?? 'einem Partner'}*: `
       + `${Number(p.stunden_ist).toLocaleString('de-DE')} von `

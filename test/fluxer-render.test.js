@@ -1973,9 +1973,40 @@ function view(buttons) {
     check('Meldung bei Annahme: Art, Kontakt, Honorar als Zahl, Draht +8, Reststunden',
       anNote.includes(`🤝 Zugesagt: 🎙️ **${ang.artOf('gastpart').name}** `
         + `— ${OXMO.emoji} **${OXMO.name}**`)
-      && anNote.includes(`💰 Honorar: **€ ${resAn.honorar.toLocaleString('de-DE')}**`)
+      // Die GEBUCHTE Zahl, nicht das Brutto: `res.honorar` ist die Rechnung,
+      // `res.geld.amount` das, was `payGig` aufs Konto gelegt hat. Ohne
+      // Vertrag sind beide gleich – der Fall mit Anteil steht gleich darunter.
+      && anNote.includes(`💰 Honorar: **€ ${resAn.geld.amount.toLocaleString('de-DE')}**`)
       && anNote.includes(`(+${adata.DRAHT_AN},`)
       && anNote.includes('⏱️ heute übrig:'), anNote);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Der Anteil der Agentur gehört in die Meldung (5c-Review, Befund 1)
+     * -----------------------------------------------------------------------
+     * `annahmeNote` druckte `res.honorar` – das BRUTTO. Bei einem
+     * unterschriebenen Vertrag nimmt `music.payGig` davon 30 bzw. 50 %, und
+     * dem Spieler stand eine Zahl da, die so nie auf dem Konto ankam. Ein
+     * Vertragskünstler bekommt weiter Gastparts und Vorgruppen (`artenFuer`
+     * sperrt nur `label`), also trifft das jeden Unterschreiber.
+     */
+    const [KG, KU] = await neu(60_000);
+    const kVertrag = db.insertContract({
+      guildId: KG, userId: KU, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt - 1000, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    db.setContractStatus(KG, kVertrag.id, 'active',
+      { signedAt: jetzt - 1000, endsAt: jetzt + 30 * TAG });
+    const kAn = anfrage(KG, KU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const resK = await ang.annehmen(KG, KU, kAn.id, jetzt, nie);
+    const kNote = annahmeNote(resK, '€', jetzt);
+    check('ein Vertrag nimmt vom Honorar wirklich einen Anteil',
+      resK.ok === true && resK.geld.cut > 0 && resK.geld.amount < resK.honorar,
+      JSON.stringify({ ok: resK.ok, reason: resK.reason, geld: resK.geld, brutto: resK.honorar }));
+    check('und die Zusage nennt das Netto plus den Anteil – nicht das Brutto',
+      kNote.includes(`💰 Honorar: **€ ${resK.geld.amount.toLocaleString('de-DE')}**`)
+      && kNote.includes(`_(nach € ${resK.geld.cut.toLocaleString('de-DE')} Agenturanteil)_`)
+      && !kNote.includes(`Honorar: **€ ${resK.honorar.toLocaleString('de-DE')}**`),
+      kNote);
 
     // --- Meldung: abgesagt --------------------------------------------------
     const [BG, BU] = await neu();
@@ -2069,6 +2100,120 @@ function view(buttons) {
       && fertigNote.includes('👂 ')
       && fertigNote.includes(`💿 Das gemeinsame Album mit **${OXMO.name}** ist draußen.`),
       fertigNote);
+    check('die Stundenzahl im Arbeitstext kommt aus der Konstante, nicht aus Prosa',
+      arbeitNote(geArbeitet, '€', jetzt)
+        .includes(`${adata.ARBEIT_STUNDEN} Stunden mehr.`),
+      arbeitNote(geArbeitet, '€', jetzt));
+    check('und ohne Kontakt steht dort kein Pronomen',
+      !/\b(ihm|ihr|ihn|seine[rmsn]?|ihre[rmsn]?)\b/i.test(
+        arbeitNote({ ...geArbeitet, contact: null, projekt: null }, '€', jetzt)),
+      arbeitNote({ ...geArbeitet, contact: null, projekt: null }, '€', jetzt));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Ein Abschluss MELDET, was er gebucht hat (5c-Review, Befund 2)
+     * -----------------------------------------------------------------------
+     * Ein volles Stundenkonto lässt die echten Maschinen laufen: `music.publish`
+     * bzw. fünfmal `music.show`. Beide rechnen als Schritt 0 den fälligen Beef
+     * nach – das KOSTET Hype und Hörer – und geben ihn unter `beefVorher`
+     * heraus. `arbeitNote` ließ ihn fallen: Der Gegenschlag wurde angewandt,
+     * aber nicht gemeldet, und der Spieler sah nur kleinere Zahlen.
+     */
+    /** Eine Beef-Zeile von Hand – wie im 5b-Block. */
+    const setzeBeef = (g, u, contactId, felder) => db.saveBeef(g, u, contactId, {
+      hitze: 25, runden_ich: 0, runden_er: 0, last_hit: jetzt, last_cool: jetzt,
+      konter_at: 0, angefangen: jetzt, status: 'offen', bonus_until: 0, ...felder,
+    });
+    const RAMM = cdata.byId('rammstein');
+
+    const [JG, JU] = await neu(60_000);
+    const jp = db.insertProjekt({
+      guildId: JG, userId: JU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(JG, jp.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    setzeBeef(JG, JU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const jFertig = await ang.arbeiten(JG, JU, jp.id, jetzt, nie);
+    const jNote = arbeitNote(jFertig, '€', jetzt);
+    check('das Kollabo rechnet den fälligen Gegenschlag ab – und meldet ihn',
+      jFertig.ok === true && jFertig.platte?.beefVorher?.length === 1
+      && jFertig.platte.beefVorher[0].art === 'konter'
+      && jNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: jFertig.ok, vorher: jFertig.platte?.beefVorher?.length })
+        + ' | ' + jNote.split('\n')[0]);
+
+    // Derselbe Verlust auf dem abgewiesenen Weg: Ohne die sechs Titel schließt
+    // das Konto nicht ab – `music.publish` hat den Konter aber schon gebucht.
+    const [NG, NU] = await neu(60_000);
+    db.saveArtist(NG, NU, { ...db.getArtist(NG, NU, jetzt), listeners: 60_000, songs: 0 });
+    const np = db.insertProjekt({
+      guildId: NG, userId: NU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(NG, np.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    setzeBeef(NG, NU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const nFertig = await ang.arbeiten(NG, NU, np.id, jetzt, nie);
+    const nNote = arbeitNote(nFertig, '€', jetzt);
+    check('und auch die Absage wegen fehlender Titel meldet ihn',
+      nFertig.ok === false && nFertig.reason === 'no_songs'
+      && nFertig.platte?.beefVorher?.length === 1
+      && nNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: nFertig.ok, reason: nFertig.reason }) + ' | ' + nNote);
+
+    // Die Tour: fünf echte Konzerte, der Konter fällt am ERSTEN Abend.
+    const [TG, TU] = await neu(60_000);
+    const tp = db.insertProjekt({
+      guildId: TG, userId: TU, art: 'tour', contactId: OXMO.id,
+      stundenSoll: adata.TOUR_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(TG, tp.id, { stundenIst: adata.TOUR_STUNDEN - 2 });
+    setzeBeef(TG, TU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const tFertig = await ang.arbeiten(TG, TU, tp.id, jetzt, nie);
+    const tNote = arbeitNote(tFertig, '€', jetzt);
+    check('die Tour rechnet den fälligen Gegenschlag ab – und meldet ihn',
+      tFertig.ok === true && tFertig.art === 'tour'
+      && tFertig.abende[0]?.beefVorher?.length === 1
+      && tNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: tFertig.ok, reason: tFertig.reason,
+        vorher: tFertig.abende?.[0]?.beefVorher?.length }) + ' | ' + tNote.split('\n')[0]);
+    check('und `abschliessen` summiert den Agenturanteil der Abende selbst',
+      tFertig.cut === tFertig.abende.reduce((sum, a) => sum + (a.cut ?? 0), 0),
+      JSON.stringify({ cut: tFertig.cut }));
+
+    /*
+     * Was eine echte Tour nicht zuverlässig würfelt, prüft der Renderer direkt:
+     * `arbeitNote` ist eine reine Funktion. Hier hängen drei Verluste dran –
+     * der verbrauchte 5a-Schub, der Grund eines ausgefallenen Abends und der
+     * Anteil, den `brutto > verdient` verschweigt, sobald `perks.payout` das
+     * Netto wieder über `brutto − cut` hebt (Befund 5).
+     */
+    const kunstTour = {
+      ok: true, fertig: true, art: 'tour', contact: OXMO,
+      konzerte: 4, brutto: 1_000, verdient: 1_100, cut: 300, gewonnen: 500,
+      abende: [
+        {
+          ok: true, cancelled: false, cut: 60, amount: 220, gained: 100,
+          extraHoerer: 1_200, kontakt: { name: 'Haiyti', factor: 1.5 },
+          event: null, incident: null,
+          beefVorher: [{ art: 'konter', contact: RAMM, wucht: 1, treffer: { verloren: 900 } }],
+        },
+        { ok: true, cancelled: true, cut: 0, amount: 0, gained: 0,
+          event: { id: 'absage', text: 'Die Halle ist abgebrannt.' } },
+        { ok: true, cancelled: false, cut: 80, amount: 300, gained: 120,
+          event: { id: 'presse', text: 'Die Presse ist da.' } },
+        { ok: true, cancelled: false, cut: 80, amount: 300, gained: 140, event: null },
+        { ok: true, cancelled: false, cut: 80, amount: 280, gained: 140, event: null },
+      ],
+    };
+    const kNoteTour = arbeitNote(kunstTour, '€', jetzt);
+    check('die Tour-Meldung nennt den Anteil auch, wenn das Netto über Brutto−Anteil liegt',
+      kNoteTour.includes('_(nach € 300 Agenturanteil)_'), kNoteTour);
+    check('sie nennt den verbrauchten Schub des ersten Abends',
+      kNoteTour.includes('🤝 Der Schub von **Haiyti** hat gewirkt: '
+        + '**+1.200** Hörer im Saal.'), kNoteTour);
+    check('sie sagt je Abend, was passiert ist – samt Grund der Absage',
+      kNoteTour.includes('🎤 Abend 2 ist ausgefallen – Die Halle ist abgebrannt.')
+      && kNoteTour.includes('🎤 Abend 3: Die Presse ist da.')
+      && !kNoteTour.includes('Abend 4:'), kNoteTour);
+    check('und der fällige Gegenschlag steht auch hier vor allem anderen',
+      kNoteTour.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`), kNoteTour);
 
     // --- Die Hinweiszeile in Musik- und Kontaktansicht ---------------------
     const studio = await ui.buildMusicView({ guildId: VG, userId: VU });
@@ -2093,6 +2238,27 @@ function view(buttons) {
     check('Kontaktansicht mit Hinweiszeile hält das Fluxer-Limit',
       render.mapReactions(kliste).overflow === undefined,
       String(render.mapReactions(kliste).overflow));
+
+    /*
+     * Die Zeile darf nicht mehr versprechen, als die Ansicht zeigt (Befund 6):
+     * `buildAngeboteView` schneidet bei `ANFRAGEN_MAX` ab, weil der dritten
+     * Anfrage kein Knopf mehr bliebe (§16). Zählte die Zeile alle offenen,
+     * stünde „3 Angebote“ über einer Ansicht mit zwei.
+     */
+    anfrage(VG, VU, 'tausch', LILPFAND.id, jetzt + 3 * TAG);
+    check('drei offene Anfragen stehen in der Tabelle',
+      ang.offeneAngebote(VG, VU, jetzt).filter((r) => r.restMs > 0).length === 3,
+      String(ang.offeneAngebote(VG, VU, jetzt).filter((r) => r.restMs > 0).length));
+    const dreiView = await angeboteUi.buildAngeboteView({ guildId: VG, userId: VU });
+    check('die Ansicht zeigt davon nur zwei',
+      dreiView.components[0].toJSON().components
+        .filter((b) => String(b.custom_id).startsWith('angebot-an|')).length
+        === adata.ANFRAGEN_MAX
+      && render.mapReactions(dreiView).overflow === undefined,
+      String(dreiView.components[0].toJSON().components.length));
+    check('und die Hinweiszeile zählt genau das, was die Ansicht zeigt',
+      ui.angeboteZeile(VG, VU, jetzt).includes('📬 **2 Angebote** warten'),
+      ui.angeboteZeile(VG, VU, jetzt));
 
     // Eine Anfrage, deren Frist durch ist, zählt in der Zeile NICHT mehr mit:
     // Sie steht bis zur Abrechnung weiter als `offen` in der Tabelle.

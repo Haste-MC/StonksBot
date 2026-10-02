@@ -718,6 +718,11 @@ async function abschliessen(guildId, userId, p, now, random) {
       konzerte: abende.filter((a) => a.ok && !a.cancelled).length,
       brutto: abende.reduce((s, a) => s + (a.gross ?? 0), 0),
       verdient: abende.reduce((s, a) => s + (a.amount ?? 0), 0),
+      // Der Agenturanteil als EIGENE Summe, nicht als Differenz Brutto−Netto:
+      // `perks.payout` hebt das Netto nach dem Abzug wieder an (`music.show`)
+      // und kann es über `brutto − cut` schieben. Die Meldung hängt daran –
+      // sonst verschweigt sie einen Anteil, der wirklich genommen wurde.
+      cut: abende.reduce((s, a) => s + (a.cut ?? 0), 0),
       gewonnen: abende.reduce((s, a) => s + (a.gained ?? 0), 0),
       projekt: { ...projekt, artInfo: artOf(p.art), contact },
     };

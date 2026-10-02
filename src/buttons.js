@@ -893,11 +893,20 @@ function annahmeNote(res, symbol, now = Date.now()) {
     + `— ${res.contact.emoji} **${res.contact.name}**`];
   if (res.text) zeilen.push(`_${res.text}_`);
 
+  // Gemeldet wird, was WIRKLICH auf dem Konto landet. `res.honorar`/`res.gage`
+  // sind das BRUTTO – die Zahl, mit der gerechnet wurde; gebucht hat
+  // `music.payGig` daraus `res.geld = { gross, cut, amount }`. Stände hier das
+  // Brutto, fehlten einem Vertragskünstler 30 bzw. 50 % ohne ein Wort (§16:
+  // jede Meldung sagt, was die Aktion gebucht hat). Form wie bei den Tantiemen
+  // (`settleMusic`) und beim Konzert (`mshow`): Netto, Anteil in Klammern.
+  const anteil = (res.geld?.cut ?? 0) > 0
+    ? ` _(nach ${money(symbol, res.geld.cut)} Agenturanteil)_` : '';
   if (res.honorar !== null && res.honorar !== undefined) {
-    zeilen.push(`💰 Honorar: **${money(symbol, res.honorar)}**`);
+    zeilen.push(`💰 Honorar: **${money(symbol, res.geld?.amount ?? res.honorar)}**`
+      + anteil);
   }
   if (res.gage !== null && res.gage !== undefined) {
-    zeilen.push(`💰 Gage: **${money(symbol, res.gage)}**`
+    zeilen.push(`💰 Gage: **${money(symbol, res.geld?.amount ?? res.gage)}**${anteil}`
       + (res.extraHoerer > 0
         ? ` _(mit **${res.extraHoerer.toLocaleString('de-DE')}** mitgebrachten Hörern)_` : ''));
     if (res.auftritt?.gained > 0) {
@@ -947,17 +956,35 @@ function absageNote(res, now = Date.now()) {
  * Ist das Konto voll, steht hier die NORMALE Veröffentlichungs- bzw.
  * Konzertmeldung und darunter die eine Zeile, die sagt, dass es das
  * gemeinsame Werk war. Zwei Wortlaute für eine Platte gibt es nicht.
+ *
+ * Ein voller Abschluss lässt die ECHTEN Maschinen laufen – `music.publish`
+ * bzw. fünfmal `music.show`. Die rechnen als Schritt 0 den fälligen Beef nach
+ * (`beefVorher`: kostet Hype und Hörer), verbrauchen den Schub aus 5a und
+ * würfeln Ereignisse, Vorfälle und Absagen. Alles davon gehört in die
+ * Meldung – wie `mpub` und `mshow` es tun. Fehlt eine dieser Zeilen,
+ * verschluckt ein Knopfdruck still genau das, was er gebucht hat.
  */
 function arbeitNote(res, symbol, now = Date.now()) {
-  if (!res.ok) return angebotProblem(res, now);
+  // Auch der abgewiesene Abschluss trägt eine Platte mit sich (`no_songs` aus
+  // `abschliessen`), und `music.publish` hat auf diesem Weg den Beef schon
+  // abgerechnet. Ohne `mitBeef` kostet die Fehlmeldung still Hype und Hörer.
+  if (!res.ok) return mitBeef(res.platte?.beefVorher, angebotProblem(res, now));
   const { bar } = achievementsUi;
-  const name = res.contact?.name ?? 'ihm';
+  const adata = require('./data/angebote');
+  // Kein Pronomen über den Kontakt: Der Katalog trägt echte Künstler jeden
+  // Geschlechts (dieselbe Regel, die die Sperrliste in test/angebote.test.js
+  // für die Textzeilen hütet). Wortgleich mit `angebotProblem`.
+  const name = res.contact?.name ?? 'einem Partner';
 
   if (!res.fertig) {
     const art = res.projekt?.artInfo;
+    // Die Stundenzahl kommt aus der Konstante, die auch den Knopf beschriftet
+    // (`Arbeiten (2)`) – ausgeschrieben driftete sie beim nächsten Balancing
+    // vom Knopf daneben ab, wie zuvor die „30 Tage“ im Fußnotentext.
+    const h = adata.ARBEIT_STUNDEN;
     return [
       `🛠️ ${art?.emoji ?? '💿'} **${art?.name ?? 'Projekt'}** mit **${name}**: `
-      + 'zwei Stunden mehr.',
+      + `${h === 1 ? 'eine Stunde' : `${Number(h).toLocaleString('de-DE')} Stunden`} mehr.`,
       `${bar([res.ist, res.soll])} **${Number(res.ist).toLocaleString('de-DE')} von `
         + `${Number(res.soll).toLocaleString('de-DE')}** Stunden`,
       `⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`,
@@ -965,21 +992,55 @@ function arbeitNote(res, symbol, now = Date.now()) {
   }
 
   if (res.art === 'kollabo') {
-    return `${releaseNote(res.platte)}\n`
-      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`;
+    // `releaseNote` deckt Vorfall, Ereignis, Schub und Angezählt ab – der Beef
+    // der Abrechnung steckt dagegen an der Platte und gehört davor, wie bei
+    // `mpub`.
+    return mitBeef(res.platte?.beefVorher,
+      `${releaseNote(res.platte)}\n`
+      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`);
   }
 
   if (res.art === 'tour') {
+    const abende = res.abende ?? [];
     const zeilen = [
       `🎤 **${res.konzerte}** ${res.konzerte === 1 ? 'Abend' : 'Abende'} gespielt.`,
       `💰 **${money(symbol, res.verdient)}**`
-      + (res.brutto > res.verdient
-        ? ` _(nach ${money(symbol, res.brutto - res.verdient)} Agenturanteil)_` : ''),
+      // Gezählt wird der ANTEIL, den die Agentur genommen hat (Summe der
+      // Abende), nicht die Differenz Brutto−Netto: `perks.payout` hebt das
+      // Netto wieder an und kann es über `brutto − cut` schieben – dann
+      // stünde da kein Anteil, obwohl einer abgezogen wurde.
+      + ((res.cut ?? 0) > 0
+        ? ` _(nach ${money(symbol, res.cut)} Agenturanteil)_` : ''),
       `👂 **+${Number(res.gewonnen).toLocaleString('de-DE')}** Hörer, `
       + 'die dich live gesehen haben.',
-      `🎵 Die Tour mit **${name}** ist durch.`,
     ];
-    return zeilen.join('\n');
+    // Der Schub aus 5a wird vom ERSTEN Abend verbraucht (`consumeBoost` in
+    // `music.show`) – danach ist er weg, und das gehört gesagt, auch wenn von
+    // ihm nach der Deckelung nichts übrig blieb.
+    const schub = schubGewirkt(abende[0]?.kontakt, abende[0]?.extraHoerer ?? 0);
+    if (schub) zeilen.push(schub);
+    // Je Abend, was mit ihm passiert ist: Ein ausgefallener Abend hat keine
+    // Gage und kein Publikum gebracht, und der Grund steht im Ereignistext.
+    abende.forEach((a, i) => {
+      const nr = i + 1;
+      if (!a?.ok) {
+        zeilen.push(`🎤 Abend ${nr} hat nicht stattgefunden.`);
+      } else if (a.cancelled) {
+        zeilen.push(`🎤 Abend ${nr} ist ausgefallen – `
+          + `${a.event?.text ?? 'keine Gage, kein Publikum'}`);
+      } else if (a.event) {
+        zeilen.push(`🎤 Abend ${nr}: ${a.event.text}`);
+      }
+    });
+    zeilen.push(`🎵 Die Tour mit **${name}** ist durch.`);
+    // Ein Vorfall aus einem der Abende wartet auf eine Entscheidung – ohne
+    // diese Zeile findet ihn niemand. `decisions.roll` lässt nur einen offen,
+    // also reicht der erste.
+    const note = zeilen.join('\n')
+      + incidentNote(abende.find((a) => a?.incident)?.incident);
+    // Wie bei `mshow`: Der fällige Beef steht VOR der Meldung. Abgerechnet hat
+    // ihn der erste Abend, danach ist nichts mehr fällig.
+    return mitBeef(abende[0]?.beefVorher, note);
   }
 
   return '❌ Das ging nicht.';

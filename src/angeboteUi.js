@@ -80,6 +80,13 @@ function zeileFor(row) {
  * die Stunden und Stückzahlen aus `src/data/angebote.js`, die
  * Vertragskonditionen aus `music.LABEL`. Gerechnet wird hier nichts, und
  * gebucht schon gar nichts.
+ *
+ * Honorar und Gage stehen hier BRUTTO – und das ist kein Widerspruch zu der
+ * Zusage-Meldung (`annahmeNote`), die kleiner sein kann: Dort steht, was
+ * `music.payGig` wirklich gebucht hat, also nach dem Agenturanteil. Hier steht
+ * der erwartete Ertrag, und wer einen Vertrag hat, erfährt den Abzug in dem
+ * Moment, in dem er anfällt. Ein Anteil gehört zum Vertrag, nicht zur
+ * Anfrage: Er kann bis zur Zusage noch ablaufen oder unterschrieben werden.
  */
 function ertragZeile(art, lage, market) {
   const music = require('./music');
