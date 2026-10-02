@@ -255,6 +255,14 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
 
   const LILPFAND = cdata.byId('lilpfand');      // deutsch, Hip-Hop, 8.400
   const OXMO = cdata.byId('oxmopuccino');       // franzoesisch, Hip-Hop, 350.000
+  const RAF = cdata.byId('rafcamora');          // deutsch, Hip-Hop, 6.500.000 – 650× von 10.000
+
+  /**
+   * Ein Würfel mit Gedächtnis: gibt die Werte der Reihe nach heraus, danach
+   * immer 0,9999. Damit lässt sich ein Treffer erzwingen UND steuern, welche
+   * Art gezogen wird – 0,9999 nimmt die LETZTE erlaubte.
+   */
+  const folge = (...werte) => { let i = 0; return () => (i < werte.length ? werte[i++] : 0.9999); };
 
   console.log('--- Tabellen ---');
   {
@@ -426,14 +434,157 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     // 8 × (10.000 + min(10.000, 350.000 × 0,05))^0,7 = 8 × 20.000^0,7 = 8.200
     check('vorgruppe zahlt die Gage von 8.200',
       r.ok === true && r.gage === 8_200 && r.geld?.amount === 8_200, JSON.stringify(r.geld));
+    /**
+     * Sein Publikum ist auf die eigene Hörerschaft gedeckelt und steckt
+     * ausschließlich in der GAGE (8.200 statt 5.195 allein – genau 2^0,7). Auf
+     * die Hörerschaft kommt nur, was ein Konzert ohnehin bindet: 2 % = 200.
+     */
     check('die mitgebrachten Hörer sind auf die eigene Hörerschaft gedeckelt',
-      r.extraHoerer === 10_000 && music.status(G, U, T0).listeners === 20_000,
-      JSON.stringify({ extra: r.extraHoerer, h: music.status(G, U, T0).listeners }));
+      r.extraHoerer === 10_000, String(r.extraHoerer));
+    check('sie heben die Gage, NICHT die Hörerschaft – die wächst wie bei jedem Konzert um 2 %',
+      music.status(G, U, T0).listeners === 10_200 && r.auftritt?.gained === 200,
+      JSON.stringify({ h: music.status(G, U, T0).listeners, g: r.auftritt?.gained }));
     check('die Vorgruppe zählt als Konzert und setzt dessen Sperre',
       music.status(G, U, T0).showMs > 0 && music.status(G, U, T0).shows === 1);
     check('vier Stunden gebucht', creator.budget(G, U, T0).left === zeitVor - 4);
     check('auch hier genau eine Buchung mit `kind: music`',
       gebucht.length === kasseVor + 1 && gebucht.at(-1).opts.kind === 'music');
+  }
+  /**
+   * Der Befund, der diesen Test erzwungen hat: Solange die mitgebrachten Hörer
+   * in die BASIS liefen, verdoppelte jeder Partner mit ≥ 20-facher Reichweite
+   * die Hörerschaft auf einen Klick – und weil die Tantiemen mit `hörer^1,2`
+   * wachsen, war das kein Zuschlag, sondern ein Zinssatz: Bei 10.000 Hörern
+   * sprangen sie von 1.091 auf 2.507 am Tag, für immer. RAF Camora hat die
+   * 650-fache Reichweite; mit dem alten Code stünden hier 20.000 Hörer.
+   */
+  {
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 30);
+    const row = anfrage(G, U, 'vorgruppe', RAF.id);
+    const tantVor = music.royaltyPerDay(10_000, music.marketOf(G, U));
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    const nachher = music.status(G, U, T0).listeners;
+    check('ein Partner mit 650-facher Reichweite verdoppelt die Hörerschaft NICHT',
+      r.ok === true && nachher === 10_200, JSON.stringify({ ok: r.ok, h: nachher }));
+    check('und zwar unabhängig davon, wie groß er ist – 2 % sind 2 %',
+      nachher - 10_000 === music.showGain(10_000), String(nachher - 10_000));
+    // 8 × (10.000 + 10.000)^0,7: dieselbe Deckelung wie bei Oxmo, denn 5 % von
+    // 6,5 Mio sind 325.000 und davon zählen nur die eigenen 10.000.
+    check('die Gage trägt sein Publikum weiterhin voll (8.200 statt 5.195)',
+      r.gage === 8_200 && r.extraHoerer === 10_000, JSON.stringify({ g: r.gage, e: r.extraHoerer }));
+    check('die Tantiemen steigen dadurch um höchstens die 2 % des Konzerts',
+      music.royaltyPerDay(nachher, music.marketOf(G, U)) < tantVor * 1.03,
+      `${tantVor} -> ${music.royaltyPerDay(nachher, music.marketOf(G, U))}`);
+  }
+  /**
+   * SHOW_MIN_LISTENERS (5.000) gilt für die Vorgruppe ABSICHTLICH nicht: Die
+   * Halle füllt der Hauptact, nicht man selbst. Das ist der Weg, auf dem ein
+   * kleiner Künstler überhaupt auf eine Bühne kommt – und kein Hahn, weil
+   * Gage und Zuwachs an der EIGENEN Größe hängen.
+   */
+  {
+    const { G, U } = await welt(400);
+    draht(G, U, RAF.id, 30);
+    const eigenes = await music.show(G, U, T0, nie);
+    check('mit 400 Hörern gibt es kein eigenes Konzert',
+      eigenes.ok === false && eigenes.reason === 'too_small', JSON.stringify(eigenes));
+    const row = anfrage(G, U, 'vorgruppe', RAF.id);
+    const r = await ang.annehmen(G, U, row.id, T0, nie);
+    // 8 × (400 + 400)^0,7 = 861; allein wären es 530.
+    check('eine Vorgruppe aber doch – für 861 statt 530',
+      r.ok === true && r.gage === 861, JSON.stringify({ ok: r.ok, reason: r.reason, g: r.gage }));
+    check('und sie macht aus 400 Hörern 408, nicht 800',
+      music.status(G, U, T0).listeners === 408,
+      String(music.status(G, U, T0).listeners));
+  }
+
+  console.log('--- Die drei Ausnahmen bei der Art (artenFuer) ---');
+  {
+    const { G, U } = await welt();
+    const ids = (d, t = T0) => ang.artenFuer(G, U, d, t).map((a) => a.id).join(',');
+    check('bei Draht 20 gibt es nur die drei kleinen Arten',
+      ids(20) === 'tausch,gastpart,vorgruppe', ids(20));
+    check('ein Partner bekommt alle sechs',
+      ids(50) === 'tausch,gastpart,vorgruppe,kollabo,tour,label', ids(50));
+  }
+  {
+    // 1. Ausnahme: `label` fällt weg, solange ein ANGEBOT offen ist.
+    const { G, U } = await welt();
+    const c = db.insertContract({ guildId: G, userId: U, kind: 'idol', agency: 'A',
+      country: 'jp', createdAt: T0, expiresAt: T0 + 2 * TAG });
+    check('ein offenes Vertragsangebot nimmt `label` aus der Auswahl',
+      !ang.artenFuer(G, U, 100, T0).some((a) => a.id === 'label'),
+      ang.artenFuer(G, U, 100, T0).map((a) => a.id).join(','));
+    check('die anderen fünf bleiben',
+      ang.artenFuer(G, U, 100, T0).length === 5);
+    check('nach Ablauf des Angebots ist `label` wieder dabei',
+      ang.artenFuer(G, U, 100, T0 + 3 * TAG).some((a) => a.id === 'label'));
+    // 2. Ausnahme: und erst recht, solange ein Vertrag LÄUFT. Das ist die, auf
+    //    die es ankommt: Ein zweites `label` wäre ein zweiter Zehn-Tage-
+    //    Vorschuss auf denselben Künstler (§3).
+    db.setContractStatus(G, c.id, 'active', { signedAt: T0, endsAt: T0 + 365 * TAG });
+    check('ein laufender Vertrag nimmt `label` ebenfalls heraus – kein zweiter Vorschuss',
+      !ang.artenFuer(G, U, 100, T0 + 3 * TAG).some((a) => a.id === 'label'),
+      ang.artenFuer(G, U, 100, T0 + 3 * TAG).map((a) => a.id).join(','));
+  }
+  {
+    // 3. Ausnahme: `kollabo` und `tour` fallen weg, solange ein Projekt offen
+    //    ist – zwei Stundenkonten gleichzeitig wären eine zweite Tagesordnung.
+    const { G, U } = await welt();
+    const pr = db.insertProjekt({ guildId: G, userId: U, art: 'kollabo',
+      contactId: RAF.id, stundenSoll: 18, frist: T0 + 14 * TAG });
+    const offen = ang.artenFuer(G, U, 100, T0).map((a) => a.id);
+    check('ein offenes Projekt nimmt `kollabo` und `tour` heraus',
+      offen.join(',') === 'tausch,gastpart,vorgruppe,label', offen.join(','));
+    db.saveProjekt(G, pr.id, { status: 'fertig' });
+    check('ist es fertig, sind beide wieder da',
+      ang.artenFuer(G, U, 100, T0).length === 6);
+  }
+  {
+    // Und das Ganze bis in die Zustellung: `folge(0, 0)` erzwingt einen Treffer
+    // beim ersten Wurf, danach nimmt 0,9999 die LETZTE erlaubte Art.
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0 - TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    const frei = ang.settle(G, U, T0, folge(0, 0));
+    check('ohne Vertrag und ohne Projekt stellt die letzte Wahl `label` zu',
+      frei.filter((e) => e.art === 'neu').map((e) => e.angebot.art).join(',') === 'label',
+      JSON.stringify(frei.map((e) => e.angebot?.art)));
+  }
+  {
+    const { G, U } = await welt();
+    draht(G, U, LILPFAND.id, 60);
+    db.saveAngebotUhr(G, U, { last_roll: T0 - TAG, abgelehnt_folge: 0, pause_bis: 0 });
+    db.insertContract({ guildId: G, userId: U, kind: 'idol', agency: 'A', country: 'jp',
+      createdAt: T0, expiresAt: T0 + 2 * TAG });
+    db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
+      stundenSoll: 30, frist: T0 + 14 * TAG });
+    const ev = ang.settle(G, U, T0, folge(0, 0));
+    const arten = ev.filter((e) => e.art === 'neu').map((e) => e.angebot.art);
+    check('mit Vertragsangebot UND Projekt bleibt nur die kleine Auswahl übrig',
+      arten.join(',') === 'vorgruppe', arten.join(','));
+    check('kein zugestelltes Angebot ist `label`, `kollabo` oder `tour`',
+      !arten.some((a) => ['label', 'kollabo', 'tour'].includes(a)), arten.join(','));
+  }
+
+  console.log('--- Ein Blick schreibt nichts (§4) ---');
+  {
+    /**
+     * `musikIch` geht über `music.status` → `db.getArtist`, und das LEGT den
+     * Künstler an. Gefragt wird darum erst, wenn wirklich gewürfelt wird:
+     * Ein Blick ohne fälligen Wurf darf keine Zeile schreiben.
+     */
+    const G = `ANGEBOT_T${STAMP}_${++nr}`;
+    const U = 'nie-musik-gemacht';
+    db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
+    const uhrVor = JSON.stringify(db.angebotUhr(G, U));
+    let rufe = 0;
+    const ev = ang.settle(G, U, T0, () => { rufe++; return 0; });
+    check('ein Blick ohne fälligen Wurf meldet nichts und würfelt nicht',
+      ev.length === 0 && rufe === 0, JSON.stringify(ev));
+    check('und legt KEINE Künstlerzeile an', db.hasArtist(G, U) === false);
+    check('die Uhr bleibt dabei unberührt', JSON.stringify(db.angebotUhr(G, U)) === uhrVor);
   }
 
   console.log('--- Pause nach drei Mal ---');

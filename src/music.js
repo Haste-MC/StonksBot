@@ -649,6 +649,12 @@ function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now =
  */
 async function payGig(guildId, userId, gross, grund) {
   const brutto = Math.max(0, Math.round(Number(gross) || 0));
+  // ACHTUNG, AUFRUFSTELLE FÜR DEN UMBAU AUF `terms(kind)`: Hier steht `data.IDOL`
+  // fest verdrahtet – richtig, solange es nur den Idol-Vertrag gibt, und genauso
+  // wie in `show`. Sobald 5c/Task 4 den Label-Vertrag dazubaut, MUSS diese Zeile
+  // mit auf `terms(contract.kind)` umgestellt werden. Wird sie vergessen, zieht
+  // ein Label-Vertrag von jedem Honorar und jeder Gage 50 % ab (Idol) statt
+  // seiner eigenen 30 % – Geld, das niemand im Spiel wiederfindet.
   const idol = db.activeContract(guildId, userId) ? data.IDOL : null;
   const cut = idol ? Math.round(brutto * idol.cut) : 0;
   const net = require('./perks').payout(guildId, userId, brutto - cut);
@@ -658,29 +664,67 @@ async function payGig(guildId, userId, gross, grund) {
   return { gross: brutto, cut, amount: net, balance };
 }
 
+/** Was ein Konzert an Hörern bindet, je Anteil der Hörerschaft. */
+const SHOW_GAIN = 0.02;
+
+/**
+ * Der BLEIBENDE Zuwachs eines Auftritts: Wer live gesehen hat, bleibt eher.
+ *
+ * Steht als eigene Stelle da, weil ihn zwei Aufrufer brauchen – das Konzert
+ * (`show`) und die Vorgruppe (`bookSupportShow`). Beide müssen dieselbe Form
+ * haben, sonst wird der eine Weg zum Hörer-Hahn, während der andere maßhält.
+ *
+ * Entscheidend ist, was NICHT eingeht: fremdes Publikum. Mitgebrachte Hörer
+ * heben die GAGE (über `hörer^0,7`, also um höchstens 2^0,7 = +62 %), nie die
+ * Hörerschaft selbst. Stünden sie in der Basis, verdoppelte ein einziger
+ * großer Partner sie – und weil die Tantiemen mit `hörer^1,2` überlinear
+ * wachsen, wäre das kein Zuschlag, sondern ein Zinssatz (§3).
+ */
+function showGain(listeners, quality = 1, eventGain = 1) {
+  return Math.round(Math.max(0, listeners) * SHOW_GAIN * Math.max(0, quality) * eventGain);
+}
+
 /**
  * Ein Auftritt als Vorgruppe (5c): das Buchwerk eines Konzerts ohne Gage.
  *
  * Steht hier und nicht in angebote.js, weil nur hier der Leerlauf-Verfall
  * (`decayed`) vor dem Schreiben eingerechnet wird – ohne den würde ein
  * Auftritt die seit Tagen fälligen Hörerverluste konservieren. Die
- * mitgebrachten Hörer bleiben auf die eigene Hörerschaft gedeckelt (dieselbe
- * Deckelung, die `show` dem zugesagten Konzert gibt), und die Konzert-Sperre
- * (`last_show_at`) wird gesetzt: Eine Vorgruppe ist ein Konzert.
+ * Konzert-Sperre (`last_show_at`) wird gesetzt: Eine Vorgruppe ist ein Konzert.
+ *
+ * Der Zuwachs ist derselbe wie beim eigenen Konzert (`showGain`) – und zwar
+ * NUR dieser. Das fremde Publikum steckt allein in der Gage, die `angebote`
+ * über `gageOf` rechnet; hier kommt es nicht an. Ohne Güte-Wurf, weil die Gage
+ * einer Vorgruppe auch keinen hat: Sie steht fest, bevor der Abend beginnt.
+ *
+ * `SHOW_MIN_LISTENERS` gilt hier ABSICHTLICH NICHT. Die 5.000 Hörer des
+ * eigenen Konzerts sind die Frage „kriegst du eine Halle voll?" – bei einer
+ * Vorgruppe füllt sie der Hauptact. Genau das ist der Weg, auf dem ein
+ * kleiner Künstler überhaupt auf eine Bühne kommt, und er ist kein Hahn: Die
+ * Gage wächst mit `hörer^0,7` aus der EIGENEN Hörerschaft (bei 10 Hörern sind
+ * das 65, auch neben Hans Zimmer), und der Zuwachs sind 2 % davon. Klein
+ * bleibt klein.
+ *
+ * Die Tantiemen werden hier NICHT abgerechnet. Das ist dieselbe Lage wie beim
+ * Konzert, das es auch nicht tut: Beide verschieben die Hörerzahl um 2 %, und
+ * ein Rückstand von höchstens MAX_SETTLE_DAYS Tagen würde dadurch um ebendiese
+ * 2 % falsch bepreist – in beide Richtungen, denn `decayed` zieht im selben
+ * Atemzug den Leerlauf-Verfall ab. Ein `settle` an dieser Stelle wäre außerdem
+ * eine ZWEITE Geldbuchung in einer Aktion, die laut §9 genau eine haben darf.
  */
-function bookSupportShow(guildId, userId, extraHoerer = 0, now = Date.now()) {
+function bookSupportShow(guildId, userId, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);
   if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
   const market = marketOf(guildId, userId);
   const before = decayed(row, market, now);
-  const dazu = Math.max(0, Math.round(Math.min(before.listeners, extraHoerer)));
-  const listeners = Math.round(before.listeners) + dazu;
+  const gained = showGain(before.listeners);
+  const listeners = Math.round(before.listeners) + gained;
   db.saveArtist(guildId, userId, {
     ...row, shows: row.shows + 1, listeners,
     peak_listeners: Math.max(row.peak_listeners, listeners),
     last_action_at: now, last_show_at: now, touched_at: now,
   });
-  return { ok: true, gained: dazu, listeners, lostToIdle: before.lost };
+  return { ok: true, gained, listeners, lostToIdle: before.lost };
 }
 
 /**
@@ -733,8 +777,9 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
     * (idol ? idol.liveBonus : 1)
     * (event.pay ?? 1));
 
-  // Ein Konzert bindet: Wer live gesehen hat, bleibt eher.
-  const gained = Math.round(before.listeners * 0.02 * quality * (event.gain ?? 1));
+  // Ein Konzert bindet: Wer live gesehen hat, bleibt eher. Dieselbe Stelle, die
+  // auch die Vorgruppe benutzt – die beiden dürfen nicht auseinanderlaufen.
+  const gained = showGain(before.listeners, quality, event.gain ?? 1);
   const cancelled = (event.pay ?? 1) === 0;
 
   // Derselbe Beef-Bonus wie beim Veröffentlichen (5b).
@@ -982,7 +1027,7 @@ module.exports = {
   PLAYS_PER_LISTENER, ROYALTY, ROYALTY_EXP, ROYALTY_ANCHOR, ROYALTY_K, royaltyPerDay, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
   TEMPO, CONVERSION,
   RECORD_TIME, RECORD_COOLDOWN_MIN, RELEASE_COOLDOWN_MIN,
-  SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP,
+  SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP, SHOW_GAIN, showGain,
   GEAR, HYPE_MIN, HYPE_MAX, CONTRACT_CHANCE, CONTRACT_OFFER_MS, AGENCIES,
   GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH, MUSIC_EVENTS, NO_EVENT, rollMusicEvent,
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,

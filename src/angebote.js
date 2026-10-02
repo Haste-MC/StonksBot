@@ -290,7 +290,11 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
   //    EIN Treffer. Ohne Musikkarriere meldet sich niemand – es gäbe weder
   //    Genre für die Passung noch eine Seite, auf der man zusagen könnte.
   const wuerfe = rollTage(uhr.last_roll, now);
-  const meine = now >= pauseBis ? musikIch(guildId, userId, now) : null;
+  // `musikIch` geht über `music.status` und damit über `db.getArtist` – und das
+  // LEGT den Künstler an, wenn es ihn noch nicht gibt. Darum wird erst gefragt,
+  // wenn überhaupt gewürfelt wird: Ein reiner Blick (null Würfe, nichts
+  // verfallen) darf keine Zeile schreiben (§4), auch keine leere.
+  const meine = wuerfe > 0 && now >= pauseBis ? musikIch(guildId, userId, now) : null;
   if (meine) {
     for (let i = 0; i < wuerfe; i++) {
       // Mehr als ANFRAGEN_MAX offene gibt es nicht; weitere Würfe können daran
@@ -448,12 +452,20 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     grund = `Gastpart: ${contact.name}`;
     schub = schubFor(guildId, userId, { art, contact, meine, lage, now });
   } else if (art.id === 'vorgruppe') {
+    // Sein Publikum steckt AUSSCHLIESSLICH in der Gage: `gageOf` rechnet
+    // `8 × (meine + extra)^0,7`, also höchstens 2^0,7 = +62 % – die Obergrenze,
+    // die §3 für diesen Weg nennt. Auf die HÖRERSCHAFT kommt es nicht, sonst
+    // verdoppelte ein Partner mit zwanzigfacher Reichweite sie auf einen Klick,
+    // und über `hörer^1,2` in den Tantiemen würde daraus ein Zinssatz. Was
+    // bleibt, ist der Zuwachs eines normalen Konzerts (`music.showGain`, 2 %),
+    // und den bucht `bookSupportShow` selbst.
     gage = gageOf({
       meine: lage.meine, seine: lage.seine,
       showPay: music.SHOW_PAY, showExp: music.SHOW_EXP,
     });
+    // Nur für die Anzeige und zum Nachrechnen der Gage – keine Hörerbuchung.
     extraHoerer = Math.round(Math.min(lage.meine, lage.seine * data.VORGRUPPE_ANTEIL));
-    auftritt = music.bookSupportShow(guildId, userId, extraHoerer, now);
+    auftritt = music.bookSupportShow(guildId, userId, now);
     brutto = gage;
     grund = `Vorgruppe: ${contact.name}`;
   }
@@ -507,5 +519,5 @@ function ablehnen(guildId, userId, id, now = Date.now(), random = Math.random) {
 
 module.exports = {
   gewichtOf, honorarOf, gageOf, kollaboFaktorOf, fristOf, rollTage, textFor,
-  artOf, offeneAngebote, offeneProjekte, settle, annehmen, ablehnen,
+  artOf, artenFuer, offeneAngebote, offeneProjekte, settle, annehmen, ablehnen,
 };
