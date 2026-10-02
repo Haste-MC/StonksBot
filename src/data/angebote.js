@@ -16,11 +16,11 @@
  * ---------------------------------------------------------------------------
  * Die Kontakte kommen aus dem Katalog in data/contacts.js, und dort stehen
  * Anklänge an bekannte Künstler jeden Geschlechts. Die Texte in LINES sind
- * KEINE Zitate. Sie erzählen ausschließlich, was jemand im Spiel getan hat:
- * geschrieben, geschickt, gepostet, veröffentlicht, einen Termin gemacht,
- * geschwiegen. Keine Aussage über Meinungen, Charakter, Aussehen, Herkunft
- * (außer der Staatsangehörigkeit), Familie, Gesundheit oder das Privatleben
- * einer wirklichen Person.
+ * erfundene Spielnachrichten und zitieren niemanden. Sie erzählen
+ * ausschließlich, was jemand im Spiel getan hat: geschrieben, geschickt,
+ * gepostet, veröffentlicht, einen Termin gemacht, geschwiegen. Keine Aussage
+ * über Meinungen, Charakter, Aussehen, Herkunft (außer der Staatsangehörigkeit),
+ * Familie, Gesundheit oder das Privatleben einer wirklichen Person.
  *
  * Und die Regel, die in 5b einmal gerissen ist: **kein Pronomen und kein
  * geschlechtliches Wort über einen Kontakt.** `{name}` wird durch einen echten
@@ -90,6 +90,7 @@ const VORGRUPPE_ANTEIL = 0.05;
 
 /** Ein Kollabo-Album kostet 18 Stunden statt der 3 einer Platte – für höchstens doppeltes Publikum. */
 const KOLLABO_STUNDEN = 18;
+/** Dieselben sechs Titel, die auch ein normales Album kostet – erst das macht „18 Stunden gegen 3 Stunden für dieselben Titel" zu einem Vergleich. */
 const KOLLABO_TITEL = 6;
 /** Fünf einzelne Konzerte kosten 20 Stunden und 12 Tage Sperre; die Tour 24 Stunden und keine Sperre. */
 const TOUR_STUNDEN = 24;

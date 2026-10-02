@@ -14,9 +14,9 @@
  *  Alles hier ist Spielfiktion
  * ---------------------------------------------------------------------------
  * Die Gegner kommen aus dem Katalog in data/contacts.js, und dort stehen
- * Anklänge an bekannte Künstler. Die Texte in LINES sind KEINE Zitate. Sie
- * erzählen ausschließlich, was jemand im Spiel getan hat: geantwortet,
- * gepostet, veröffentlicht, einen Termin gemacht, geschwiegen. Keine Aussage
+ * Anklänge an bekannte Künstler. Die Texte in LINES sind erfundene
+ * Spielnachrichten und zitieren niemanden. Sie erzählen ausschließlich, was
+ * jemand im Spiel getan hat: geantwortet, gepostet, veröffentlicht, einen Termin gemacht, geschwiegen. Keine Aussage
  * über Meinungen, Charakter, Aussehen, Herkunft, Familie, Gesundheit oder das
  * Privatleben einer wirklichen Person, keine Beleidigung, nichts über Politik
  * oder Weltgeschehen. Ein Disstrack prahlt hier über Musik und Erfolg – sonst

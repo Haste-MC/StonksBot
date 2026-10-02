@@ -133,6 +133,18 @@ check('und zwar dieselben wie in 5a/5b',
  */
 const VERBOTEN = [' er ', ' sie ', ' ihn ', ' ihm ', ' ihr ', 'seine ', 'ihre ',
   'wirklich', 'Politik', 'krank', 'Familie'];
+/**
+ * Zweite Wache, mit Wortgrenzen: Die Liste oben kennt nur Wörter zwischen
+ * Leerzeichen und sieht weder „seiner Platte" noch „ohne ihn." noch
+ * gegenderte Nomen. Beide Wachen zusammen.
+ */
+const GESCHLECHT = new RegExp(
+  '\\b(' + [
+    'er', 'sie', 'ihn', 'ihm', 'ihr',
+    'seine[rmsn]?', 'ihre[rmsn]?',
+    'S(?:ä|ae)nger(?:in|innen)?', 'K(?:ü|ue)nstlerin(?:nen)?',
+    'Kollege', 'Kollegin', 'Chef(?:in)?', 'Frau', 'Mann',
+  ].join('|') + ')\\b', 'i');
 let zeilen_gesamt = 0;
 for (const [trait, lagen] of Object.entries(data.LINES)) {
   check(`${trait} hat drei Lagen`,
@@ -144,10 +156,18 @@ for (const [trait, lagen] of Object.entries(data.LINES)) {
       check(`${trait}/${lage} nennt {name}`, z.includes('{name}'), z);
       check(`${trait}/${lage} bleibt in der Spielfiktion`,
         !VERBOTEN.some((w) => ` ${z.toLowerCase()} `.includes(w.toLowerCase())), z);
+      check(`${trait}/${lage} sagt nichts über das Geschlecht`,
+        !GESCHLECHT.test(z), z);
     }
   }
 }
 check('zusammen 45 Zeilen', zeilen_gesamt === 45);
+
+console.log('--- Zahlen ohne eigenen Verhaltenstest ---');
+check('Draht: Zusage +8, Absage -5, Liegenlassen -8',
+  data.DRAHT_AN === 8 && data.DRAHT_AB === -5 && data.DRAHT_VERFALL === -8,
+  `${data.DRAHT_AN} / ${data.DRAHT_AB} / ${data.DRAHT_VERFALL}`);
+check('Liegenlassen kostet mehr Draht als Absagen', data.DRAHT_VERFALL < data.DRAHT_AB);
 
 console.log('--- textFor ---');
 check('der Name wird eingesetzt',
