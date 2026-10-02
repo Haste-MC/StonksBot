@@ -2386,10 +2386,14 @@ async function buildMusicView({ guildId, userId }) {
   );
 
   if (s.contract) {
+    // 5c: Der Anteil kommt aus den Konditionen DIESER Vertragsart
+    // (`music.termsOf`), nicht aus `IDOL`. Mit fest verdrahteten 50 % stand hier
+    // eine Zahl, die `s.perDay` zwei Felder weiter mit 30 % widerlegte.
+    const kond = music.termsOf(s.contract);
     embed.addFields({
       name: `📜 Unter Vertrag: ${s.contract.agency}`,
       value: `Noch **${require('./income').formatRemaining(s.contractEndsMs)}**. `
-        + `Die Agentur nimmt ${Math.round(music.IDOL.cut * 100)} % deiner Einnahmen, `
+        + `Die Gegenseite nimmt ${Math.round(kond.cut * 100)} % deiner Einnahmen, `
         + 'dafür wächst alles schneller und die Hallen sind größer.',
     });
   } else if (s.offer) {
@@ -2446,6 +2450,12 @@ async function buildMusicView({ guildId, userId }) {
     schuebe.push(`🔥 Beef mit *${ziel.contact.name}* · Hitze ${Math.round(ziel.hitze)} `
       + `– ${disstrack}`);
   }
+
+  // Angebote (5c): wie beim Beef nur eine Hinweiszeile, kein Knopf – gehandelt
+  // wird im eigenen Menüeintrag 📬 Angebote. Abgerechnet wird auch hier nicht;
+  // das tut der Handler, bevor er diese Ansicht baut (`settleStrasse`).
+  const anliegen = angeboteZeile(guildId, userId);
+  if (anliegen) schuebe.push(anliegen);
 
   embed.addFields({
     name: '⏳ Heute',
@@ -2614,25 +2624,41 @@ async function buildReleaseView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
-/** Der Idol-Vertrag: Angebot oder laufende Bindung. */
+/**
+ * Ein Vertrag: Angebot oder laufende Bindung.
+ *
+ * Es gibt ZWEI Arten – das Idol-Angebot aus Japan/Korea und den Label-Vertrag,
+ * den ein Partner öffnet (5c) –, und das hier ist der einzige Weg im Spiel, eine
+ * davon zu unterschreiben. Jede Zahl kommt deshalb aus `music.termsOf(row)`:
+ * Blurb, Regeln, Laufzeit und die Ausstiegsstrafe. Fest verdrahtet auf `IDOL`
+ * las ein Label-Unterzeichner im Moment der Unterschrift „50 % der Einnahmen ·
+ * 25 Tage Vorschuss · 90 Tage Laufzeit", während die Kasse 30 % nahm, 10 Tage
+ * zahlte und der Vertrag 60 Tage lief.
+ */
 async function buildMusicDealView({ guildId, userId }) {
   const music = require('./music');
   const symbol = await getSymbol(guildId);
   const s = music.status(guildId, userId);
 
   if (s.contract) {
+    const kond = music.termsOf(s.contract);
     const embed = new EmbedBuilder()
       .setTitle(`📜 ${s.contract.agency}`)
       .setColor(0x9b59b6)
-      .setDescription(music.IDOL.blurb)
+      .setDescription(kond.blurb)
       .addFields(
         {
           name: '⏳ Laufzeit',
-          value: `Noch **${require('./income').formatRemaining(s.contractEndsMs)}**.`,
+          value: `Noch **${require('./income').formatRemaining(s.contractEndsMs)}** `
+            + `von **${kond.durationDays} Tagen**.`,
         },
-        { name: '📋 Die Regeln', value: music.IDOL.rules.join('\n') },
+        { name: '📋 Die Regeln', value: kond.rules.join('\n') },
       )
-      .setFooter({ text: 'Vorzeitiger Ausstieg kostet 30 Tage Einnahmen und Hörer.' });
+      // Die Strafe wird gerechnet, nicht getippt: Hier stand bis 5c „30 Tage"
+      // als Text, und zwar auch dann, wenn `exitPenaltyDays` 15 war.
+      .setFooter({
+        text: `Vorzeitiger Ausstieg kostet ${kond.exitPenaltyDays} Tage Einnahmen und Hörer.`,
+      });
 
     return {
       embeds: [embed],
@@ -2649,12 +2675,21 @@ async function buildMusicDealView({ guildId, userId }) {
     const embed = new EmbedBuilder()
       .setTitle('📜 Verträge')
       .setColor(0x95a5a6)
-      .setDescription(s.canIdol
-        ? `In ${s.market.country.flag} ${s.market.country.name} gibt es Idol-Agenturen. `
-          + `Ab **${music.IDOL.minListeners.toLocaleString('de-DE')}** Hörern melden sie sich – `
-          + 'aber nur bei Künstlern, die ihr Gesicht zeigen.'
-        : 'In deinem Land gibt es kein Idol-System. Solche Verträge werden nur in '
-          + 'Japan und Südkorea angeboten.');
+      .setDescription([
+        s.canIdol
+          ? `In ${s.market.country.flag} ${s.market.country.name} gibt es Idol-Agenturen. `
+            + `Ab **${music.IDOL.minListeners.toLocaleString('de-DE')}** Hörern melden sie `
+            + 'sich – aber nur bei Künstlern, die ihr Gesicht zeigen.'
+          : 'In deinem Land gibt es kein Idol-System. Solche Verträge werden nur in '
+            + 'Japan und Südkorea angeboten.',
+        // 5c: Seit der zweiten Vertragsart ist der Idol-Weg nicht mehr der
+        // einzige – ein Partner führt einen bei SEINEM Label ein, in jedem Land
+        // und mit oder ohne Gesicht. Für einen deutschen Rapper stand hier
+        // vorher „geht nicht", obwohl es geht; und für beide Märkte gilt es.
+        '📝 Ein fester Partner kann dich außerdem bei seinem Label einführen – ab '
+        + `**${music.LABEL.minListeners.toLocaleString('de-DE')}** Hörern, in jedem Land. `
+        + 'Solche Einführungen stehen unter 📬 **Angebote**.',
+      ].join('\n\n'));
     return {
       embeds: [embed],
       components: [new ActionRowBuilder().addComponents(
@@ -2664,18 +2699,25 @@ async function buildMusicDealView({ guildId, userId }) {
     };
   }
 
+  const kond = music.termsOf(s.offer);
   const embed = new EmbedBuilder()
     .setTitle(`📬 ${s.offer.agency} will dich`)
     .setColor(0x9b59b6)
-    .setDescription(music.IDOL.blurb)
+    .setDescription(kond.blurb)
     .addFields(
-      { name: '📋 Was im Vertrag steht', value: music.IDOL.rules.join('\n') },
+      { name: '📋 Was im Vertrag steht', value: kond.rules.join('\n') },
       {
         name: '⏳ Bedenkzeit',
         value: `**${require('./income').formatRemaining(s.offerEndsMs)}**`,
       },
     )
-    .setFooter({ text: 'Ein Vorschuss kommt sofort – der Rest ist eine Wette auf dich.' });
+    // Laufzeit und Ausstieg gerechnet, nicht getippt: Der Label-Vertrag läuft
+    // 60 Tage und kostet 15 Tage Einnahmen – wer das erst nach der Unterschrift
+    // erfährt, hat eine andere Sache unterschrieben als die, die hier stand.
+    .setFooter({
+      text: `Laufzeit ${kond.durationDays} Tage · vorzeitiger Ausstieg kostet `
+        + `${kond.exitPenaltyDays} Tage Einnahmen · ein Vorschuss kommt sofort.`,
+    });
 
   return {
     embeds: [embed],
@@ -2791,6 +2833,44 @@ function beefZeile(b, now = Date.now()) {
   }
   return `🔥 **Beef** · Hitze ${hitze} ${drahtBar(hitze)} · `
     + `Runden ${b.runden_ich}:${b.runden_er} · ${rest}`;
+}
+
+/** Wie ein großes Format in einer Hinweiszeile kurz heißt. */
+const PROJEKT_KURZ = { kollabo: 'Kollabo', tour: 'Tour' };
+
+/**
+ * Die Hinweiszeile zu den Angeboten (5c) – für die Musik- und die
+ * Kontaktansicht: „📬 **2 Angebote** warten · 💿 Kollabo mit *Oxmo Puccino*:
+ * 6 von 18 Stunden". `null`, wenn nichts anliegt.
+ *
+ * Kein Knopf. Beide Ansichten sitzen am Reaktionshaushalt (§16), und die
+ * Angebote haben ihren eigenen Menüeintrag 📬 – ein achter Knopf fiele hier
+ * stumm hinten runter.
+ *
+ * Wie bei `beefZeile` wird hier NICHT abgerechnet (§4): Das tut der Handler
+ * (`settleStrasse` in buttons.js), bevor er die Ansicht baut. Deshalb zählen
+ * nur Anfragen und Projekte, deren Frist wirklich noch läuft – eine
+ * verstrichene steht bis zur Abrechnung weiter als `offen` in der Tabelle und
+ * würde hier etwas versprechen, das es nicht mehr gibt.
+ */
+function angeboteZeile(guildId, userId, now = Date.now()) {
+  const angebote = require('./angebote');
+  const teile = [];
+
+  const offen = angebote.offeneAngebote(guildId, userId, now).filter((r) => r.restMs > 0);
+  if (offen.length) {
+    teile.push(`📬 **${offen.length} ${offen.length === 1 ? 'Angebot' : 'Angebote'}** `
+      + `${offen.length === 1 ? 'wartet' : 'warten'}`);
+  }
+
+  for (const p of angebote.offeneProjekte(guildId, userId, now).filter((x) => x.restMs > 0)) {
+    teile.push(`${p.artInfo?.emoji ?? '💿'} ${PROJEKT_KURZ[p.art] ?? 'Projekt'} mit `
+      + `*${p.contact?.name ?? 'einem Partner'}*: `
+      + `${Number(p.stunden_ist).toLocaleString('de-DE')} von `
+      + `${Number(p.stunden_soll).toLocaleString('de-DE')} Stunden`);
+  }
+
+  return teile.length ? teile.join(' · ') : null;
 }
 
 /** Wie der Ausgang eines abgerechneten Beefs in der Zeile heißt. */
@@ -2927,6 +3007,8 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       + `${pct(z.chance)}${gesperrt}`;
   });
 
+  const anliegen = angeboteZeile(guildId, userId, now);
+
   const embed = new EmbedBuilder()
     .setTitle(`🤝 Kontakte · ${aktiv.label}`)
     .setColor(0x1abc9c)
@@ -2934,7 +3016,12 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       (reichweite.length
         ? `Deine Reichweite: ${reichweite.join(' · ')}`
         : 'Noch keine Reichweite – fang erst mit 🎵 **Musik** oder einem 📡 **Kanal** an.')
-      + `\n🔎 Filter: **${aktiv.label}** · eine Anfrage kostet ⏱️ ${data.REQUESTS[0].time} Stunden\n\n`
+      + `\n🔎 Filter: **${aktiv.label}** · eine Anfrage kostet ⏱️ ${data.REQUESTS[0].time} Stunden`
+      // Angebote (5c): die Gegenrichtung, als Zeile ohne Knopf – Reihe 1 sitzt
+      // mit fünf Kontakten am Discord-Maximum, und §16 lässt keinen achten
+      // Knopf zu. Gehandelt wird unter 📬 Angebote.
+      + (anliegen ? `\n${anliegen}` : '')
+      + '\n\n'
       + (zeilen.length ? zeilen.join('\n')
         : '_Hier ist gerade niemand, den du anschreiben könntest._'));
 
@@ -5583,7 +5670,7 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
+  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };

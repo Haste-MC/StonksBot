@@ -128,6 +128,15 @@ const ENTRIES = [
     build: (ctx) => ui.buildKontakteView(ctx),
   },
   {
+    id: 'angebote',
+    group: 'work',
+    label: 'Angebote',
+    emoji: '📬',
+    description: 'Was andere von dir wollen',
+    style: 'secondary',
+    build: (ctx) => require('./angeboteUi').buildAngeboteView(ctx),
+  },
+  {
     id: 'gear',
     group: 'work',
     label: 'Ausrüstung',

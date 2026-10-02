@@ -1856,6 +1856,339 @@ function view(buttons) {
       && angeNote.includes('_Er postet einen Screenshot von dir._'), angeNote);
   }
 
+  console.log('--- Angebote (Spec 5c: Anzeige) ---');
+  /*
+   * Die Angebots-Ansicht ist der einzige Ort, an dem eine Gegenanfrage
+   * überhaupt sichtbar wird – und sie sitzt am selben harten Deckel wie
+   * Kontakte und Beef (§16, neun Reaktionen): 2 Anfragen × 2 Knöpfe +
+   * Arbeiten + Zurück + Hauptmenü = 7. Geprüft wird im VOLLEN Zustand, also
+   * mit zwei Anfragen UND einem laufenden Projekt; ein achter Knopf fiele
+   * sonst stumm hinten runter.
+   *
+   * Dazu die drei Meldungen und – wichtigster Punkt – dass ein ins Leere
+   * gehender Klick die fällige Abrechnung MITMELDET. Ohne das verschluckt er
+   * eine verfallene Anfrage samt Draht-Verlust (in 5b zweimal passiert).
+   */
+  {
+    const ui = require('../src/ui');
+    const angeboteUi = require('../src/angeboteUi');
+    const ang = require('../src/angebote');
+    const adata = require('../src/data/angebote');
+    const cdata = require('../src/data/contacts');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const {
+      angebotNote, mitAngebote, annahmeNote, absageNote, arbeitNote, angebotProblem,
+    } = require('../src/buttons');
+    const TAG = 86_400_000;
+    const jetzt = Date.now();
+    const nie = () => 0.9999;        // kein Treffer: ANFRAGE_CHANCE ist 0,18
+
+    let lauf = 0;
+    /** Ein deutscher Rapper mit 10.000 Hörern – die Zahlen der Spec-Tabelle. */
+    const neu = async (listeners = 10_000) => {
+      const g = `ANGUI_T${Date.now()}_${lauf++}`;
+      const u = 'ang_user';
+      await home.setHome(g, u, 'de');
+      home.setLanguage(g, u, 'deutsch');
+      music.setup(g, u, 'hiphop', music.PERSONAS[0].id);
+      db.saveArtist(g, u, {
+        ...db.getArtist(g, u, jetzt), listeners, songs: 6,
+        touched_at: jetzt, last_action_at: jetzt, paid_through: jetzt,
+      });
+      return [g, u];
+    };
+    const anfrage = (g, u, art, contactId, frist) => db.insertAngebot({
+      guildId: g, userId: u, art, contactId, erstellt: jetzt, frist });
+
+    const OXMO = cdata.byId('oxmopuccino');       // 350.000 Reichweite
+    const LILPFAND = cdata.byId('lilpfand');      // 8.400 Reichweite
+
+    // --- Die volle Ansicht: zwei Anfragen und ein Projekt ------------------
+    const [VG, VU] = await neu();
+    const a1 = anfrage(VG, VU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const a2 = anfrage(VG, VU, 'vorgruppe', LILPFAND.id, jetzt + 3 * TAG);
+    const pr = db.insertProjekt({
+      guildId: VG, userId: VU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(VG, pr.id, { stundenIst: 6 });
+
+    const voll = await angeboteUi.buildAngeboteView({ guildId: VG, userId: VU });
+    const vText = voll.embeds[0].toJSON().description;
+    const vIds = voll.components.flatMap((r) => r.toJSON().components.map((b) => b.custom_id));
+    check('die Ansicht trägt je Anfrage Annehmen und Absagen, dazu Arbeiten, Zurück, Home',
+      vIds.join(' ') === `angebot-an|${a1.id}|${VU} angebot-ab|${a1.id}|${VU} `
+        + `angebot-an|${a2.id}|${VU} angebot-ab|${a2.id}|${VU} `
+        + `angebot-arbeit|${pr.id}|${VU} grp|work|${VU} home|${VU}`,
+      vIds.join(' '));
+    check('zwei Anfragen und ein Projekt halten das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(voll).overflow === undefined
+      && render.mapReactions(voll).length === 7,
+      `${render.mapReactions(voll).length} / ${render.mapReactions(voll).overflow}`);
+
+    // Honorar und Gage stehen als ZAHL in der Zeile – nicht als „bringt Geld".
+    const honorar = ang.honorarOf({
+      seine: OXMO.reach,
+      tantiemenProTag: music.royaltyPerDay(10_000, music.marketOf(VG, VU)),
+    });
+    const gage = ang.gageOf({
+      meine: 10_000, seine: LILPFAND.reach,
+      showPay: music.SHOW_PAY, showExp: music.SHOW_EXP,
+    });
+    check(`das Honorar steht als Zahl in der Zeile (${honorar.toLocaleString('de-DE')})`,
+      vText.includes(`💰 Honorar **${honorar.toLocaleString('de-DE')}**`),
+      vText.split('\n').filter((z) => z.includes('Honorar')).join(' / '));
+    check(`die Gage steht als Zahl in der Zeile (${gage.toLocaleString('de-DE')})`,
+      vText.includes(`💰 Gage **${gage.toLocaleString('de-DE')}**`),
+      vText.split('\n').filter((z) => z.includes('Gage')).join(' / '));
+    check('je Anfrage stehen Art, Kontakt, Zeile, Stunden und Restfrist',
+      vText.includes(`🎙️ **${ang.artOf('gastpart').name}** — ${OXMO.emoji} ${OXMO.name}`)
+      && vText.includes('⏳ 2 Stunden · Frist: noch 2 Tage')
+      && vText.includes('⏳ 4 Stunden · Frist: noch 3 Tage'),
+      vText);
+    check('der Fortschrittsbalken des Projekts zeigt 6 von 18 Stunden',
+      vText.includes('▰▰▰▱▱▱▱▱▱▱ 6 von 18 Stunden · Frist: noch 11 Tage'),
+      vText.split('\n').filter((z) => z.includes('von 18')).join(' / '));
+
+    // --- Die leere Ansicht --------------------------------------------------
+    const [LG, LU] = await neu();
+    const leer = await angeboteUi.buildAngeboteView({ guildId: LG, userId: LU });
+    check('die leere Ansicht sagt, dass gerade nichts anliegt',
+      leer.embeds[0].toJSON().description.includes('Gerade liegt nichts an'),
+      leer.embeds[0].toJSON().description);
+    check('und hat trotzdem den Weg ins Hauptmenü',
+      leer.components.flatMap((r) => r.toJSON().components)
+        .some((b) => b.custom_id === `home|${LU}`));
+    check('die leere Ansicht hält das Fluxer-Limit',
+      render.mapReactions(leer).overflow === undefined,
+      String(render.mapReactions(leer).overflow));
+
+    // --- Meldung: angenommen (Honorar) -------------------------------------
+    const [AG, AU] = await neu();
+    const an = anfrage(AG, AU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const resAn = await ang.annehmen(AG, AU, an.id, jetzt, nie);
+    check('die Zusage geht durch', resAn.ok === true,
+      JSON.stringify({ ok: resAn.ok, reason: resAn.reason }));
+    const anNote = annahmeNote(resAn, '€', jetzt);
+    check('Meldung bei Annahme: Art, Kontakt, Honorar als Zahl, Draht +8, Reststunden',
+      anNote.includes(`🤝 Zugesagt: 🎙️ **${ang.artOf('gastpart').name}** `
+        + `— ${OXMO.emoji} **${OXMO.name}**`)
+      && anNote.includes(`💰 Honorar: **€ ${resAn.honorar.toLocaleString('de-DE')}**`)
+      && anNote.includes(`(+${adata.DRAHT_AN},`)
+      && anNote.includes('⏱️ heute übrig:'), anNote);
+
+    // --- Meldung: abgesagt --------------------------------------------------
+    const [BG, BU] = await neu();
+    const ab = anfrage(BG, BU, 'tausch', OXMO.id, jetzt + 2 * TAG);
+    const resAb = ang.ablehnen(BG, BU, ab.id, jetzt, nie);
+    const abNote = absageNote(resAb, jetzt);
+    check('Meldung bei Absage: Draht −5 und die Zeile des Kontakts',
+      resAb.ok && abNote.includes(`🚪 Du hast abgesagt. Draht **−${Math.abs(adata.DRAHT_AB)}**.`)
+      && abNote.includes(`_${resAb.text}_`), abNote);
+
+    // --- Meldung: verfallen -------------------------------------------------
+    const [CG, CU] = await neu();
+    anfrage(CG, CU, 'gastpart', OXMO.id, jetzt - 1000);
+    const verfall = angebotNote(ang.settle(CG, CU, jetzt, nie));
+    check('Meldung bei Verfall: Name und Draht −8',
+      verfall.includes(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen. `
+        + `Draht **−${Math.abs(adata.DRAHT_VERFALL)}**.`), verfall);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Der Fehler aus 5b: ein abgelehnter Klick verschluckt die Abrechnung
+     * -----------------------------------------------------------------------
+     * `ablehnen` rechnet als Schritt 0 ab und gibt das Ergebnis unter `vorher`
+     * heraus – AUCH auf dem Weg `{ ok: false, reason: 'weg' }`. Wird das nicht
+     * gemeldet, kostet der Klick still 8 Draht, und der Spieler sieht nur eine
+     * kleinere Zahl.
+     */
+    const [DG, DU] = await neu();
+    anfrage(DG, DU, 'gastpart', OXMO.id, jetzt - 1000);
+    const insLeere = ang.ablehnen(DG, DU, 999_999, jetzt, nie);
+    const leereNote = mitAngebote(insLeere.vorher, absageNote(insLeere, jetzt));
+    check('ein Klick ins Leere meldet trotzdem die verfallene Anfrage',
+      insLeere.ok === false && insLeere.reason === 'weg'
+      && leereNote.includes(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen.`)
+      && leereNote.includes('❌ Dieses Angebot gibt es nicht mehr.'), leereNote);
+
+    // --- Die zwei Absagegründe aus 5c, die sonst „❌ Das ging nicht." wären --
+    const [EG, EU] = await neu(50_000);
+    db.insertProjekt({
+      guildId: EG, userId: EU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    const zweites = anfrage(EG, EU, 'tour', OXMO.id, jetzt + 2 * TAG);
+    const resZwei = await ang.annehmen(EG, EU, zweites.id, jetzt, nie);
+    check('ein zweites großes Format wird mit projekt_offen abgewiesen',
+      resZwei.ok === false && resZwei.reason === 'projekt_offen',
+      JSON.stringify({ ok: resZwei.ok, reason: resZwei.reason }));
+    // Der Prüfname trägt bewusst kein ❌: `npm test | grep -c '❌'` zählt die
+    // Fehlschläge, und ein Name mit dem Zeichen wäre ein falscher Treffer.
+    check('und bekommt einen eigenen Text statt der Standardabsage',
+      annahmeNote(resZwei, '€', jetzt).includes('Erst das laufende Projekt')
+      && annahmeNote(resZwei, '€', jetzt).includes('Zwei Stundenkonten gibt es nicht.'),
+      annahmeNote(resZwei, '€', jetzt));
+
+    const [FG, FU] = await neu(50_000);
+    db.insertContract({
+      guildId: FG, userId: FU, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    const zweiter = anfrage(FG, FU, 'label', OXMO.id, jetzt + 2 * TAG);
+    const resVert = await ang.annehmen(FG, FU, zweiter.id, jetzt, nie);
+    check('eine zweite Label-Tür wird mit vertrag_offen abgewiesen',
+      resVert.ok === false && resVert.reason === 'vertrag_offen',
+      JSON.stringify({ ok: resVert.ok, reason: resVert.reason }));
+    check('und nennt das Angebot, das schon auf dem Tisch liegt',
+      annahmeNote(resVert, '€', jetzt).includes('**Chocolat Musique**')
+      && !annahmeNote(resVert, '€', jetzt).includes('Das ging nicht'),
+      annahmeNote(resVert, '€', jetzt));
+    check('die Hörerschwelle des Labels steht als Zahl im Text',
+      angebotProblem({ ok: false, reason: 'zu_klein', need: music.LABEL.minListeners }, jetzt)
+        === '📝 Dafür bist du dem Label noch zu klein (25.000 Hörer nötig).',
+      angebotProblem({ ok: false, reason: 'zu_klein', need: music.LABEL.minListeners }, jetzt));
+
+    // --- Arbeiten: Stand und Abschluss -------------------------------------
+    const [HG, HU] = await neu();
+    const hp = db.insertProjekt({
+      guildId: HG, userId: HU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    const geArbeitet = await ang.arbeiten(HG, HU, hp.id, jetzt, nie);
+    check('zwei Stunden am Projekt melden den neuen Stand mit Balken',
+      geArbeitet.ok && geArbeitet.fertig === false
+      && arbeitNote(geArbeitet, '€', jetzt).includes('**2 von 18** Stunden'),
+      arbeitNote(geArbeitet, '€', jetzt));
+
+    db.saveProjekt(HG, hp.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    const fertig = await ang.arbeiten(HG, HU, hp.id, jetzt, nie);
+    check('das volle Konto veröffentlicht das gemeinsame Album',
+      fertig.ok && fertig.fertig === true && fertig.art === 'kollabo',
+      JSON.stringify({ ok: fertig.ok, fertig: fertig.fertig, reason: fertig.reason }));
+    const fertigNote = arbeitNote(fertig, '€', jetzt);
+    check('und meldet die normale Veröffentlichung plus die eine Kollabo-Zeile',
+      fertigNote.includes('ist draußen.')
+      && fertigNote.includes('👂 ')
+      && fertigNote.includes(`💿 Das gemeinsame Album mit **${OXMO.name}** ist draußen.`),
+      fertigNote);
+
+    // --- Die Hinweiszeile in Musik- und Kontaktansicht ---------------------
+    const studio = await ui.buildMusicView({ guildId: VG, userId: VU });
+    const heute = studio.embeds[0].toJSON().fields.find((f) => f.name === '⏳ Heute').value;
+    check('die Musikansicht trägt die Hinweiszeile mit Zahl und Stundenkonto',
+      heute.includes('📬 **2 Angebote** warten')
+      && heute.includes(`💿 Kollabo mit *${OXMO.name}*: 6 von 18 Stunden`), heute);
+    check('aber keinen Angebots-Knopf (§16)',
+      !studio.components.some((r) => r.toJSON().components
+        .some((b) => String(b.custom_id).startsWith('angebot-'))),
+      studio.components.map((r) => r.toJSON().components
+        .map((b) => b.custom_id).join(' ')).join(' | '));
+    check('Musikansicht mit Hinweiszeile hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(studio).overflow === undefined,
+      `${render.mapReactions(studio).length} / ${render.mapReactions(studio).overflow}`);
+
+    const kliste = await ui.buildKontakteView({
+      guildId: VG, userId: VU, page: 1, filter: 'alle' });
+    check('die Kontaktansicht trägt dieselbe Zeile',
+      kliste.embeds[0].toJSON().description.includes('📬 **2 Angebote** warten'),
+      kliste.embeds[0].toJSON().description.split('\n').slice(0, 3).join(' / '));
+    check('Kontaktansicht mit Hinweiszeile hält das Fluxer-Limit',
+      render.mapReactions(kliste).overflow === undefined,
+      String(render.mapReactions(kliste).overflow));
+
+    // Eine Anfrage, deren Frist durch ist, zählt in der Zeile NICHT mehr mit:
+    // Sie steht bis zur Abrechnung weiter als `offen` in der Tabelle.
+    const [IG, IU] = await neu();
+    anfrage(IG, IU, 'gastpart', OXMO.id, jetzt - 1000);
+    check('eine verstrichene Anfrage verspricht in der Hinweiszeile nichts mehr',
+      ui.angeboteZeile(IG, IU, jetzt) === null, String(ui.angeboteZeile(IG, IU, jetzt)));
+  }
+
+  console.log('--- Vertragsansicht (Spec 5c: zwei Vertragsarten) ---');
+  /*
+   * `buildMusicDealView` ist der EINZIGE Weg im Spiel, einen Vertrag zu
+   * unterschreiben – und las bis 5c durchgehend `music.IDOL`. Ein
+   * Label-Unterzeichner stand damit vor „50 % der Einnahmen · 25 Tage
+   * Vorschuss · 90 Tage Laufzeit", während die Kasse 30 % nahm, 10 Tage zahlte
+   * und der Vertrag 60 Tage lief. Dieser Test schickt ein LABEL-Angebot durch
+   * Ansicht und Unterschrift und prüft, dass keine der drei Idol-Zahlen
+   * irgendwo auftaucht.
+   */
+  {
+    const ui = require('../src/ui');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const jetzt = Date.now();
+    const G = `DEAL_T${Date.now()}`;
+    const U = 'deal_user';
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(G, U, {
+      ...db.getArtist(G, U, jetzt), listeners: 60_000,
+      touched_at: jetzt, last_action_at: jetzt, paid_through: jetzt,
+    });
+    const row = db.insertContract({
+      guildId: G, userId: U, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+
+    /** Alles, was ein Spieler an dieser Ansicht lesen kann, in einem String. */
+    const sichtbar = (v) => {
+      const e = v.embeds[0].toJSON();
+      return [e.title, e.description, e.footer?.text,
+        ...(e.fields ?? []).flatMap((f) => [f.name, f.value])].filter(Boolean).join('\n');
+    };
+    const IDOL_ZAHLEN = ['50 %', 'Hälfte', '25 Tage', '90 Tage', '30 Tage'];
+
+    const offer = await ui.buildMusicDealView({ guildId: G, userId: U });
+    const oText = sichtbar(offer);
+    check('das Label-Angebot zeigt die Konditionen des LABELS',
+      oText.includes('10 Tage Tantiemen') && oText.includes('30 %')
+      && oText.includes('Laufzeit 60 Tage') && oText.includes('15 Tage Einnahmen'),
+      oText);
+    check('und keine einzige Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !oText.includes(z)),
+      IDOL_ZAHLEN.filter((z) => oText.includes(z)).join(' | '));
+
+    const signed = await music.sign(G, U, row.id);
+    check('die Unterschrift gibt die Konditionen ihrer Art heraus',
+      signed.ok && signed.terms === music.LABEL,
+      JSON.stringify({ ok: signed.ok, reason: signed.reason }));
+    // Genau der Text, den `mdealok` in buttons.js meldet.
+    const quittung = `${signed.terms.rules.join('\n')}`;
+    check('die Bestätigung der Unterschrift nennt keine Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !quittung.includes(z)) && quittung.includes('30 %'),
+      quittung);
+
+    const laufend = await ui.buildMusicDealView({ guildId: G, userId: U });
+    const lText = sichtbar(laufend);
+    check('der laufende Label-Vertrag zeigt Laufzeit und Ausstieg aus seinen Konditionen',
+      lText.includes('von **60 Tagen**')
+      && lText.includes('Vorzeitiger Ausstieg kostet 15 Tage Einnahmen und Hörer.'),
+      lText);
+    check('und auch hier keine Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !lText.includes(z)),
+      IDOL_ZAHLEN.filter((z) => lText.includes(z)).join(' | '));
+
+    const studio = await ui.buildMusicView({ guildId: G, userId: U });
+    const vertragsfeld = studio.embeds[0].toJSON().fields
+      .find((f) => f.name.startsWith('📜 Unter Vertrag'));
+    check('die Musikansicht nennt den Anteil, mit dem sie auch rechnet',
+      vertragsfeld.value.includes('30 % deiner Einnahmen')
+      && !vertragsfeld.value.includes('50 %'), vertragsfeld.value);
+
+    // Und der Gegenbeweis: Für ein IDOL-Angebot stehen weiter die Idol-Zahlen.
+    const [IG2, IU2] = [`DEAL_I${Date.now()}`, 'deal_idol'];
+    await home.setHome(IG2, IU2, 'jp');
+    home.setLanguage(IG2, IU2, 'japanisch');
+    music.setup(IG2, IU2, 'hiphop', music.PERSONAS[0].id);
+    db.insertContract({
+      guildId: IG2, userId: IU2, kind: 'idol', agency: 'Sakura Pro',
+      country: 'jp', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    const idol = sichtbar(await ui.buildMusicDealView({ guildId: IG2, userId: IU2 }));
+    check('ein Idol-Angebot zeigt unverändert seine eigenen Zahlen',
+      idol.includes('25 Tage Tantiemen') && idol.includes('Laufzeit 90 Tage')
+      && idol.includes('30 Tage Einnahmen'), idol);
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

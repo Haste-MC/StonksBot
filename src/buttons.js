@@ -285,7 +285,7 @@ async function settleMusic(guildId, userId) {
   // 5b, §4: Der Beef rechnet NACH den Tantiemen ab – die gehören noch der Zeit
   // davor, und ein Gegenschlag darf sie nicht nachträglich kleiner machen. Im
   // Text steht er trotzdem vorn: Er ist das Laute, alles andere ist Buchhaltung.
-  const streit = settleBeef(guildId, userId);
+  const streit = settleStrasse(guildId, userId);
   if (streit) lines.unshift(streit);
 
   // Eine faule Abrechnung, die wirklich etwas gebucht hat, ist der Zeitpunkt,
@@ -759,6 +759,232 @@ function friedenNote(res, now = Date.now()) {
   return zeilen.join('\n');
 }
 
+/**
+ * ===========================================================================
+ *  ANGEBOTE – die Meldungen (5c)
+ * ===========================================================================
+ *
+ * Dieselbe Bauart wie der Beef eine Etage höher, aus demselben Grund: Die
+ * Zustellung einer Anfrage, der Verfall einer Frist und der Verfall eines
+ * Projekts passieren nicht zu ihrer Zeit, sondern sobald jemand hinsieht oder
+ * handelt (§4). `angebote.settle` gibt sie als Liste heraus, `angebotNote`
+ * macht Text daraus – EIN Renderer, und jede Aufrufstelle reicht die Liste
+ * herein, die ihr Weg mitbringt (`res.vorher`).
+ *
+ * **An JEDER Rückgabe, auch an jeder Ablehnung.** Fehlt die Zeile an einer
+ * einzigen Stelle, verschluckt ein ins Leere gehender Klick eine verfallene
+ * Anfrage samt Draht-Verlust – und der Spieler sieht nur eine kleinere Zahl.
+ * Genau dieser Fehler ist in 5b zweimal passiert.
+ */
+
+/** Ein Draht-Ausschlag im Text: „−8", „+8" – mit echtem Minus, nicht Bindestrich. */
+const drahtDelta = (n) => (n < 0 ? `−${Math.abs(n)}` : `+${n}`);
+
+function angebotNote(ereignisse) {
+  const adata = require('./data/angebote');
+  const zeilen = [];
+  for (const e of ereignisse ?? []) {
+    const name = e.contact?.name ?? 'Jemand';
+    if (e.art === 'neu') {
+      zeilen.push(`📬 **${name}** meldet sich: _${e.text}_`);
+    } else if (e.art === 'verfallen') {
+      zeilen.push(`⌛ Die Anfrage von **${name}** ist verstrichen. `
+        + `Draht **${drahtDelta(adata.DRAHT_VERFALL)}**.`);
+    } else if (e.art === 'projekt_verfallen') {
+      // Die investierten Stunden sind weg (§ „ein Projekt zwingt zu nichts") –
+      // das ist der Preis, und er gehört gesagt, nicht verschwiegen.
+      const art = e.projekt?.artInfo;
+      const ist = Number(e.projekt?.stunden_ist ?? 0);
+      zeilen.push(`⌛ ${art?.emoji ?? '💿'} **${art?.name ?? 'Das Projekt'}** mit **${name}** `
+        + 'ist an der Frist gescheitert.'
+        // „0 investierte Stunden sind weg" wäre keine Nachricht, sondern Lärm.
+        + (ist > 0
+          ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : ''));
+    }
+  }
+  return zeilen.join('\n');
+}
+
+/** Die fälligen Angebots-Ereignisse VOR die eigentliche Meldung setzen. */
+function mitAngebote(ereignisse, note) {
+  const vor = angebotNote(ereignisse);
+  return vor ? `${vor}\n${note}` : note;
+}
+
+/**
+ * Die faule Angebots-Abrechnung (§4) für einen Weg, der sonst keine mitbringt –
+ * und ihr Text. Wie `settleBeef`: Ist nichts fällig, wird nichts geschrieben
+ * und `null` zurückgegeben.
+ */
+function settleAngebote(guildId, userId, now = Date.now()) {
+  return angebotNote(require('./angebote').settle(guildId, userId, now)) || null;
+}
+
+/**
+ * Beides, was auf dem Weg zu einer Musik-Ansicht fällig ist: der Gegenschlag
+ * aus 5b und die Angebote aus 5c.
+ *
+ * Eine Stelle statt zwei, damit keine der Aufrufstellen von `settleBeef` beim
+ * nächsten Umbau die Angebote vergisst – sie hängen überall an denselben
+ * Knöpfen. Der Beef steht vorn: Er ist das Laute.
+ */
+function settleStrasse(guildId, userId, now = Date.now()) {
+  return [settleBeef(guildId, userId, now), settleAngebote(guildId, userId, now)]
+    .filter(Boolean).join('\n') || null;
+}
+
+/**
+ * Warum eine Anfrage nicht ging.
+ *
+ * `vertrag_offen` und `projekt_offen` stehen hier mit eigenem Text: Beide sind
+ * echte Spielzustände – ein Vertrag läuft, ein Stundenkonto ist offen – und
+ * nicht „❌ Das ging nicht.". Wer das liest, soll wissen, was er zuerst
+ * erledigen muss.
+ */
+function angebotProblem(res, now = Date.now()) {
+  if (res.reason === 'weg') return '❌ Dieses Angebot gibt es nicht mehr.';
+  if (res.reason === 'abgelaufen') return '⌛ Zu spät – die Frist ist durch.';
+  if (res.reason === 'seite') return '❌ Dafür fehlt dir die Musikkarriere.';
+  if (res.reason === 'zu_klein') {
+    return `📝 Dafür bist du dem Label noch zu klein `
+      + `(${Number(res.need ?? 0).toLocaleString('de-DE')} Hörer nötig).`;
+  }
+  if (res.reason === 'vertrag_offen') {
+    const v = res.vertrag;
+    return v?.status === 'active'
+      ? `📝 Solange der Vertrag mit **${v.agency}** läuft, führt dich niemand `
+        + 'woanders ein.'
+      : `📝 Ein Angebot von **${v?.agency ?? 'einem Label'}** liegt schon auf dem Tisch – `
+        + 'entscheide erst das (📜 Anfrage).';
+  }
+  if (res.reason === 'projekt_offen') {
+    const p = res.projekt;
+    return `${p?.artInfo?.emoji ?? '💿'} Erst das laufende Projekt: `
+      + `**${p?.artInfo?.name ?? 'ein großes Format'}** mit `
+      + `**${p?.contact?.name ?? 'einem Partner'}**, `
+      + `${Number(p?.stunden_ist ?? 0).toLocaleString('de-DE')} von `
+      + `${Number(p?.stunden_soll ?? 0).toLocaleString('de-DE')} Stunden. `
+      + 'Zwei Stundenkonten gibt es nicht.';
+  }
+  if (res.reason === 'no_songs') {
+    // Wortgleich mit `mpub` (`releaseProblem`): Ein Kollabo IST ein Album, und
+    // zwei Wortlaute für denselben Mangel driften auseinander.
+    return releaseProblem({
+      ...res, release: res.release ?? require('./music').release('album') ?? { name: 'Album' },
+    }, now);
+  }
+  if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
+  if (res.reason === 'no_time') {
+    return `😴 Das kostet **${res.need}** Stunden, übrig sind **${res.left}**.`;
+  }
+  if (res.reason === 'noch_nicht') return '❌ Das gibt es noch nicht.';
+  if (res.reason === 'unknown') return '❌ Diesen Kontakt gibt es nicht (mehr).';
+  return '❌ Das ging nicht.';
+}
+
+/** Eine Zusage – je Art eine andere Zeile dahinter. */
+function annahmeNote(res, symbol, now = Date.now()) {
+  if (!res.ok) return angebotProblem(res, now);
+  const adata = require('./data/angebote');
+  const music = require('./music');
+  // Ohne Präposition zwischen Art und Kontakt – dieselbe Form wie in der
+  // Ansicht. „für"/„mit"/„bei" passt nie zu allen sechs Arten gleichzeitig.
+  const zeilen = [`🤝 Zugesagt: ${res.art.emoji} **${res.art.name}** `
+    + `— ${res.contact.emoji} **${res.contact.name}**`];
+  if (res.text) zeilen.push(`_${res.text}_`);
+
+  if (res.honorar !== null && res.honorar !== undefined) {
+    zeilen.push(`💰 Honorar: **${money(symbol, res.honorar)}**`);
+  }
+  if (res.gage !== null && res.gage !== undefined) {
+    zeilen.push(`💰 Gage: **${money(symbol, res.gage)}**`
+      + (res.extraHoerer > 0
+        ? ` _(mit **${res.extraHoerer.toLocaleString('de-DE')}** mitgebrachten Hörern)_` : ''));
+    if (res.auftritt?.gained > 0) {
+      zeilen.push(`👂 **+${res.auftritt.gained.toLocaleString('de-DE')}** Hörer, `
+        + 'die dich live gesehen haben.');
+    }
+  }
+  // Der Schub wie in 5a (`kontaktNote`): Stapeln gibt es nicht, und dass er
+  // verpufft ist, gehört gesagt.
+  if (res.schub && res.schub.neu === false) {
+    zeilen.push('🤝 Ein mindestens gleich starker Schub läuft schon – '
+      + 'dieser hier wirkt nicht.');
+  } else if (res.schub) {
+    zeilen.push(`🤝 Wirkt auf ${SCHUB_ZIEL_DEIN.release}: `
+      + `×${res.schub.factor.toFixed(1).replace('.', ',')}, `
+      + `noch ${restZeit(Math.max(0, res.schub.until - now))}`);
+  }
+  if (res.projekt) {
+    zeilen.push(`${res.art.emoji} Stundenkonto offen: **0 von `
+      + `${Number(res.projekt.stunden_soll).toLocaleString('de-DE')}** Stunden, `
+      + `Frist ${frist(Math.max(0, res.projekt.frist - now))} `
+      + `· je Druck auf 🛠️ Arbeiten **${adata.ARBEIT_STUNDEN}** Stunden`);
+  }
+  if (res.vertragsangebot) {
+    const tage = Math.round(music.CONTRACT_OFFER_MS / 86_400_000);
+    zeilen.push(`📝 Ein Angebot liegt vor (${tage} Tage). Ansehen und unterschreiben `
+      + 'über 🎵 Musik → 📜 Anfrage.');
+  }
+  zeilen.push(beefDraht(res.draht));
+  zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
+  return zeilen.filter(Boolean).join('\n');
+}
+
+/** Eine Absage: kostet nur Draht – weniger als Liegenlassen. */
+function absageNote(res, now = Date.now()) {
+  if (!res.ok) return angebotProblem(res, now);
+  const adata = require('./data/angebote');
+  const zeilen = [`🚪 Du hast abgesagt. Draht **${drahtDelta(adata.DRAHT_AB)}**.`];
+  if (res.text) zeilen.push(`_${res.text}_`);
+  zeilen.push(beefDraht(res.draht));
+  return zeilen.filter(Boolean).join('\n');
+}
+
+/**
+ * Zwei Stunden am Projekt – entweder der neue Stand oder das Ergebnis.
+ *
+ * Ist das Konto voll, steht hier die NORMALE Veröffentlichungs- bzw.
+ * Konzertmeldung und darunter die eine Zeile, die sagt, dass es das
+ * gemeinsame Werk war. Zwei Wortlaute für eine Platte gibt es nicht.
+ */
+function arbeitNote(res, symbol, now = Date.now()) {
+  if (!res.ok) return angebotProblem(res, now);
+  const { bar } = achievementsUi;
+  const name = res.contact?.name ?? 'ihm';
+
+  if (!res.fertig) {
+    const art = res.projekt?.artInfo;
+    return [
+      `🛠️ ${art?.emoji ?? '💿'} **${art?.name ?? 'Projekt'}** mit **${name}**: `
+      + 'zwei Stunden mehr.',
+      `${bar([res.ist, res.soll])} **${Number(res.ist).toLocaleString('de-DE')} von `
+        + `${Number(res.soll).toLocaleString('de-DE')}** Stunden`,
+      `⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`,
+    ].join('\n');
+  }
+
+  if (res.art === 'kollabo') {
+    return `${releaseNote(res.platte)}\n`
+      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`;
+  }
+
+  if (res.art === 'tour') {
+    const zeilen = [
+      `🎤 **${res.konzerte}** ${res.konzerte === 1 ? 'Abend' : 'Abende'} gespielt.`,
+      `💰 **${money(symbol, res.verdient)}**`
+      + (res.brutto > res.verdient
+        ? ` _(nach ${money(symbol, res.brutto - res.verdient)} Agenturanteil)_` : ''),
+      `👂 **+${Number(res.gewonnen).toLocaleString('de-DE')}** Hörer, `
+      + 'die dich live gesehen haben.',
+      `🎵 Die Tour mit **${name}** ist durch.`,
+    ];
+    return zeilen.join('\n');
+  }
+
+  return '❌ Das ging nicht.';
+}
+
 function parseId(customId) {
   const [action, ...parts] = customId.split('|');
   return { action, parts };
@@ -821,8 +1047,11 @@ const buttons = {
       ? await settleFirma(gid(interaction), uid(interaction)) : null;
     // 5b: Die Kontaktliste zeigt 🔥 je Beef – abrechnen und melden gehört
     // hierher, nicht in die Ansicht. Beim Studio steckt es in `settleMusic`.
-    const streit = entryId === 'kontakte'
-      ? settleBeef(gid(interaction), uid(interaction)) : null;
+    // 5c: Dasselbe für die Angebote. Die 📬-Ansicht lebt ganz davon – sie zeigt
+    // nur, was `settle` gerade hinterlassen hat, und beide Ansichten tragen
+    // eine Hinweiszeile, die auf einer verfallenen Frist sonst lügen würde.
+    const streit = (entryId === 'kontakte' || entryId === 'angebote')
+      ? settleStrasse(gid(interaction), uid(interaction)) : null;
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
@@ -2219,7 +2448,7 @@ Object.assign(buttons, {
     // 5b, §4: Beim Start gibt es noch keinen Beef – aber dieser Knopf ist auch
     // der Weg aus einer alten Nachricht (`already_started`), und dann gilt
     // dasselbe wie überall: abrechnen und melden, nicht in der Ansicht buchen.
-    const streit = settleBeef(guildId, userId);
+    const streit = settleStrasse(guildId, userId);
     const res = require('./music').setup(guildId, userId, genreId, personaId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2247,7 +2476,7 @@ Object.assign(buttons, {
     await require('./decisions').settle(guildId, userId).catch(() => []);
     // 5b, §4: Der Gegenschlag steht VOR der Session – und er wird gemeldet,
     // weil die Ansicht ihn nicht mehr selbst bucht.
-    const streit = settleBeef(guildId, userId);
+    const streit = settleStrasse(guildId, userId);
     const res = music.record(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2361,7 +2590,7 @@ Object.assign(buttons, {
     const userId = uid(interaction);
     // 5b, §4: wie bei `mstudio` – abrechnen und melden, bevor die Ansicht
     // die neuen Zahlen zeigt.
-    const streit = settleBeef(guildId, userId);
+    const streit = settleStrasse(guildId, userId);
     const res = require('./music').reveal(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -2390,7 +2619,7 @@ Object.assign(buttons, {
     const userId = uid(interaction);
     // 5b, §4: wie bei `kontakt` – erst abrechnen und MELDEN, dann die Liste
     // bauen. Sonst nimmt ein fälliger Gegenschlag beim Blättern stumm Hype.
-    const note = settleBeef(guildId, userId);
+    const note = settleStrasse(guildId, userId);
     await interaction.update(await buildKontakteView({
       guildId, userId, filter, page: Number(page) || 1,
     }));
@@ -2406,7 +2635,7 @@ Object.assign(buttons, {
     const userId = uid(interaction);
     // 5b, §4: Hier wird abgerechnet, nicht in der Ansicht – nur hier kann ein
     // fälliger Gegenschlag auch GEMELDET werden, statt stumm Hype zu kosten.
-    const note = settleBeef(guildId, userId);
+    const note = settleStrasse(guildId, userId);
     await interaction.update(await buildKontaktView({ guildId, userId, contactId }));
     if (note) {
       await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral })
@@ -2489,6 +2718,69 @@ Object.assign(buttons, {
     await interaction.editReply(await buildKontaktView({ guildId, userId, contactId }));
     await interaction.followUp({
       content: mitBeef(res.vorher, friedenNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /**
+   * ===========================================================================
+   *  ANGEBOTE (5c) – annehmen, absagen, am Projekt arbeiten
+   * ===========================================================================
+   *
+   * Alle drei im Stil der Beef-Knöpfe: handeln, die Ansicht neu bauen, das
+   * Ergebnis ephemer melden. Die faule Abrechnung (§4) bringt jede der drei
+   * Aktionen selbst als Schritt 0 mit und gibt sie unter `vorher` heraus –
+   * deshalb geht JEDE Meldung durch `mitAngebote`, auch die der Ablehnungen.
+   * Ohne das verschluckt ein ins Leere gehender Klick eine verfallene Anfrage
+   * samt Draht-Verlust.
+   *
+   * `annehmen` und `arbeiten` sind async (`music.payGig`, `music.show`) – beide
+   * Knöpfe müssen also `await`en, sonst baut die Ansicht auf einem Stand, den
+   * die Buchung noch nicht gesehen hat.
+   */
+
+  /** Eine Anfrage annehmen: `angebot-an|<id>|<uid>`. */
+  'angebot-an': async (interaction, [id]) => {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    const res = await require('./angebote').annehmen(guildId, userId, Number(id));
+    await interaction.editReply(
+      await require('./angeboteUi').buildAngeboteView({ guildId, userId }));
+    await interaction.followUp({
+      content: mitAngebote(res.vorher, annahmeNote(res, symbol)),
+      flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /** Eine Anfrage absagen: `angebot-ab|<id>|<uid>`. */
+  'angebot-ab': async (interaction, [id]) => {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const res = require('./angebote').ablehnen(guildId, userId, Number(id));
+    await interaction.editReply(
+      await require('./angeboteUi').buildAngeboteView({ guildId, userId }));
+    await interaction.followUp({
+      content: mitAngebote(res.vorher, absageNote(res)), flags: MessageFlags.Ephemeral,
+    }).catch(() => {});
+  },
+
+  /** Zwei Stunden am großen Format: `angebot-arbeit|<id>|<uid>`. */
+  'angebot-arbeit': async (interaction, [id]) => {
+    await interaction.deferUpdate();
+    const guildId = gid(interaction);
+    const userId = uid(interaction);
+    const symbol = await getSymbol(guildId);
+    // Ein voller Abschluss veröffentlicht oder spielt fünf Abende – Vorfälle
+    // gehören davor abgerechnet, genau wie bei `mpub` und `mshow`.
+    await require('./decisions').settle(guildId, userId).catch(() => []);
+    const res = await require('./angebote').arbeiten(guildId, userId, Number(id));
+    await interaction.editReply(
+      await require('./angeboteUi').buildAngeboteView({ guildId, userId }));
+    await interaction.followUp({
+      content: mitAngebote(res.vorher, arbeitNote(res, symbol)),
+      flags: MessageFlags.Ephemeral,
     }).catch(() => {});
   },
 
@@ -2821,7 +3113,12 @@ Object.assign(buttons, {
     const note = res.ok
       ? `✍️ Unterschrieben bei **${res.contract.agency}**.\n` +
         `💰 Vorschuss: **${money(symbol, res.advance)}**\n` +
-        `${require('./music').IDOL.rules.join('\n')}`
+        // 5c: Die Regeln DIESES Vertrags, nicht die des Idol-Angebots.
+        // `sign` gibt die Konditionen seiner Art unter `res.terms` zurück;
+        // mit fest verdrahtetem `IDOL` las ein Label-Unterzeichner „50 %
+        // der Einnahmen" und „90 Tage Laufzeit", während die Kasse 30 %
+        // nahm und der Vertrag 60 Tage lief.
+        `${res.terms.rules.join('\n')}`
       : (problems[res.reason] ?? '❌ Das ging nicht.');
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
@@ -2849,7 +3146,7 @@ Object.assign(buttons, {
     const userId = uid(interaction);
     const symbol = await getSymbol(guildId);
     // 5b, §4: auch hier – die Ansicht rechnet nicht ab, der Handler tut es.
-    const streit = settleBeef(guildId, userId);
+    const streit = settleStrasse(guildId, userId);
     const res = await require('./music').leave(guildId, userId);
     await interaction.editReply(await buildMusicView({ guildId, userId }));
 
@@ -3556,4 +3853,6 @@ module.exports = {
   homeNudge, settleMusic, kontaktNote,
   releaseNote, releaseProblem,
   beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
+  angebotNote, mitAngebote, settleAngebote, settleStrasse, angebotProblem,
+  annahmeNote, absageNote, arbeitNote,
 };
