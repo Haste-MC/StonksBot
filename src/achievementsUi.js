@@ -35,7 +35,26 @@ const OFFEN_MAX = 8;
  * Geholte oben (Platin zuerst), darunter die nächsten erreichbaren Ziele.
  */
 async function buildAchievementsView({ guildId, userId, page = 1 }) {
-  const { geholt, offen, gesamt } = await achievements.listFor(guildId, userId);
+  /*
+   * Erst vergeben, dann zeigen.
+   *
+   * `state()` ist die einzige Stelle, die Zustands-Erfolge (Vermögen, Level,
+   * Fuhrpark) vergibt, und sie hing an genau zwei Ansichten: Heimat und
+   * Profil. Diese hier rief nur `listFor`, das denselben Zusammenhang baut,
+   * den Fortschritt rechnet – und nichts vergibt. Wer die Million überschritt
+   * und danach nur noch seine Erfolge anschaute, sah seine eigene Zahl über
+   * dem Ziel stehen („1.105.621 / 1.000.000") und bekam ihn trotzdem nie.
+   *
+   * Das Vermögen wird EINMAL geholt und an beide weitergereicht: `listFor`
+   * fragt es ohnehin bei jedem Aufbau ab, zwei Abfragen wären Verschwendung.
+   * `await` statt Feuern-und-Vergessen, damit der Erfolg schon in DIESER
+   * Antwort oben unter „Geholt" steht und nicht erst beim nächsten Öffnen.
+   */
+  const worth = await require('./networth').of(guildId, userId).catch(() => null);
+  await achievements.backfill(guildId, userId).catch(() => {});
+  await achievements.state(guildId, userId, worth).catch(() => {});
+
+  const { geholt, offen, gesamt } = await achievements.listFor(guildId, userId, worth);
 
   const embed = new EmbedBuilder()
     .setTitle('🏅 Erfolge')

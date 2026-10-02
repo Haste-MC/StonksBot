@@ -915,6 +915,52 @@ const A = 'fx:anton', B = 'fx:berta';
     worthAufrufeShort2 === 0, String(worthAufrufeShort2));
   networth.of = echtesOf;
 
+  console.log('--- Die Erfolgs-Ansicht vergibt, was sie als erfüllt anzeigt ---');
+  /*
+   * Gemeldeter Fehler: „Millionär" stand mit 1.105.621 / 1.000.000 unter
+   * „Als Nächstes" und wurde nie abgehakt, die Durchsage kam nie.
+   *
+   * Ursache: `state()` ist die einzige Stelle, die Zustands-Erfolge vergibt,
+   * und sie hing an genau zwei Ansichten (Heimat, Profil). Die Erfolgs-
+   * Ansicht selbst rief nur `listFor`, das denselben Zusammenhang baut, den
+   * Fortschritt rechnet – und nichts vergibt. Wer die Million überschritt und
+   * danach nur noch seine Erfolge anschaute, sah seine eigene Zahl über dem
+   * Ziel stehen und bekam den Erfolg trotzdem nicht.
+   */
+  const WVIEW = `${W}_VIEW`;
+  const SPAET = 'fx:spaeter-millionaer';
+  let vermoegen = 600_000;
+  networth.of = async () => ({ total: vermoegen });
+
+  // Der Nachtrag läuft, solange das Konto noch unter einer Million liegt.
+  await ach.backfill(WVIEW, SPAET).catch(() => {});
+  const nachNachtrag = new Set(db.achievementsOf(WVIEW, SPAET).map((r) => r.ach_id));
+  check('Nachtrag bei 600.000 gibt die halbe Million, nicht die ganze',
+    nachNachtrag.has('worth_500k') && !nachNachtrag.has('worth_1m'),
+    [...nachNachtrag].join(','));
+
+  // Danach wird der Spieler Millionär und schaut NUR auf seine Erfolge.
+  vermoegen = 1_105_621;
+  const { offen } = await ach.listFor(WVIEW, SPAET);
+  const millionaer = offen.find((r) => r.id === 'worth_1m');
+  check('die Ansicht zeigt den Fortschritt über dem Ziel',
+    Boolean(millionaer) && millionaer.progress[0] >= millionaer.progress[1],
+    millionaer ? millionaer.progress.join(' / ') : '(nicht offen)');
+
+  await require('../src/achievementsUi').buildAchievementsView({ guildId: WVIEW, userId: SPAET });
+  check('und das Öffnen der Erfolgs-Ansicht vergibt ihn auch',
+    db.achievementsOf(WVIEW, SPAET).some((r) => r.ach_id === 'worth_1m'),
+    db.achievementsOf(WVIEW, SPAET).map((r) => r.ach_id).join(','));
+
+  // Ein frisches Konto, das als Erstes die Erfolge öffnet, muss ebenfalls
+  // seinen Nachtrag bekommen – sonst steht dort eine leere Liste.
+  const FRISCH = 'fx:frisch-direkt-erfolge';
+  await require('../src/achievementsUi').buildAchievementsView({ guildId: WVIEW, userId: FRISCH });
+  check('ein frisches Konto bekommt beim ersten Blick seinen Nachtrag',
+    Boolean(db.getClaim(WVIEW, FRISCH, 'ach_backfill')));
+
+  networth.of = echtesOf;
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();
