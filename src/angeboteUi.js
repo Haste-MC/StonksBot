@@ -105,7 +105,16 @@ function ertragZeile(art, lage, market) {
   if (art.id === 'tausch') return '📣 Schub auf deine nächste Veröffentlichung';
   if (art.id === 'kollabo') {
     const f = angebote.kollaboFaktorOf({ meine: lage.meine, seine: lage.seine });
+    /*
+     * Die Titel stehen VOR dem Faktor, weil sie der Preis sind, den man
+     * übersehen kann: Die 18 Stunden sieht man am Balken, die sechs
+     * aufgenommenen Titel bisher nirgends – die erste Erwähnung war die Absage
+     * `no_songs` nach dem letzten Druck (gemessen 1.825 Mal). Die Zahl kommt
+     * aus `data.KOLLABO_TITEL` und nicht als getippte 6: Sie steht an einer
+     * Stelle, und `music.publish` rechnet mit derselben.
+     */
     return `💿 ${data.KOLLABO_STUNDEN} Stunden Arbeit · `
+      + `${data.KOLLABO_TITEL} aufgenommene Titel · `
       + `Publikum ×${faktor(Math.round(f * 100) / 100)}`;
   }
   if (art.id === 'tour') {
@@ -122,7 +131,10 @@ function ertragZeile(art, lage, market) {
 function projektErtrag(projekt, lage) {
   if (projekt.art === 'kollabo') {
     const f = angebote.kollaboFaktorOf({ meine: lage.meine, seine: lage.seine });
-    return `Publikum ×${faktor(Math.round(f * 100) / 100)}`;
+    // Auch am laufenden Konto: Wer 16 von 18 Stunden hinter sich hat, soll
+    // hier lesen, was ihm sonst noch fehlt – nicht erst beim letzten Druck.
+    return `Publikum ×${faktor(Math.round(f * 100) / 100)} · `
+      + `${data.KOLLABO_TITEL} aufgenommene Titel nötig`;
   }
   if (projekt.art === 'tour') return `${data.TOUR_KONZERTE} Konzerte am Stück`;
   return null;
@@ -255,4 +267,7 @@ async function buildAngeboteView({ guildId, userId }) {
   return { embeds: [embed], components: rows };
 }
 
-module.exports = { buildAngeboteView };
+// `restFrist` geht mit hinaus, weil `annahmeNote` (src/buttons.js) dieselbe
+// Form braucht: „Frist 14 Tage" im Nominativ. `ui.frist` liefert den Dativ
+// („in 14 Tagen") und ist dafür der falsche Helfer.
+module.exports = { buildAngeboteView, restFrist };

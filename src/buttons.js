@@ -925,10 +925,28 @@ function annahmeNote(res, symbol, now = Date.now()) {
       + `noch ${restZeit(Math.max(0, res.schub.until - now))}`);
   }
   if (res.projekt) {
+    // `restFrist` und nicht `frist`: `frist` liefert den Dativ („in 14 Tagen"),
+    // und hier steht die Frist als Angabe da – „Frist 14 Tagen" war ein Kasus
+    // zu viel. Dieselbe Form wie in der Angebots-Ansicht, aus derselben Stelle.
     zeilen.push(`${res.art.emoji} Stundenkonto offen: **0 von `
       + `${Number(res.projekt.stunden_soll).toLocaleString('de-DE')}** Stunden, `
-      + `Frist ${frist(Math.max(0, res.projekt.frist - now))} `
+      + `Frist ${require('./angeboteUi').restFrist(Math.max(0, res.projekt.frist - now))} `
       + `· je Druck auf 🛠️ Arbeiten **${adata.ARBEIT_STUNDEN}** Stunden`);
+    /*
+     * Die sechs aufgenommenen Titel gehören HIER gesagt, nicht erst beim
+     * neunten Druck.
+     *
+     * `KOLLABO_TITEL` stand in keiner Ansicht, in keiner Angebotszeile und in
+     * keiner Zusage – die erste Erwähnung war die Absage `no_songs`, und zwar
+     * NACH den 18 Stunden. Gemessen sind 1.825 solcher Drücke und 174 von 195
+     * Kollabos, die mit vollem Stundenkonto verfallen sind, weil die Titel
+     * fehlten (`docs/messungen/2026-10-02-angebote.txt`): 18 von 24 Tagesstunden
+     * für einen Preis, den niemand vorher genannt hat.
+     */
+    if (res.projekt.art === 'kollabo') {
+      zeilen.push(`🎼 Dafür brauchst du am Ende **${adata.KOLLABO_TITEL}** aufgenommene `
+        + 'Titel – ohne sie erscheint nichts, und die Stunden sind weg.');
+    }
   }
   if (res.vertragsangebot) {
     const tage = Math.round(music.CONTRACT_OFFER_MS / 86_400_000);
@@ -936,7 +954,18 @@ function annahmeNote(res, symbol, now = Date.now()) {
       + 'über 🎵 Musik → 📜 Anfrage.');
   }
   zeilen.push(beefDraht(res.draht));
-  zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
+  /*
+   * Der Reststand nur, wenn er WIRKLICH bekannt ist.
+   *
+   * `?? 0` schrieb bei den Nullbuchungen (`kollabo`, `tour` – `time: 0`) einem
+   * Spieler mit vollen 24 Stunden „heute übrig: 0 Stunden" an einen Tag, an dem
+   * nichts gebucht wurde. `annehmen` liefert den Stand jetzt in beiden Zweigen
+   * mit; diese Schranke bleibt als Boden für jeden künftigen Rückgabeweg, der
+   * ihn nicht kennt – dann steht die Zeile gar nicht da statt falsch (§16).
+   */
+  if (typeof res.zeit?.left === 'number') {
+    zeilen.push(`⏱️ heute übrig: **${res.zeit.left}** Stunden`);
+  }
   return zeilen.filter(Boolean).join('\n');
 }
 

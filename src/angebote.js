@@ -70,6 +70,10 @@ function fristOf(erstellt) { return erstellt + data.FRIST_TAGE * 86_400_000; }
  * Wie viele Tageswürfe nachzuholen sind. Ohne die Obergrenze bekäme ein
  * Spieler nach drei Wochen Pause zwanzig Würfe auf einmal und damit sofort
  * beide Plätze voll.
+ *
+ * Ohne `last_roll` – also beim allerersten `settle` – ist es **ein** Wurf und
+ * nicht null: Der erste Blick soll eine Chance haben und nicht erst der zweite.
+ * Das ist auch die Menge, mit der gemessen wurde.
  */
 function rollTage(lastRoll, now) {
   if (!lastRoll) return 1;
@@ -316,10 +320,22 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
   //    EIN Treffer. Ohne Musikkarriere meldet sich niemand – es gäbe weder
   //    Genre für die Passung noch eine Seite, auf der man zusagen könnte.
   const wuerfe = rollTage(uhr.last_roll, now);
-  // `musikIch` geht über `music.status` und damit über `db.getArtist` – und das
-  // LEGT den Künstler an, wenn es ihn noch nicht gibt. Darum wird erst gefragt,
-  // wenn überhaupt gewürfelt wird: Ein reiner Blick (null Würfe, nichts
-  // verfallen) darf keine Zeile schreiben (§4), auch keine leere.
+  /*
+   * `musikIch` geht über `music.status` und damit über `db.getArtist` – und das
+   * LEGT den Künstler an, wenn es ihn noch nicht gibt. Darum wird erst gefragt,
+   * wenn überhaupt gewürfelt wird.
+   *
+   * Was das NICHT ist: ein Schutz für den allerersten Blick. `rollTage` gibt
+   * ohne `last_roll` bewusst **1** zurück (siehe dort – der erste Blick soll
+   * einen Wurf haben und nicht erst der zweite), also ist `wuerfe > 0` beim
+   * ersten `settle` immer wahr und die leere `artists`-Zeile entsteht. Das ist
+   * ohne Wirkung – die Zeile trägt kein Genre, keine Persona, keinen Hörer –,
+   * und es bleibt so: Gäbe `rollTage` hier 0 zurück, fehlte jedem gemessenen
+   * Jahr ein Wurf, und die Zustellmenge, auf die `ANFRAGE_CHANCE` eingestellt
+   * ist (`docs/messungen/2026-10-02-angebote.txt`), wäre eine andere. Was die
+   * Abfrage WIRKLICH spart, ist jeder spätere Blick am selben Tag: null Würfe,
+   * keine Abfrage, kein Schreibvorgang (§4).
+   */
   const meine = wuerfe > 0 && now >= pauseBis ? musikIch(guildId, userId, now) : null;
   if (meine) {
     for (let i = 0; i < wuerfe; i++) {
@@ -505,12 +521,22 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
     }
   }
 
-  // 6. Die Stunden – ab hier wird geschrieben, vorher nicht. `kollabo` und
-  //    `tour` kosten bei der Annahme nichts (`time: 0`); dort wird gar nicht
-  //    erst gebucht, weil die API eine Nullbuchung nicht braucht.
+  /*
+   * 6. Die Stunden – ab hier wird geschrieben, vorher nicht.
+   *
+   * `kollabo` und `tour` kosten bei der Annahme nichts (`time: 0`); dort wird
+   * gar nicht erst gebucht, weil die API eine Nullbuchung nicht braucht. Der
+   * Reststand des Tages wird aber trotzdem GELESEN (`creator.budget`, reine
+   * Vorschau): `annahmeNote` druckt `zeit.left`, und solange hier nur
+   * `{ ok: true, factor: 1 }` stand, las ein Spieler mit vollem Tag
+   * „⏱️ heute übrig: 0 Stunden" – eine Zahl, die mit der Buchung nichts zu tun
+   * hatte, in genau der Meldung, die sagen soll, was wirklich passiert ist
+   * (§16). Dasselbe Feld, derselbe Name, derselbe Wert wie bei den Arten, die
+   * Stunden kosten.
+   */
   const zeit = art.time > 0
     ? require('./creator').useTime(guildId, userId, art.time, now)
-    : { ok: true, factor: 1 };
+    : { ok: true, ...require('./creator').budget(guildId, userId, now) };
   if (!zeit.ok) return { ok: false, ...zeit, contact, need: art.time, vorher };
 
   // 7. Die Wirkung der Art. Geld wird hier nur GERECHNET, nicht gebucht.

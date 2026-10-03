@@ -2078,6 +2078,108 @@ function view(buttons) {
         === '📝 Dafür bist du dem Label noch zu klein (25.000 Hörer nötig).',
       angebotProblem({ ok: false, reason: 'zu_klein', need: music.LABEL.minListeners }, jetzt));
 
+    /*
+     * -----------------------------------------------------------------------
+     *  Die Reststunden stimmen auch bei den Nullbuchungen (5c-Review, Blocker 2)
+     * -----------------------------------------------------------------------
+     * `kollabo` und `tour` haben `time: 0`; `annehmen` buchte dort nichts und
+     * gab `{ ok: true, factor: 1 }` ohne `left` heraus. `annahmeNote` druckte
+     * `res.zeit?.left ?? 0` – ein Spieler mit vollen 24 Stunden las „heute
+     * übrig: 0 Stunden", direkt neben der Zusage. Geprüft wird gegen
+     * `creator.budget`, also gegen die Zahl, die auch jede andere Ansicht zeigt.
+     */
+    const creator = require('../src/creator');
+    for (const art of ['kollabo', 'tour']) {
+      const [ZG, ZU] = await neu(60_000);
+      const z = anfrage(ZG, ZU, art, OXMO.id, jetzt + 2 * TAG);
+      const resZ = await ang.annehmen(ZG, ZU, z.id, jetzt, nie);
+      const uebrig = creator.budget(ZG, ZU, jetzt).left;
+      check(`${art} kostet nichts – und meldet den ECHTEN Reststand des Tages`,
+        resZ.ok === true && resZ.zeit.left === uebrig && uebrig === 24,
+        JSON.stringify({ ok: resZ.ok, reason: resZ.reason, left: resZ.zeit?.left, uebrig }));
+      check(`und die Zusage zu ${art} schreibt ihn auch so hin`,
+        annahmeNote(resZ, '€', jetzt).includes(`⏱️ heute übrig: **${uebrig}** Stunden`),
+        annahmeNote(resZ, '€', jetzt));
+    }
+    // Die Gegenprobe: `label` kostet 2 Stunden, dort muss die Zahl FALLEN.
+    {
+      const [ZG, ZU] = await neu(60_000);
+      const z = anfrage(ZG, ZU, 'label', OXMO.id, jetzt + 2 * TAG);
+      const resZ = await ang.annehmen(ZG, ZU, z.id, jetzt, nie);
+      check('label kostet 2 Stunden – und meldet 22 übrig',
+        resZ.ok === true && resZ.zeit.left === 22
+        && annahmeNote(resZ, '€', jetzt).includes('⏱️ heute übrig: **22** Stunden'),
+        JSON.stringify({ ok: resZ.ok, reason: resZ.reason, left: resZ.zeit?.left }));
+    }
+    // Und ohne bekannten Reststand steht die Zeile GAR NICHT da statt falsch.
+    check('ohne bekannte Reststunden fehlt die Zeile, statt 0 zu behaupten',
+      !annahmeNote({ ...resAn, zeit: { ok: true } }, '€', jetzt).includes('heute übrig'),
+      annahmeNote({ ...resAn, zeit: { ok: true } }, '€', jetzt));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die sechs Titel stehen VOR den 18 Stunden (5c-Review, Blocker 4)
+     * -----------------------------------------------------------------------
+     * `KOLLABO_TITEL` kam in keiner Ansicht und in keiner Meldung vor – die
+     * erste Erwähnung war die Absage `no_songs` NACH dem letzten der neun
+     * Drücke (gemessen 1.825 Mal, und 174 von 195 Kollabos sind mit vollem
+     * Stundenkonto verfallen). Geprüft wird an allen drei Stellen, und zwar
+     * gegen `data.KOLLABO_TITEL`: Die Zahl wird unten verbogen, damit eine
+     * getippte 6 auffliegt.
+     */
+    {
+      const [MG, MU] = await neu(60_000);
+      const mk = anfrage(MG, MU, 'kollabo', OXMO.id, jetzt + 2 * TAG);
+      const zeileMit = async () => (await angeboteUi.buildAngeboteView(
+        { guildId: MG, userId: MU })).embeds[0].toJSON().description;
+      check(`die Angebotszeile nennt die ${adata.KOLLABO_TITEL} aufgenommenen Titel`,
+        (await zeileMit()).includes(`${adata.KOLLABO_TITEL} aufgenommene Titel`),
+        (await zeileMit()).split('\n').filter((z) => z.includes('Stunden Arbeit')).join(' / '));
+
+      const resM = await ang.annehmen(MG, MU, mk.id, jetzt, nie);
+      const mNote = annahmeNote(resM, '€', jetzt);
+      check('die Zusage zum Kollabo sagt, was am Ende noch gebraucht wird',
+        resM.ok === true
+        && mNote.includes(`🎼 Dafür brauchst du am Ende **${adata.KOLLABO_TITEL}** `
+          + 'aufgenommene Titel – ohne sie erscheint nichts, und die Stunden sind weg.'),
+        mNote);
+      check('und der Fortschrittsbalken wiederholt es am laufenden Konto',
+        (await zeileMit()).includes(`${adata.KOLLABO_TITEL} aufgenommene Titel nötig`),
+        (await zeileMit()).split('\n').filter((z) => z.includes('von 18')).join(' / '));
+
+      /*
+       * Der Beweis, dass die Zahl an allen drei Stellen aus der Konstante kommt:
+       * `KOLLABO_TITEL` wird verbogen und der ganze Weg noch einmal gegangen –
+       * Angebotszeile, Zusage, Fortschrittsbalken. Eine getippte 6 bliebe an
+       * ihrer Stelle stehen und fällt hier auf. `music.publish` verlangt
+       * dieselbe Konstante; die Anzeige muss ihr folgen, sonst verspricht sie
+       * eine andere Hürde als die, an der das Projekt scheitert.
+       */
+      const echt = adata.KOLLABO_TITEL;
+      try {
+        adata.KOLLABO_TITEL = 7;
+        const [BG, BU] = await neu(60_000);
+        const bk = anfrage(BG, BU, 'kollabo', OXMO.id, jetzt + 2 * TAG);
+        const sicht = async () => (await angeboteUi.buildAngeboteView(
+          { guildId: BG, userId: BU })).embeds[0].toJSON().description;
+        const bAngebot = await sicht();
+        const bRes = await ang.annehmen(BG, BU, bk.id, jetzt, nie);
+        const bNote = annahmeNote(bRes, '€', jetzt);
+        const bBalken = await sicht();
+        check('alle drei Stellen folgen data.KOLLABO_TITEL und keiner getippten 6',
+          bAngebot.includes('7 aufgenommene Titel')
+          && !bAngebot.includes('6 aufgenommene Titel')
+          && bNote.includes('**7** aufgenommene Titel')
+          && bBalken.includes('7 aufgenommene Titel nötig')
+          && !bBalken.includes('6 aufgenommene Titel'),
+          JSON.stringify({ angebot: bAngebot.split('\n').pop(),
+            note: bNote.split('\n').filter((z) => z.includes('Titel')).join(' / '),
+            balken: bBalken.split('\n').pop() }));
+      } finally {
+        adata.KOLLABO_TITEL = echt;
+      }
+    }
+
     // --- Arbeiten: Stand und Abschluss -------------------------------------
     const [HG, HU] = await neu();
     const hp = db.insertProjekt({
@@ -2353,6 +2455,49 @@ function view(buttons) {
     check('ein Idol-Angebot zeigt unverändert seine eigenen Zahlen',
       idol.includes('25 Tage Tantiemen') && idol.includes('Laufzeit 90 Tage')
       && idol.includes('30 Tage Einnahmen'), idol);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die Ansicht darf sich nicht selbst widersprechen (5c-Review, Blocker 1)
+     * -----------------------------------------------------------------------
+     * `LABEL.blurb` begann mit „Ein Vertrag über **zwei Jahre** Musik", während
+     * `durationDays` 60 ist und derselbe Fußtext drei Zeilen darunter „Laufzeit
+     * 60 Tage" schrieb – ein Faktor zwölf in EINER Meldung, direkt über
+     * ✍️ Unterschreiben. Geprüft wird nicht der Wortlaut, sondern die Aussage:
+     * Jede Laufzeitangabe in Beschreibung und Fußtext wird in Tage umgerechnet
+     * und gegen `durationDays` gestellt. Beträge in „Tagen Einnahmen" oder
+     * „Tagen Tantiemen" sind keine Laufzeiten und zählen nicht mit – deshalb
+     * stehen nur Beschreibung (der Blurb) und die „Laufzeit"-Angabe des
+     * Fußtexts im Prüfbereich.
+     */
+    const ZAHLWORT = { ein: 1, eine: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6,
+      sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, zwölf: 12 };
+    const EINHEIT = { tag: 1, tage: 1, tagen: 1, woche: 7, wochen: 7,
+      monat: 30, monate: 30, monaten: 30, jahr: 365, jahre: 365, jahren: 365 };
+    /** Jede „<Zahl oder Zahlwort> <Zeiteinheit>"-Angabe eines Texts, in Tagen. */
+    const laufzeiten = (text) => [...text.matchAll(
+      /(\d+|[A-Za-zÄÖÜäöü]+)\s+(Tage?n?|Woche[n]?|Monate?n?|Jahre?n?)\b/g)]
+      .map(([, zahl, einheit]) => {
+        const n = /^\d+$/.test(zahl) ? Number(zahl) : ZAHLWORT[zahl.toLowerCase()];
+        return n === undefined ? null : n * EINHEIT[einheit.toLowerCase()];
+      })
+      .filter((t) => t !== null);
+
+    const ANGEBOTE = [
+      ['Label', music.LABEL, { guildId: G, userId: U }],
+      ['Idol', music.IDOL, { guildId: IG2, userId: IU2 }],
+    ];
+    for (const [name, kond, wer] of ANGEBOTE) {
+      const e = (await ui.buildMusicDealView(wer)).embeds[0].toJSON();
+      const laufzeitSatz = (e.footer?.text ?? '').split('·')
+        .find((t) => t.includes('Laufzeit')) ?? '';
+      const gemessen = [...laufzeiten(e.description ?? ''), ...laufzeiten(laufzeitSatz)];
+      check(`${name}: jede Laufzeitangabe der Ansicht trifft durationDays `
+        + `(${kond.durationDays} Tage)`,
+        gemessen.length > 0 && gemessen.every((t) => t === kond.durationDays),
+        JSON.stringify({ gemessen, soll: kond.durationDays,
+          text: `${e.description} | ${laufzeitSatz}` }));
+    }
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

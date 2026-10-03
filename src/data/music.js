@@ -141,7 +141,16 @@ const LABEL = {
   minListeners: 25_000,
   durationDays: 60,
   cut: 0.30,                // Anteil der Musikeinnahmen für das Label
-  growth: 1.5,              // dafür wächst die Hörerschaft halb so schnell wieder dazu
+  /*
+   * Wachstum ×1,5 – **schneller, nicht größer**, und das ist kein Nachteil.
+   *
+   * `simulateRelease` legt diesen Faktor auf `gained` UND auf `lost` (siehe
+   * dort, Schritt 3): Die Hörerschaft füllt sich eineinhalbmal so schnell
+   * auf und leert sich eineinhalbmal so schnell. Die DECKE heben Szene und
+   * Genre, nicht der Vertrag (§3). Wer das als „halb so schnell" liest,
+   * liest die Zahl verkehrt: 1,5 ist die Beschleunigung, nicht ihr Kehrwert.
+   */
+  growth: 1.5,
   liveBonus: 1.2,           // etwas größere Hallen
   scandalFactor: 1.0,       // ein Fehltritt kostet wie ohne Vertrag
   exitPenaltyDays: 15,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
@@ -162,12 +171,24 @@ const LABEL = {
    * `advanceDays: 0` wäre er ein Verlustgeschäft, das niemand nehmen sollte.
    */
   advanceDays: 3,
-  blurb: 'Ein Vertrag über zwei Jahre Musik, ohne Trainingsplan und ohne '
+  /*
+   * „zwei Monate" und nicht „zwei Jahre": Der Blurb ist die BESCHREIBUNG von
+   * `durationDays` (60), und `buildMusicDealView` druckt ihn drei Zeilen über
+   * dem Fußtext „Laufzeit 60 Tage" – direkt über ✍️ Unterschreiben. Stand da
+   * „zwei Jahre", widersprach sich dieselbe Meldung um den Faktor zwölf.
+   * test/fluxer-render.test.js rechnet jede Laufzeitangabe der Ansicht gegen
+   * `durationDays` nach; wer die 60 ändert, ändert diesen Satz mit.
+   */
+  blurb: 'Ein Vertrag über zwei Monate Musik, ohne Trainingsplan und ohne '
     + 'Vorschriften, mit wem du dich zeigst.',
   rules: [
     '💰 Vorschuss bei Unterschrift: 3 Tage Tantiemen, sofort auf die Hand.',
     '💴 Danach gehen 30 % deiner Musikeinnahmen an das Label.',
-    '📈 Dafür wächst deine Hörerschaft halb so schnell wieder dazu.',
+    // „eineinhalbmal so schnell" und nicht „um 50 % mehr": Der Faktor sitzt in
+    // `simulateRelease` auf Zuwachs und Abgang. Mehr HÖRER bringt er nicht,
+    // nur schneller welche – und ebenso schnell wieder weg.
+    '📈 Dafür wächst deine Hörerschaft **eineinhalbmal so schnell** – schneller, '
+      + 'nicht größer: Derselbe Schub zieht auch die Abgänge mit.',
     '🎤 Etwas größere Hallen: Konzerte bringen 20 % mehr.',
   ],
 };

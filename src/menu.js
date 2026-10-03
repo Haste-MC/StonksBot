@@ -24,6 +24,16 @@ const casinoUi = require('./casinoUi');
  * Discord erlaubt 25 Buttons (5 Zeilen à 5) – das gilt seit der Kategorien-
  * Aufteilung (siehe unten) je Kategorie, nicht mehr für ENTRIES insgesamt.
  * test/menu.test.js prüft das je Kategorie.
+ *
+ * **Die engere Grenze ist Fluxer, und `work` sitzt genau darauf.** Eine
+ * Kategorie-Ansicht trägt ihre Einträge plus 🏠 Hauptmenü, und die Brücke
+ * vergibt höchstens `MAX_REACTIONS` = 9 Reaktionen (`src/fluxer/render.js`,
+ * §16). `work` hat acht Einträge, mit dem Hauptmenü also neun – kein Platz
+ * mehr. Ein NEUNTER Eintrag in `work` fällt auf Fluxer hinten heraus: Die
+ * Brücke hängt dann „… und 1 weitere" an und der Rückweg ins Hauptmenü ist
+ * weg, während in Discord alles aussieht wie immer. Wer hier einen Eintrag in
+ * `work` ergänzt, teilt die Kategorie vorher auf (eine eigene Gruppe für die
+ * Musikwege wäre die naheliegende) – oder er nimmt einen heraus.
  */
 const ENTRIES = [
   {

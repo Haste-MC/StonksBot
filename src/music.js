@@ -729,6 +729,23 @@ function showGain(listeners, quality = 1, eventGain = 1) {
  * 2 % falsch bepreist – in beide Richtungen, denn `decayed` zieht im selben
  * Atemzug den Leerlauf-Verfall ab. Ein `settle` an dieser Stelle wäre außerdem
  * eine ZWEITE Geldbuchung in einer Aktion, die laut §9 genau eine haben darf.
+ *
+ * **Die Tour (5c) ist derselbe Fall, fünfmal.** `angebote.arbeiten` spielt zum
+ * Abschluss `TOUR_KONZERTE` Abende hintereinander (`show(..., { force: true })`),
+ * jeder davon hebt die Hörerschaft um seine 2 %, und keiner rechnet die
+ * Tantiemen ab: 1,02⁵ = +10,4 % Hörer, über `hörer^1,2` also +12,6 % auf den
+ * Tagessatz. Auf einem VOLLEN Rückstand von MAX_SETTLE_DAYS = 14 Tagen sind das
+ * bei 10.000 Hörern rund 1.700 zu viel (Markt-Tantiemenfaktor 1,0; in
+ * Deutschland mit 1,15 rund 1.900) – knapp zwei Tage Tantiemen, nachgerechnet
+ * mit `royaltyPerDay`, nicht gemessen. Einmal je Tour, und nur, wenn der
+ * Spieler zwei Wochen nicht abgerechnet hat.
+ *
+ * Die Reihenfolge bleibt trotzdem so, aus zwei Gründen: Ein `settle` zwischen
+ * den Abenden wären fünf Geldbuchungen in einer Aktion (§9), und die
+ * Fehlbepreisung geht in BEIDE Richtungen – `decayed` zieht am selben Punkt den
+ * Leerlauf-Verfall ab, der denselben Rückstand zu teuer bezahlt hätte. Wer
+ * `TOUR_KONZERTE`, `SHOW_GAIN` oder `MAX_SETTLE_DAYS` anfasst, rechnet diese
+ * Zahl neu: Sie wächst mit allen drei.
  */
 function bookSupportShow(guildId, userId, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);

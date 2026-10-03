@@ -107,13 +107,21 @@ const COMMANDS = [
     names: ['musik', 'music', 'studio', 'artist'],
     info: 'Deine Musikkarriere',
     run: async ({ guildId, userId }) => {
-      const music = require('../music');
-      await music.settle(guildId, userId).catch(() => null);
-      music.settleContracts(guildId, userId);
-      await require('../decisions').settle(guildId, userId).catch(() => []);
-      // 5b, §4: Der fällige Gegenschlag und die Abrechnung gehören gemeldet –
-      // die Ansicht bucht sie nicht mehr selbst (sonst verschwänden sie).
-      const note = require('../buttons').settleBeef(guildId, userId);
+      /*
+       * EINE Abrechnung für beide Plattformen: `buttons.settleMusic`.
+       *
+       * Hier stand bis 5c dieselbe Abrechnung handgeschrieben – Tantiemen,
+       * Verträge, Vorfälle – und danach `settleBeef`. Das war einmal richtig
+       * und ist mit 5c falsch geworden: `settleBeef` meldet den Gegenschlag,
+       * aber nicht die Angebote, und `settle` der Angebote lief auf diesem Weg
+       * überhaupt nicht. Ein Fluxer-Spieler sah also die Hinweiszeile
+       * „📬 2 Angebote warten", während eine gerissene Frist samt ihren −8 Draht
+       * ungemeldet blieb – auf demselben Knopf, der sie in Discord abrechnet.
+       * `settleMusic` ist der Weg, den auch `src/commands/musik.js` nimmt, und
+       * es ruft `settleStrasse` (Beef UND Angebote); dazu meldet es die
+       * Tantiemen, die dieser Weg vorher stumm gebucht hat.
+       */
+      const note = await require('../buttons').settleMusic(guildId, userId);
       return { view: await ui.buildMusicView({ guildId, userId }), note };
     },
   },

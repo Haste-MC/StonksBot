@@ -1687,7 +1687,18 @@ gemessen** (in der Ausgangseinstellung bis ×1,683, im Kontrollpaar bis ×1,353
 bzw. ×1,360), die
 Decke ×2,0 steht als Rechnung da. Ein Spieler, der es schafft, mit Coldplay
 befreundet zu sein, während er selbst klein ist, ist in keinem gemessenen Jahr
-vorgekommen – die Antwortchance dafür ist 2,0 %. (8) **5c macht einen alten Vorfall erstmals überall
+vorgekommen – die Antwortchance dafür ist 2,0 %. **Und die ×2,0 sind nicht die
+Decke des Abends, sondern nur einer von zwei Faktoren:** Der Kollabo-Faktor geht
+als `audienceFactor` in `simulateRelease`, der 5a-Schub über
+`contacts.consumeBoost('release', …)` – und das Album, mit dem das Kollabo
+erscheint, VERBRAUCHT diesen Schub wie jedes andere. Die beiden multiplizieren
+sich also (`src/music.js`, `publish`: `audienceFactor * … * (kb?.factor ?? 1)`):
+×2,0 neben einem Schub ×4 (die Decke von `boostOf`, bei `feature` ×6) ist ×8,0
+auf das erreichte Publikum, nicht ×2,0. Wer die Obergrenze dieses Wegs
+abschätzen will, rechnet beide Faktoren. **Gemessen ist diese Paarung nicht:**
+Die Messung protokolliert den Kollabo-Faktor (Ø 1,037, höchstens ×1,069), aber
+nicht, welcher 5a-Schub beim Erscheinen der fünf fertigen Kollabos gerade lag –
+der Höchstwert ×8,0 ist also eine Rechnung, genau wie die ×2,0. (8) **5c macht einen alten Vorfall erstmals überall
 erreichbar.** „Das Label will verschieben" (`src/data/musicDecisions.js`,
 `requires: { contract: true }`) gab es vorher nur in Japan und Korea, weil nur
 dort ein Vertrag möglich war. Seine Option „Durchziehen" platzt mit 40 %, und das
@@ -1712,7 +1723,38 @@ Gemessen macht er in jeder Variante **0,00** Kanalaktionen am Tag, Musik+Creator
 in `alles-an` **10,31** (ohne Angebote 10,70). Die Gegenanfragen füllen bei ihm
 also Stunden, um die nichts anderes konkurriert, und er muss nichts verdrängen.
 Wer danach die Rangfolge oben fortschreibt, muss beides nennen – eine Zahl „für
-den Spieler" gibt es hier nicht.
+den Spieler" gibt es hier nicht. (12) **Die Vorgruppe trägt keinen einzigen
+Faktor des Konzerts, und für manche Künstler ist sie deshalb schlechter als der
+Abend, den sie verbraucht.** `gageOf` ist `SHOW_PAY × (meine + extra)^SHOW_EXP`
+und sonst nichts: keine `market.scene`, kein `market.deal`, kein `genre.live`,
+kein `persona.live`, kein Güte-Wurf, kein Ereignis und kein `liveBonus` eines
+Vertrags. Das eigene Konzert (`music.show`) hat sie alle. Beide kosten 4 Stunden,
+und beide setzen dieselbe Drei-Tage-Sperre. Gegen die Brutto-Gage des eigenen
+Konzerts bei 10.000 Hörern, Güte-Wurf 1, ohne Ereignis, ohne Vertrag und mit
+vollem mitgebrachtem Publikum (also am Deckel 2^0,7 = ×1,6245) steht die
+Vorgruppe damit bei: **de/pop/face ×1,14** · **de/hiphop/face ×1,19** ·
+**us/rock/face ×0,39** · **us/metal/face ×0,36** · **at/indie/anon ×2,41**. Für
+einen US-Rocker oder -Metaller ist die Vorgruppe also strikt schlechter als das
+Konzert, das sie ihm wegnimmt; für den anonymen Indie-Künstler in Österreich ist
+sie mehr als das Doppelte. **Gemessen ist genau ein Punkt dieser Spanne:** Der
+Lauf wohnt in Deutschland und spielt Pop mit Gesicht
+(`scripts/messung-geldquellen.js`: `home.setHome(G, U, 'de')`,
+`music.setup(…, 'pop', PERSONAS[0])`), also die **×1,14** – die vier anderen
+Zahlen sind Rechnungen aus `gageOf` und der Gagenformel in `music.show`, keine
+Messwerte. Die Formel bleibt trotzdem, wie sie ist: Sie ist die Grundlage der
+Messung oben, und an ihr hängt auch, dass `SHOW_MIN_LISTENERS` hier entfallen
+darf (65 Gage bei 10 Hörern, auch neben Coldplay). Wer sie anfasst, fährt die
+Messung neu. (13) **Ein Vertrag besteuert Honorar und Gage, ohne sie größer zu
+machen.** `music.payGig` zieht `kond.cut` von jedem Honorar und jeder Gage ab
+(30 % beim Label, 50 % beim Idol), aber `gageOf` und `honorarOf` sehen
+`kond.liveBonus` nie – die „größeren Hallen" gelten nur für das eigene Konzert
+und für den Tour-Abend, die durch `music.show` laufen. Für §3 ist das die
+konservative Richtung (ein Weg mehr, der Geld abgibt, und keiner, der welches
+schafft), für den Spieler ist es inkonsistent: Die Patchnote nennt die Vorgruppe
+„ein Konzert", und ein Vertragskünstler bekommt dort den Anteil abgezogen und den
+Zuschlag nicht. Geändert ist nichts – jede Änderung an `gageOf` oder `honorarOf`
+würde die Messung oben ungültig machen –, aber wer die Hallen-Boni einmal
+anfasst, fasst diese beiden Stellen mit an.
 
 ### Eine Bremse, nicht zwei
 

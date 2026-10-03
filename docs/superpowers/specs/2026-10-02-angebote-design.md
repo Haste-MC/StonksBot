@@ -72,12 +72,21 @@ wurde – nach drei Mal ruht der Zustellweg (`PAUSE_TAGE`).
 
 | Art | Was er will | Zeit | Was du bekommst | Ab Draht |
 |---|---|---|---|---|
-| 🔁 `tausch` | Er erwähnt dich, du ihn | 2 h | Reichweiten-Schub wie 5a (`contacts.boostOf('shoutout', …)`) | 20 |
-| 🎙️ `gastpart` | Du singst auf seiner Platte | 2 h | **Honorar** + Schub wie `reaktion` | 20 |
+| 🔁 `tausch` | Er erwähnt dich, du ihn | 2 h | Release-Schub auf die nächste Veröffentlichung | 20 |
+| 🎙️ `gastpart` | Du singst auf seiner Platte | 2 h | **Honorar** + derselbe Release-Schub | 20 |
 | 🎪 `vorgruppe` | Du spielst vor ihm | 4 h | **Gage** mit seinem Publikum im Saal | 20 |
 | 💿 `kollabo` | Gemeinsames Album | – | öffnet ein **Projekt** (18 h + 6 Titel) | **50** |
 | 🎵 `tour` | Tour mit ihm | – | öffnet ein **Projekt** (24 h) | **50** |
 | 📝 `label` | Einführung bei seinem Label | 2 h | öffnet ein **Vertragsangebot** | **50** |
+
+**Ein Schub, nicht zwei verschiedene:** Diese Tabelle versprach für `tausch`
+den Schub von `contacts.boostOf('shoutout', …)` und für `gastpart` „wie
+`reaktion`" – also zwei unterschiedlich starke. Gebaut ist EINER: `schubFor`
+(`src/angebote.js`) setzt für beide Arten `stufe: 'zusage'` und daraus einen
+`release`-Schub `min(4, 1 + 3 × stärke)` für 48 Stunden. Das ist Absicht und
+bleibt so – eine zugesagte Gegenanfrage ist eine Zusage, und zwei Stufen für
+dieselbe Zusage wären eine Unterscheidung ohne Grund. Die Tabelle sagt es jetzt,
+wie es ist (§15 beschreibt denselben Weg).
 
 `kollabo`, `tour` und `label` kommen also ausschließlich von Partnern. Das ist
 der Wert, den der Partner-Status in 5a versprochen hat.
@@ -89,7 +98,7 @@ eine Liste von Ereignissen zurück, die die Anzeige meldet – genau wie
 `beef.settle`. Pro **ganzem vergangenen Tag** seit `last_roll` ein Wurf:
 
 ```
-ANFRAGE_CHANCE = 0.18        je Tag, höchstens EIN Treffer je Tag
+ANFRAGE_CHANCE = 0.09        je Tag, höchstens EIN Treffer je Tag
 ANFRAGEN_MAX   = 2           mehr offene Anfragen gibt es nicht
 FRIST_TAGE     = 3
 PAUSE_TAGE     = 14          nach drei nicht angenommenen Anfragen
@@ -230,7 +239,7 @@ Danach `LABEL` in `src/data/music.js`, neben `IDOL`:
 | Hallen | × 1,6 | × 1,2 |
 | Skandal | × 2,0 | × 1,0 |
 | Ausstieg | 30 Tage | 15 Tage |
-| Vorschuss | 25 Tage | **10 Tage** |
+| Vorschuss | 25 Tage | **3 Tage** |
 
 Eine angenommene `label`-Anfrage legt ein Vertragsangebot in **seinem** Land an
 (`db.insertContract` mit `kind: 'label'`, `country: contact.country`), mit
@@ -245,10 +254,19 @@ Fessel, und ohne nach Tokio zu ziehen.
   Kontaktansicht sitzt mit fünf Knöpfen am Discord-Maximum, dort passt nichts
   mehr hinein.
 - **Angebots-Ansicht:** je offene Anfrage eine Zeile mit Kontakt, Art, was sie
-  bringt (Honorar oder Gage **als Zahl**, Schub als Faktor), den Stunden und der
+  bringt (Honorar oder Gage **als Zahl**, der Schub als Satz – „📣 Schub auf
+  deine nächste Veröffentlichung", siehe unten), den Stunden und der
   Restfrist; Knöpfe `annehmen|<id>|<uid>` und `ablehnen|<id>|<uid>`. Dazu das
   laufende Projekt mit Fortschrittsbalken und `arbeiten|<id>|<uid>`.
   Reaktionshaushalt: 2 Anfragen × 2 + Arbeiten + Zurück + Home = **7** (§16).
+  **Der Schub steht als Satz und nicht als Faktor, und das bleibt so:** Seine
+  Stärke hängt an `contacts.staerkeOf` und damit am Draht und an der Passung zum
+  Zeitpunkt der ZUSAGE. Ein Faktor in der Angebotszeile wäre eine Vorhersage –
+  der Draht kühlt ab (§5a), und zwischen Zustellung und Klick liegen bis zu drei
+  Tage. Die Zahl steht deshalb dort, wo sie feststeht: in der Zusage
+  (`annahmeNote`: „🤝 Wirkt auf …: ×2,4, noch 48 h"). Honorar und Gage stehen
+  anders als der Schub schon in der Zeile, weil sie nur an Reichweiten hängen
+  und sich bis zum Klick nicht ändern.
 - **Hinweiszeile** in der Musik- und der Kontaktansicht, wenn etwas offen ist
   („📬 2 Angebote warten · 💿 Kollabo mit *Name*: 6 von 18 Stunden").
 - **Meldungen** über denselben Weg wie in 5b: `settle` liefert Ereignisse,
@@ -290,7 +308,7 @@ Decken, jede gerechnet:
 - **Tour:** fünf Konzerte für 24 statt 20 Stunden, sein Publikum einmal; die
   Konzert-Sperre entfällt. Die Decke ist die der fünf Konzerte plus ×1,62 auf
   eines davon.
-- **Vorschuss:** 10 Tage Tantiemen, einmal je Vertrag, nur wenn keiner läuft.
+- **Vorschuss:** 3 Tage Tantiemen, einmal je Vertrag, nur wenn keiner läuft.
 - Kein `unb`-Aufruf in `src/angebote.js` oder `src/data/angebote.js` – die
   Geldwege laufen über die vorhandenen Buchungen in `src/music.js`.
 
@@ -467,17 +485,22 @@ Endeinstellung, 60 Läufe, gepaart: `alles-an` nur Musik **+17,9 %**,
 Musik+Creator **−0,4 %** · `alles-ab` +0,0 % / −2,8 % · `nur-geld` +1,0 % /
 −4,4 % · `nur-projekte` +2,5 % / +0,0 % · `nur-label` −0,1 % / −1,4 %.
 
-**Die zwei gesenkten Konstanten stehen an VIER Stellen dieser Spec, und hier sind
-alle vier:**
+**Die zwei gesenkten Konstanten standen an VIER Stellen dieser Spec, und alle
+vier tragen jetzt den Wert, mit dem der Code läuft:**
 
-1. `ANFRAGE_CHANCE = 0.18` im Konstantenblock (Zeile 92) – zu lesen als **0.09**.
-2. `Vorschuss | 25 Tage | **10 Tage**` in der Label-Tabelle (Zeile 233) – zu
-   lesen als **3 Tage**.
-3. „**Vorschuss:** 10 Tage Tantiemen" in der Decken-Liste (Zeile 293) – zu lesen
-   als **3 Tage**.
-4. „ein `label`-Vertrag zahlt 10 Tage Vorschuss" in der Testliste (Zeile 328) –
-   dort **direkt berichtigt**, weil die Zeile beschreibt, was ein Test prüft, und
-   `test/music.test.js` prüft die 3.
+1. `ANFRAGE_CHANCE` im Konstantenblock – **0.09** (stand hier als `0.18`).
+2. `Vorschuss | 25 Tage | 3 Tage` in der Label-Tabelle (stand als `10 Tage`).
+3. „**Vorschuss:** 3 Tage Tantiemen" in der Decken-Liste (stand als `10 Tage`).
+4. „ein `label`-Vertrag zahlt 3 Tage Vorschuss" in der Testliste – `test/music.test.js`
+   prüft die 3.
+
+**Warum sie jetzt im Text stehen und nicht nur hier annotiert sind:** Die
+Anmerkung „zu lesen als 0.09" setzt voraus, dass jeder Leser bis zum Addendum
+kommt. Wer den Konstantenblock liest, um eine Zahl im Code zu prüfen, hört davor
+auf – und las dann 0,18, also das Doppelte. Eine Spec, deren Körper die falsche
+Zahl trägt und sie am Ende berichtigt, hat zwei Werte; der Körper gewinnt, weil er
+zuerst gelesen wird. Was die Annotation leistete, leistet jetzt die Klammer
+daneben: die Geschichte bleibt nachlesbar, der Wert ist der echte.
 
 Gefunden mit `grep -n '0\.18\|10 Tage\|advanceDays'` über diese Datei; mehr als
 diese vier Stellen gibt es nicht – die weiteren Treffer stehen in diesem Addendum
