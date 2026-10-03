@@ -467,7 +467,11 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       Object.keys(music.IDOL).every((k) => music.LABEL[k] !== undefined),
       Object.keys(music.IDOL).filter((k) => music.LABEL[k] === undefined).join(','));
     check('der Vorschuss steht jetzt in den Konditionen, und 25 bleibt 25',
-      music.IDOL.advanceDays === 25 && music.LABEL.advanceDays === 10);
+      // Der Label-Vorschuss ist am 2026-10-02 von 10 auf 3 Tage gesenkt worden
+      // (Messung, docs/messungen/2026-10-02-angebote.txt); fest bleibt nur, dass
+      // er kleiner ist als der des Idols und dass 25 unangetastet ist.
+      music.IDOL.advanceDays === 25 && music.LABEL.advanceDays === 3
+      && music.LABEL.advanceDays < music.IDOL.advanceDays);
     check('das Label ist der schwächere Schub und die leichtere Fessel',
       music.LABEL.cut < music.IDOL.cut
       && music.LABEL.growth < music.IDOL.growth

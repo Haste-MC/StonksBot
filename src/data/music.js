@@ -145,11 +145,27 @@ const LABEL = {
   liveBonus: 1.2,           // etwas größere Hallen
   scandalFactor: 1.0,       // ein Fehltritt kostet wie ohne Vertrag
   exitPenaltyDays: 15,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
-  advanceDays: 10,          // Vorschuss bei Unterschrift, in Tagen Tantiemen
+  /*
+   * Vorschuss bei Unterschrift, in Tagen Tantiemen.
+   *
+   * **10 war zu viel, und das ist gemessen** (`docs/messungen/2026-10-02-angebote.txt`):
+   * Ein Vertrag läuft 60 Tage, danach führt der nächste Partner wieder ein – über
+   * ein Jahr sind das gemessen 209 Unterschriften in 60 Läufen mit einem
+   * Vorschuss von Ø 913.659 gegen ein Tageseinkommen von 89.211, also ein Posten
+   * von 8.719 am Tag aus dem Nichts. Zusammen mit `ANFRAGE_CHANCE` 0,09 (vorher
+   * 0,18) liegt der Spieler, der jede Anfrage annimmt, bei +17,9 % statt +47,0 %
+   * gepaart und damit unter dem Deckel von +25 %.
+   *
+   * Gesenkt, nicht gestrichen: `nur-label` steht mit dem gesenkten Wert bei
+   * −0,1 % gepaart (vorher −0,2 %) – der Vertrag bleibt ein Nullgeschäft auf dem
+   * Papier, das sich über das Wachstum ×1,5 und die größeren Hallen rechnet. Mit
+   * `advanceDays: 0` wäre er ein Verlustgeschäft, das niemand nehmen sollte.
+   */
+  advanceDays: 3,
   blurb: 'Ein Vertrag über zwei Jahre Musik, ohne Trainingsplan und ohne '
     + 'Vorschriften, mit wem du dich zeigst.',
   rules: [
-    '💰 Vorschuss bei Unterschrift: 10 Tage Tantiemen, sofort auf die Hand.',
+    '💰 Vorschuss bei Unterschrift: 3 Tage Tantiemen, sofort auf die Hand.',
     '💴 Danach gehen 30 % deiner Musikeinnahmen an das Label.',
     '📈 Dafür wächst deine Hörerschaft halb so schnell wieder dazu.',
     '🎤 Etwas größere Hallen: Konzerte bringen 20 % mehr.',

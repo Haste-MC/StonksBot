@@ -1882,7 +1882,7 @@ function view(buttons) {
     } = require('../src/buttons');
     const TAG = 86_400_000;
     const jetzt = Date.now();
-    const nie = () => 0.9999;        // kein Treffer: ANFRAGE_CHANCE ist 0,18
+    const nie = () => 0.9999;        // kein Treffer, egal wie hoch ANFRAGE_CHANCE steht
 
     let lauf = 0;
     /** Ein deutscher Rapper mit 10.000 Hörern – die Zahlen der Spec-Tabelle. */
@@ -2307,7 +2307,7 @@ function view(buttons) {
     const offer = await ui.buildMusicDealView({ guildId: G, userId: U });
     const oText = sichtbar(offer);
     check('das Label-Angebot zeigt die Konditionen des LABELS',
-      oText.includes('10 Tage Tantiemen') && oText.includes('30 %')
+      oText.includes(`${music.LABEL.advanceDays} Tage Tantiemen`) && oText.includes('30 %')
       && oText.includes('Laufzeit 60 Tage') && oText.includes('15 Tage Einnahmen'),
       oText);
     check('und keine einzige Idol-Zahl',

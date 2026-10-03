@@ -693,10 +693,14 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       db.getArtist(G, U, tSign).listeners, music.marketOf(G, U));
     const kasseVor = gebucht.length;
     const signed = await music.sign(G, U, offer.id, tSign);
-    check('unterschreiben bringt 10 Tage Tantiemen, nicht 25 wie beim Idol',
+    // 3 Tage seit dem Balancing vom 2026-10-02 (vorher 10) – gelesen statt
+    // festgenagelt, damit die Zahl an EINER Stelle steht (src/data/music.js).
+    check(`unterschreiben bringt ${music.LABEL.advanceDays} Tage Tantiemen, nicht 25 wie beim Idol`,
       signed.ok === true
-      && signed.advance === require('../src/perks').payout(G, U, Math.round(perTag * 10)),
-      JSON.stringify({ a: signed.advance, soll: Math.round(perTag * 10) }));
+      && music.LABEL.advanceDays < music.IDOL.advanceDays
+      && signed.advance === require('../src/perks')
+        .payout(G, U, Math.round(perTag * music.LABEL.advanceDays)),
+      JSON.stringify({ a: signed.advance, soll: Math.round(perTag * music.LABEL.advanceDays) }));
     check('und zwar als genau eine Buchung', gebucht.length === kasseVor + 1
       && gebucht.at(-1).amount === signed.advance
       && gebucht.at(-1).reason === `Vorschuss: ${LILPFAND.name}`,

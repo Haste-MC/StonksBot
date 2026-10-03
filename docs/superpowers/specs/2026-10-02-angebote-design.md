@@ -331,3 +331,125 @@ gegen einen Einzelfall. Eine stille Null ist ein Fehler, kein Ergebnis.
   und einem Projekt, Honorar und Gage als Zahl, Fortschrittsbalken,
   `overflow === undefined`; die Meldung einer verfallenen Anfrage erscheint
   auch auf einem abgelehnten Knopfdruck.
+
+## Addendum nach der Messung (2026-10-02/03)
+
+Gemessen mit `scripts/messung-geldquellen.js --nur=angebote`, 10 · 30 · 60 Läufe
+à 365 Tage, Rohausgabe in `docs/messungen/2026-10-02-angebote.txt`. Alle Zahlen
+hier stehen dort mit demselben Wert.
+
+### Was die Messung ergeben hat
+
+| Variante | Musik+Creator (60 Läufe) | nur Musik (60 Läufe) |
+|---|---|---|
+| `aus` | 303.876/Tag | 89.211/Tag |
+| `alles-ab` | −3,3 % / −0,4 % gepaart | +0,7 % / −0,1 % |
+| `alles-an` | +3,3 % / +8,6 % | +46,2 % / **+47,0 %** |
+| `nur-geld` | −4,5 % / −2,5 % | +6,6 % / +4,6 % |
+| `nur-projekte` | −3,0 % / −0,1 % | +7,3 % / +3,1 % |
+| `nur-label` | −1,2 % / −0,8 % | +3,8 % / −0,2 % |
+
+Die Decken halten: Honorar höchstens **221.558** (Coldplay 130 Mio, und nur ab
+55.285 eigenen Hörern – gemessen als größter Einzelbetrag über 842 Gastparts
+genau erreicht), Gage höchstens **×1,625** (gemessen 231.082 als größte),
+Kollabo-Faktor höchstens ×2,000 (gemessen nur bis **1,683**, im Mittel 1,145),
+Vorschuss 10 Tage Tantiemen (gemessen Ø 913.659, größter 3.372.861). Kein
+`unb`-Aufruf in `src/angebote.js`.
+
+### Sechs Abweichungen zwischen Spec und gebautem Code bzw. gemessener Wirklichkeit
+
+1. **Die Spec nennt Hans Zimmer (110 Mio) als größten Kontakt, der Katalog hat
+   Coldplay mit 130 Mio.** Die Decke der Spec (`3 × 130.000.000^0,6` = 221.558)
+   ist richtig, die Tabellenüberschrift darüber nicht ganz.
+2. **Der Kollabo-Faktor ist in der Praxis ×1,145 und nicht ×2,0.** Die Spec
+   rechnet mit „10.000 eigene Hörer gegen Hans Zimmer" – diese Lage kommt nicht
+   vor. Wer einen Partner aufbauen kann, baut ihn zu jemandem auf, der in seiner
+   Größenordnung liegt: Die Antwortchance eines Künstlers mit 100.000 Hörern
+   liegt bei Coldplay bei 6,7 % und bei den übrigen Riesen bei `CHANCE_MIN`
+   2,0 %.
+3. **Die Spec fragt „lohnt sich das Kollabo?" – die Antwort ist nein, und die
+   gemessene Spielweise kann es nicht einmal abschließen.** 356 von 377
+   Kollabos sind mit **vollem** 18-Stunden-Konto verfallen, weil die sechs Titel
+   fehlten (3.630 Drücke mit `no_songs`). Bei gleicher
+   Veröffentlichungspolitik (ein eigenes Kontrollpaar, beide horten) liegt das
+   Kollabo bei −6,7 % / −4,2 % (Musik+Creator) und −1,5 % / −0,1 % (nur Musik).
+   Die Spec hat mit „muss sich mit einem deutlich größeren Partner lohnen"
+   richtig geahnt, dass es knapp wird; dass es nicht aufgeht, sagt erst die
+   Messung.
+4. **Die Spec listet die aufgehobene 20-Stunden-Release-Sperre als Decke, die
+   man prüfen muss.** Geprüft: Sie ändert nichts. Die Zahl der
+   Veröffentlichungen je Tag liegt in jeder Variante zwischen −1,3 % und +0,4 %
+   gegen „aus" – weil der Spieler ohnehin an der Titelzahl und nicht an der
+   Sperre hängt.
+5. **Die Spec rechnet die fünf Tour-Buchungen nicht als §9-Ausnahme aus.** Der
+   gebaute Code bucht fünfmal, und das ist richtig: `xpForAmount` ist
+   `⌊√Betrag⌋`, gemessen 1.352 XP gegen 611 für eine einzige Buchung. Das steht
+   jetzt in `ARCHITEKTUR.md` §9 und §15.
+6. **5c schaltet einen alten Vorfall erstmals überall frei.** „Das Label will
+   verschieben" (`src/data/musicDecisions.js`, `requires: { contract: true }`)
+   war außerhalb Japans und Koreas unerreichbar. Seine Option „Durchziehen"
+   lässt den Vertrag mit 40 % platzen, und das kostet 15 Tage Tantiemen:
+   gemessen **−1.823 am Tag** in `alles-an`. Die Spec erwähnt das nicht.
+
+### Der Zuschnitt: warum die isolierenden Varianten zu klein ausfallen
+
+Die Spec verlangt die vier isolierenden Varianten, damit kein Effekt in einer
+Netto-Rechnung verschwindet. Gemessen passiert das Gegenteil: Sie fallen **zu
+klein** aus, weil `PAUSE_SCHWELLE` 3 greift. Wer fünf von sechs Arten ablehnt,
+steht an 15,2 % (`nur-geld`), 20,1 % (`nur-projekte`) und 26,5 % (`nur-label`)
+aller Tage ohne einen Wurf da; `alles-an` an 0 %. Deshalb ist eine zweite
+Zerlegung dazugekommen (`--zerlegung`): „alles-an" gegen „alles-an ohne eine
+Gruppe", bei gleicher Zustellrate. Gepaart, reiner Musiker, 30 Läufe: Honorar +
+Gage **+18,2 %**, Kollabo + Tour **+20,2 %**, Label **+5,9 %**, Erwähnung
+**+2,5 %** – zusammen +46,8 % gegen die gemessenen +47,0 %.
+
+### Zwei Konstanten mussten gesenkt werden
+
+`alles-an` lag für den reinen Musiker bei **+47,0 %** gepaart (60 Läufe; +47,1 %
+bei 30, +51,5 % bei 10 – über alle drei Seedzahlen stabil, 55 von 60 Seeds im
+Plus). Der Auslöser „über +25 %" war damit erreicht. **Welche** Konstante, hat die
+Messung entschieden: jeder Hebel einzeln gefahren, 30 Läufe zur Suche, 60 zur
+Bestätigung (vollständige Tabelle in der Messdatei, Abschnitt „Der Auslöser").
+
+Zwei der vier Hebel, die Plan und Spec nennen, wirken nicht oder falsch:
+
+* `VORGRUPPE_ANTEIL` 0,05 → 0 ändert die Zahl um **±0,0** Prozentpunkte. Die Gage
+  ist fast vollständig die eigene Konzertgage; das mitgebrachte Publikum legt nur
+  die letzten 62 % obendrauf.
+* `TOUR_STUNDEN` 24 → 40 macht es **schlechter** (+57,4 %): Das Konto wird in den
+  14 Tagen nicht mehr voll, die Tour verfällt, und weil ein offenes Projekt
+  `kollabo` von der Zustellung aussperrt, spart der Spieler sich die 18 Stunden,
+  die er sonst in ein Kollabo ohne Titel gesteckt hätte.
+* `HONORAR_K` und `KOLLABO_STUNDEN` hängen an Wegen, die zusammen 423 von 130.432
+  am Tag ausmachen.
+* `LABEL.cut` 30 % → 50 % käme mit +19,2 % unter die Linie, aber der Anteil liegt
+  auf **jeder** Musikeinnahme: Er besteuert Honorar, Gage und Tour mit, also die
+  Wege, die das Problem verursachen, über einen Weg, der nur +5,9 % davon trägt –
+  und `nur-label` fiele von −0,2 % auf −3,5 %.
+
+Gesenkt wurden deshalb **zwei** Zahlen:
+
+| Konstante | Datei | vorher | nachher |
+|---|---|---|---|
+| `ANFRAGE_CHANCE` | `src/data/angebote.js` | 0,18 | **0,09** |
+| `LABEL.advanceDays` | `src/data/music.js` | 10 | **3** |
+
+`ANFRAGE_CHANCE` trifft, was die Zerlegung als Ursache benennt: nicht den Betrag
+je Anfrage, sondern die Menge an freien Gelegenheiten – alle vier Wege hängen
+daran gemeinsam. Allein bringt sie +47,0 % → +23,0 %. **Unter 0,12 ist sie aber
+nicht auflösbar**: 0,09 gibt +23,0 %, 0,08 gibt +25,6 %, 0,07 gibt +26,9 % und
+0,06 gibt +14,0 % – bei 60 Läufen, derselben Säung, einem Schritt von einem
+Prozentpunkt. Deshalb kommt `LABEL.advanceDays` dazu: der einzige Betrag je
+Anfrage, der wirklich aus der Reihe fällt (Ø 913.659 bei einem Tageseinkommen von
+89.211, alle 60 Tage neu, 209 Mal in 60 gemessenen Jahren). Zusammen:
+**+17,9 %**, also 7,1 Prozentpunkte unter dem Deckel.
+
+Endeinstellung, 60 Läufe, gepaart: `alles-an` nur Musik **+17,9 %**,
+Musik+Creator **−0,4 %** · `alles-ab` +0,0 % / −2,8 % · `nur-geld` +1,0 % /
+−4,4 % · `nur-projekte` +2,5 % / +0,0 % · `nur-label` −0,1 % / −1,4 %.
+
+**Die Spec muss danach an drei Stellen gelesen werden wie folgt:**
+`ANFRAGE_CHANCE = 0.09` (nicht 0,18, Zeile 92) und `Vorschuss: 3 Tage Tantiemen`
+(nicht 10, Zeile 293 und die Label-Tabelle). Alles andere ist unangetastet: Jeder
+Betrag, den die Anzeige auf einen Knopf schreibt, ist der, den diese Spec
+versprochen hat.

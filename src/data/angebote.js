@@ -40,8 +40,25 @@
 
 // --- Zustellung ------------------------------------------------------------
 
-/** Je vergangenem Tag ein Wurf, und höchstens EIN Treffer – gut alle fünf Tage eine Anfrage. */
-const ANFRAGE_CHANCE = 0.18;
+/**
+ * Je vergangenem Tag ein Wurf, und höchstens EIN Treffer – gut alle elf Tage eine
+ * Anfrage.
+ *
+ * **0,18 war zu viel, und das ist gemessen** (`docs/messungen/2026-10-02-angebote.txt`,
+ * Abschnitt „Der Auslöser"): Mit 0,18 lag der reine Musiker, der jede Anfrage
+ * annimmt, bei +47,0 % gepaart über 60 Läufe à 365 Tage – über dem Deckel von
+ * +25 %, den sich dieses Spiel für jede Spielweise setzt. Diese Konstante ist der
+ * Hebel, weil nicht der Betrag je Anfrage zu groß ist, sondern die MENGE an
+ * freien Gelegenheiten, die ein Tag enthält: Die vier Wege tragen ungefähr
+ * gleich viel bei (Honorar + Gage +18,2 %, Kollabo + Tour +20,2 %, Label +5,9 %,
+ * Erwähnung +2,5 %), und keiner allein erklärt die Zahl. Zusammen mit
+ * `LABEL.advanceDays` 3 (vorher 10) steht sie bei **+17,9 %**.
+ *
+ * An den Beträgen je Anfrage wurde dafür NICHTS geändert: `VORGRUPPE_ANTEIL` auf
+ * 0 verschob die Zahl gemessen um ±0,0 Prozentpunkte, `TOUR_STUNDEN` auf 40
+ * machte sie schlechter (+57,4 %). Wer hier dreht, wiederholt die Messung.
+ */
+const ANFRAGE_CHANCE = 0.09;
 /** Mehr offene Anfragen gibt es nicht; zwei passen in den Reaktionshaushalt der Ansicht. */
 const ANFRAGEN_MAX = 2;
 /** So lange steht eine Anfrage, danach verfällt sie. */
