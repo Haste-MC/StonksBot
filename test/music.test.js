@@ -725,6 +725,40 @@ function ceiling({ scene = 1, speed = 1, boost = 1, genreReach = 1, growth = 1 }
       db.getClaim(G, C, 'startbonus') === null);
   }
 
+  console.log('--- Die Fesseln haengen am Vertrag, nicht an "es gibt einen" ---');
+  /*
+   * Der Idol-Vertrag bindet ans Land und ans Gesicht, und seine `rules` sagen
+   * das auch. Das Label verspricht ausdruecklich das Gegenteil ("ohne
+   * Vorschriften, mit wem du dich zeigst") - also darf es nicht dieselben
+   * Fesseln ziehen. Beide Pruefungen fragten vorher nur `if (contract)`.
+   */
+  const FESSEL = `${G}_FESSEL`;
+  const idolMann = 'fx:fessel-idol';
+  const labelMann = 'fx:fessel-label';
+  for (const [u, kind] of [[idolMann, 'idol'], [labelMann, 'label']]) {
+    await home.setHome(FESSEL, u, 'jp');
+    music.setup(FESSEL, u, 'pop', 'anon');
+    const a = db.getArtist(FESSEL, u);
+    db.saveArtist(FESSEL, u, { ...a, listeners: 200_000 });
+    const c = db.insertContract({ guildId: FESSEL, userId: u, kind,
+      agency: 'Testhaus', country: 'jp', createdAt: Date.now(),
+      expiresAt: Date.now() + 3 * 24 * 3600e3 });
+    db.setContractStatus(FESSEL, c.id, 'active', Date.now());
+  }
+  check('die Konditionen sagen, wer fesselt',
+    music.terms('idol').locksCountry === true && music.terms('idol').locksPersona === true
+    && music.terms('label').locksCountry === false && music.terms('label').locksPersona === false);
+
+  const umzugIdol = await home.setHome(FESSEL, idolMann, 'de');
+  const umzugLabel = await home.setHome(FESSEL, labelMann, 'de');
+  check('unter Idol-Vertrag bleibt man im Land', umzugIdol.ok === false && umzugIdol.reason === 'contract');
+  check('unter Label-Vertrag nicht', umzugLabel.reason !== 'contract', String(umzugLabel.reason));
+
+  const zeigIdol = music.reveal(FESSEL, idolMann);
+  const zeigLabel = music.reveal(FESSEL, labelMann);
+  check('unter Idol-Vertrag bleibt das Gesicht weg', zeigIdol.ok === false && zeigIdol.reason === 'contract');
+  check('unter Label-Vertrag darf man sich zeigen', zeigLabel.ok === true, String(zeigLabel.reason));
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

@@ -2494,7 +2494,11 @@ async function buildMusicView({ guildId, userId }) {
       .setLabel(s.contract ? 'Vertrag' : 'Anfrage').setEmoji('📜')
       .setStyle(s.offer ? ButtonStyle.Success : ButtonStyle.Secondary));
   }
-  if (s.persona.id === 'anon' && !s.contract) {
+  // Der Knopf folgt derselben Kondition wie `music.reveal` (`locksPersona`):
+  // Das Idol bindet das Gesicht, das Label nicht. Stünde hier weiter nur
+  // `!s.contract`, wäre der Knopf unter Label-Vertrag versteckt, obwohl die
+  // Handlung erlaubt ist.
+  if (s.persona.id === 'anon' && !(s.contract && music.termsOf(s.contract).locksPersona)) {
     extra.push(new ButtonBuilder().setCustomId(`mreveal|${userId}`)
       .setLabel('Gesicht zeigen').setEmoji('🎭').setStyle(ButtonStyle.Danger));
   }

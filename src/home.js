@@ -127,10 +127,13 @@ async function setHome(guildId, userId, targetId, now = Date.now()) {
     return { ok: true, first: true, country: target, cost: 0 };
   }
 
-  // Unter Idol-Vertrag bleibt man im Land – so steht es im Vertrag.
+  // Unter Idol-Vertrag bleibt man im Land – so steht es in SEINEM Vertrag.
+  // Das Label bindet nicht, deshalb entscheidet die Kondition und nicht die
+  // bloße Tatsache, dass irgendein Vertrag läuft (`locksCountry`).
   try {
-    const contract = require('./music').contractOf(guildId, userId);
-    if (contract) {
+    const music = require('./music');
+    const contract = music.contractOf(guildId, userId);
+    if (contract && music.termsOf(contract).locksCountry) {
       return { ok: false, reason: 'contract', country: target, contract };
     }
   } catch { /* Musik nicht geladen: dann gibt es auch keinen Vertrag */ }

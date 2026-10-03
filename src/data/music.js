@@ -109,6 +109,13 @@ const IDOL = {
   growth: 2.2,              // dafür wächst die Hörerschaft mehr als doppelt so schnell
   liveBonus: 1.6,           // und die Hallen sind größer
   scandalFactor: 2.0,       // ein Fehltritt kostet das Doppelte
+  // Die zwei Fesseln, die `rules` unten als „Kein Wechsel zu anonym, kein Umzug
+  // ins Ausland" ankündigt. Sie stehen HIER und nicht als `kind === 'idol'` in
+  // home.js und music.js: Jede andere Kondition liegt auch hier, und eine
+  // dritte Vertragsart müsste sonst drei Dateien anfassen, um zu sagen, ob sie
+  // bindet.
+  locksCountry: true,
+  locksPersona: true,
   exitPenaltyDays: 30,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
   advanceDays: 25,          // Vorschuss bei Unterschrift, in Tagen Tantiemen
   blurb: 'Trainingsplan, Choreografie, Zeitplan – und ein Vertrag, der '
@@ -153,6 +160,11 @@ const LABEL = {
   growth: 1.5,
   liveBonus: 1.2,           // etwas größere Hallen
   scandalFactor: 1.0,       // ein Fehltritt kostet wie ohne Vertrag
+  // Das Label fesselt nicht – genau das ist sein Verkaufsargument, und sein
+  // Blurb verspricht es ausdrücklich („ohne Vorschriften, mit wem du dich
+  // zeigst"). Darum stehen die zwei Zeilen auch nicht in seinen `rules`.
+  locksCountry: false,
+  locksPersona: false,
   exitPenaltyDays: 15,      // vorzeitig raus: so viele Tage Einnahmen als Strafe
   /*
    * Vorschuss bei Unterschrift, in Tagen Tantiemen.

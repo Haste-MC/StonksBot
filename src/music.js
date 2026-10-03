@@ -352,7 +352,10 @@ function reveal(guildId, userId, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);
   if (!row.persona) return { ok: false, reason: 'not_started' };
   if (row.persona === 'face') return { ok: false, reason: 'already_face' };
-  if (db.activeContract(guildId, userId)) return { ok: false, reason: 'contract' };
+  // Nur ein Vertrag, der das Gesicht bindet, hält es zurück – der Idol-Vertrag
+  // tut das, das Label verspricht ausdrücklich das Gegenteil (`locksPersona`).
+  const vertrag = db.activeContract(guildId, userId);
+  if (vertrag && termsOf(vertrag).locksPersona) return { ok: false, reason: 'contract' };
 
   const gained = Math.round(row.listeners * REVEAL_GROWTH);
   db.saveArtist(guildId, userId, {
