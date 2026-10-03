@@ -72,12 +72,21 @@ wurde – nach drei Mal ruht der Zustellweg (`PAUSE_TAGE`).
 
 | Art | Was er will | Zeit | Was du bekommst | Ab Draht |
 |---|---|---|---|---|
-| 🔁 `tausch` | Er erwähnt dich, du ihn | 2 h | Reichweiten-Schub wie 5a (`contacts.boostOf('shoutout', …)`) | 20 |
-| 🎙️ `gastpart` | Du singst auf seiner Platte | 2 h | **Honorar** + Schub wie `reaktion` | 20 |
+| 🔁 `tausch` | Er erwähnt dich, du ihn | 2 h | Release-Schub auf die nächste Veröffentlichung | 20 |
+| 🎙️ `gastpart` | Du singst auf seiner Platte | 2 h | **Honorar** + derselbe Release-Schub | 20 |
 | 🎪 `vorgruppe` | Du spielst vor ihm | 4 h | **Gage** mit seinem Publikum im Saal | 20 |
 | 💿 `kollabo` | Gemeinsames Album | – | öffnet ein **Projekt** (18 h + 6 Titel) | **50** |
 | 🎵 `tour` | Tour mit ihm | – | öffnet ein **Projekt** (24 h) | **50** |
 | 📝 `label` | Einführung bei seinem Label | 2 h | öffnet ein **Vertragsangebot** | **50** |
+
+**Ein Schub, nicht zwei verschiedene:** Diese Tabelle versprach für `tausch`
+den Schub von `contacts.boostOf('shoutout', …)` und für `gastpart` „wie
+`reaktion`" – also zwei unterschiedlich starke. Gebaut ist EINER: `schubFor`
+(`src/angebote.js`) setzt für beide Arten `stufe: 'zusage'` und daraus einen
+`release`-Schub `min(4, 1 + 3 × stärke)` für 48 Stunden. Das ist Absicht und
+bleibt so – eine zugesagte Gegenanfrage ist eine Zusage, und zwei Stufen für
+dieselbe Zusage wären eine Unterscheidung ohne Grund. Die Tabelle sagt es jetzt,
+wie es ist (§15 beschreibt denselben Weg).
 
 `kollabo`, `tour` und `label` kommen also ausschließlich von Partnern. Das ist
 der Wert, den der Partner-Status in 5a versprochen hat.
@@ -89,7 +98,7 @@ eine Liste von Ereignissen zurück, die die Anzeige meldet – genau wie
 `beef.settle`. Pro **ganzem vergangenen Tag** seit `last_roll` ein Wurf:
 
 ```
-ANFRAGE_CHANCE = 0.18        je Tag, höchstens EIN Treffer je Tag
+ANFRAGE_CHANCE = 0.09        je Tag, höchstens EIN Treffer je Tag
 ANFRAGEN_MAX   = 2           mehr offene Anfragen gibt es nicht
 FRIST_TAGE     = 3
 PAUSE_TAGE     = 14          nach drei nicht angenommenen Anfragen
@@ -230,7 +239,7 @@ Danach `LABEL` in `src/data/music.js`, neben `IDOL`:
 | Hallen | × 1,6 | × 1,2 |
 | Skandal | × 2,0 | × 1,0 |
 | Ausstieg | 30 Tage | 15 Tage |
-| Vorschuss | 25 Tage | **10 Tage** |
+| Vorschuss | 25 Tage | **3 Tage** |
 
 Eine angenommene `label`-Anfrage legt ein Vertragsangebot in **seinem** Land an
 (`db.insertContract` mit `kind: 'label'`, `country: contact.country`), mit
@@ -245,10 +254,19 @@ Fessel, und ohne nach Tokio zu ziehen.
   Kontaktansicht sitzt mit fünf Knöpfen am Discord-Maximum, dort passt nichts
   mehr hinein.
 - **Angebots-Ansicht:** je offene Anfrage eine Zeile mit Kontakt, Art, was sie
-  bringt (Honorar oder Gage **als Zahl**, Schub als Faktor), den Stunden und der
+  bringt (Honorar oder Gage **als Zahl**, der Schub als Satz – „📣 Schub auf
+  deine nächste Veröffentlichung", siehe unten), den Stunden und der
   Restfrist; Knöpfe `annehmen|<id>|<uid>` und `ablehnen|<id>|<uid>`. Dazu das
   laufende Projekt mit Fortschrittsbalken und `arbeiten|<id>|<uid>`.
   Reaktionshaushalt: 2 Anfragen × 2 + Arbeiten + Zurück + Home = **7** (§16).
+  **Der Schub steht als Satz und nicht als Faktor, und das bleibt so:** Seine
+  Stärke hängt an `contacts.staerkeOf` und damit am Draht und an der Passung zum
+  Zeitpunkt der ZUSAGE. Ein Faktor in der Angebotszeile wäre eine Vorhersage –
+  der Draht kühlt ab (§5a), und zwischen Zustellung und Klick liegen bis zu drei
+  Tage. Die Zahl steht deshalb dort, wo sie feststeht: in der Zusage
+  (`annahmeNote`: „🤝 Wirkt auf …: ×2,4, noch 48 h"). Honorar und Gage stehen
+  anders als der Schub schon in der Zeile, weil sie nur an Reichweiten hängen
+  und sich bis zum Klick nicht ändern.
 - **Hinweiszeile** in der Musik- und der Kontaktansicht, wenn etwas offen ist
   („📬 2 Angebote warten · 💿 Kollabo mit *Name*: 6 von 18 Stunden").
 - **Meldungen** über denselben Weg wie in 5b: `settle` liefert Ereignisse,
@@ -276,11 +294,21 @@ Decken, jede gerechnet:
 - **Gage:** höchstens `2^0,7` = ×1,62 einer eigenen Konzert-Gage, weil sein
   Publikum auf die eigene Hörerschaft gedeckelt ist.
 - **Kollabo:** höchstens ×2,0 Publikum **einer** Veröffentlichung, gegen 15
-  Stunden Mehrkosten gegenüber einem normalen Album.
+  Stunden Mehrkosten gegenüber einem normalen Album. Dazu entfällt – weil das
+  Album über `publish(…, { force: true })` läuft – die 20-Stunden-Sperre
+  zwischen zwei Veröffentlichungen: Gemessen erscheint ein Kollabo eine Minute
+  nach einem normalen Album. Das ist der Preis dafür, dass die bezahlten 18
+  Stunden nicht an einer Platte von vorgestern scheitern (`no_songs` ist die
+  einzige Stelle, an der ein volles Konto nicht abschließt), und ein zweites
+  Kollabo kostet trotzdem wieder 18 Arbeitsstunden aus dem Tagesbudget, also
+  mindestens neun Drücke über mehrere Tage – das ist kein schnellerer Weg zu
+  vielen Platten als die Sperre selbst. Für die Messung in Task 6 heißt das:
+  Die Zahl der Veröffentlichungen je Jahr steigt um die Kollabos, und das ist
+  so gewollt.
 - **Tour:** fünf Konzerte für 24 statt 20 Stunden, sein Publikum einmal; die
   Konzert-Sperre entfällt. Die Decke ist die der fünf Konzerte plus ×1,62 auf
   eines davon.
-- **Vorschuss:** 10 Tage Tantiemen, einmal je Vertrag, nur wenn keiner läuft.
+- **Vorschuss:** 3 Tage Tantiemen, einmal je Vertrag, nur wenn keiner läuft.
 - Kein `unb`-Aufruf in `src/angebote.js` oder `src/data/angebote.js` – die
   Geldwege laufen über die vorhandenen Buchungen in `src/music.js`.
 
@@ -315,9 +343,167 @@ gegen einen Einzelfall. Eine stille Null ist ein Fehler, kein Ergebnis.
   verfallenes Projekt gibt die Stunden **nicht** zurück · `settle` ist
   idempotent und holt höchstens `ROLL_TAGE_MAX` Tage nach.
 - Vertrag: der Umbau auf `terms(kind)` ändert für Idol **keine Zahl** (die
-  bestehenden Tests sind der Beweis) · ein `label`-Vertrag zahlt 10 Tage
-  Vorschuss, nimmt 30 % und läuft 60 Tage · die Hörer-Schwelle 25.000 greift.
+  bestehenden Tests sind der Beweis) · ein `label`-Vertrag zahlt 3 Tage
+  Vorschuss (bis zum Balancing vom 2026-10-02 stand hier 10, siehe das Addendum),
+  nimmt 30 % und läuft 60 Tage · die Hörer-Schwelle 25.000 greift.
 - Anzeige (`test/fluxer-render.test.js`): Angebots-Ansicht mit zwei Anfragen
   und einem Projekt, Honorar und Gage als Zahl, Fortschrittsbalken,
   `overflow === undefined`; die Meldung einer verfallenen Anfrage erscheint
   auch auf einem abgelehnten Knopfdruck.
+
+## Addendum nach der Messung (2026-10-02/03)
+
+Gemessen mit `scripts/messung-geldquellen.js --nur=angebote`, 10 · 30 · 60 Läufe
+à 365 Tage, Rohausgabe in `docs/messungen/2026-10-02-angebote.txt`. Alle Zahlen
+hier stehen dort mit demselben Wert.
+
+### Was die Messung ergeben hat
+
+Die Kopfzahlen sind die der **ENDEINSTELLUNG**, also des Stands, der heute in den
+Datendateien steht: `ANFRAGE_CHANCE` 0,09 und `LABEL.advanceDays` 3. Die rechte
+Spalte hält den **Lauf vor dem Balancing** fest (0,18 und 10 Tage) – das ist der
+Stand, der den Auslöser gerissen hat, und keine seiner Zahlen gilt noch. Beide
+Läufe haben dieselben Seeds, dieselbe Strategie und dieselbe Grundlage „aus"; die
+Grundlage ist von beiden Konstanten unberührt, weil sie den Zustellweg nie ruft.
+
+| Variante (60 Läufe, Mediane / gepaart je Seed) | Endeinstellung: Musik+Creator | Endeinstellung: nur Musik | vor dem Balancing: M+C · nur Musik |
+|---|---|---|---|
+| `aus` | 303.876/Tag | 89.211/Tag | 303.876/Tag · 89.211/Tag (unberührt) |
+| `alles-ab` | −5,2 % / −2,8 % | +1,0 % / +0,0 % | −3,3 % / −0,4 % · +0,7 % / −0,1 % |
+| `alles-an` | −0,9 % / −0,4 % | +16,8 % / **+17,9 %** | +3,3 % / +8,6 % · +46,2 % / **+47,0 %** |
+| `nur-geld` | −6,2 % / −4,4 % | +2,6 % / +1,0 % | −4,5 % / −2,5 % · +6,6 % / +4,6 % |
+| `nur-projekte` | −1,6 % / +0,0 % | +5,3 % / +2,5 % | −3,0 % / −0,1 % · +7,3 % / +3,1 % |
+| `nur-label` | −4,5 % / −1,4 % | +0,1 % / −0,1 % | −1,2 % / −0,8 % · +3,8 % / −0,2 % |
+
+Die Decken halten – **Endeinstellung, 60 Läufe:** Honorar höchstens **221.558**
+(Coldplay 130 Mio, und nur ab 55.285 eigenen Hörern – als größter Einzelbetrag
+über 365 Gastparts genau erreicht, Ø 5.942), Gage höchstens **×1,625** (gemessen
+größte 158.038, Ø 52.993), Kollabo-Faktor höchstens ×2,000 (gemessen nur bis
+**1,069**, im Mittel **1,037**), Vorschuss **3 Tage** Tantiemen (gemessen
+Ø 222.815, größter 911.720). Kein `unb`-Aufruf in `src/angebote.js`.
+**Vor dem Balancing** waren es dieselbe Honorardecke 221.558 über 842 Gastparts
+(Ø 14.331), Gage größte 231.082 (Ø 63.219), Kollabo-Faktor bis 1,683 (Ø 1,145)
+und 10 Tage Vorschuss (Ø 913.659, größter 3.372.861).
+
+### Sechs Abweichungen zwischen Spec und gebautem Code bzw. gemessener Wirklichkeit
+
+1. **Die Spec nennt Hans Zimmer (110 Mio) als größten Kontakt, der Katalog hat
+   Coldplay mit 130 Mio.** Die Decke der Spec (`3 × 130.000.000^0,6` = 221.558)
+   ist richtig, die Tabellenüberschrift darüber nicht ganz.
+2. **Der Kollabo-Faktor ist in der Praxis ×1,037 und nicht ×2,0** (vor dem
+   Balancing ×1,145). Die Spec rechnet mit „10.000 eigene Hörer gegen Hans
+   Zimmer" – diese Lage kommt nicht
+   vor. Wer einen Partner aufbauen kann, baut ihn zu jemandem auf, der in seiner
+   Größenordnung liegt: Die Antwortchance eines Künstlers mit 100.000 Hörern
+   liegt bei Coldplay bei 6,7 % und bei den übrigen Riesen bei `CHANCE_MIN`
+   2,0 %.
+3. **Die Spec fragt „lohnt sich das Kollabo?" – die Antwort ist nein, und die
+   gemessene Spielweise kann es nicht einmal abschließen.** 174 von 195
+   Kollabos sind mit **vollem** 18-Stunden-Konto verfallen, weil die sechs Titel
+   fehlten (1.825 Drücke mit `no_songs`) – vor dem Balancing 356 von 377 und
+   3.630 Drücke. Bei gleicher Veröffentlichungspolitik (ein eigenes Kontrollpaar,
+   beide horten) liegt das Kollabo bei −5,3 % / −5,0 % (Musik+Creator) und
+   +3,7 % / +3,8 % (nur Musik); vor dem Balancing bei −6,7 % / −4,2 % und
+   −1,5 % / −0,1 %. Die 203 Kollabos dieses Paares haben ein Publikum ×1,054
+   (1,005 … 1,353) bzw. ×1,049 (1,004 … 1,360) gebracht.
+   Die Spec hat mit „muss sich mit einem deutlich größeren Partner lohnen"
+   richtig geahnt, dass es knapp wird; dass es nicht aufgeht, sagt erst die
+   Messung.
+4. **Die Spec listet die aufgehobene 20-Stunden-Release-Sperre als Decke, die
+   man prüfen muss.** Geprüft: Sie ändert nichts. Die Zahl der
+   Veröffentlichungen je Tag liegt in jeder Variante zwischen −1,3 % und +0,4 %
+   gegen „aus" – weil der Spieler ohnehin an der Titelzahl und nicht an der
+   Sperre hängt.
+5. **Die Spec rechnet die fünf Tour-Buchungen nicht als §9-Ausnahme aus.** Der
+   gebaute Code bucht fünfmal, und das ist richtig: `xpForAmount` ist
+   `⌊√Betrag⌋`, gemessen 1.352 XP gegen 611 für eine einzige Buchung. Das steht
+   jetzt in `ARCHITEKTUR.md` §9 und §15.
+6. **5c schaltet einen alten Vorfall erstmals überall frei.** „Das Label will
+   verschieben" (`src/data/musicDecisions.js`, `requires: { contract: true }`)
+   war außerhalb Japans und Koreas unerreichbar. Seine Option „Durchziehen"
+   lässt den Vertrag mit 40 % platzen, und das kostet 15 Tage Tantiemen:
+   gemessen **−750 am Tag** in `alles-an` (vor dem Balancing −1.823). Die Spec
+   erwähnt das nicht. Und weil der gemessene Spieler jeden Vorfall mit einer
+   **zufälligen** Option beantwortet (`scripts/messung-geldquellen.js:1014`), ist
+   das der Preis des blinden Antwortens und nicht der des „Durchziehens".
+
+### Der Zuschnitt: warum die isolierenden Varianten zu klein ausfallen
+
+Die Spec verlangt die vier isolierenden Varianten, damit kein Effekt in einer
+Netto-Rechnung verschwindet. Gemessen passiert das Gegenteil: Sie fallen **zu
+klein** aus, weil `PAUSE_SCHWELLE` 3 greift. Wer fünf von sechs Arten ablehnt,
+steht an 15,2 % (`nur-geld`), 20,1 % (`nur-projekte`) und 26,5 % (`nur-label`)
+aller Tage ohne einen Wurf da; `alles-an` an 0 %. Deshalb ist eine zweite
+Zerlegung dazugekommen (`--zerlegung`): „alles-an" gegen „alles-an ohne eine
+Gruppe", bei gleicher Zustellrate. Gepaart, reiner Musiker, 30 Läufe: Honorar +
+Gage **+18,2 %**, Kollabo + Tour **+20,2 %**, Label **+5,9 %**, Erwähnung
+**+2,5 %** – zusammen +46,8 % gegen die gemessenen +47,0 %.
+
+### Zwei Konstanten mussten gesenkt werden
+
+`alles-an` lag für den reinen Musiker bei **+47,0 %** gepaart (60 Läufe; +47,1 %
+bei 30, +51,5 % bei 10 – über alle drei Seedzahlen stabil, 55 von 60 Seeds im
+Plus). Der Auslöser „über +25 %" war damit erreicht. **Welche** Konstante, hat die
+Messung entschieden: jeder Hebel einzeln gefahren, 30 Läufe zur Suche, 60 zur
+Bestätigung (vollständige Tabelle in der Messdatei, Abschnitt „Der Auslöser").
+
+Zwei der vier Hebel, die der Plan nennt (die Spec nennt keine Hebelliste),
+wirken nicht oder falsch:
+
+* `VORGRUPPE_ANTEIL` 0,05 → 0 ändert die Zahl um **±0,0** Prozentpunkte. Die Gage
+  ist fast vollständig die eigene Konzertgage; das mitgebrachte Publikum legt nur
+  die letzten 62 % obendrauf.
+* `TOUR_STUNDEN` 24 → 40 macht es **schlechter** (+57,4 %): Das Konto wird in den
+  14 Tagen nicht mehr voll, die Tour verfällt, und weil ein offenes Projekt
+  `kollabo` von der Zustellung aussperrt, spart der Spieler sich die 18 Stunden,
+  die er sonst in ein Kollabo ohne Titel gesteckt hätte.
+* `HONORAR_K` und `KOLLABO_STUNDEN` hängen an Wegen, die zusammen 423 von 130.432
+  am Tag ausmachen.
+* `LABEL.cut` 30 % → 50 % käme mit +19,2 % unter die Linie, aber der Anteil liegt
+  auf **jeder** Musikeinnahme: Er besteuert Honorar, Gage und Tour mit, also die
+  Wege, die das Problem verursachen, über einen Weg, der nur +5,9 % davon trägt –
+  und `nur-label` fiele von −0,2 % auf −3,5 %.
+
+Gesenkt wurden deshalb **zwei** Zahlen:
+
+| Konstante | Datei | vorher | nachher |
+|---|---|---|---|
+| `ANFRAGE_CHANCE` | `src/data/angebote.js` | 0,18 | **0,09** |
+| `LABEL.advanceDays` | `src/data/music.js` | 10 | **3** |
+
+`ANFRAGE_CHANCE` trifft, was die Zerlegung als Ursache benennt: nicht den Betrag
+je Anfrage, sondern die Menge an freien Gelegenheiten – alle vier Wege hängen
+daran gemeinsam. Allein bringt sie +47,0 % → +23,0 %. **Unter 0,12 ist sie aber
+nicht auflösbar**: 0,09 gibt +23,0 %, 0,08 gibt +25,6 %, 0,07 gibt +26,9 % und
+0,06 gibt +14,0 % – bei 60 Läufen, derselben Säung, einem Schritt von einem
+Prozentpunkt. Deshalb kommt `LABEL.advanceDays` dazu: der einzige Betrag je
+Anfrage, der wirklich aus der Reihe fällt (Ø 913.659 bei einem Tageseinkommen von
+89.211, alle 60 Tage neu, 209 Mal in 60 gemessenen Jahren). Zusammen:
+**+17,9 %**, also 7,1 Prozentpunkte unter dem Deckel.
+
+Endeinstellung, 60 Läufe, gepaart: `alles-an` nur Musik **+17,9 %**,
+Musik+Creator **−0,4 %** · `alles-ab` +0,0 % / −2,8 % · `nur-geld` +1,0 % /
+−4,4 % · `nur-projekte` +2,5 % / +0,0 % · `nur-label` −0,1 % / −1,4 %.
+
+**Die zwei gesenkten Konstanten standen an VIER Stellen dieser Spec, und alle
+vier tragen jetzt den Wert, mit dem der Code läuft:**
+
+1. `ANFRAGE_CHANCE` im Konstantenblock – **0.09** (stand hier als `0.18`).
+2. `Vorschuss | 25 Tage | 3 Tage` in der Label-Tabelle (stand als `10 Tage`).
+3. „**Vorschuss:** 3 Tage Tantiemen" in der Decken-Liste (stand als `10 Tage`).
+4. „ein `label`-Vertrag zahlt 3 Tage Vorschuss" in der Testliste – `test/music.test.js`
+   prüft die 3.
+
+**Warum sie jetzt im Text stehen und nicht nur hier annotiert sind:** Die
+Anmerkung „zu lesen als 0.09" setzt voraus, dass jeder Leser bis zum Addendum
+kommt. Wer den Konstantenblock liest, um eine Zahl im Code zu prüfen, hört davor
+auf – und las dann 0,18, also das Doppelte. Eine Spec, deren Körper die falsche
+Zahl trägt und sie am Ende berichtigt, hat zwei Werte; der Körper gewinnt, weil er
+zuerst gelesen wird. Was die Annotation leistete, leistet jetzt die Klammer
+daneben: die Geschichte bleibt nachlesbar, der Wert ist der echte.
+
+Gefunden mit `grep -n '0\.18\|10 Tage\|advanceDays'` über diese Datei; mehr als
+diese vier Stellen gibt es nicht – die weiteren Treffer stehen in diesem Addendum
+und sind dort als „vor dem Balancing" markiert. Sonst ist nichts angetastet:
+Jeder Betrag, den die Anzeige auf einen Knopf schreibt, ist der, den diese Spec
+versprochen hat.

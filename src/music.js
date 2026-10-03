@@ -258,9 +258,30 @@ function contractOf(guildId, userId) {
   return db.activeContract(guildId, userId);
 }
 
-/** Die Vertragsbedingungen (aktuell nur Idol). */
+/**
+ * Die Konditionen einer Vertragsart. Es gibt zwei: das Idol-Angebot aus
+ * Japan/Korea und den Label-Vertrag, den ein Partner öffnet (5c).
+ */
+const CONTRACT_TERMS = { idol: data.IDOL, label: data.LABEL };
+
 function terms(kind) {
-  return kind === 'idol' ? data.IDOL : null;
+  return CONTRACT_TERMS[String(kind ?? '')] ?? null;
+}
+
+/**
+ * Die Konditionen zu einem Vertrag – die EINZIGE Stelle, die von einer
+ * Vertragszeile auf Zahlen schließt. Jede Rechnung, die einen Anteil, einen
+ * Schub, eine Halle, eine Strafe oder einen Vorschuss braucht, holt sie hier:
+ * Sonst stünde die Vertragsart an einer Stelle fest verdrahtet und ein zweiter
+ * Vertrag zöge stillschweigend die Prozente des ersten ab.
+ *
+ * Eine unbekannte Art fällt bewusst auf den Idol-Vertrag zurück – das ist der
+ * strengere der beiden. So kostet ein Datenfehler nie zu WENIG, und der Umbau
+ * auf `terms(kind)` bleibt für jede Zeile, die heute in der Tabelle steht,
+ * verhaltensneutral.
+ */
+function termsOf(contract) {
+  return contract ? (terms(contract.kind) ?? data.IDOL) : null;
 }
 
 /** Gemeinsames Tagesbudget mit den Kanälen. */
@@ -438,7 +459,7 @@ function record(guildId, userId, now = Date.now(), random = Math.random, { event
  * nachrechnen lässt (test/music.test.js). Dieselbe Trennung wie beim Creator.
  */
 function simulateRelease(state, {
-  type, genre: g, persona: p, market, idol = null,
+  type, genre: g, persona: p, market, kond = null,
   idleDays: idle = 0, random = Math.random, audienceFactor = 1,
 }) {
   // 1. Was die Pause gekostet hat.
@@ -457,7 +478,7 @@ function simulateRelease(state, {
    *    Zuwachs UND Abgang: schneller, nicht größer. Die Decke bestimmen
    *    allein Szene und Genre (§3).
    */
-  const boost = (idol ? idol.growth : 1) * market.speed;
+  const boost = (kond ? kond.growth : 1) * market.speed;
   const gained = Math.round(
     audience * CONVERSION * TEMPO * boost * type.growth * g.reach * p.growth);
   const lost = Math.round(startListeners * CHURN_PER_RELEASE * TEMPO * boost);
@@ -532,8 +553,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const market = marketOf(guildId, userId);
   const g = genre(row.genre);
   const p = persona(row.persona);
-  const contract = db.activeContract(guildId, userId);
-  const idol = contract ? data.IDOL : null;
+  const kond = termsOf(db.activeContract(guildId, userId));
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record). Achtung:
   // zwischen Ereignis- und Vorfallswürfel kann rollContract in Idol-Märkten
@@ -541,7 +561,7 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   const event = events ? rollMusicEvent('publish', g, random) : NO_EVENT;
 
   const sim = simulateRelease(row, {
-    type, genre: g, persona: p, market, idol,
+    type, genre: g, persona: p, market, kond,
     idleDays: idleDays(row.touched_at || row.last_action_at, now), random,
     audienceFactor: audienceFactor * (event.audience ?? 1) * time.factor * (kb?.factor ?? 1),
   });
@@ -634,10 +654,141 @@ function applyBeefTreffer(guildId, userId, { hype = 1, hoererAnteil = 0 }, now =
 }
 
 /**
+ * Eine Nebeneinnahme der Musikseite auszahlen – Honorar und Gage aus 5c.
+ *
+ * Genau die Reihenfolge des Konzerts (`show`), und zwar an EINER Stelle, damit
+ * es keine zweite Kasse gibt (§3):
+ *
+ *   1. erst der Anteil der Agentur vom Brutto (Idol-Vertrag),
+ *   2. dann der Level-Zuschlag auf das, was übrig bleibt,
+ *   3. dann GENAU EINE Buchung mit `{ kind: 'music' }` – an diesem Merkmal
+ *      hängen Erfahrung und Level, eine Buchung ohne das Merkmal zahlt Geld
+ *      ohne Erfahrung aus.
+ *
+ * Bei 0 wird nicht gebucht: Die UnbelievaBoat-API lehnt Nulländerungen ab.
+ */
+async function payGig(guildId, userId, gross, grund) {
+  const brutto = Math.max(0, Math.round(Number(gross) || 0));
+  // Der Anteil kommt aus den Konditionen DIESES Vertrags (`termsOf`), nicht aus
+  // einer festen Zahl: Ein Label-Vertrag nimmt 30 %, ein Idol-Vertrag 50 % – von
+  // jedem Honorar und jeder Gage. Stünde hier wieder `data.IDOL`, zöge ein
+  // Label-Vertrag 20 Punkte zu viel ab, und das Geld fände niemand wieder.
+  const kond = termsOf(db.activeContract(guildId, userId));
+  const cut = kond ? Math.round(brutto * kond.cut) : 0;
+  const net = require('./perks').payout(guildId, userId, brutto - cut);
+  const balance = net !== 0
+    ? await changeCash(guildId, userId, net, grund, { kind: 'music' })
+    : null;
+  return { gross: brutto, cut, amount: net, balance };
+}
+
+/** Was ein Konzert an Hörern bindet, je Anteil der Hörerschaft. */
+const SHOW_GAIN = 0.02;
+
+/**
+ * Der BLEIBENDE Zuwachs eines Auftritts: Wer live gesehen hat, bleibt eher.
+ *
+ * Steht als eigene Stelle da, weil ihn zwei Aufrufer brauchen – das Konzert
+ * (`show`) und die Vorgruppe (`bookSupportShow`). Beide müssen dieselbe Form
+ * haben, sonst wird der eine Weg zum Hörer-Hahn, während der andere maßhält.
+ *
+ * Entscheidend ist, was NICHT eingeht: fremdes Publikum. Mitgebrachte Hörer
+ * heben die GAGE (über `hörer^0,7`, also um höchstens 2^0,7 = +62 %), nie die
+ * Hörerschaft selbst. Stünden sie in der Basis, verdoppelte ein einziger
+ * großer Partner sie – und weil die Tantiemen mit `hörer^1,2` überlinear
+ * wachsen, wäre das kein Zuschlag, sondern ein Zinssatz (§3).
+ */
+function showGain(listeners, quality = 1, eventGain = 1) {
+  return Math.round(Math.max(0, listeners) * SHOW_GAIN * Math.max(0, quality) * eventGain);
+}
+
+/**
+ * Ein Auftritt als Vorgruppe (5c): das Buchwerk eines Konzerts ohne Gage.
+ *
+ * Steht hier und nicht in angebote.js, weil nur hier der Leerlauf-Verfall
+ * (`decayed`) vor dem Schreiben eingerechnet wird – ohne den würde ein
+ * Auftritt die seit Tagen fälligen Hörerverluste konservieren. Die
+ * Konzert-Sperre (`last_show_at`) wird gesetzt: Eine Vorgruppe ist ein Konzert.
+ *
+ * Der Zuwachs ist derselbe wie beim eigenen Konzert (`showGain`) – und zwar
+ * NUR dieser. Das fremde Publikum steckt allein in der Gage, die `angebote`
+ * über `gageOf` rechnet; hier kommt es nicht an. Ohne Güte-Wurf, weil die Gage
+ * einer Vorgruppe auch keinen hat: Sie steht fest, bevor der Abend beginnt.
+ *
+ * `SHOW_MIN_LISTENERS` gilt hier ABSICHTLICH NICHT. Die 5.000 Hörer des
+ * eigenen Konzerts sind die Frage „kriegst du eine Halle voll?" – bei einer
+ * Vorgruppe füllt sie der Hauptact. Genau das ist der Weg, auf dem ein
+ * kleiner Künstler überhaupt auf eine Bühne kommt, und er ist kein Hahn: Die
+ * Gage wächst mit `hörer^0,7` aus der EIGENEN Hörerschaft (bei 10 Hörern sind
+ * das 65, auch neben Hans Zimmer), und der Zuwachs sind 2 % davon. Klein
+ * bleibt klein.
+ *
+ * Die Tantiemen werden hier NICHT abgerechnet. Das ist dieselbe Lage wie beim
+ * Konzert, das es auch nicht tut: Beide verschieben die Hörerzahl um 2 %, und
+ * ein Rückstand von höchstens MAX_SETTLE_DAYS Tagen würde dadurch um ebendiese
+ * 2 % falsch bepreist – in beide Richtungen, denn `decayed` zieht im selben
+ * Atemzug den Leerlauf-Verfall ab. Ein `settle` an dieser Stelle wäre außerdem
+ * eine ZWEITE Geldbuchung in einer Aktion, die laut §9 genau eine haben darf.
+ *
+ * **Die Tour (5c) ist derselbe Fall, fünfmal.** `angebote.arbeiten` spielt zum
+ * Abschluss `TOUR_KONZERTE` Abende hintereinander (`show(..., { force: true })`),
+ * jeder davon hebt die Hörerschaft um seine 2 %, und keiner rechnet die
+ * Tantiemen ab: 1,02⁵ = +10,4 % Hörer, über `hörer^1,2` also +12,6 % auf den
+ * Tagessatz. Auf einem VOLLEN Rückstand von MAX_SETTLE_DAYS = 14 Tagen sind das
+ * bei 10.000 Hörern rund 1.700 zu viel (Markt-Tantiemenfaktor 1,0; in
+ * Deutschland mit 1,15 rund 1.900) – knapp zwei Tage Tantiemen, nachgerechnet
+ * mit `royaltyPerDay`, nicht gemessen. Einmal je Tour, und nur, wenn der
+ * Spieler zwei Wochen nicht abgerechnet hat.
+ *
+ * Die Reihenfolge bleibt trotzdem so, aus zwei Gründen: Ein `settle` zwischen
+ * den Abenden wären fünf Geldbuchungen in einer Aktion (§9), und die
+ * Fehlbepreisung geht in BEIDE Richtungen – `decayed` zieht am selben Punkt den
+ * Leerlauf-Verfall ab, der denselben Rückstand zu teuer bezahlt hätte. Wer
+ * `TOUR_KONZERTE`, `SHOW_GAIN` oder `MAX_SETTLE_DAYS` anfasst, rechnet diese
+ * Zahl neu: Sie wächst mit allen drei.
+ */
+function bookSupportShow(guildId, userId, now = Date.now()) {
+  const row = db.getArtist(guildId, userId, now);
+  if (!row.genre || !row.persona) return { ok: false, reason: 'not_started' };
+  const market = marketOf(guildId, userId);
+  const before = decayed(row, market, now);
+  const gained = showGain(before.listeners);
+  const listeners = Math.round(before.listeners) + gained;
+  db.saveArtist(guildId, userId, {
+    ...row, shows: row.shows + 1, listeners,
+    peak_listeners: Math.max(row.peak_listeners, listeners),
+    last_action_at: now, last_show_at: now, touched_at: now,
+  });
+  return { ok: true, gained, listeners, lostToIdle: before.lost };
+}
+
+/**
  * Ein Konzert. Zahlt sofort und richtig – aber nur, wer genug Hörer hat,
  * bekommt eine Halle voll.
+ *
+ * `force` – der Abend einer TOUR (5c). Dasselbe Wort und dieselbe Bedeutung
+ * wie bei `publish`: weder Sperre noch Zeitbudget, dafür die aktuelle Energie
+ * als Faktor. Eine Tour ist ein PROJEKT, das seine 24 Stunden längst bezahlt
+ * hat, bevor der erste Abend beginnt (`angebote.arbeiten`); würde jeder Abend
+ * hier noch einmal `SHOW_TIME` buchen, kostete sie 24 + 20 Stunden, und die
+ * letzten Abende fielen je nach Tageslage aus. Die Konzert-Sperre bleibt für
+ * JEDEN ANDEREN Weg unverändert: `force` kommt ausschließlich aus dem
+ * Tour-Abschluss, und nach der Tour steht `last_show_at` auf jetzt – das
+ * nächste einzelne Konzert wartet also seine drei Tage wie immer.
+ *
+ * `force` übergeht außerdem `SHOW_MIN_LISTENERS`, aus demselben Grund wie die
+ * Vorgruppe (siehe `bookSupportShow`): Auf einer Tour zu zweit füllt der
+ * Hauptact die Halle. Kein Hahn, denn Gage und Zuwachs hängen weiter an der
+ * EIGENEN Hörerschaft – und ohne diese Ausnahme wären 24 investierte Stunden
+ * bei weniger als 5.000 Hörern ersatzlos verloren.
+ *
+ * `gast` – mitgebrachtes Publikum in Hörern, für GENAU diesen Abend. Es wirkt
+ * ausschließlich über `hörer^0,7` auf die Gage (also höchstens 2^0,7 = +62 %)
+ * und steht niemals in der Hörerschaft; was der Abend bleibend bringt, rechnet
+ * `showGain` ohne jedes fremde Publikum (§3, siehe dort).
  */
-async function show(guildId, userId, now = Date.now(), random = Math.random, { events = true } = {}) {
+async function show(guildId, userId, now = Date.now(), random = Math.random,
+  { events = true, force = false, gast = 0 } = {}) {
   // Schritt 0 wie beim Veröffentlichen: erst die faule Abrechnung des Beefs
   // nachholen (§4), denn weiter unten wird `bonusOf` gelesen – ein längst
   // ausgekühlter Sieg zahlte sonst nie. Vor `db.getArtist`, weil ein fälliger
@@ -650,29 +801,38 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
 
   const market = marketOf(guildId, userId);
   const before = decayed(row, market, now);
-  if (before.listeners < SHOW_MIN_LISTENERS) {
+  if (!force && before.listeners < SHOW_MIN_LISTENERS) {
     return {
       ok: false, reason: 'too_small', beefVorher,
       have: Math.round(before.listeners), need: SHOW_MIN_LISTENERS,
     };
   }
 
-  const left = remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now);
+  const left = force ? 0 : remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now);
   if (left > 0) return { ok: false, reason: 'cooldown', remainingMs: left, beefVorher };
 
-  const time = useTime(guildId, userId, SHOW_TIME, now);
+  // `force` bucht keine Zeit, nimmt aber die aktuelle Energie – wortgleich zu
+  // `publish`, damit ein müder Künstler auch auf Tour schwächer spielt.
+  const time = force
+    ? { ok: true, forced: true, factor: require('./creator').energyOf(guildId, userId, now).factor }
+    : useTime(guildId, userId, SHOW_TIME, now);
   if (!time.ok) return { ok: false, reason: time.reason, need: SHOW_TIME, ...time, beefVorher };
 
   // Ein zugesagter Auftritt bringt sein Publikum mit – einmal, für diese Gage.
   // Mehr als die eigene Hörerschaft zählt nicht. Die Gage wächst deshalb um
   // höchstens 2^0,7 = +62 %, nicht aufs Doppelte: Sie hängt an Hörer^0,7 (§3).
+  // Der Tour-Abend (`gast`) und der zugesagte Auftritt (`kb.extra`) gehen in
+  // DIESELBE Deckelung – zusammen also auch nie über +62 %.
   const kb = require('./contacts').consumeBoost(guildId, userId, 'show', now);
-  const extraHoerer = Math.min(before.listeners, kb?.extra ?? 0);
+  // `Number(gast) || 0` wie beim Geld in `payGig`: `Math.max(0, NaN)` ist NaN,
+  // und NaN liefe von hier über die Gage bis in eine Buchung. Kein Aufrufer
+  // kann das heute auslösen – der Boden kostet ein Wort.
+  const extraHoerer = Math.min(before.listeners,
+    Math.max(0, Number(gast) || 0) + (kb?.extra ?? 0));
 
   const g = genre(row.genre);
   const p = persona(row.persona);
-  const contract = db.activeContract(guildId, userId);
-  const idol = contract ? data.IDOL : null;
+  const kond = termsOf(db.activeContract(guildId, userId));
 
   // Der Ereigniswürfel ist der ERSTE random()-Aufruf (siehe record).
   const event = events ? rollMusicEvent('show', g, random) : NO_EVENT;
@@ -680,11 +840,12 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
   const gross = Math.round(
     Math.pow(before.listeners + extraHoerer, SHOW_EXP) * SHOW_PAY
     * market.scene * market.deal * g.live * p.live * quality
-    * (idol ? idol.liveBonus : 1)
+    * (kond ? kond.liveBonus : 1)
     * (event.pay ?? 1));
 
-  // Ein Konzert bindet: Wer live gesehen hat, bleibt eher.
-  const gained = Math.round(before.listeners * 0.02 * quality * (event.gain ?? 1));
+  // Ein Konzert bindet: Wer live gesehen hat, bleibt eher. Dieselbe Stelle, die
+  // auch die Vorgruppe benutzt – die beiden dürfen nicht auseinanderlaufen.
+  const gained = showGain(before.listeners, quality, event.gain ?? 1);
   const cancelled = (event.pay ?? 1) === 0;
 
   // Derselbe Beef-Bonus wie beim Veröffentlichen (5b).
@@ -703,7 +864,7 @@ async function show(guildId, userId, now = Date.now(), random = Math.random, { e
     ? require('./decisions').roll(guildId, userId, before.listeners + gained, now, random, 'music')
     : null;
 
-  const cut = idol ? Math.round(gross * idol.cut) : 0;
+  const cut = kond ? Math.round(gross * kond.cut) : 0;
   // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
   const net = cancelled ? 0 : require('./perks').payout(guildId, userId, gross - cut);
   // Bei 0 wird nicht gebucht: Die UnbelievaBoat-API lehnt Nulländerungen ab.
@@ -757,8 +918,8 @@ async function settle(guildId, userId, now = Date.now()) {
   const jeStream = steady > 0 ? steadyGeld / steady : 0;
   const gross = Math.round(steadyGeld + fromBuzz * jeStream);
 
-  const contract = db.activeContract(guildId, userId);
-  const cut = contract ? Math.round(gross * data.IDOL.cut) : 0;
+  const kond = termsOf(db.activeContract(guildId, userId));
+  const cut = kond ? Math.round(gross * kond.cut) : 0;
   const net = gross - cut;
 
   db.saveArtist(guildId, userId, {
@@ -805,9 +966,6 @@ function rollContract(guildId, userId, listeners, market, now = Date.now(), rand
 }
 
 /** Ein Angebot annehmen. */
-/** Der Vorschuss bei Unterschrift, in Tagen laufender Tantiemen. */
-const IDOL_ADVANCE_DAYS = 25;
-
 async function sign(guildId, userId, contractId, now = Date.now()) {
   const row = db.getContract(guildId, contractId);
   if (!row || row.user_id !== String(userId)) return { ok: false, reason: 'not_found' };
@@ -818,22 +976,25 @@ async function sign(guildId, userId, contractId, now = Date.now()) {
   }
   if (db.activeContract(guildId, userId)) return { ok: false, reason: 'busy' };
 
-  const ends = now + data.IDOL.durationDays * DAY_MS;
+  // Ab hier zählen die Konditionen DIESER Vertragsart: Laufzeit, Vorschuss und
+  // der Anteil stehen in `terms(kind)`, nicht als Konstante daneben.
+  const kond = termsOf(row);
+  const ends = now + kond.durationDays * DAY_MS;
   db.setContractStatus(guildId, row.id, 'active', { signedAt: now, endsAt: ends });
 
-  // Vorschuss: Die Agentur zahlt bei Unterschrift. Ohne ihn wäre der Vertrag
+  // Vorschuss: Die Gegenseite zahlt bei Unterschrift. Ohne ihn wäre der Vertrag
   // nur ein Abzug mit Zusatzregeln – niemand würde ihn nehmen.
   const artist = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
   const advance = require('./perks').payout(guildId, userId, Math.round(
-    royaltyPerDay(artist.listeners, market) * IDOL_ADVANCE_DAYS));
+    royaltyPerDay(artist.listeners, market) * kond.advanceDays));
   const balance = advance > 0
     ? await changeCash(guildId, userId, advance, `Vorschuss: ${row.agency}`) : null;
 
   return {
     ok: true, advance, balance,
     contract: { ...row, status: 'active', signed_at: now, ends_at: ends },
-    terms: data.IDOL,
+    terms: kond,
   };
 }
 
@@ -857,7 +1018,7 @@ async function leave(guildId, userId, now = Date.now()) {
   const row = db.getArtist(guildId, userId, now);
   const market = marketOf(guildId, userId);
   const perDay = royaltyPerDay(row.listeners, market);
-  const penalty = Math.round(perDay * data.IDOL.exitPenaltyDays);
+  const penalty = Math.round(perDay * termsOf(contract).exitPenaltyDays);
 
   db.setContractStatus(guildId, contract.id, 'broken', {
     signedAt: contract.signed_at, endsAt: now,
@@ -894,13 +1055,14 @@ function status(guildId, userId, now = Date.now()) {
   const g = genre(row.genre);
   const p = persona(row.persona);
   const contract = db.activeContract(guildId, userId);
+  const kond = termsOf(contract);
   const offer = db.openContract(guildId, userId, now);
   const after = decayed(row, market, now);
 
   const budget = require('./creator').budget(guildId, userId, now);
   const perDay = Math.round(
     royaltyPerDay(after.listeners, market) * (p.plays ?? 1)
-    * (contract ? 1 - data.IDOL.cut : 1));
+    * (kond ? 1 - kond.cut : 1));
 
   return {
     ...row,
@@ -926,17 +1088,19 @@ function status(guildId, userId, now = Date.now()) {
 }
 
 module.exports = {
-  GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS, IDOL: data.IDOL,
+  GENRES: data.GENRES, RELEASES: data.RELEASES, PERSONAS: data.PERSONAS,
+  IDOL: data.IDOL, LABEL: data.LABEL,
   BASE_REACH, REACH_K, REACH_EXP, CHURN_PER_RELEASE, CHURN_PER_DAY, MAX_IDLE_DAYS,
   IDLE_GRACE_DAYS, MUSIC_TO_CREATOR, SOCIAL_SPILL,
   PLAYS_PER_LISTENER, ROYALTY, ROYALTY_EXP, ROYALTY_ANCHOR, ROYALTY_K, royaltyPerDay, BUZZ_KEEP, BUZZ_PER_LISTENER, MAX_SETTLE_DAYS,
   TEMPO, CONVERSION,
   RECORD_TIME, RECORD_COOLDOWN_MIN, RELEASE_COOLDOWN_MIN,
-  SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP,
+  SHOW_TIME, SHOW_COOLDOWN_MIN, SHOW_MIN_LISTENERS, SHOW_PAY, SHOW_EXP, SHOW_GAIN, showGain,
   GEAR, HYPE_MIN, HYPE_MAX, CONTRACT_CHANCE, CONTRACT_OFFER_MS, AGENCIES,
   GENRE_SWITCH_LOSS, REVEAL_BUZZ, REVEAL_GROWTH, MUSIC_EVENTS, NO_EVENT, rollMusicEvent,
   genre, release, persona, artistOf, started, marketOf, idleDays, keepFactor,
-  reachOf, reachBonus, contractOf, terms, simulateRelease,
+  reachOf, reachBonus, contractOf, terms, termsOf, simulateRelease,
   setup, setGenre, reveal, record, publish, applyBeefTreffer, show, settle, status,
+  payGig, bookSupportShow,
   rollContract, sign, decline, leave, settleContracts,
 };

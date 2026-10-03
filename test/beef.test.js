@@ -107,6 +107,18 @@ check('Fünf Charakterzüge beim Streit', Object.keys(data.BEEF_TRAIT).length ==
 
 console.log('--- Texte ---');
 const VERBOTEN = ['wirklich', 'in echt', 'Politik', 'Religion', 'krank', 'Familie', 'hässlich'];
+/**
+ * Zweite Wache, mit Wortgrenzen: Die Sperrliste oben kennt keine Pronomen. Kein
+ * Pronomen und kein gegendertes Nomen über den Kontakt – `{name}` ist ein
+ * echter Künstlername jeden Geschlechts (in 5b ist genau das einmal gerissen).
+ */
+const GESCHLECHT = new RegExp(
+  '\\b(' + [
+    'er', 'sie', 'ihn', 'ihm', 'ihr',
+    'seine[rmsn]?', 'ihre[rmsn]?',
+    'S(?:ä|ae)nger(?:in|innen)?', 'K(?:ü|ue)nstlerin(?:nen)?',
+    'Kollege', 'Kollegin', 'Chef(?:in)?', 'Frau', 'Mann',
+  ].join('|') + ')\\b', 'i');
 check('Fünf Charakterzüge in LINES', Object.keys(data.LINES).length === 5);
 check('LINES deckt jeden Charakterzug aus BEEF_TRAIT ab',
   Object.keys(data.BEEF_TRAIT).every((t) => data.LINES[t]));
@@ -118,6 +130,8 @@ for (const [trait, lagen] of Object.entries(data.LINES)) {
     for (const z of zeilen) {
       check(`${trait}/${lage} bleibt in der Spielfiktion`,
         !VERBOTEN.some((w) => z.toLowerCase().includes(w.toLowerCase())), z);
+      check(`${trait}/${lage} sagt nichts über das Geschlecht`,
+        !GESCHLECHT.test(z), z);
       check(`${trait}/${lage} nennt den Kontakt`, z.includes('{name}'), z);
     }
   }

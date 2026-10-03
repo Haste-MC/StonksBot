@@ -33,6 +33,7 @@
  *          node scripts/messung-geldquellen.js 10 365 --nur=nachfrage
  *          node scripts/messung-geldquellen.js 10 365 --nur=kontakte
  *          node scripts/messung-geldquellen.js 10 365 --nur=beef
+ *          node scripts/messung-geldquellen.js 10 365 --nur=angebote
  *          node scripts/messung-geldquellen.js stufenprobe [würfe]
  *              – Gegenprobe: der gerechnete erwartete Stufenfaktor gegen die
  *                gewürfelte `contacts.stufeVon` (läuft in Sekunden).
@@ -67,6 +68,8 @@ const contactsData = require('../src/data/contacts');
 const beef = require('../src/beef');
 const beefData = require('../src/data/beef');
 const musicData = require('../src/data/music');
+const angebote = require('../src/angebote');
+const angeboteData = require('../src/data/angebote');
 
 const DAY = 24 * 60 * 60 * 1000;
 /** `--ohne-ereignisse`: Musik und Firmen ohne leichte Ereignisse und ohne Vorfälle (Vergleichsmessung, §3). */
@@ -91,6 +94,11 @@ const MARATHON = process.argv.includes('--marathon');
  * `--trace=kontakte` gibt jede Kontaktanfrage des Kontaktlaufs (Stück 5a) als JSON-Zeile aus.
  * `--trace=beef` gibt jedes Anstacheln und jeden Disstrack des Beeflaufs (Stück 5b) als
  * JSON-Zeile aus – die Grundlage der Handprüfung (Einstiegschance, Wucht, Aufmerksamkeit).
+ * `--trace=angebote` gibt jede Zustellung, jede Annahme, jeden Druck auf „daran arbeiten",
+ * jedes fertige Projekt und jede Unterschrift des Angebotslaufs (Stück 5c) als JSON-Zeile
+ * aus – die Grundlage der Handprüfung (Honorar, Gage, Kollabo-Faktor, Tour-Gast). Die
+ * Hörerzahl steht dabei mit DEMSELBEN Zeitstempel dabei, mit dem der Spielcode sie liest;
+ * nur so ist der Kollabo-Faktor von Hand auf die letzte Stelle nachrechenbar.
  */
 const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('--trace='.length) || null;
 /**
@@ -98,6 +106,8 @@ const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('
  *   `nachfrage` Nachfrage-Drift (Stück 3c) – billig, der Rest braucht Minuten.
  *   `kontakte`  Kontaktpflege mit und ohne (Stück 5a) – zwei Archetypen, je drei Varianten.
  *   `beef`      Beef und Disstracks (Stück 5b/5c) – zwei Archetypen, je SECHS Varianten
+ *   `angebote`  Gegenanfragen und große Formate (Stück 5c) – zwei Archetypen, je SECHS
+ *               Varianten plus ein Kontrollpaar für das Kollabo-Album
  *               (ohne Beef · passiv · Beef-Spielweise · ohne Beef, aber Album statt Single ·
  *               diss-isoliert · sieg-farm).
  */
@@ -162,6 +172,67 @@ const ANZAEHL_CHANCE_ARG = zahlArg('anzaehl-chance');
     beefData.ANZAEHL_CHANCE = ANZAEHL_CHANCE_ARG;
   }
 }
+
+/**
+ * Die Stellräder des Angebotslaufs (Stück 5c) – dieselbe Bauart wie die des
+ * Beeflaufs darüber und aus demselben Grund: Der Auslöser „über +25 % gepaart"
+ * verlangt, dass eine Konstante gesenkt und NEU GEMESSEN wird. Über die
+ * Kommandozeile bleibt die Gegenmessung ein Aufruf und keine Änderung an
+ * `src/data/angebote.js`, und die Kopfzeile jedes Laufs druckt alle Werte mit.
+ *
+ *   --honorar-k=N          HONORAR_K (Standard 3)
+ *   --vorgruppe-anteil=N   VORGRUPPE_ANTEIL (Standard 0,05)
+ *   --kollabo-stunden=N    KOLLABO_STUNDEN (Standard 18)
+ *   --tour-stunden=N       TOUR_STUNDEN (Standard 24)
+ *   --label-vorschuss=N    LABEL.advanceDays (Standard 10)
+ *   --label-cut=N          LABEL.cut (Standard 0,30)
+ *   --tour-konzerte=N      TOUR_KONZERTE (Standard 5)
+ *   --anfrage-chance=N     ANFRAGE_CHANCE (Standard 0,18 je Tageswurf)
+ *   --druecke=N            Drücke auf „daran arbeiten" je Tag (Standard 2 = 4 h)
+ *
+ * Die letzten zwei standen NICHT in der Liste des Plans. Sie sind dazugekommen,
+ * weil die Zerlegung (siehe `ANGEBOT_ANNAHME`) gezeigt hat, dass die vier Hebel
+ * des Plans den Auslöser nicht erreichen: `VORGRUPPE_ANTEIL` auf 0 ändert
+ * gemessen NICHTS (+47,1 % gepaart, auf die Stelle derselbe Wert wie mit 0,05),
+ * `TOUR_STUNDEN` 24 → 40 macht es SCHLECHTER (+57,4 %), und `HONORAR_K` und
+ * `KOLLABO_STUNDEN` hängen an Wegen, die zusammen 207 von 134.747 am Tag
+ * ausmachen. Damit die Entscheidung über eine Konstante eine Messung bleibt und
+ * keine Vermutung, sind die zwei Kandidaten messbar, die die Zerlegung benennt.
+ */
+const HONORAR_K_ARG = zahlArg('honorar-k');
+const VORGRUPPE_ANTEIL_ARG = zahlArg('vorgruppe-anteil');
+const KOLLABO_STUNDEN_ARG = zahlArg('kollabo-stunden');
+const TOUR_STUNDEN_ARG = zahlArg('tour-stunden');
+const LABEL_VORSCHUSS_ARG = zahlArg('label-vorschuss');
+const LABEL_CUT_ARG = zahlArg('label-cut');
+const TOUR_KONZERTE_ARG = zahlArg('tour-konzerte');
+const ANFRAGE_CHANCE_ARG = zahlArg('anfrage-chance');
+{
+  if (TOUR_KONZERTE_ARG !== null && TOUR_KONZERTE_ARG >= 1) {
+    angeboteData.TOUR_KONZERTE = Math.round(TOUR_KONZERTE_ARG);
+  }
+  if (ANFRAGE_CHANCE_ARG !== null && ANFRAGE_CHANCE_ARG >= 0 && ANFRAGE_CHANCE_ARG <= 1) {
+    angeboteData.ANFRAGE_CHANCE = ANFRAGE_CHANCE_ARG;
+  }
+  if (HONORAR_K_ARG !== null && HONORAR_K_ARG >= 0) angeboteData.HONORAR_K = HONORAR_K_ARG;
+  if (VORGRUPPE_ANTEIL_ARG !== null && VORGRUPPE_ANTEIL_ARG >= 0) {
+    angeboteData.VORGRUPPE_ANTEIL = VORGRUPPE_ANTEIL_ARG;
+  }
+  if (KOLLABO_STUNDEN_ARG !== null && KOLLABO_STUNDEN_ARG > 0) {
+    angeboteData.KOLLABO_STUNDEN = KOLLABO_STUNDEN_ARG;
+  }
+  if (TOUR_STUNDEN_ARG !== null && TOUR_STUNDEN_ARG > 0) angeboteData.TOUR_STUNDEN = TOUR_STUNDEN_ARG;
+  // 0 ist erlaubt: ein Vertrag ohne Vorschuss ist die Gegenprobe zu der Frage,
+  // ob der Vorschuss allein den Unterschied macht.
+  if (LABEL_VORSCHUSS_ARG !== null && LABEL_VORSCHUSS_ARG >= 0) {
+    musicData.LABEL.advanceDays = LABEL_VORSCHUSS_ARG;
+  }
+  if (LABEL_CUT_ARG !== null && LABEL_CUT_ARG >= 0 && LABEL_CUT_ARG < 1) {
+    musicData.LABEL.cut = LABEL_CUT_ARG;
+  }
+}
+/** Drücke auf „daran arbeiten" je Tag – siehe `angebotetag`. */
+const ANGEBOT_DRUECKE = Math.max(1, Math.round(zahlArg('druecke') ?? 2));
 
 // ------------------------------------------------------------------ Würfel
 
@@ -433,8 +504,20 @@ function musiktag(G, U, now, rand, konzertZuerst = false, horten = false, beefTa
      * Beef-Differenz zum Teil nur der Abstand zu einer schwachen Spielweise –
      * und ein Balancing gegen schlechtes Spiel wäre wertlos (siehe Kopf).
      */
-    const art = horten
-      ? (s.songs >= 6 ? 'album' : null)
+    /*
+     * `horten` darf auch eine FUNKTION sein (Stück 5c, Angebotslauf): Dann wird
+     * gehortet wie bei `true`, aber die sechs Titel bleiben liegen, solange die
+     * Funktion das sagt – weil ein Kollabo-Album offen ist, das genau diese
+     * sechs Titel braucht (`KOLLABO_TITEL`). Ohne diese Zurückhaltung griffe
+     * das normale Album bei sechs Titeln zuerst, das Kollabo fände danach nie
+     * sechs vor, und die Variante „Kollabo bei gleicher
+     * Veröffentlichungspolitik" wäre nicht messbar. Für `true` und `false`
+     * bleibt diese Zeile Wort für Wort die des Beeflaufs.
+     */
+    const hortet = horten === true || typeof horten === 'function';
+    const zurueck = typeof horten === 'function' && horten();
+    const art = hortet
+      ? (s.songs >= 6 && !zurueck ? 'album' : null)
       : (s.songs >= 6 ? 'album' : s.songs >= 3 ? 'ep' : 'single');
     if (art) music.publish(G, U, art, now + 2e6, rand, musikOpts);
   }
@@ -667,7 +750,11 @@ function kontakttag(G, U, now, rand, vorrang = null) {
     .filter((z) => z.gesperrtBis <= now)
     .map((z) => {
       const b = bewerte(z.contact, 'shoutout', z.draht);
-      return { ...z, grob: b ? z.chance * b.staerke * b.stufenFaktor : 0 };
+      // Beim Partner-Vorrang zählt die Musikseite auch schon in der
+      // Vorauswahl: Sonst verdrängen die acht größten Creator des Katalogs
+      // jeden Musiker, und die Auswahl unten fände nichts mehr vor.
+      const raus = vorrang === 'partner' && (!b || b.seite !== 'musik');
+      return { ...z, grob: (b && !raus) ? z.chance * b.staerke * b.stufenFaktor : 0 };
     })
     .sort((a, b) => b.grob - a.grob)
     .slice(0, 8);
@@ -681,8 +768,33 @@ function kontakttag(G, U, now, rand, vorrang = null) {
    * bringt es gar keinen Faktor, sondern Hörer für eine einzige Gage. Der
    * Vorrang ist also kein besseres Spiel, sondern das Messwerkzeug für genau
    * diesen Schub.
+   *
+   * `vorrang = 'partner'`: NUR die Musikseite, und dort der Kontakt mit dem
+   * HÖCHSTEN Draht zuerst – das Messwerkzeug des Angebotslaufs (Stück 5c), aus
+   * demselben Grund wie der Konzert-Vorrang und mit demselben Vorbehalt: Es ist
+   * eine Spielweise, keine Empfehlung. Zwei Dinge aus dem Code erzwingen ihn:
+   *
+   *  • Eine Gegenanfrage kommt ausschließlich von einem Kontakt mit MUSIK-
+   *    Reichweite (`src/angebote.js`, `zustellen`: `if (!c.reach) continue;`)
+   *    und erst ab Draht 20; `kollabo`, `tour` und `label` erst ab 50.
+   *  • Die freie Wahl oben baut über ein Jahr GENAU EINEN Draht auf, und das ist
+   *    ein reiner Creator. Gemessen (Probelauf, 365 Tage, Seeds 1000/1001, beide
+   *    Archetypen): `tomscott` steht am Ende bei Draht 93 … 100 bei 8 … 14
+   *    Zusagen und sonst niemand über 23 – und `tomscott` hat kein `reach`,
+   *    sondern nur `reachCreator` (`src/data/contacts.js:567`). Der ganze
+   *    Angebotslauf hätte damit null Anfragen, und das wäre eine stille Null und
+   *    kein Ergebnis.
+   *
+   * Der Draht allein genügt nicht: Nur die Musikseite zu nehmen, ließ im
+   * Probelauf in 2 von 4 Fällen keinen einzigen Musiker über 20 kommen (Draht
+   * 15/15, die zwei Stunden verteilten sich auf mehrere) – `PARTNER` wäre dann
+   * seedabhängig da oder nicht, und die drei Partner-Arten wären in der Hälfte
+   * der Seeds eine stille Null. Deshalb der Draht als erstes Kriterium: Wer
+   * einen Partner will, füttert denselben Kontakt, sobald die Drei-Tage-Sperre
+   * durch ist. Die Zahl der Partner am Laufende steht in der Ausgabe.
    */
   let wahl = null;
+  const nurMusik = vorrang === 'partner';
   for (const z of liste) {
     const d = contacts.detail(G, U, z.contact.id, now);
     if (!d) continue;
@@ -690,9 +802,16 @@ function kontakttag(G, U, now, rand, vorrang = null) {
       if (!r.moeglich) continue;
       const b = bewerte(z.contact, r.id, d.draht);
       if (!b) continue;
+      if (nurMusik && b.seite !== 'musik') continue;
       const score = r.chance * b.nutzen;
       const konzert = vorrang === 'konzert' && r.id === 'konzert';
-      if (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score)) {
+      // Beim Partner-Vorrang schlägt der höhere Draht jeden Score: Dieselbe
+      // Person weiter füttern, bis sie Partner ist. Innerhalb eines Kontakts
+      // entscheidet danach wieder Chance × Nutzen wie überall.
+      const besser = nurMusik
+        ? (!wahl || d.draht > wahl.draht || (d.draht === wahl.draht && score > wahl.score))
+        : (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score));
+      if (besser) {
         wahl = { score, konzert, contactId: z.contact.id, requestId: r.id, seite: b.seite,
           chance: r.chance, draht: d.draht };
       }
@@ -778,6 +897,16 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    */
   const beefRand = rng(seed + 700_000);
   if (bz) bz.rand = beefRand;
+  /*
+   * VIERTER Würfel für die Gegenanfragen (Stück 5c), aus genau dem Grund der
+   * zwei davor: Zustellung, Annahme, Absage, die Projektarbeit und die
+   * Veröffentlichungen und Konzerte, die ein fertiges Projekt auslöst, dürfen
+   * den Musik- und Kanalstrom nicht verschieben. Er wird in JEDER Variante
+   * angelegt – auch in „aus", wo niemand aus ihm zieht –, denn das Anlegen
+   * selbst berührt `rand` nicht, und so bleibt die Grundlage derselbe Lauf.
+   */
+  const angebotRand = rng(seed + 900_000);
+  if (ag) ag.rand = angebotRand;
   ausruesten(G, U);
   await home.setHome(G, U, 'de');
   if (musik) music.setup(G, U, 'pop', music.PERSONAS[0].id);
@@ -824,6 +953,16 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
      * Restzeit ausschöpft – also genau „2 h in Kontakte statt in eine Aktion".
      */
     if (strat.kontakte && !ruhetag) kontakttag(G, U, now + 15e4, kontaktRand, strat.kontaktVorrang ?? null);
+    /*
+     * Die Gegenanfragen (Stück 5c) – NACH der Kontaktpflege und VOR dem
+     * Musiktag, aus demselben Grund wie die Kontaktpflege: Ein Schub, den ein
+     * angenommener Gastpart heute setzt, soll die Veröffentlichung von heute
+     * erreichen. Die Zeit kommt aus demselben 24-h-Tag; Honorar, Gage und die
+     * Projektstunden sind damit echte Mehrkosten und keine Nebenrechnung.
+     */
+    if (musik && !ruhetag && ANGEBOT_SPIELWEISEN.has(strat.angebote)) {
+      await angebotetag(G, U, now + 17e4, angebotRand, strat.angebote);
+    }
     if (musik && !ruhetag) {
       /*
        * Zwei Stunden Beef (Stück 5b) aus demselben 24-h-Budget wie alles
@@ -833,7 +972,16 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
        */
       const beefHook = BEEF_SPIELWEISEN.has(strat.beef)
         ? (jetzt) => beeftag(G, U, jetzt, beefRand, strat.beef) : null;
-      const s = musiktag(G, U, now + 2e5, rand, strat.konzert, strat.horten === true, beefHook);
+      /*
+       * `horten: 'kollabo'` ist die Veröffentlichungspolitik des
+       * Kollabo-Kontrollpaars (5c): sechs Titel sammeln wie bei `true`, sie aber
+       * liegen lassen, solange ein Kollabo-Konto offen ist. Für jede andere
+       * Variante bleibt der Ausdruck `strat.horten === true` wie bisher.
+       */
+      const horten = strat.horten === 'kollabo'
+        ? () => db.projekteOf(G, U).some((p) => p.status === 'offen' && p.art === 'kollabo')
+        : strat.horten === true;
+      const s = musiktag(G, U, now + 2e5, rand, strat.konzert, horten, beefHook);
       hypeSumme += s.hype ?? 0;
       hypeTage++;
       if (s.showMs <= 0 && s.listeners >= music.SHOW_MIN_LISTENERS) {
@@ -2972,8 +3120,881 @@ async function beeflauf(laeufe, tage) {
   }
 }
 
+// ------------------------------------------------------- Angebote (5c)
+
+/**
+ * ===========================================================================
+ *  GEGENANFRAGEN UND GROSSE FORMATE ALS SPIELWEISE
+ * ===========================================================================
+ *
+ * Gemessen wird eine einzige Frage: Was bringen die Gegenanfragen (Stück 5c) –
+ * und bringt einer der drei neuen Geldwege (Honorar, Gage, Vorschuss) oder einer
+ * der beiden großen Formate einen Zufluss, den §3 nicht erlaubt?
+ *
+ * Der Aufbau ist der des Beeflaufs, mit DREI Unterschieden, die aus dem Code
+ * kommen und nicht aus einer Entscheidung:
+ *
+ *  1. **Jede Variante pflegt Kontakte.** Eine Gegenanfrage setzt einen Draht ab
+ *     20 voraus, `kollabo`/`tour`/`label` einen ab 50 (`minDraht` in
+ *     `src/data/angebote.js`). Ohne Kontaktpflege gibt es also nichts zu messen.
+ *     Deshalb läuft `strat.kontakte` in ALLEN Varianten – auch in der Grundlage
+ *     „aus". Die Differenz misst damit die Gegenanfragen und nicht die
+ *     Kontaktpflege; was die kostet, hat 5a gemessen.
+ *  2. **Und sie pflegt sie mit Partner-Vorrang.** Die freie Wahl aus 5a baut über
+ *     ein Jahr genau einen Draht auf, und das ist ein reiner Creator ohne
+ *     Musik-Reichweite – gemessen, siehe `kontakttag`. Der Vorrang ist das
+ *     Messwerkzeug, ohne das der ganze Lauf eine stille Null wäre.
+ *  3. **Es gibt sechs Varianten und ein Kontrollpaar dazu.** Die sechs stehen im
+ *     Plan; das Kontrollpaar musste dazukommen, weil die gemessene
+ *     Veröffentlichungspolitik („jeden Tag die Single, die fertig ist") nie sechs
+ *     Titel liegen hat und ein Kollabo-Album deshalb NIE abschließt. Das ist ein
+ *     Ergebnis und kein Fehler – es steht als Zahl in der Ausgabe –, aber es
+ *     beantwortet die Frage der Spec („lohnt sich das Kollabo?") nicht. Dafür
+ *     laufen zwei weitere Varianten, die beide auf sechs Titel warten und sich
+ *     NUR darin unterscheiden, ob das Album ein Kollabo ist.
+ *
+ *     Warum das nicht eine siebte Spalte derselben Tabelle ist: Der Abstand
+ *     zwischen „Album" und „täglicher Single" ist das Größte, was dieses Spiel
+ *     kennt (5b hat +665,7 % bzw. +2766,1 % gemessen). Eine Kollabo-Variante
+ *     gegen die Single-Grundlage zu stellen hieße, diesen Abstand als Wirkung des
+ *     Kollabos auszugeben.
+ *
+ * Damit die Differenz die Gegenanfragen misst und nichts sonst:
+ *
+ *  • ALLE Varianten fahren DIESELBE Strategie (einmal je Archetyp gesucht, dann
+ *    fest) und denselben Würfel `rng(1000 + i)` für Musik, Kanäle, Ereignisse
+ *    und Vorfälle, denselben Kontaktwürfel `rng(501000 + i)` – dieselben Seeds
+ *    wie im Kontakt- und im Beeflauf.
+ *  • Alle Angebotswürfe laufen über einen VIERTEN Würfel `rng(901000 + i)`:
+ *    Zustellung, Kontaktwahl beim Ziehen, Art, Textzeile – und die
+ *    Veröffentlichung des Kollabos und die fünf Konzerte der Tour, weil
+ *    `abschliessen` ihnen genau diesen Würfel durchreicht.
+ *  • Jede Variante bekommt eigene Welten und eigene Konten.
+ *
+ * Gezählt wird ausschließlich, was das Spiel zurückgegeben hat: die Ereignisse
+ * aus `angebote.settle` und die Rückgabewerte von `annehmen`, `ablehnen`,
+ * `arbeiten` und `music.sign`. Das Skript rechnet kein Honorar, keine Gage und
+ * keinen Kollabo-Faktor nach – es nimmt die Zahlen, mit denen gebucht wurde.
+ * (Die Handprüfung im Messbericht rechnet sie von Hand nach und hält sie
+ * dagegen; dafür gibt es `--trace=angebote`.)
+ */
+
+/**
+ * Welche Arten eine Spielweise annimmt. `null` heißt: Der Zustellweg wird nicht
+ * einmal angefasst – das ist die Grundlage „aus", und sie ruft `settle` nie.
+ */
+const ANGEBOT_ANNAHME = {
+  aus: null,
+  'alles-ab': new Set(),
+  'alles-an': new Set(['tausch', 'gastpart', 'vorgruppe', 'kollabo', 'tour', 'label']),
+  'nur-geld': new Set(['gastpart', 'vorgruppe']),
+  'nur-projekte': new Set(['kollabo', 'tour']),
+  'nur-label': new Set(['label']),
+  // Das Kontrollpaar für das Kollabo (siehe Kopf): beide horten, nur eine nimmt an.
+  'horten-aus': null,
+  'horten-kollabo': new Set(['kollabo']),
+  /*
+   * Die Zerlegung von „alles-an" (`--zerlegung`). Sie musste dazukommen, weil die
+   * fünf Varianten des Plans die Frage „welche Konstante greift?" NICHT
+   * beantworten konnten: Gemessen (10 Läufe, nur Musik) liegt „alles-an" bei
+   * +51,5 % gepaart, während jede isolierende Variante zwischen −0,7 % und
+   * +3,8 % steht. Die Summe der Teile ist also ein Zehntel des Ganzen, und der
+   * Grund steht in `src/data/angebote.js`: Wer ablehnt, treibt
+   * `abgelehnt_folge` hoch, und nach PAUSE_SCHWELLE 3 ruht der Zustellweg
+   * PAUSE_TAGE 14. Eine isolierende Variante lehnt fünf von sechs Arten ab und
+   * bekommt deshalb kaum noch Anfragen – gemessen 5 Verträge in „nur-label"
+   * gegen 36 in „alles-an". Die isolierte Zahl misst damit die Pause mit und
+   * nicht den Weg allein.
+   *
+   * Diese vier Varianten nehmen deshalb ALLES an BIS AUF eine Gruppe. Sie
+   * laufen damit bei derselben Zustellrate wie „alles-an", und die Differenz
+   * „alles-an" minus „ohne-X" ist der Beitrag von X an der Spielweise, die den
+   * Auslöser reißt. Abgelehnt wird dabei nur eine Art von sechs, die Pause
+   * bleibt also selten.
+   */
+  'ohne-geld': new Set(['tausch', 'kollabo', 'tour', 'label']),
+  'ohne-projekte': new Set(['tausch', 'gastpart', 'vorgruppe', 'label']),
+  'ohne-label': new Set(['tausch', 'gastpart', 'vorgruppe', 'kollabo', 'tour']),
+  'ohne-tausch': new Set(['gastpart', 'vorgruppe', 'kollabo', 'tour', 'label']),
+};
+
+/** `--zerlegung`: die vier „alles-an ohne X"-Varianten mitfahren. */
+const ZERLEGUNG = process.argv.includes('--zerlegung');
+
+/** Die Spielweisen, die einen Angebotstag bekommen – „aus" steht NICHT darin. */
+const ANGEBOT_SPIELWEISEN = new Set(Object.entries(ANGEBOT_ANNAHME)
+  .filter(([, v]) => v !== null).map(([k]) => k));
+
+/** Zähler des laufenden Angebotslaufs – `null`, solange nicht gemessen wird. */
+let ag = null;
+
+function neuerAngebotZaehler(spielweise) {
+  return {
+    spielweise,
+    rand: null,
+    // Zustellung
+    zugestellt: {},                 // Art -> Anzahl
+    seine: [],                      // Musik-Reichweite des Kontakts je zugestellter Anfrage
+    verfallen: {},                  // Art -> Anzahl (liegen gelassen)
+    pausen: 0,                      // wie oft der Zustellweg zwei Wochen ruhte
+    // Antwort
+    angenommen: {}, abgelehnt: {},
+    annahmeAb: {},                  // "Art/Grund" -> Anzahl
+    // Honorar und Gage – brutto wie netto, denn ein Label-Vertrag nimmt 30 %
+    honorare: [], honorarNetto: 0, honorarBrutto: 0, honorarSeine: [],
+    gagen: [], gageNetto: 0, gageBrutto: 0, extraHoerer: [], gageSeine: [],
+    // Projekte
+    projekteAuf: {}, projekteFertig: {}, projekteVerfallen: {},
+    verfalleneStunden: [],          // Stunden, die mit einem Projekt verfallen sind
+    druecke: 0, arbeitAb: {},
+    kollaboFaktoren: [], kollaboAudience: [], kollaboPlatz: [], kollaboGewonnen: [],
+    tourAbende: 0, tourKonzerte: [], tourAbgesagt: 0, tourBrutto: [], tourNetto: 0,
+    tourGast: [], tourGewonnen: [],
+    // Vertrag
+    vertragAngebote: 0, vertragArten: {}, unterschrieben: 0, vorschuesse: [],
+    vorschussNetto: 0, signAb: {}, vertragEnden: 0,
+    // Draht am Ende jedes Laufs – der Beweis, dass es Partner gab
+    partnerAmEnde: [], bekanntAmEnde: [], partnerReach: [],
+  };
+}
+
+/**
+ * `music.settleContracts` meldet den ausgelaufenen Vertrag – gezählt wird hier.
+ * Ohne diese Zahl wäre „5 unterschriebene Verträge in 365 Tagen" nicht
+ * nachvollziehbar: Ein neues Angebot kann erst kommen, wenn das alte durch ist.
+ */
+const echtSettleContracts = music.settleContracts;
+music.settleContracts = (...a) => {
+  const r = echtSettleContracts(...a);
+  if (ag && r?.ended) ag.vertragEnden++;
+  return r;
+};
+
+/**
+ * Die Ereignisse der faulen Abrechnung in den Zähler – aus `settle` selbst und
+ * aus dem `vorher` JEDES Knopfdrucks. Doppelt zählt dabei nichts: `settle`
+ * meldet ein Ereignis genau einmal, weil es es beim Melden auch schreibt.
+ */
+function zaehleAngebotEreignisse(ereignisse) {
+  if (!ag) return;
+  for (const e of ereignisse ?? []) {
+    if (e.art === 'neu') {
+      const id = e.angebot?.art ?? '?';
+      ag.zugestellt[id] = (ag.zugestellt[id] ?? 0) + 1;
+      ag.seine.push(e.contact?.reach ?? 0);
+    } else if (e.art === 'verfallen') {
+      const id = e.angebot?.art ?? '?';
+      ag.verfallen[id] = (ag.verfallen[id] ?? 0) + 1;
+    } else if (e.art === 'projekt_verfallen') {
+      const id = e.projekt?.art ?? '?';
+      ag.projekteVerfallen[id] = (ag.projekteVerfallen[id] ?? 0) + 1;
+      ag.verfalleneStunden.push(e.projekt?.stunden_ist ?? 0);
+    }
+  }
+}
+
+/** Eine Annahme in die Zähler – nur, was `annehmen` zurückgegeben hat. */
+function zaehleAnnahme(art, contact, r) {
+  if (!ag) return;
+  if (!r.ok) {
+    ag.annahmeAb[`${art}/${r.reason}`] = (ag.annahmeAb[`${art}/${r.reason}`] ?? 0) + 1;
+    return;
+  }
+  ag.angenommen[art] = (ag.angenommen[art] ?? 0) + 1;
+  if (r.honorar !== null && r.honorar !== undefined) {
+    ag.honorare.push(r.honorar);
+    ag.honorarSeine.push(contact?.reach ?? 0);
+    ag.honorarBrutto += r.geld?.gross ?? 0;
+    ag.honorarNetto += r.geld?.amount ?? 0;
+  }
+  if (r.gage !== null && r.gage !== undefined) {
+    ag.gagen.push(r.gage);
+    ag.extraHoerer.push(r.extraHoerer ?? 0);
+    ag.gageSeine.push(contact?.reach ?? 0);
+    ag.gageBrutto += r.geld?.gross ?? 0;
+    ag.gageNetto += r.geld?.amount ?? 0;
+  }
+  if (r.projekt) ag.projekteAuf[art] = (ag.projekteAuf[art] ?? 0) + 1;
+  if (r.vertragsangebot) {
+    ag.vertragAngebote++;
+    const k = r.vertragsangebot.kind ?? '?';
+    ag.vertragArten[k] = (ag.vertragArten[k] ?? 0) + 1;
+  }
+}
+
+/** Ein abgeschlossenes Projekt in die Zähler – nur, was `abschliessen` gemeldet hat. */
+function zaehleAbschluss(r, now) {
+  if (!ag) return;
+  ag.projekteFertig[r.art] = (ag.projekteFertig[r.art] ?? 0) + 1;
+  if (r.art === 'kollabo') {
+    ag.kollaboFaktoren.push(r.audience);
+    ag.kollaboAudience.push(r.platte?.audience ?? 0);
+    ag.kollaboPlatz.push(r.platte?.position ?? 0);
+    ag.kollaboGewonnen.push(r.platte?.gained ?? 0);
+  }
+  if (r.art === 'tour') {
+    ag.tourAbende += r.abende?.length ?? 0;
+    ag.tourKonzerte.push(r.konzerte ?? 0);
+    ag.tourAbgesagt += (r.abende ?? []).filter((a) => a.ok && a.cancelled).length;
+    ag.tourBrutto.push(r.brutto ?? 0);
+    ag.tourNetto += r.verdient ?? 0;
+    ag.tourGast.push(r.gast ?? 0);
+    ag.tourGewonnen.push(r.gewonnen ?? 0);
+  }
+  if (TRACE !== 'angebote') return;
+  const zeile = {
+    datum: new Date(now).toISOString().slice(0, 10), was: 'projekt_fertig',
+    modus: ag.spielweise, art: r.art, kontakt: r.contact?.id ?? null,
+    seine: r.contact?.reach ?? null,
+  };
+  if (r.art === 'kollabo') {
+    Object.assign(zeile, {
+      audience: r.audience, platteAudience: r.platte?.audience, platz: r.platte?.position,
+      gewonnen: r.platte?.gained, hoererNach: r.platte?.listeners, buzz: r.platte?.buzz,
+    });
+  } else {
+    Object.assign(zeile, {
+      gast: r.gast, konzerte: r.konzerte, brutto: r.brutto, netto: r.verdient,
+      cut: r.cut, gewonnen: r.gewonnen,
+      abende: (r.abende ?? []).map((a) => ({
+        ok: a.ok, brutto: a.gross, netto: a.amount, extra: a.extraHoerer,
+        guete: a.quality, gewonnen: a.gained, abgesagt: a.cancelled,
+      })),
+    });
+  }
+  console.error(JSON.stringify(zeile));
+}
+
+/**
+ * Ein Angebotstag.
+ *
+ * Die Spielweise ist bewusst die FLEISSIGE und nicht die kluge – dieselbe Linie
+ * wie beim Beeflauf:
+ *
+ *  1. Faul abrechnen (§4). Damit kommen die Anfragen herein und die Fristen
+ *     laufen ab; was dabei verfällt, wird gezählt.
+ *  2. JEDE offene Anfrage wird HEUTE beantwortet – angenommen, wenn die
+ *     Spielweise diese Art will, sonst abgelehnt. Liegen bleibt nichts: Das wäre
+ *     eine dritte Entscheidung (−8 Draht statt −5), und sie steckt in „alles-ab"
+ *     ohnehin als die teurere Variante derselben Haltung. Was trotzdem verfällt
+ *     – eine Anfrage, die am Tag ihrer Zustellung schon durch war –, steht als
+ *     Zahl in der Ausgabe.
+ *  3. Am offenen Projekt arbeiten, `ANGEBOT_DRUECKE` Drücke am Tag (Standard 2 =
+ *     vier Stunden). Das ist die Zahl, die ein Konto innerhalb der Frist
+ *     zuverlässig füllt: Das Kollabo braucht 18 Stunden (9 Drücke → 5 Tage), die
+ *     Tour 24 (12 Drücke → 6 Tage), die Frist ist 14 Tage. Mit einem Druck am Tag
+ *     bräuchte die Tour 12 von 14 Tagen – ein einziger Tag ohne Zeit hätte das
+ *     Konto verfallen lassen, und gemessen wäre dann die Frist und nicht die
+ *     Tour. Mit zwei Drücken bleibt ein echter Preis (vier von 24 Stunden an
+ *     diesen Tagen) und ein Spielraum, der nicht am Zufall hängt. Wie viele
+ *     Konten trotzdem verfallen sind, steht in der Ausgabe.
+ *  4. Ein Vertragsangebot wird unterschrieben, wenn die Spielweise `label` will.
+ *     Ausgestiegen wird NIE (`music.leave` kostet 15 Tage Tantiemen) – wer
+ *     unterschreibt, sitzt die 60 Tage ab.
+ */
+async function angebotetag(G, U, now, rand, spielweise) {
+  if (!ag) return null;
+  const annahme = ANGEBOT_ANNAHME[spielweise];
+  if (!annahme) return null;
+  const s = music.status(G, U, now);
+  if (!s.started) return null;
+
+  // 1. Zustellung und Fristen. Die Pause wird an der Uhr abgelesen, nicht
+  //    nachgerechnet: `settle` meldet sie nicht als Ereignis.
+  const uhrVor = db.angebotUhr(G, U);
+  zaehleAngebotEreignisse(angebote.settle(G, U, now, rand));
+  const uhrNach = db.angebotUhr(G, U);
+  if (uhrNach.pause_bis > uhrVor.pause_bis && uhrNach.pause_bis > now) ag.pausen++;
+
+  // 2. Antworten. Die Liste wird VOR der ersten Antwort gelesen; eine Anfrage,
+  //    die inzwischen weg ist, meldet der Knopf mit `weg`/`abgelaufen`, und das
+  //    wird gezählt statt verschwiegen.
+  for (const a of angebote.offeneAngebote(G, U, now)) {
+    if (TRACE === 'angebote') {
+      console.error(JSON.stringify({
+        datum: new Date(now).toISOString().slice(0, 10),
+        was: annahme.has(a.art) ? 'annehmen' : 'ablehnen', modus: ag.spielweise,
+        art: a.art, kontakt: a.contact?.id ?? null, seine: a.contact?.reach ?? null,
+        meine: Math.round(s.listeners), hoererTantiemen: Math.round(
+          music.royaltyPerDay(s.listeners, music.marketOf(G, U))),
+      }));
+    }
+    if (annahme.has(a.art)) {
+      const r = await angebote.annehmen(G, U, a.id, now, rand);
+      zaehleAngebotEreignisse(r.vorher);
+      zaehleAnnahme(a.art, a.contact, r);
+      if (TRACE === 'angebote' && r.ok) {
+        console.error(JSON.stringify({
+          datum: new Date(now).toISOString().slice(0, 10), was: 'angenommen',
+          modus: ag.spielweise, art: a.art, kontakt: a.contact?.id ?? null,
+          seine: a.contact?.reach ?? null, honorar: r.honorar, gage: r.gage,
+          extraHoerer: r.extraHoerer, brutto: r.geld?.gross ?? null,
+          cut: r.geld?.cut ?? null, netto: r.geld?.amount ?? null,
+          draht: r.draht?.draht ?? null, projekt: r.projekt ? r.projekt.stunden_soll : null,
+          vertrag: r.vertragsangebot ? r.vertragsangebot.kind : null,
+        }));
+      }
+    } else {
+      const r = angebote.ablehnen(G, U, a.id, now, rand);
+      zaehleAngebotEreignisse(r.vorher);
+      if (r.ok) ag.abgelehnt[a.art] = (ag.abgelehnt[a.art] ?? 0) + 1;
+      else ag.annahmeAb[`${a.art}/ab-${r.reason}`] = (ag.annahmeAb[`${a.art}/ab-${r.reason}`] ?? 0) + 1;
+    }
+  }
+
+  // 3. Am Projekt arbeiten.
+  for (let i = 0; i < ANGEBOT_DRUECKE; i++) {
+    const offen = angebote.offeneProjekte(G, U, now + i * 1000);
+    if (!offen.length) break;
+    if (TRACE === 'angebote') {
+      /*
+       * Die Hörerzahl VOR dem Druck, mit demselben Zeitstempel, mit dem
+       * `abschliessen` sie gleich über `beef.musikLage` liest. Nur mit dieser
+       * Zahl ist der Kollabo-Faktor von Hand nachrechenbar: Nach der
+       * Veröffentlichung ist sie eine andere.
+       */
+      console.error(JSON.stringify({
+        datum: new Date(now).toISOString().slice(0, 10), was: 'arbeiten',
+        modus: ag.spielweise, art: offen[0].art, kontakt: offen[0].contact_id,
+        seine: offen[0].contact?.reach ?? null,
+        meine: music.status(G, U, now + i * 1000).listeners,
+        ist: offen[0].stunden_ist, soll: offen[0].stunden_soll,
+      }));
+    }
+    const r = await angebote.arbeiten(G, U, offen[0].id, now + i * 1000, rand);
+    zaehleAngebotEreignisse(r.vorher);
+    if (!r.ok) {
+      ag.arbeitAb[`${offen[0].art}/${r.reason}`] = (ag.arbeitAb[`${offen[0].art}/${r.reason}`] ?? 0) + 1;
+      break;                       // derselbe Grund gilt auch für den zweiten Druck
+    }
+    ag.druecke++;
+    if (r.fertig) zaehleAbschluss(r, now);
+  }
+
+  // 4. Unterschreiben.
+  if (annahme.has('label')) {
+    const offer = db.openContract(G, U, now);
+    if (offer) {
+      const r = await music.sign(G, U, offer.id, now + 3e4);
+      if (r.ok) {
+        ag.unterschrieben++;
+        ag.vorschuesse.push(r.advance);
+        ag.vorschussNetto += r.advance;
+        if (TRACE === 'angebote') {
+          console.error(JSON.stringify({
+            datum: new Date(now).toISOString().slice(0, 10), was: 'unterschrieben',
+            modus: ag.spielweise, kind: offer.kind, agency: offer.agency,
+            land: offer.country, vorschuss: r.advance,
+            vorschussTage: r.terms?.advanceDays, anteil: r.terms?.cut,
+            meine: Math.round(music.status(G, U, now).listeners),
+          }));
+        }
+      } else ag.signAb[r.reason] = (ag.signAb[r.reason] ?? 0) + 1;
+    }
+  }
+  return null;
+}
+
+/** Eine Variante des Angebotslaufs über alle Seeds; beide Zähler kommen mit. */
+async function angebotvariante(kennungBasis, musik, strat, laeufe, tage, spielweise) {
+  kz = neuerZaehler();                 // Kanalaktionen, Veröffentlichungen, Konzerte
+  ag = neuerAngebotZaehler(spielweise);
+  const geld = [];
+  const hoerer = [];
+  const follower = [];
+  const summe = {};
+  let zaehler;
+  let angebotZaehler;
+  try {
+    for (let i = 0; i < laeufe; i++) {
+      const kennung = `${kennungBasis}_${i}`;
+      const G = welt(kennung);
+      const U = `fx:${kennung}`;
+      const r = await karriere(G, U, { musik, strat }, tage, 1000 + i);
+      geld.push(r.geld);
+      hoerer.push(r.hoerer);
+      follower.push(r.follower);
+      for (const [k, v] of Object.entries(r.quellen)) summe[k] = (summe[k] ?? 0) + v;
+      /*
+       * Der Draht am Ende des Laufs – der Beweis, dass es überhaupt Partner gab.
+       * Gezählt werden nur Kontakte mit MUSIK-Reichweite, denn nur die können
+       * eine Gegenanfrage schicken (`zustellen`), und mit `drahtJetzt`, weil der
+       * rohe Speicherwert den Abklang noch nicht enthält.
+       */
+      const ende = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + tage * DAY;
+      const zeilen = db.contactsOf(G, U)
+        .map((z) => ({ c: contactsData.byId(z.contact_id), draht: contacts.drahtJetzt(z, ende) }))
+        .filter((z) => (z.c?.reach ?? 0) > 0);
+      ag.bekanntAmEnde.push(zeilen.filter((z) => z.draht >= contactsData.STUFE_BEKANNT).length);
+      const partner = zeilen.filter((z) => z.draht >= contactsData.STUFE_PARTNER);
+      ag.partnerAmEnde.push(partner.length);
+      for (const z of partner) ag.partnerReach.push(z.c.reach);
+    }
+  } finally {
+    // Auch wenn ein Lauf abbricht: Die Zähler müssen weg, sonst zählen die
+    // Hüllen in jeden folgenden Lauf hinein.
+    zaehler = kz; kz = null;
+    angebotZaehler = ag; ag = null;
+  }
+  return {
+    geld, zaehler, angebotZaehler,
+    median: median(geld), q25: quantil(geld, 0.25), q75: quantil(geld, 0.75),
+    hoerer: median(hoerer), follower: median(follower),
+    quellen: Object.fromEntries(Object.entries(summe)
+      .map(([k, v]) => [k, v / Math.max(1, laeufe)]).sort((a, b) => b[1] - a[1])),
+  };
+}
+
+/** Die Zählerzeilen einer Angebots-Variante – roh, ohne Rundung auf schöne Zahlen. */
+function angebotZeilen(z, tage, laeufe) {
+  const out = [];
+  const n = tage * laeufe;
+  const liste = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k} ${de(v)}`).join(', ') || 'keine';
+  const summe = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  const quote = (a, b) => (b ? `${komma((a / b) * 100, 1)} %` : '– (0 Fälle)');
+  const f = (a, k = 0) => (a.length
+    ? `Ø ${komma(mittel(a), k)} (kleinster ${komma(Math.min(...a), k)}, größter ${komma(Math.max(...a), k)})`
+    : 'keiner');
+
+  const zu = summe(z.zugestellt);
+  const an = summe(z.angenommen);
+  const ab = summe(z.abgelehnt);
+  const ver = summe(z.verfallen);
+  out.push(`Zugestellt ${de(zu)} Anfragen in ${de(n)} Tagen (${komma(zu / n, 3)}/Tag, erwartet ` +
+    `${komma(angeboteData.ANFRAGE_CHANCE, 3)} je Wurf): ${liste(z.zugestellt)}`);
+  out.push(`Ø Musik-Reichweite des anfragenden Kontakts: ${f(z.seine)}`);
+  out.push(`Angenommen ${de(an)} (Annahmequote ${quote(an, zu)}): ${liste(z.angenommen)}`);
+  out.push(`Abgelehnt ${de(ab)} (${quote(ab, zu)}): ${liste(z.abgelehnt)} · ` +
+    `liegen geblieben und verfallen ${de(ver)} (${quote(ver, zu)}): ${liste(z.verfallen)}`);
+  out.push(`Zustellweg ruhte ${de(z.pausen)}× zwei Wochen (nach ${angeboteData.PAUSE_SCHWELLE} nicht ` +
+    `angenommenen Anfragen) – das sind ${de(z.pausen * angeboteData.PAUSE_TAGE)} von ${de(n)} Tagen ` +
+    `(${quote(z.pausen * angeboteData.PAUSE_TAGE, n)}) ohne jeden Wurf`);
+  out.push(`abgewiesene Knopfdrücke (Grund je Art): ${liste(z.annahmeAb)}`);
+  out.push(`Honorar (gastpart) ${de(z.honorare.length)}×: ${f(z.honorare)} · brutto Σ ${de(z.honorarBrutto)}, ` +
+    `netto Σ ${de(z.honorarNetto)} (${de(z.honorarNetto / n)}/Tag) · Ø Reichweite des Partners ${f(z.honorarSeine)}`);
+  out.push(`Gage (vorgruppe) ${de(z.gagen.length)}×: ${f(z.gagen)} · brutto Σ ${de(z.gageBrutto)}, ` +
+    `netto Σ ${de(z.gageNetto)} (${de(z.gageNetto / n)}/Tag) · mitgebrachte Hörer ${f(z.extraHoerer)} · ` +
+    `Ø Reichweite des Partners ${f(z.gageSeine)}`);
+  out.push(`Projekte aufgemacht: ${liste(z.projekteAuf)} · fertig: ${liste(z.projekteFertig)} · ` +
+    `verfallen: ${liste(z.projekteVerfallen)} (dabei verfallene Stunden ${f(z.verfalleneStunden, 1)})`);
+  out.push(`Drücke auf „daran arbeiten" ${de(z.druecke)} (${komma(z.druecke / n, 3)}/Tag, je Druck ` +
+    `${angeboteData.ARBEIT_STUNDEN} h = ${de(z.druecke * angeboteData.ARBEIT_STUNDEN)} Stunden) · ` +
+    `abgewiesen: ${liste(z.arbeitAb)}`);
+  out.push(`Kollabo: Faktor auf das Publikum ${f(z.kollaboFaktoren, 3)} (Decke ${komma(2, 3)}) · ` +
+    `erreichtes Publikum ${f(z.kollaboAudience)} · gewonnene Hörer ${f(z.kollaboGewonnen)} · ` +
+    `Chartplatz ${f(z.kollaboPlatz, 1)}`);
+  out.push(`Tour: Abende ${de(z.tourAbende)} (davon abgesagt ${de(z.tourAbgesagt)}), gespielte Konzerte je Tour ` +
+    `${f(z.tourKonzerte, 1)} · Brutto je Tour ${f(z.tourBrutto)}, netto Σ ${de(z.tourNetto)} ` +
+    `(${de(z.tourNetto / n)}/Tag) · mitgebrachte Hörer am letzten Abend ${f(z.tourGast)} · ` +
+    `gewonnene Hörer je Tour ${f(z.tourGewonnen)}`);
+  out.push(`Vertrag: Angebote ${de(z.vertragAngebote)} (Arten: ${liste(z.vertragArten)}) · ` +
+    `unterschrieben ${de(z.unterschrieben)} · ausgelaufen ${de(z.vertragEnden)} · ` +
+    `Vorschuss ${f(z.vorschuesse)}, Σ ${de(z.vorschussNetto)} (${de(z.vorschussNetto / n)}/Tag) · ` +
+    `nicht unterschrieben: ${liste(z.signAb)}`);
+  out.push(`Draht am Laufende (nur Kontakte mit Musik-Reichweite): Partner (≥ ` +
+    `${contactsData.STUFE_PARTNER}) ${f(z.partnerAmEnde, 1)} · bekannt (≥ ${contactsData.STUFE_BEKANNT}) ` +
+    `${f(z.bekanntAmEnde, 1)} · Reichweite dieser Partner ${f(z.partnerReach)}`);
+  return out;
+}
+
+/**
+ * Die Decken dieses Stücks, mit den Funktionen aus `src/angebote.js` gerechnet
+ * und nicht nachgebaut – damit §15 sie mit einer Quelle nennen kann.
+ *
+ * Das ist keine Simulation, sondern eine Rechnung: Was ist der GRÖSSTE Betrag,
+ * den der Katalog hergibt, und was davon erreicht die gemessene Spielweise? Die
+ * zweite Zahl ist die, die zählt – die erste ist die Decke, die §3 verlangt.
+ */
+function angebotDecken() {
+  const out = [];
+  const groesste = contactsData.CONTACTS.filter((c) => c.reach > 0)
+    .reduce((a, c) => (c.reach > a.reach ? c : a));
+  const markt = { royalty: 1 };
+  const rpd = (h) => music.royaltyPerDay(h, markt);
+  out.push(`Größter Musiker im Katalog: ${groesste.name} (${de(groesste.reach)} Hörer, ` +
+    `${groesste.language}/${groesste.genre}/${groesste.country})`);
+  const hoch = angebote.honorarOf({ seine: groesste.reach, tantiemenProTag: Number.MAX_SAFE_INTEGER / 60 });
+  out.push(`Honorar, höchster möglicher Einzelbetrag: honorarOf(seine ${de(groesste.reach)}, Deckel offen) = ` +
+    `${de(hoch)} – das ist ${komma(angeboteData.HONORAR_K, 1)} × ${de(groesste.reach)}^` +
+    `${komma(angeboteData.HONORAR_EXP, 1)}; der zweite Deckel ist ` +
+    `${angeboteData.HONORAR_DECKEL_TAGE} Tage eigener Tantiemen und bindet, solange ` +
+    `${angeboteData.HONORAR_DECKEL_TAGE} × Tantiemen/Tag darunter liegt`);
+  // Ab welcher eigenen Hörerzahl der Reichweiten-Term bindet statt des Deckels:
+  // Suche über ganze Hörer, damit die Zahl aus derselben Funktion kommt.
+  let schwelle = null;
+  for (let h = 1_000; h <= 400_000; h += 1) {
+    if (angeboteData.HONORAR_DECKEL_TAGE * rpd(h) >= hoch) { schwelle = h; break; }
+  }
+  out.push(`  … der Reichweiten-Term bindet erst ab ${schwelle === null ? '> 400.000' : de(schwelle)} ` +
+    `eigenen Hörern (gesucht mit royaltyPerDay, Markt 1,0, in Schritten von einem Hörer); darunter ist ` +
+    `das Honorar exakt ${angeboteData.HONORAR_DECKEL_TAGE} Tage eigener Tantiemen`);
+  for (const meine of [1_000, 10_000, 100_000, 1_000_000]) {
+    const zeile = [8_400, 350_000, 3_200_000, groesste.reach].map((seine) => {
+      const h = angebote.honorarOf({ seine, tantiemenProTag: rpd(meine) });
+      const deckel = Math.round(angeboteData.HONORAR_DECKEL_TAGE * rpd(meine));
+      return `${de(h)}${h >= deckel ? ' (Deckel)' : ''}`;
+    });
+    out.push(`  honorarOf bei ${de(meine)} eigenen Hörern (Tantiemen ${de(rpd(meine))}/Tag, Deckel ` +
+      `${de(angeboteData.HONORAR_DECKEL_TAGE * rpd(meine))}): seine 8.400 → ${zeile[0]} · ` +
+      `350.000 → ${zeile[1]} · 3,2 Mio → ${zeile[2]} · ${de(groesste.reach)} → ${zeile[3]}`);
+  }
+  for (const meine of [10_000, 100_000]) {
+    const allein = angebote.gageOf({ meine, seine: 0, showPay: music.SHOW_PAY, showExp: music.SHOW_EXP });
+    const mit = [350_000, 3_200_000, groesste.reach].map((seine) => angebote.gageOf({
+      meine, seine, showPay: music.SHOW_PAY, showExp: music.SHOW_EXP }));
+    out.push(`  gageOf bei ${de(meine)} eigenen Hörern: allein ${de(allein)} · seine 350.000 → ` +
+      `${de(mit[0])} (×${komma(mit[0] / allein, 3)}) · 3,2 Mio → ${de(mit[1])} (×${komma(mit[1] / allein, 3)}) · ` +
+      `${de(groesste.reach)} → ${de(mit[2])} (×${komma(mit[2] / allein, 3)}) – Decke 2^` +
+      `${komma(music.SHOW_EXP, 1)} = ×${komma(Math.pow(2, music.SHOW_EXP), 3)}`);
+  }
+  for (const meine of [10_000, 100_000, 1_000_000]) {
+    const k = [350_000, 3_200_000, groesste.reach].map((seine) => angebote.kollaboFaktorOf({ meine, seine }));
+    out.push(`  kollaboFaktorOf bei ${de(meine)} eigenen Hörern: seine 350.000 → ×${komma(k[0], 3)} · ` +
+      `3,2 Mio → ×${komma(k[1], 3)} · ${de(groesste.reach)} → ×${komma(k[2], 3)} (Decke ×2,000)`);
+  }
+  out.push(`  Vorschuss Label: ${musicData.LABEL.advanceDays} Tage Tantiemen bei Unterschrift, einmal je ` +
+    `Vertrag, danach ${komma(musicData.LABEL.cut * 100, 0)} % Anteil über ${musicData.LABEL.durationDays} ` +
+    `Tage – bei 100.000 Hörern also ${de(musicData.LABEL.advanceDays * rpd(100_000))} auf die Hand gegen ` +
+    `${de(musicData.LABEL.cut * musicData.LABEL.durationDays * rpd(100_000))}, die der Anteil über die ` +
+    `Laufzeit aus den Tantiemen allein nimmt (ohne Wachstum ×${komma(musicData.LABEL.growth, 1)} ` +
+    `und Hallen ×${komma(musicData.LABEL.liveBonus, 1)} gegengerechnet – was netto bleibt, sagt der Lauf)`);
+  /*
+   * Die Decken gelten für den GRÖSSTEN Partner. Erreichbar ist er nicht
+   * zwangsläufig: Die Antwortchance fällt mit dem Größenverhältnis. Deshalb
+   * steht hier, was `contacts.chanceOf` für die größten Kontakte hergibt –
+   * abgelesen aus derselben Funktion, die die Ansicht zeigt.
+   */
+  const ich = { language: 'deutsch', genre: 'pop' };
+  /** Dieselben Summanden, mit denen `contacts.detail` die Chance auf den Knopf schreibt. */
+  const chance = (c, meine, draht) => contacts.chanceOf({
+    meineReichweite: meine, seineReichweite: c.reach, request: 'shoutout',
+    gleichesLand: c.country === 'de',
+    sprache: c.language === ich.language ? 'gleich' : (c.language === 'englisch' ? 'englisch' : 'fremd'),
+    genre: c.genre === ich.genre ? 'gleich'
+      : (contactsData.RELATED_GENRES.some(([x, y]) => (x === ich.genre && y === c.genre)
+        || (y === ich.genre && x === c.genre)) ? 'verwandt' : 'fremd'),
+    draht, hype: 1, trait: c.trait, partner: draht >= contactsData.STUFE_PARTNER,
+  });
+  for (const meine of [100_000, 1_000_000]) {
+    const zeilen = contactsData.CONTACTS.filter((c) => c.reach > 0)
+      .sort((a, b) => b.reach - a.reach).slice(0, 3)
+      .map((c) => `${c.name} (${de(c.reach)}) ${komma(chance(c, meine, 0) * 100, 1)} %`);
+    out.push(`  Antwortchance eines deutschen Pop-Künstlers mit ${de(meine)} Hörern bei den drei größten ` +
+      `Kontakten (chanceOf mit „Erwähnung", Draht 0, Hype 1,0): ${zeilen.join(' · ')} – ` +
+      `${komma(contactsData.CHANCE_MIN * 100, 1)} % ist die Untergrenze CHANCE_MIN, und sie ändert sich ` +
+      `mit dem Draht nur um ${komma(0.25 * 100, 0)} Punkte × Draht/100`);
+  }
+  return out;
+}
+
+/**
+ * Stück 5c: Was die Gegenanfragen bringen.
+ *
+ * Zwei Archetypen – Musik+Creator und nur Musik; der reine Creator kommt nicht
+ * vor, weil eine Gegenanfrage eine Sache unter Musikern ist (`musikIch` gibt für
+ * ihn `null`, und `annehmen` antwortet `seite`). Je Archetyp sechs Varianten plus
+ * das Kollabo-Kontrollpaar, alle mit demselben Würfel und derselben Strategie.
+ * Die Strategie wird je Archetyp EINMAL gesucht – ohne Kontakte und ohne
+ * Angebote, also in derselben Welt wie im Kontakt- und im Beeflauf – und dann für
+ * alle Varianten festgehalten; sonst misst man die Strategiewahl.
+ */
+async function angebotelauf(laeufe, tage) {
+  const paare = [
+    { titel: 'Musik+Creator', musik: true, kennung: 'ang_beides' },
+    // Der reine Musiker: dieselbe Messung ohne Kanalprogramm. Bei ihm gibt es
+    // keine Füllaktionen, die die Stunden verdrängen könnten – der Preis der
+    // Gegenanfragen ist dort allein die Zeit und der Veröffentlichungsplatz.
+    { titel: 'nur Musik', musik: true, kennung: 'ang_musik', kanaele: false },
+  ];
+
+  console.log('  Decken, mit den Funktionen aus src/angebote.js gerechnet (keine Simulation):');
+  for (const l of angebotDecken()) console.log(`    ${l}`);
+  console.log();
+
+  for (const a of paare) {
+    const alle = a.kanaele === false
+      ? strategien(true).filter((s) => s.name.startsWith('Ertrag je Zeit +0B'))
+        .map((s) => ({ ...s, kanaele: false }))
+      : strategien(a.musik);
+    let strat;
+    if (STRATEGIE && alle.some((s) => s.name === STRATEGIE)) {
+      strat = alle.find((s) => s.name === STRATEGIE);
+    } else {
+      const such = await durchlauf(`${a.kennung}_suche`, a.musik, Math.max(2, Math.min(3, laeufe)),
+        Math.min(tage, 180), alle, true);
+      strat = alle.find((s) => s.name === such.strategie);
+    }
+    // Die Grundlage aller Varianten: dieselbe Strategie, dieselbe
+    // Kontaktpflege mit Partner-Vorrang, nur die Spielweise wechselt.
+    const basis = { ...strat, kontakte: true, kontaktVorrang: 'partner' };
+    console.log(`  ${a.titel}: Strategie "${strat.name}" (Suche ohne Kontakte und ohne Angebote), ` +
+      `${laeufe} Läufe à ${tage} Tage, Würfel rng(1000+i), Kontaktwürfe rng(501000+i), ` +
+      `Angebotswürfe rng(901000+i), Kontaktpflege in ALLEN Varianten mit Partner-Vorrang, ` +
+      `${ANGEBOT_DRUECKE} Drücke „daran arbeiten"/Tag`);
+
+    const v = {};
+    for (const name of ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
+      v[name] = await angebotvariante(`${a.kennung}_${name.replace('-', '')}`, a.musik,
+        { ...basis, angebote: name }, laeufe, tage, name);
+    }
+
+    const zeile = (was, r) => `    ${was.padEnd(24)}${de(r.median / tage).padStart(10)}/Tag   ` +
+      `[${de(r.q25 / tage)} … ${de(r.q75 / tage)}]   ${de(r.follower)} Follower` +
+      (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '');
+    /*
+     * Gepaart auswerten: Je Seed läuft in allen Varianten derselbe Würfel, das
+     * Verhältnis je Seed ist damit die ehrlichere Zahl – es steht neben dem
+     * Verhältnis der Mediane, nicht an seiner Stelle.
+     */
+    const paarweise = (r, b) => r.geld.map((g, i) => g / Math.max(1, b.geld[i]));
+    const diffzeile = (r, b, wasBasis) => {
+      const p = paarweise(r, b);
+      const rauf = p.filter((x) => x > 1).length;
+      return `      gegen „${wasBasis}": Mediane ${prozent(r.median / Math.max(1, b.median) - 1)} · ` +
+        `je Seed (gepaart) Median ${prozent(median(p) - 1)}, ` +
+        `Spanne ${prozent(Math.min(...p) - 1)} … ${prozent(Math.max(...p) - 1)}, ` +
+        `${rauf} von ${p.length} Seeds im Plus\n` +
+        `      je Seed: ${p.map((x) => prozent(x - 1)).join(' · ')}`;
+    };
+    const titel = {
+      aus: 'aus (die Grundlage)',
+      'alles-ab': 'alles-ab',
+      'alles-an': 'alles-an',
+      'nur-geld': 'nur-geld',
+      'nur-projekte': 'nur-projekte',
+      'nur-label': 'nur-label',
+    };
+
+    console.log(zeile(titel.aus, v.aus));
+    for (const name of ['alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
+      console.log(zeile(titel[name], v[name]));
+      console.log(diffzeile(v[name], v.aus, 'aus'));
+    }
+    const quellenzeile = (was, r) => `      Quellen ${was.padEnd(16)}` + (Object.entries(r.quellen)
+      .filter(([, x]) => Math.abs(x) > 1)
+      .map(([k, x]) => `${k} ${de(x / tage)}/Tag (${Math.round((x / Math.max(1, r.median)) * 100)} %)`).join(' · ') || 'keine');
+    for (const name of ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
+      console.log(quellenzeile(`${name}:`, v[name]));
+    }
+
+    // Was die Stunden gekostet haben – gezählt, nicht überschlagen.
+    const l = (r) => leistung(r.zaehler, tage, laeufe);
+    const la = l(v.aus);
+    console.log(`      Tagesleistung Ø/Tag (Kanalaktionen · Veröffentlichungen · Konzerte): ` +
+      ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']
+        .map((name) => {
+          const x = l(v[name]);
+          return `${name} ${komma(x.akte)} · ${komma(x.publishes)} · ${komma(x.shows)}`;
+        }).join(' → '));
+    console.log(`      Veröffentlichungen und Konzerte gegen „aus": ` +
+      ['alles-an', 'nur-projekte'].map((name) => {
+        const x = l(v[name]);
+        return `${name} ${prozent(x.publishes / Math.max(1e-9, la.publishes) - 1)} Veröffentlichungen, ` +
+          `${prozent(x.shows / Math.max(1e-9, la.shows) - 1)} Konzerte`;
+      }).join(' · '));
+
+    for (const name of ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
+      console.log(`    ${name}:`);
+      for (const z of angebotZeilen(v[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+    }
+
+    /*
+     * Die Kontrollzeilen. Eine stille Null ist ein Fehler, kein Ergebnis –
+     * deshalb sagt jede Variante, dass sie gemessen hat, was sie behauptet, und
+     * zwar in beide Richtungen: „aus" MUSS leer sein, die anderen fünf dürfen es
+     * nicht, und jede isolierende Variante MUSS bei den Arten, die sie nicht
+     * annimmt, auf null stehen.
+     */
+    const summe = (o) => Object.values(o).reduce((x, y) => x + y, 0);
+    const leer = (z) => !summe(z.zugestellt) && !summe(z.angenommen) && !summe(z.abgelehnt)
+      && !summe(z.verfallen) && !z.honorare.length && !z.gagen.length && !summe(z.projekteAuf)
+      && !z.vertragAngebote && !z.unterschrieben && !z.druecke;
+    const zaus = v.aus.angebotZaehler;
+    console.log(`      KONTROLLE „aus": ${leer(zaus)
+      ? `keine Anfrage, kein Honorar, keine Gage, kein Projekt, kein Vertrag ✔ – der Draht stand ` +
+        `trotzdem (Ø ${komma(mittel(zaus.partnerAmEnde), 1)} Partner und Ø ` +
+        `${komma(mittel(zaus.bekanntAmEnde), 1)} Bekannte mit Musik-Reichweite am Laufende), ` +
+        `der Zustellweg wurde nur nie gerufen`
+      : `NICHT LEER – FEHLER: ${JSON.stringify({ zugestellt: zaus.zugestellt, angenommen: zaus.angenommen })}`}`);
+    const pruefe = (name, erwartetNull, erwartetNichtNull) => {
+      const z = v[name].angebotZaehler;
+      const istNull = erwartetNull.filter(([, x]) => (typeof x === 'function' ? x(z) : x) !== 0);
+      const istLeer = erwartetNichtNull.filter(([, x]) => (typeof x === 'function' ? x(z) : x) === 0);
+      const zeigen = (paare2) => paare2.map(([k, x]) => `${k} ${de(typeof x === 'function' ? x(z) : x)}`).join(', ');
+      console.log(`      KONTROLLE „${name}": ${istNull.length === 0 && istLeer.length === 0
+        ? `${erwartetNull.length ? `${erwartetNull.map(([k]) => `${k} 0`).join(', ')} ✔ · ` : 'nichts muss null sein · '}` +
+          `${erwartetNichtNull.map(([k, x]) => `${k} ${de(typeof x === 'function' ? x(z) : x)}`).join(', ')} ✔`
+        : `FEHLER – nicht null, obwohl erwartet: ${zeigen(istNull) || '–'}; null, obwohl erwartet: ` +
+          `${erwartetNichtNull.filter(([k]) => istLeer.some(([k2]) => k2 === k)).map(([k]) => k).join(', ') || '–'}`}`);
+    };
+    pruefe('alles-ab',
+      [['angenommen', (z) => summe(z.angenommen)], ['Honorare', (z) => z.honorare.length],
+        ['Gagen', (z) => z.gagen.length], ['Projekte', (z) => summe(z.projekteAuf)],
+        ['Verträge', (z) => z.unterschrieben]],
+      [['zugestellt', (z) => summe(z.zugestellt)], ['abgelehnt', (z) => summe(z.abgelehnt)]]);
+    pruefe('alles-an', [],
+      [['zugestellt', (z) => summe(z.zugestellt)], ['angenommen', (z) => summe(z.angenommen)]]);
+    pruefe('nur-geld',
+      [['Projekte', (z) => summe(z.projekteAuf)], ['Verträge', (z) => z.unterschrieben],
+        ['Drücke', (z) => z.druecke]],
+      [['Honorare', (z) => z.honorare.length], ['Gagen', (z) => z.gagen.length],
+        ['abgelehnt', (z) => summe(z.abgelehnt)]]);
+    pruefe('nur-projekte',
+      [['Honorare', (z) => z.honorare.length], ['Gagen', (z) => z.gagen.length],
+        ['Verträge', (z) => z.unterschrieben]],
+      [['Projekte', (z) => summe(z.projekteAuf)], ['Drücke', (z) => z.druecke],
+        ['abgelehnt', (z) => summe(z.abgelehnt)]]);
+    pruefe('nur-label',
+      [['Honorare', (z) => z.honorare.length], ['Gagen', (z) => z.gagen.length],
+        ['Projekte', (z) => summe(z.projekteAuf)], ['Drücke', (z) => z.druecke]],
+      [['Vertragsangebote', (z) => z.vertragAngebote], ['unterschrieben', (z) => z.unterschrieben],
+        ['abgelehnt', (z) => summe(z.abgelehnt)]]);
+    /*
+     * Die Vertragsart ist eine eigene Kontrolle: Der Lauf wohnt in Deutschland
+     * (`home.setHome(G, U, 'de')`), und `rollContract` klopft nur in Märkten mit
+     * Idol-System an. Jeder Vertrag dieses Laufs MUSS also ein `label`-Vertrag
+     * sein – sonst messen wir das Idol-Angebot und nennen es Label.
+     */
+    const zl = v['nur-label'].angebotZaehler;
+    const arten = Object.keys(zl.vertragArten);
+    console.log(`      KONTROLLE Vertragsart: ${arten.length === 1 && arten[0] === 'label'
+      ? `ausschließlich \`label\` (${de(zl.vertragArten.label)} Angebote) ✔ – kein Idol-Angebot, ` +
+        `denn der Lauf wohnt in Deutschland und rollContract klopft nur in Idol-Märkten`
+      : `FEHLER – auch andere Arten: ${JSON.stringify(zl.vertragArten)}`}`);
+
+    /*
+     * Der Auslöser aus dem Plan/der Spec: Liegt eine Variante über +25 % gepaart,
+     * wird die zugehörige Konstante gesenkt und neu gemessen. Ausgewertet wird
+     * für jede Variante beides – Mediane und gepaart – und benannt, welche Zahl
+     * ihn erreicht hat.
+     */
+    const kandidaten = ['alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']
+      .flatMap((name) => [
+        [`${name} (Mediane)`, v[name].median / Math.max(1, v.aus.median) - 1],
+        [`${name} (gepaart)`, median(paarweise(v[name], v.aus)) - 1],
+      ]);
+    const groesste = kandidaten.reduce((x, y) => (y[1] > x[1] ? y : x));
+    console.log(`      Auslöser „über +25 % gepaart" (Plan/Spec, Task 6): ` +
+      kandidaten.filter(([k]) => k.endsWith('(gepaart)')).map(([k, x]) => `${k.replace(' (gepaart)', '')} ${prozent(x)}`).join(' · '));
+    console.log(`      größte Differenz überhaupt: ${prozent(groesste[1])} (${groesste[0]}) → ` +
+      `${groesste[1] > 0.25 ? 'ERREICHT, die zugehörige Konstante senken und neu messen'
+        : 'nicht erreicht, alle Konstanten unverändert'}`);
+
+    /*
+     * =====================================================================
+     *  DAS KONTROLLPAAR FÜR DAS KOLLABO-ALBUM
+     * =====================================================================
+     *
+     * Siehe den Kopf dieses Abschnitts. Beide Varianten warten auf sechs Titel;
+     * sie unterscheiden sich in genau einer Sache – ob das Album ein Kollabo ist.
+     * Die Grundlage „aus" von oben taugt dafür nicht: Sie veröffentlicht jeden Tag
+     * eine Single, und der Abstand zwischen Album und Single ist das Größte, was
+     * dieses Spiel kennt.
+     */
+    const hAus = await angebotvariante(`${a.kennung}_hortenaus`, a.musik,
+      { ...basis, angebote: 'horten-aus', horten: true }, laeufe, tage, 'horten-aus');
+    const hKol = await angebotvariante(`${a.kennung}_hortenkollabo`, a.musik,
+      { ...basis, angebote: 'horten-kollabo', horten: 'kollabo' }, laeufe, tage, 'horten-kollabo');
+    console.log(`    ---- Kontrollpaar: das Kollabo gegen ein normales Album, gleiche Veröffentlichungspolitik ----`);
+    console.log(zeile('horten, ohne Kollabo', hAus));
+    console.log(zeile('horten, mit Kollabo', hKol));
+    console.log(diffzeile(hKol, hAus, 'horten, ohne Kollabo'));
+    console.log(diffzeile(hAus, v.aus, 'aus (täglich Single)'));
+    console.log(quellenzeile('horten ohne:', hAus));
+    console.log(quellenzeile('horten mit:', hKol));
+    const lh = l(hAus); const lk = l(hKol);
+    console.log(`      Tagesleistung Ø/Tag: horten ohne Kollabo ${komma(lh.akte)} Kanalaktionen · ` +
+      `${komma(lh.publishes)} Veröffentlichungen · ${komma(lh.shows)} Konzerte → mit Kollabo ` +
+      `${komma(lk.akte)} · ${komma(lk.publishes)} · ${komma(lk.shows)} ` +
+      `(${prozent(lk.publishes / Math.max(1e-9, lh.publishes) - 1)} Veröffentlichungen)`);
+    for (const [name, r] of [['horten-aus', hAus], ['horten-kollabo', hKol]]) {
+      console.log(`    ${name}:`);
+      for (const z of angebotZeilen(r.angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+    }
+    const zh = hAus.angebotZaehler;
+    console.log(`      KONTROLLE „horten-aus": ${leer(zh)
+      ? 'keine Anfrage, kein Projekt, kein Kollabo ✔'
+      : `NICHT LEER – FEHLER: ${JSON.stringify({ zugestellt: zh.zugestellt, angenommen: zh.angenommen })}`}`);
+    const zk = hKol.angebotZaehler;
+    const kolFertig = zk.projekteFertig.kollabo ?? 0;
+    console.log(`      KONTROLLE „horten-kollabo": Kollabos aufgemacht ${de(zk.projekteAuf.kollabo ?? 0)}, ` +
+      `fertig ${de(kolFertig)} ${kolFertig > 0 ? '✔' : '– FEHLER: kein einziges Kollabo ist erschienen, ' +
+        'die Variante misst nichts'}, Honorare ${de(zk.honorare.length)}, Gagen ${de(zk.gagen.length)}, ` +
+      `Verträge ${de(zk.unterschrieben)} (die drei müssen 0 sein: ` +
+      `${zk.honorare.length === 0 && zk.gagen.length === 0 && zk.unterschrieben === 0 ? '✔' : 'FEHLER'})`);
+    /*
+     * =====================================================================
+     *  DIE ZERLEGUNG VON „ALLES-AN" (--zerlegung)
+     * =====================================================================
+     *
+     * Vier Varianten, die alles annehmen BIS AUF eine Gruppe. „alles-an" minus
+     * „ohne-X" ist der Beitrag von X – gemessen bei derselben Zustellrate und
+     * damit ohne den Pausen-Effekt, der die isolierenden Varianten verzerrt.
+     * Die Beiträge müssen sich NICHT zu „alles-an" addieren: Die Wege wirken
+     * übereinander (ein Vorschuss hebt kein Honorar, aber die Hörer, die ein
+     * Kollabo bringt, heben jede Tantieme danach). Genau das ist die Frage.
+     */
+    if (ZERLEGUNG) {
+      console.log(`    ---- Zerlegung: „alles-an" ohne jeweils eine Gruppe (gleiche Zustellrate) ----`);
+      const w = {};
+      for (const name of ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']) {
+        w[name] = await angebotvariante(`${a.kennung}_${name.replace('-', '')}`, a.musik,
+          { ...basis, angebote: name }, laeufe, tage, name);
+        console.log(zeile(name, w[name]));
+        console.log(diffzeile(w[name], v.aus, 'aus'));
+        console.log(diffzeile(w[name], v['alles-an'], 'alles-an'));
+      }
+      for (const name of ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']) {
+        console.log(quellenzeile(`${name}:`, w[name]));
+      }
+      /*
+       * Der Beitrag einer Gruppe, gepaart je Seed: `alles-an / ohne-X − 1`.
+       * Gepaart, weil die Streuung über die Seeds größer ist als jeder dieser
+       * Beiträge (siehe die Spannen oben).
+       */
+      const beitrag = ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']
+        .map((name) => [name, median(paarweise(v['alles-an'], w[name])) - 1]);
+      console.log(`      Beitrag der Gruppe zu „alles-an" (gepaart, alles-an gegen alles-an ohne X): ` +
+        beitrag.map(([k, x]) => `${k.replace('ohne-', '')} ${prozent(x)}`).join(' · '));
+      const stark = beitrag.reduce((x, y) => (y[1] > x[1] ? y : x));
+      console.log(`      stärkster Beitrag: ${stark[0].replace('ohne-', '')} ${prozent(stark[1])} – ` +
+        `DAS ist die Gruppe, deren Konstante der Auslöser meint`);
+      for (const name of ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']) {
+        console.log(`    ${name}:`);
+        for (const z of angebotZeilen(w[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+      }
+      // Kontrolle: Jede Variante MUSS bei ihrer ausgelassenen Gruppe auf null stehen.
+      const sum2 = (o) => Object.values(o).reduce((x, y) => x + y, 0);
+      const checks = [
+        ['ohne-geld', (z) => z.honorare.length + z.gagen.length, 'Honorare + Gagen'],
+        ['ohne-projekte', (z) => sum2(z.projekteAuf), 'Projekte'],
+        ['ohne-label', (z) => z.vertragAngebote + z.unterschrieben, 'Vertragsangebote + Unterschriften'],
+        ['ohne-tausch', (z) => z.angenommen.tausch ?? 0, 'angenommene tausch'],
+      ];
+      for (const [name, f2, was] of checks) {
+        const z = w[name].angebotZaehler;
+        const ab = sum2(z.abgelehnt);
+        console.log(`      KONTROLLE „${name}": ${was} ${de(f2(z))} ` +
+          `(${f2(z) === 0 ? 'erwartet 0 ✔' : 'FEHLER – die ausgelassene Gruppe wirkt doch'}), ` +
+          `zugestellt ${de(sum2(z.zugestellt))}, abgelehnt ${de(ab)} ` +
+          `(${ab > 0 ? 'nicht null ✔ – genau die ausgelassene Gruppe' : 'FEHLER – nichts abgelehnt'}), ` +
+          `Pausen ${de(z.pausen)} gegen ${de(v['alles-an'].angebotZaehler.pausen)} in „alles-an"`);
+      }
+    }
+
+    const kolM = hKol.median / Math.max(1, hAus.median) - 1;
+    const kolP = median(paarweise(hKol, hAus)) - 1;
+    console.log(`      Auslöser „über +25 % gepaart" für das Kollabo (gegen dieselbe ` +
+      `Veröffentlichungspolitik): Mediane ${prozent(kolM)}, gepaart ${prozent(kolP)} → ` +
+      `${Math.max(kolM, kolP) > 0.25 ? 'ERREICHT, KOLLABO_STUNDEN erhöhen oder den Faktor senken und neu messen'
+        : 'nicht erreicht'}`);
+    console.log();
+  }
+}
+
 /** Für Prüf- und Kontrollläufe importierbar (test/…, Handprüfung): nur als Hauptprogramm messen. */
-module.exports = { firmenlauf, handelslauf, karriere, kanaltag, strategien, welt, main };
+module.exports = { firmenlauf, handelslauf, karriere, kanaltag, strategien, welt, angebotDecken, main };
 
 async function main() {
   if (process.argv[2] === 'verlauf') {
@@ -3022,6 +4043,38 @@ async function main() {
       `${[BONUS_SIEG_ARG, BONUS_NIEDERLAGE_ARG, BONUS_TAGE_ARG, DISS_SPIKE, DISS_GROWTH, ANZAEHL_CHANCE_ARG]
         .some((x) => x !== null) ? '   (* über die Kommandozeile gesetzt, nicht aus der Datendatei)' : ''}\n`);
     await beeflauf(LAEUFE, TAGE);
+    return;
+  }
+
+  if (NUR === 'angebote') {
+    console.log(`\n--- Gegenanfragen und große Formate (Stück 5c: aus · alles-ab · alles-an · nur-geld · ` +
+      `nur-projekte · nur-label, dazu das Kollabo-Kontrollpaar – ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
+    // Alle Zahlen, an denen das Balancing hängt, stehen in der Kopfzeile des
+    // Laufs – damit in der Rohausgabe zu sehen ist, welche Einstellung sie
+    // gemessen hat, und nicht nur in der Kommandozeile darüber.
+    const gesetzt = (arg) => (arg === null ? '' : '*');
+    console.log(`  HONORAR_K ${komma(angeboteData.HONORAR_K, 2)}${gesetzt(HONORAR_K_ARG)}` +
+      `, HONORAR_EXP ${komma(angeboteData.HONORAR_EXP, 2)}` +
+      `, HONORAR_DECKEL_TAGE ${angeboteData.HONORAR_DECKEL_TAGE}` +
+      `, VORGRUPPE_ANTEIL ${komma(angeboteData.VORGRUPPE_ANTEIL, 3)}${gesetzt(VORGRUPPE_ANTEIL_ARG)}` +
+      `, KOLLABO_STUNDEN ${angeboteData.KOLLABO_STUNDEN}${gesetzt(KOLLABO_STUNDEN_ARG)}` +
+      `, KOLLABO_TITEL ${angeboteData.KOLLABO_TITEL}` +
+      `, TOUR_STUNDEN ${angeboteData.TOUR_STUNDEN}${gesetzt(TOUR_STUNDEN_ARG)}` +
+      `, PROJEKT_FRIST_TAGE ${angeboteData.PROJEKT_FRIST_TAGE}` +
+      `, ARBEIT_STUNDEN ${angeboteData.ARBEIT_STUNDEN}` +
+      `, TOUR_KONZERTE ${angeboteData.TOUR_KONZERTE}${gesetzt(TOUR_KONZERTE_ARG)}` +
+      `, ANFRAGE_CHANCE ${komma(angeboteData.ANFRAGE_CHANCE * 100, 1)} %${gesetzt(ANFRAGE_CHANCE_ARG)}` +
+      `, ANFRAGEN_MAX ${angeboteData.ANFRAGEN_MAX}, FRIST_TAGE ${angeboteData.FRIST_TAGE}` +
+      `, PAUSE_SCHWELLE ${angeboteData.PAUSE_SCHWELLE}, PAUSE_TAGE ${angeboteData.PAUSE_TAGE}` +
+      `, LABEL.minListeners ${de(musicData.LABEL.minListeners)}` +
+      `, LABEL.advanceDays ${musicData.LABEL.advanceDays}${gesetzt(LABEL_VORSCHUSS_ARG)}` +
+      `, LABEL.cut ${komma(musicData.LABEL.cut * 100, 0)} %${gesetzt(LABEL_CUT_ARG)}` +
+      `, LABEL.durationDays ${musicData.LABEL.durationDays}` +
+      `, ANZAEHL_CHANCE ${komma(beefData.ANZAEHL_CHANCE * 100, 1)} % (der Beef läuft mit, in jeder Variante gleich)` +
+      `${[HONORAR_K_ARG, VORGRUPPE_ANTEIL_ARG, KOLLABO_STUNDEN_ARG, TOUR_STUNDEN_ARG,
+        LABEL_VORSCHUSS_ARG, LABEL_CUT_ARG, TOUR_KONZERTE_ARG, ANFRAGE_CHANCE_ARG].some((x) => x !== null)
+        ? '   (* über die Kommandozeile gesetzt, nicht aus der Datendatei)' : ''}\n`);
+    await angebotelauf(LAEUFE, TAGE);
     return;
   }
 

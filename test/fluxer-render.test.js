@@ -1856,6 +1856,650 @@ function view(buttons) {
       && angeNote.includes('_Er postet einen Screenshot von dir._'), angeNote);
   }
 
+  console.log('--- Angebote (Spec 5c: Anzeige) ---');
+  /*
+   * Die Angebots-Ansicht ist der einzige Ort, an dem eine Gegenanfrage
+   * überhaupt sichtbar wird – und sie sitzt am selben harten Deckel wie
+   * Kontakte und Beef (§16, neun Reaktionen): 2 Anfragen × 2 Knöpfe +
+   * Arbeiten + Zurück + Hauptmenü = 7. Geprüft wird im VOLLEN Zustand, also
+   * mit zwei Anfragen UND einem laufenden Projekt; ein achter Knopf fiele
+   * sonst stumm hinten runter.
+   *
+   * Dazu die drei Meldungen und – wichtigster Punkt – dass ein ins Leere
+   * gehender Klick die fällige Abrechnung MITMELDET. Ohne das verschluckt er
+   * eine verfallene Anfrage samt Draht-Verlust (in 5b zweimal passiert).
+   */
+  {
+    const ui = require('../src/ui');
+    const angeboteUi = require('../src/angeboteUi');
+    const ang = require('../src/angebote');
+    const adata = require('../src/data/angebote');
+    const cdata = require('../src/data/contacts');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const {
+      angebotNote, mitAngebote, annahmeNote, absageNote, arbeitNote, angebotProblem,
+    } = require('../src/buttons');
+    const TAG = 86_400_000;
+    const jetzt = Date.now();
+    const nie = () => 0.9999;        // kein Treffer, egal wie hoch ANFRAGE_CHANCE steht
+
+    let lauf = 0;
+    /** Ein deutscher Rapper mit 10.000 Hörern – die Zahlen der Spec-Tabelle. */
+    const neu = async (listeners = 10_000) => {
+      const g = `ANGUI_T${Date.now()}_${lauf++}`;
+      const u = 'ang_user';
+      await home.setHome(g, u, 'de');
+      home.setLanguage(g, u, 'deutsch');
+      music.setup(g, u, 'hiphop', music.PERSONAS[0].id);
+      db.saveArtist(g, u, {
+        ...db.getArtist(g, u, jetzt), listeners, songs: 6,
+        touched_at: jetzt, last_action_at: jetzt, paid_through: jetzt,
+      });
+      return [g, u];
+    };
+    const anfrage = (g, u, art, contactId, frist) => db.insertAngebot({
+      guildId: g, userId: u, art, contactId, erstellt: jetzt, frist });
+
+    const OXMO = cdata.byId('oxmopuccino');       // 350.000 Reichweite
+    const LILPFAND = cdata.byId('lilpfand');      // 8.400 Reichweite
+
+    // --- Die volle Ansicht: zwei Anfragen und ein Projekt ------------------
+    const [VG, VU] = await neu();
+    const a1 = anfrage(VG, VU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const a2 = anfrage(VG, VU, 'vorgruppe', LILPFAND.id, jetzt + 3 * TAG);
+    const pr = db.insertProjekt({
+      guildId: VG, userId: VU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(VG, pr.id, { stundenIst: 6 });
+
+    const voll = await angeboteUi.buildAngeboteView({ guildId: VG, userId: VU });
+    const vText = voll.embeds[0].toJSON().description;
+    const vIds = voll.components.flatMap((r) => r.toJSON().components.map((b) => b.custom_id));
+    check('die Ansicht trägt je Anfrage Annehmen und Absagen, dazu Arbeiten, Zurück, Home',
+      vIds.join(' ') === `angebot-an|${a1.id}|${VU} angebot-ab|${a1.id}|${VU} `
+        + `angebot-an|${a2.id}|${VU} angebot-ab|${a2.id}|${VU} `
+        + `angebot-arbeit|${pr.id}|${VU} grp|work|${VU} home|${VU}`,
+      vIds.join(' '));
+    check('zwei Anfragen und ein Projekt halten das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(voll).overflow === undefined
+      && render.mapReactions(voll).length === 7,
+      `${render.mapReactions(voll).length} / ${render.mapReactions(voll).overflow}`);
+
+    // Honorar und Gage stehen als ZAHL in der Zeile – nicht als „bringt Geld".
+    const honorar = ang.honorarOf({
+      seine: OXMO.reach,
+      tantiemenProTag: music.royaltyPerDay(10_000, music.marketOf(VG, VU)),
+    });
+    const gage = ang.gageOf({
+      meine: 10_000, seine: LILPFAND.reach,
+      showPay: music.SHOW_PAY, showExp: music.SHOW_EXP,
+    });
+    check(`das Honorar steht als Zahl in der Zeile (${honorar.toLocaleString('de-DE')})`,
+      vText.includes(`💰 Honorar **${honorar.toLocaleString('de-DE')}**`),
+      vText.split('\n').filter((z) => z.includes('Honorar')).join(' / '));
+    check(`die Gage steht als Zahl in der Zeile (${gage.toLocaleString('de-DE')})`,
+      vText.includes(`💰 Gage **${gage.toLocaleString('de-DE')}**`),
+      vText.split('\n').filter((z) => z.includes('Gage')).join(' / '));
+    check('je Anfrage stehen Art, Kontakt, Zeile, Stunden und Restfrist',
+      vText.includes(`🎙️ **${ang.artOf('gastpart').name}** — ${OXMO.emoji} ${OXMO.name}`)
+      && vText.includes('⏳ 2 Stunden · Frist: noch 2 Tage')
+      && vText.includes('⏳ 4 Stunden · Frist: noch 3 Tage'),
+      vText);
+    check('der Fortschrittsbalken des Projekts zeigt 6 von 18 Stunden',
+      vText.includes('▰▰▰▱▱▱▱▱▱▱ 6 von 18 Stunden · Frist: noch 11 Tage'),
+      vText.split('\n').filter((z) => z.includes('von 18')).join(' / '));
+
+    // --- Die leere Ansicht --------------------------------------------------
+    const [LG, LU] = await neu();
+    const leer = await angeboteUi.buildAngeboteView({ guildId: LG, userId: LU });
+    check('die leere Ansicht sagt, dass gerade nichts anliegt',
+      leer.embeds[0].toJSON().description.includes('Gerade liegt nichts an'),
+      leer.embeds[0].toJSON().description);
+    check('und hat trotzdem den Weg ins Hauptmenü',
+      leer.components.flatMap((r) => r.toJSON().components)
+        .some((b) => b.custom_id === `home|${LU}`));
+    check('die leere Ansicht hält das Fluxer-Limit',
+      render.mapReactions(leer).overflow === undefined,
+      String(render.mapReactions(leer).overflow));
+
+    // --- Meldung: angenommen (Honorar) -------------------------------------
+    const [AG, AU] = await neu();
+    const an = anfrage(AG, AU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const resAn = await ang.annehmen(AG, AU, an.id, jetzt, nie);
+    check('die Zusage geht durch', resAn.ok === true,
+      JSON.stringify({ ok: resAn.ok, reason: resAn.reason }));
+    const anNote = annahmeNote(resAn, '€', jetzt);
+    check('Meldung bei Annahme: Art, Kontakt, Honorar als Zahl, Draht +8, Reststunden',
+      anNote.includes(`🤝 Zugesagt: 🎙️ **${ang.artOf('gastpart').name}** `
+        + `— ${OXMO.emoji} **${OXMO.name}**`)
+      // Die GEBUCHTE Zahl, nicht das Brutto: `res.honorar` ist die Rechnung,
+      // `res.geld.amount` das, was `payGig` aufs Konto gelegt hat. Ohne
+      // Vertrag sind beide gleich – der Fall mit Anteil steht gleich darunter.
+      && anNote.includes(`💰 Honorar: **€ ${resAn.geld.amount.toLocaleString('de-DE')}**`)
+      && anNote.includes(`(+${adata.DRAHT_AN},`)
+      && anNote.includes('⏱️ heute übrig:'), anNote);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Der Anteil der Agentur gehört in die Meldung (5c-Review, Befund 1)
+     * -----------------------------------------------------------------------
+     * `annahmeNote` druckte `res.honorar` – das BRUTTO. Bei einem
+     * unterschriebenen Vertrag nimmt `music.payGig` davon 30 bzw. 50 %, und
+     * dem Spieler stand eine Zahl da, die so nie auf dem Konto ankam. Ein
+     * Vertragskünstler bekommt weiter Gastparts und Vorgruppen (`artenFuer`
+     * sperrt nur `label`), also trifft das jeden Unterschreiber.
+     */
+    const [KG, KU] = await neu(60_000);
+    const kVertrag = db.insertContract({
+      guildId: KG, userId: KU, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt - 1000, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    db.setContractStatus(KG, kVertrag.id, 'active',
+      { signedAt: jetzt - 1000, endsAt: jetzt + 30 * TAG });
+    const kAn = anfrage(KG, KU, 'gastpart', OXMO.id, jetzt + 2 * TAG);
+    const resK = await ang.annehmen(KG, KU, kAn.id, jetzt, nie);
+    const kNote = annahmeNote(resK, '€', jetzt);
+    check('ein Vertrag nimmt vom Honorar wirklich einen Anteil',
+      resK.ok === true && resK.geld.cut > 0 && resK.geld.amount < resK.honorar,
+      JSON.stringify({ ok: resK.ok, reason: resK.reason, geld: resK.geld, brutto: resK.honorar }));
+    check('und die Zusage nennt das Netto plus den Anteil – nicht das Brutto',
+      kNote.includes(`💰 Honorar: **€ ${resK.geld.amount.toLocaleString('de-DE')}**`)
+      && kNote.includes(`_(nach € ${resK.geld.cut.toLocaleString('de-DE')} Agenturanteil)_`)
+      && !kNote.includes(`Honorar: **€ ${resK.honorar.toLocaleString('de-DE')}**`),
+      kNote);
+
+    // --- Meldung: abgesagt --------------------------------------------------
+    const [BG, BU] = await neu();
+    const ab = anfrage(BG, BU, 'tausch', OXMO.id, jetzt + 2 * TAG);
+    const resAb = ang.ablehnen(BG, BU, ab.id, jetzt, nie);
+    const abNote = absageNote(resAb, jetzt);
+    check('Meldung bei Absage: Draht −5 und die Zeile des Kontakts',
+      resAb.ok && abNote.includes(`🚪 Du hast abgesagt. Draht **−${Math.abs(adata.DRAHT_AB)}**.`)
+      && abNote.includes(`_${resAb.text}_`), abNote);
+
+    // --- Meldung: verfallen -------------------------------------------------
+    const [CG, CU] = await neu();
+    anfrage(CG, CU, 'gastpart', OXMO.id, jetzt - 1000);
+    const verfall = angebotNote(ang.settle(CG, CU, jetzt, nie));
+    check('Meldung bei Verfall: Name und Draht −8',
+      verfall.includes(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen. `
+        + `Draht **−${Math.abs(adata.DRAHT_VERFALL)}**.`), verfall);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Der Fehler aus 5b: ein abgelehnter Klick verschluckt die Abrechnung
+     * -----------------------------------------------------------------------
+     * `ablehnen` rechnet als Schritt 0 ab und gibt das Ergebnis unter `vorher`
+     * heraus – AUCH auf dem Weg `{ ok: false, reason: 'weg' }`. Wird das nicht
+     * gemeldet, kostet der Klick still 8 Draht, und der Spieler sieht nur eine
+     * kleinere Zahl.
+     */
+    const [DG, DU] = await neu();
+    anfrage(DG, DU, 'gastpart', OXMO.id, jetzt - 1000);
+    const insLeere = ang.ablehnen(DG, DU, 999_999, jetzt, nie);
+    const leereNote = mitAngebote(insLeere.vorher, absageNote(insLeere, jetzt));
+    check('ein Klick ins Leere meldet trotzdem die verfallene Anfrage',
+      insLeere.ok === false && insLeere.reason === 'weg'
+      && leereNote.includes(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen.`)
+      && leereNote.includes('❌ Dieses Angebot gibt es nicht mehr.'), leereNote);
+
+    // --- Die zwei Absagegründe aus 5c, die sonst „❌ Das ging nicht." wären --
+    const [EG, EU] = await neu(50_000);
+    db.insertProjekt({
+      guildId: EG, userId: EU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    const zweites = anfrage(EG, EU, 'tour', OXMO.id, jetzt + 2 * TAG);
+    const resZwei = await ang.annehmen(EG, EU, zweites.id, jetzt, nie);
+    check('ein zweites großes Format wird mit projekt_offen abgewiesen',
+      resZwei.ok === false && resZwei.reason === 'projekt_offen',
+      JSON.stringify({ ok: resZwei.ok, reason: resZwei.reason }));
+    // Der Prüfname trägt bewusst kein ❌: `npm test | grep -c '❌'` zählt die
+    // Fehlschläge, und ein Name mit dem Zeichen wäre ein falscher Treffer.
+    check('und bekommt einen eigenen Text statt der Standardabsage',
+      annahmeNote(resZwei, '€', jetzt).includes('Erst das laufende Projekt')
+      && annahmeNote(resZwei, '€', jetzt).includes('Zwei Stundenkonten gibt es nicht.'),
+      annahmeNote(resZwei, '€', jetzt));
+
+    const [FG, FU] = await neu(50_000);
+    db.insertContract({
+      guildId: FG, userId: FU, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    const zweiter = anfrage(FG, FU, 'label', OXMO.id, jetzt + 2 * TAG);
+    const resVert = await ang.annehmen(FG, FU, zweiter.id, jetzt, nie);
+    check('eine zweite Label-Tür wird mit vertrag_offen abgewiesen',
+      resVert.ok === false && resVert.reason === 'vertrag_offen',
+      JSON.stringify({ ok: resVert.ok, reason: resVert.reason }));
+    check('und nennt das Angebot, das schon auf dem Tisch liegt',
+      annahmeNote(resVert, '€', jetzt).includes('**Chocolat Musique**')
+      && !annahmeNote(resVert, '€', jetzt).includes('Das ging nicht'),
+      annahmeNote(resVert, '€', jetzt));
+    check('die Hörerschwelle des Labels steht als Zahl im Text',
+      angebotProblem({ ok: false, reason: 'zu_klein', need: music.LABEL.minListeners }, jetzt)
+        === '📝 Dafür bist du dem Label noch zu klein (25.000 Hörer nötig).',
+      angebotProblem({ ok: false, reason: 'zu_klein', need: music.LABEL.minListeners }, jetzt));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die Reststunden stimmen auch bei den Nullbuchungen (5c-Review, Blocker 2)
+     * -----------------------------------------------------------------------
+     * `kollabo` und `tour` haben `time: 0`; `annehmen` buchte dort nichts und
+     * gab `{ ok: true, factor: 1 }` ohne `left` heraus. `annahmeNote` druckte
+     * `res.zeit?.left ?? 0` – ein Spieler mit vollen 24 Stunden las „heute
+     * übrig: 0 Stunden", direkt neben der Zusage. Geprüft wird gegen
+     * `creator.budget`, also gegen die Zahl, die auch jede andere Ansicht zeigt.
+     */
+    const creator = require('../src/creator');
+    for (const art of ['kollabo', 'tour']) {
+      const [ZG, ZU] = await neu(60_000);
+      const z = anfrage(ZG, ZU, art, OXMO.id, jetzt + 2 * TAG);
+      const resZ = await ang.annehmen(ZG, ZU, z.id, jetzt, nie);
+      const uebrig = creator.budget(ZG, ZU, jetzt).left;
+      check(`${art} kostet nichts – und meldet den ECHTEN Reststand des Tages`,
+        resZ.ok === true && resZ.zeit.left === uebrig && uebrig === 24,
+        JSON.stringify({ ok: resZ.ok, reason: resZ.reason, left: resZ.zeit?.left, uebrig }));
+      check(`und die Zusage zu ${art} schreibt ihn auch so hin`,
+        annahmeNote(resZ, '€', jetzt).includes(`⏱️ heute übrig: **${uebrig}** Stunden`),
+        annahmeNote(resZ, '€', jetzt));
+    }
+    // Die Gegenprobe: `label` kostet 2 Stunden, dort muss die Zahl FALLEN.
+    {
+      const [ZG, ZU] = await neu(60_000);
+      const z = anfrage(ZG, ZU, 'label', OXMO.id, jetzt + 2 * TAG);
+      const resZ = await ang.annehmen(ZG, ZU, z.id, jetzt, nie);
+      check('label kostet 2 Stunden – und meldet 22 übrig',
+        resZ.ok === true && resZ.zeit.left === 22
+        && annahmeNote(resZ, '€', jetzt).includes('⏱️ heute übrig: **22** Stunden'),
+        JSON.stringify({ ok: resZ.ok, reason: resZ.reason, left: resZ.zeit?.left }));
+    }
+    // Und ohne bekannten Reststand steht die Zeile GAR NICHT da statt falsch.
+    check('ohne bekannte Reststunden fehlt die Zeile, statt 0 zu behaupten',
+      !annahmeNote({ ...resAn, zeit: { ok: true } }, '€', jetzt).includes('heute übrig'),
+      annahmeNote({ ...resAn, zeit: { ok: true } }, '€', jetzt));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die sechs Titel stehen VOR den 18 Stunden (5c-Review, Blocker 4)
+     * -----------------------------------------------------------------------
+     * `KOLLABO_TITEL` kam in keiner Ansicht und in keiner Meldung vor – die
+     * erste Erwähnung war die Absage `no_songs` NACH dem letzten der neun
+     * Drücke (gemessen 1.825 Mal, und 174 von 195 Kollabos sind mit vollem
+     * Stundenkonto verfallen). Geprüft wird an allen drei Stellen, und zwar
+     * gegen `data.KOLLABO_TITEL`: Die Zahl wird unten verbogen, damit eine
+     * getippte 6 auffliegt.
+     */
+    {
+      const [MG, MU] = await neu(60_000);
+      const mk = anfrage(MG, MU, 'kollabo', OXMO.id, jetzt + 2 * TAG);
+      const zeileMit = async () => (await angeboteUi.buildAngeboteView(
+        { guildId: MG, userId: MU })).embeds[0].toJSON().description;
+      check(`die Angebotszeile nennt die ${adata.KOLLABO_TITEL} aufgenommenen Titel`,
+        (await zeileMit()).includes(`${adata.KOLLABO_TITEL} aufgenommene Titel`),
+        (await zeileMit()).split('\n').filter((z) => z.includes('Stunden Arbeit')).join(' / '));
+
+      const resM = await ang.annehmen(MG, MU, mk.id, jetzt, nie);
+      const mNote = annahmeNote(resM, '€', jetzt);
+      check('die Zusage zum Kollabo sagt, was am Ende noch gebraucht wird',
+        resM.ok === true
+        && mNote.includes(`🎼 Dafür brauchst du am Ende **${adata.KOLLABO_TITEL}** `
+          + 'aufgenommene Titel – ohne sie erscheint nichts, und die Stunden sind weg.'),
+        mNote);
+      check('und der Fortschrittsbalken wiederholt es am laufenden Konto',
+        (await zeileMit()).includes(`${adata.KOLLABO_TITEL} aufgenommene Titel nötig`),
+        (await zeileMit()).split('\n').filter((z) => z.includes('von 18')).join(' / '));
+
+      /*
+       * Der Beweis, dass die Zahl an allen drei Stellen aus der Konstante kommt:
+       * `KOLLABO_TITEL` wird verbogen und der ganze Weg noch einmal gegangen –
+       * Angebotszeile, Zusage, Fortschrittsbalken. Eine getippte 6 bliebe an
+       * ihrer Stelle stehen und fällt hier auf. `music.publish` verlangt
+       * dieselbe Konstante; die Anzeige muss ihr folgen, sonst verspricht sie
+       * eine andere Hürde als die, an der das Projekt scheitert.
+       */
+      const echt = adata.KOLLABO_TITEL;
+      try {
+        adata.KOLLABO_TITEL = 7;
+        const [BG, BU] = await neu(60_000);
+        const bk = anfrage(BG, BU, 'kollabo', OXMO.id, jetzt + 2 * TAG);
+        const sicht = async () => (await angeboteUi.buildAngeboteView(
+          { guildId: BG, userId: BU })).embeds[0].toJSON().description;
+        const bAngebot = await sicht();
+        const bRes = await ang.annehmen(BG, BU, bk.id, jetzt, nie);
+        const bNote = annahmeNote(bRes, '€', jetzt);
+        const bBalken = await sicht();
+        check('alle drei Stellen folgen data.KOLLABO_TITEL und keiner getippten 6',
+          bAngebot.includes('7 aufgenommene Titel')
+          && !bAngebot.includes('6 aufgenommene Titel')
+          && bNote.includes('**7** aufgenommene Titel')
+          && bBalken.includes('7 aufgenommene Titel nötig')
+          && !bBalken.includes('6 aufgenommene Titel'),
+          JSON.stringify({ angebot: bAngebot.split('\n').pop(),
+            note: bNote.split('\n').filter((z) => z.includes('Titel')).join(' / '),
+            balken: bBalken.split('\n').pop() }));
+      } finally {
+        adata.KOLLABO_TITEL = echt;
+      }
+    }
+
+    // --- Arbeiten: Stand und Abschluss -------------------------------------
+    const [HG, HU] = await neu();
+    const hp = db.insertProjekt({
+      guildId: HG, userId: HU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    const geArbeitet = await ang.arbeiten(HG, HU, hp.id, jetzt, nie);
+    check('zwei Stunden am Projekt melden den neuen Stand mit Balken',
+      geArbeitet.ok && geArbeitet.fertig === false
+      && arbeitNote(geArbeitet, '€', jetzt).includes('**2 von 18** Stunden'),
+      arbeitNote(geArbeitet, '€', jetzt));
+
+    db.saveProjekt(HG, hp.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    const fertig = await ang.arbeiten(HG, HU, hp.id, jetzt, nie);
+    check('das volle Konto veröffentlicht das gemeinsame Album',
+      fertig.ok && fertig.fertig === true && fertig.art === 'kollabo',
+      JSON.stringify({ ok: fertig.ok, fertig: fertig.fertig, reason: fertig.reason }));
+    const fertigNote = arbeitNote(fertig, '€', jetzt);
+    check('und meldet die normale Veröffentlichung plus die eine Kollabo-Zeile',
+      fertigNote.includes('ist draußen.')
+      && fertigNote.includes('👂 ')
+      && fertigNote.includes(`💿 Das gemeinsame Album mit **${OXMO.name}** ist draußen.`),
+      fertigNote);
+    check('die Stundenzahl im Arbeitstext kommt aus der Konstante, nicht aus Prosa',
+      arbeitNote(geArbeitet, '€', jetzt)
+        .includes(`${adata.ARBEIT_STUNDEN} Stunden mehr.`),
+      arbeitNote(geArbeitet, '€', jetzt));
+    check('und ohne Kontakt steht dort kein Pronomen',
+      !/\b(ihm|ihr|ihn|seine[rmsn]?|ihre[rmsn]?)\b/i.test(
+        arbeitNote({ ...geArbeitet, contact: null, projekt: null }, '€', jetzt)),
+      arbeitNote({ ...geArbeitet, contact: null, projekt: null }, '€', jetzt));
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Ein Abschluss MELDET, was er gebucht hat (5c-Review, Befund 2)
+     * -----------------------------------------------------------------------
+     * Ein volles Stundenkonto lässt die echten Maschinen laufen: `music.publish`
+     * bzw. fünfmal `music.show`. Beide rechnen als Schritt 0 den fälligen Beef
+     * nach – das KOSTET Hype und Hörer – und geben ihn unter `beefVorher`
+     * heraus. `arbeitNote` ließ ihn fallen: Der Gegenschlag wurde angewandt,
+     * aber nicht gemeldet, und der Spieler sah nur kleinere Zahlen.
+     */
+    /** Eine Beef-Zeile von Hand – wie im 5b-Block. */
+    const setzeBeef = (g, u, contactId, felder) => db.saveBeef(g, u, contactId, {
+      hitze: 25, runden_ich: 0, runden_er: 0, last_hit: jetzt, last_cool: jetzt,
+      konter_at: 0, angefangen: jetzt, status: 'offen', bonus_until: 0, ...felder,
+    });
+    const RAMM = cdata.byId('rammstein');
+
+    const [JG, JU] = await neu(60_000);
+    const jp = db.insertProjekt({
+      guildId: JG, userId: JU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(JG, jp.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    setzeBeef(JG, JU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const jFertig = await ang.arbeiten(JG, JU, jp.id, jetzt, nie);
+    const jNote = arbeitNote(jFertig, '€', jetzt);
+    check('das Kollabo rechnet den fälligen Gegenschlag ab – und meldet ihn',
+      jFertig.ok === true && jFertig.platte?.beefVorher?.length === 1
+      && jFertig.platte.beefVorher[0].art === 'konter'
+      && jNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: jFertig.ok, vorher: jFertig.platte?.beefVorher?.length })
+        + ' | ' + jNote.split('\n')[0]);
+
+    // Derselbe Verlust auf dem abgewiesenen Weg: Ohne die sechs Titel schließt
+    // das Konto nicht ab – `music.publish` hat den Konter aber schon gebucht.
+    const [NG, NU] = await neu(60_000);
+    db.saveArtist(NG, NU, { ...db.getArtist(NG, NU, jetzt), listeners: 60_000, songs: 0 });
+    const np = db.insertProjekt({
+      guildId: NG, userId: NU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(NG, np.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
+    setzeBeef(NG, NU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const nFertig = await ang.arbeiten(NG, NU, np.id, jetzt, nie);
+    const nNote = arbeitNote(nFertig, '€', jetzt);
+    check('und auch die Absage wegen fehlender Titel meldet ihn',
+      nFertig.ok === false && nFertig.reason === 'no_songs'
+      && nFertig.platte?.beefVorher?.length === 1
+      && nNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: nFertig.ok, reason: nFertig.reason }) + ' | ' + nNote);
+
+    // Die Tour: fünf echte Konzerte, der Konter fällt am ERSTEN Abend.
+    const [TG, TU] = await neu(60_000);
+    const tp = db.insertProjekt({
+      guildId: TG, userId: TU, art: 'tour', contactId: OXMO.id,
+      stundenSoll: adata.TOUR_STUNDEN, frist: jetzt + 11 * TAG });
+    db.saveProjekt(TG, tp.id, { stundenIst: adata.TOUR_STUNDEN - 2 });
+    setzeBeef(TG, TU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
+    const tFertig = await ang.arbeiten(TG, TU, tp.id, jetzt, nie);
+    const tNote = arbeitNote(tFertig, '€', jetzt);
+    check('die Tour rechnet den fälligen Gegenschlag ab – und meldet ihn',
+      tFertig.ok === true && tFertig.art === 'tour'
+      && tFertig.abende[0]?.beefVorher?.length === 1
+      && tNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
+      JSON.stringify({ ok: tFertig.ok, reason: tFertig.reason,
+        vorher: tFertig.abende?.[0]?.beefVorher?.length }) + ' | ' + tNote.split('\n')[0]);
+    check('und `abschliessen` summiert den Agenturanteil der Abende selbst',
+      tFertig.cut === tFertig.abende.reduce((sum, a) => sum + (a.cut ?? 0), 0),
+      JSON.stringify({ cut: tFertig.cut }));
+
+    /*
+     * Was eine echte Tour nicht zuverlässig würfelt, prüft der Renderer direkt:
+     * `arbeitNote` ist eine reine Funktion. Hier hängen drei Verluste dran –
+     * der verbrauchte 5a-Schub, der Grund eines ausgefallenen Abends und der
+     * Anteil, den `brutto > verdient` verschweigt, sobald `perks.payout` das
+     * Netto wieder über `brutto − cut` hebt (Befund 5).
+     */
+    const kunstTour = {
+      ok: true, fertig: true, art: 'tour', contact: OXMO,
+      konzerte: 4, brutto: 1_000, verdient: 1_100, cut: 300, gewonnen: 500,
+      abende: [
+        {
+          ok: true, cancelled: false, cut: 60, amount: 220, gained: 100,
+          extraHoerer: 1_200, kontakt: { name: 'Haiyti', factor: 1.5 },
+          event: null, incident: null,
+          beefVorher: [{ art: 'konter', contact: RAMM, wucht: 1, treffer: { verloren: 900 } }],
+        },
+        { ok: true, cancelled: true, cut: 0, amount: 0, gained: 0,
+          event: { id: 'absage', text: 'Die Halle ist abgebrannt.' } },
+        { ok: true, cancelled: false, cut: 80, amount: 300, gained: 120,
+          event: { id: 'presse', text: 'Die Presse ist da.' } },
+        { ok: true, cancelled: false, cut: 80, amount: 300, gained: 140, event: null },
+        { ok: true, cancelled: false, cut: 80, amount: 280, gained: 140, event: null },
+      ],
+    };
+    const kNoteTour = arbeitNote(kunstTour, '€', jetzt);
+    check('die Tour-Meldung nennt den Anteil auch, wenn das Netto über Brutto−Anteil liegt',
+      kNoteTour.includes('_(nach € 300 Agenturanteil)_'), kNoteTour);
+    check('sie nennt den verbrauchten Schub des ersten Abends',
+      kNoteTour.includes('🤝 Der Schub von **Haiyti** hat gewirkt: '
+        + '**+1.200** Hörer im Saal.'), kNoteTour);
+    check('sie sagt je Abend, was passiert ist – samt Grund der Absage',
+      kNoteTour.includes('🎤 Abend 2 ist ausgefallen – Die Halle ist abgebrannt.')
+      && kNoteTour.includes('🎤 Abend 3: Die Presse ist da.')
+      && !kNoteTour.includes('Abend 4:'), kNoteTour);
+    check('und der fällige Gegenschlag steht auch hier vor allem anderen',
+      kNoteTour.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`), kNoteTour);
+
+    // --- Die Hinweiszeile in Musik- und Kontaktansicht ---------------------
+    const studio = await ui.buildMusicView({ guildId: VG, userId: VU });
+    const heute = studio.embeds[0].toJSON().fields.find((f) => f.name === '⏳ Heute').value;
+    check('die Musikansicht trägt die Hinweiszeile mit Zahl und Stundenkonto',
+      heute.includes('📬 **2 Angebote** warten')
+      && heute.includes(`💿 Kollabo mit *${OXMO.name}*: 6 von 18 Stunden`), heute);
+    check('aber keinen Angebots-Knopf (§16)',
+      !studio.components.some((r) => r.toJSON().components
+        .some((b) => String(b.custom_id).startsWith('angebot-'))),
+      studio.components.map((r) => r.toJSON().components
+        .map((b) => b.custom_id).join(' ')).join(' | '));
+    check('Musikansicht mit Hinweiszeile hält das Fluxer-Limit (kein Überlauf)',
+      render.mapReactions(studio).overflow === undefined,
+      `${render.mapReactions(studio).length} / ${render.mapReactions(studio).overflow}`);
+
+    const kliste = await ui.buildKontakteView({
+      guildId: VG, userId: VU, page: 1, filter: 'alle' });
+    check('die Kontaktansicht trägt dieselbe Zeile',
+      kliste.embeds[0].toJSON().description.includes('📬 **2 Angebote** warten'),
+      kliste.embeds[0].toJSON().description.split('\n').slice(0, 3).join(' / '));
+    check('Kontaktansicht mit Hinweiszeile hält das Fluxer-Limit',
+      render.mapReactions(kliste).overflow === undefined,
+      String(render.mapReactions(kliste).overflow));
+
+    /*
+     * Die Zeile darf nicht mehr versprechen, als die Ansicht zeigt (Befund 6):
+     * `buildAngeboteView` schneidet bei `ANFRAGEN_MAX` ab, weil der dritten
+     * Anfrage kein Knopf mehr bliebe (§16). Zählte die Zeile alle offenen,
+     * stünde „3 Angebote“ über einer Ansicht mit zwei.
+     */
+    anfrage(VG, VU, 'tausch', LILPFAND.id, jetzt + 3 * TAG);
+    check('drei offene Anfragen stehen in der Tabelle',
+      ang.offeneAngebote(VG, VU, jetzt).filter((r) => r.restMs > 0).length === 3,
+      String(ang.offeneAngebote(VG, VU, jetzt).filter((r) => r.restMs > 0).length));
+    const dreiView = await angeboteUi.buildAngeboteView({ guildId: VG, userId: VU });
+    check('die Ansicht zeigt davon nur zwei',
+      dreiView.components[0].toJSON().components
+        .filter((b) => String(b.custom_id).startsWith('angebot-an|')).length
+        === adata.ANFRAGEN_MAX
+      && render.mapReactions(dreiView).overflow === undefined,
+      String(dreiView.components[0].toJSON().components.length));
+    check('und die Hinweiszeile zählt genau das, was die Ansicht zeigt',
+      ui.angeboteZeile(VG, VU, jetzt).includes('📬 **2 Angebote** warten'),
+      ui.angeboteZeile(VG, VU, jetzt));
+
+    // Eine Anfrage, deren Frist durch ist, zählt in der Zeile NICHT mehr mit:
+    // Sie steht bis zur Abrechnung weiter als `offen` in der Tabelle.
+    const [IG, IU] = await neu();
+    anfrage(IG, IU, 'gastpart', OXMO.id, jetzt - 1000);
+    check('eine verstrichene Anfrage verspricht in der Hinweiszeile nichts mehr',
+      ui.angeboteZeile(IG, IU, jetzt) === null, String(ui.angeboteZeile(IG, IU, jetzt)));
+  }
+
+  console.log('--- Vertragsansicht (Spec 5c: zwei Vertragsarten) ---');
+  /*
+   * `buildMusicDealView` ist der EINZIGE Weg im Spiel, einen Vertrag zu
+   * unterschreiben – und las bis 5c durchgehend `music.IDOL`. Ein
+   * Label-Unterzeichner stand damit vor „50 % der Einnahmen · 25 Tage
+   * Vorschuss · 90 Tage Laufzeit", während die Kasse 30 % nahm, 10 Tage zahlte
+   * und der Vertrag 60 Tage lief. Dieser Test schickt ein LABEL-Angebot durch
+   * Ansicht und Unterschrift und prüft, dass keine der drei Idol-Zahlen
+   * irgendwo auftaucht.
+   */
+  {
+    const ui = require('../src/ui');
+    const music = require('../src/music');
+    const home = require('../src/home');
+    const jetzt = Date.now();
+    const G = `DEAL_T${Date.now()}`;
+    const U = 'deal_user';
+    await home.setHome(G, U, 'de');
+    home.setLanguage(G, U, 'deutsch');
+    music.setup(G, U, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(G, U, {
+      ...db.getArtist(G, U, jetzt), listeners: 60_000,
+      touched_at: jetzt, last_action_at: jetzt, paid_through: jetzt,
+    });
+    const row = db.insertContract({
+      guildId: G, userId: U, kind: 'label', agency: 'Chocolat Musique',
+      country: 'fr', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+
+    /** Alles, was ein Spieler an dieser Ansicht lesen kann, in einem String. */
+    const sichtbar = (v) => {
+      const e = v.embeds[0].toJSON();
+      return [e.title, e.description, e.footer?.text,
+        ...(e.fields ?? []).flatMap((f) => [f.name, f.value])].filter(Boolean).join('\n');
+    };
+    const IDOL_ZAHLEN = ['50 %', 'Hälfte', '25 Tage', '90 Tage', '30 Tage'];
+
+    const offer = await ui.buildMusicDealView({ guildId: G, userId: U });
+    const oText = sichtbar(offer);
+    check('das Label-Angebot zeigt die Konditionen des LABELS',
+      oText.includes(`${music.LABEL.advanceDays} Tage Tantiemen`) && oText.includes('30 %')
+      && oText.includes('Laufzeit 60 Tage') && oText.includes('15 Tage Einnahmen'),
+      oText);
+    check('und keine einzige Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !oText.includes(z)),
+      IDOL_ZAHLEN.filter((z) => oText.includes(z)).join(' | '));
+
+    const signed = await music.sign(G, U, row.id);
+    check('die Unterschrift gibt die Konditionen ihrer Art heraus',
+      signed.ok && signed.terms === music.LABEL,
+      JSON.stringify({ ok: signed.ok, reason: signed.reason }));
+    // Genau der Text, den `mdealok` in buttons.js meldet.
+    const quittung = `${signed.terms.rules.join('\n')}`;
+    check('die Bestätigung der Unterschrift nennt keine Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !quittung.includes(z)) && quittung.includes('30 %'),
+      quittung);
+
+    const laufend = await ui.buildMusicDealView({ guildId: G, userId: U });
+    const lText = sichtbar(laufend);
+    check('der laufende Label-Vertrag zeigt Laufzeit und Ausstieg aus seinen Konditionen',
+      lText.includes('von **60 Tagen**')
+      && lText.includes('Vorzeitiger Ausstieg kostet 15 Tage Einnahmen und Hörer.'),
+      lText);
+    check('und auch hier keine Idol-Zahl',
+      IDOL_ZAHLEN.every((z) => !lText.includes(z)),
+      IDOL_ZAHLEN.filter((z) => lText.includes(z)).join(' | '));
+
+    const studio = await ui.buildMusicView({ guildId: G, userId: U });
+    const vertragsfeld = studio.embeds[0].toJSON().fields
+      .find((f) => f.name.startsWith('📜 Unter Vertrag'));
+    check('die Musikansicht nennt den Anteil, mit dem sie auch rechnet',
+      vertragsfeld.value.includes('30 % deiner Einnahmen')
+      && !vertragsfeld.value.includes('50 %'), vertragsfeld.value);
+
+    // Und der Gegenbeweis: Für ein IDOL-Angebot stehen weiter die Idol-Zahlen.
+    const [IG2, IU2] = [`DEAL_I${Date.now()}`, 'deal_idol'];
+    await home.setHome(IG2, IU2, 'jp');
+    home.setLanguage(IG2, IU2, 'japanisch');
+    music.setup(IG2, IU2, 'hiphop', music.PERSONAS[0].id);
+    db.insertContract({
+      guildId: IG2, userId: IU2, kind: 'idol', agency: 'Sakura Pro',
+      country: 'jp', createdAt: jetzt, expiresAt: jetzt + music.CONTRACT_OFFER_MS });
+    const idol = sichtbar(await ui.buildMusicDealView({ guildId: IG2, userId: IU2 }));
+    check('ein Idol-Angebot zeigt unverändert seine eigenen Zahlen',
+      idol.includes('25 Tage Tantiemen') && idol.includes('Laufzeit 90 Tage')
+      && idol.includes('30 Tage Einnahmen'), idol);
+
+    /*
+     * -----------------------------------------------------------------------
+     *  Die Ansicht darf sich nicht selbst widersprechen (5c-Review, Blocker 1)
+     * -----------------------------------------------------------------------
+     * `LABEL.blurb` begann mit „Ein Vertrag über **zwei Jahre** Musik", während
+     * `durationDays` 60 ist und derselbe Fußtext drei Zeilen darunter „Laufzeit
+     * 60 Tage" schrieb – ein Faktor zwölf in EINER Meldung, direkt über
+     * ✍️ Unterschreiben. Geprüft wird nicht der Wortlaut, sondern die Aussage:
+     * Jede Laufzeitangabe in Beschreibung und Fußtext wird in Tage umgerechnet
+     * und gegen `durationDays` gestellt. Beträge in „Tagen Einnahmen" oder
+     * „Tagen Tantiemen" sind keine Laufzeiten und zählen nicht mit – deshalb
+     * stehen nur Beschreibung (der Blurb) und die „Laufzeit"-Angabe des
+     * Fußtexts im Prüfbereich.
+     */
+    const ZAHLWORT = { ein: 1, eine: 1, zwei: 2, drei: 3, vier: 4, fünf: 5, sechs: 6,
+      sieben: 7, acht: 8, neun: 9, zehn: 10, elf: 11, zwölf: 12 };
+    const EINHEIT = { tag: 1, tage: 1, tagen: 1, woche: 7, wochen: 7,
+      monat: 30, monate: 30, monaten: 30, jahr: 365, jahre: 365, jahren: 365 };
+    /** Jede „<Zahl oder Zahlwort> <Zeiteinheit>"-Angabe eines Texts, in Tagen. */
+    const laufzeiten = (text) => [...text.matchAll(
+      /(\d+|[A-Za-zÄÖÜäöü]+)\s+(Tage?n?|Woche[n]?|Monate?n?|Jahre?n?)\b/g)]
+      .map(([, zahl, einheit]) => {
+        const n = /^\d+$/.test(zahl) ? Number(zahl) : ZAHLWORT[zahl.toLowerCase()];
+        return n === undefined ? null : n * EINHEIT[einheit.toLowerCase()];
+      })
+      .filter((t) => t !== null);
+
+    const ANGEBOTE = [
+      ['Label', music.LABEL, { guildId: G, userId: U }],
+      ['Idol', music.IDOL, { guildId: IG2, userId: IU2 }],
+    ];
+    for (const [name, kond, wer] of ANGEBOTE) {
+      const e = (await ui.buildMusicDealView(wer)).embeds[0].toJSON();
+      const laufzeitSatz = (e.footer?.text ?? '').split('·')
+        .find((t) => t.includes('Laufzeit')) ?? '';
+      const gemessen = [...laufzeiten(e.description ?? ''), ...laufzeiten(laufzeitSatz)];
+      check(`${name}: jede Laufzeitangabe der Ansicht trifft durationDays `
+        + `(${kond.durationDays} Tage)`,
+        gemessen.length > 0 && gemessen.every((t) => t === kond.durationDays),
+        JSON.stringify({ gemessen, soll: kond.durationDays,
+          text: `${e.description} | ${laufzeitSatz}` }));
+    }
+  }
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

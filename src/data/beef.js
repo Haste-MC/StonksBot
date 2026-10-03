@@ -14,9 +14,9 @@
  *  Alles hier ist Spielfiktion
  * ---------------------------------------------------------------------------
  * Die Gegner kommen aus dem Katalog in data/contacts.js, und dort stehen
- * Anklänge an bekannte Künstler. Die Texte in LINES sind KEINE Zitate. Sie
- * erzählen ausschließlich, was jemand im Spiel getan hat: geantwortet,
- * gepostet, veröffentlicht, einen Termin gemacht, geschwiegen. Keine Aussage
+ * Anklänge an bekannte Künstler. Die Texte in LINES sind erfundene
+ * Spielnachrichten und zitieren niemanden. Sie erzählen ausschließlich, was
+ * jemand im Spiel getan hat: geantwortet, gepostet, veröffentlicht, einen Termin gemacht, geschwiegen. Keine Aussage
  * über Meinungen, Charakter, Aussehen, Herkunft, Familie, Gesundheit oder das
  * Privatleben einer wirklichen Person, keine Beleidigung, nichts über Politik
  * oder Weltgeschehen. Ein Disstrack prahlt hier über Musik und Erfolg – sonst
@@ -231,7 +231,7 @@ const LINES = {
     ende: [
       '{name} schlägt ein gemeinsames Foto vor. Die Sache sei ausgestanden.',
       '{name} schreibt: „Gute Runde. Nächstes Mal wieder auf derselben Spur."',
-      '{name} setzt beide Tracks in eine Playlist und nennt sie „Ausgeredet".',
+      '{name} setzt beide Tracks in eine Playlist mit dem Titel „Ausgeredet".',
     ],
   },
   launisch: {
@@ -247,7 +247,7 @@ const LINES = {
     ],
     konter: [
       '{name} stellt um vier Uhr früh zwei Minuten online. Gereimt, unabgemischt.',
-      '{name} veröffentlicht eine Antwort, nimmt sie offline und stellt sie wieder rein.',
+      '{name} veröffentlicht eine Antwort, nimmt den Track wieder offline und lädt abends eine zweite Fassung hoch.',
       '{name} legt nach – mitten in der Nacht, ohne Ankündigung, dafür mit Wucht.',
     ],
     ende: [
@@ -269,7 +269,7 @@ const LINES = {
     ],
     konter: [
       '{name} veröffentlicht die Antwort pünktlich um Mitternacht, samt Cover und Pressetext.',
-      '{name} schaltet Anzeigen auf den Gegentrack. Er läuft, bevor du ihn gehört hast.',
+      '{name} schaltet Anzeigen auf den Gegentrack. Der läuft überall, bevor du überhaupt hingehört hast.',
       '{name} bringt den Konter als Single heraus: zwei Strophen, sauberer Mix, fester Termin.',
     ],
     ende: [
@@ -313,7 +313,7 @@ const LINES = {
     ],
     konter: [
       '{name} legt nach – vier Minuten, drei Strophen, kein Refrain.',
-      '{name} veröffentlicht nachts um zwei eine Antwort und nennt sie „Nachtrag".',
+      '{name} veröffentlicht nachts um zwei eine Antwort unter dem Titel „Nachtrag".',
       '{name} baut deinen Namen in den Refrain ein. Falsch betont, mit Absicht.',
     ],
     ende: [
