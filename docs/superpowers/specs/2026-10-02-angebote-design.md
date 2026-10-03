@@ -325,8 +325,9 @@ gegen einen Einzelfall. Eine stille Null ist ein Fehler, kein Ergebnis.
   verfallenes Projekt gibt die Stunden **nicht** zurück · `settle` ist
   idempotent und holt höchstens `ROLL_TAGE_MAX` Tage nach.
 - Vertrag: der Umbau auf `terms(kind)` ändert für Idol **keine Zahl** (die
-  bestehenden Tests sind der Beweis) · ein `label`-Vertrag zahlt 10 Tage
-  Vorschuss, nimmt 30 % und läuft 60 Tage · die Hörer-Schwelle 25.000 greift.
+  bestehenden Tests sind der Beweis) · ein `label`-Vertrag zahlt 3 Tage
+  Vorschuss (bis zum Balancing vom 2026-10-02 stand hier 10, siehe das Addendum),
+  nimmt 30 % und läuft 60 Tage · die Hörer-Schwelle 25.000 greift.
 - Anzeige (`test/fluxer-render.test.js`): Angebots-Ansicht mit zwei Anfragen
   und einem Projekt, Honorar und Gage als Zahl, Fortschrittsbalken,
   `overflow === undefined`; die Meldung einer verfallenen Anfrage erscheint
@@ -340,39 +341,53 @@ hier stehen dort mit demselben Wert.
 
 ### Was die Messung ergeben hat
 
-| Variante | Musik+Creator (60 Läufe) | nur Musik (60 Läufe) |
-|---|---|---|
-| `aus` | 303.876/Tag | 89.211/Tag |
-| `alles-ab` | −3,3 % / −0,4 % gepaart | +0,7 % / −0,1 % |
-| `alles-an` | +3,3 % / +8,6 % | +46,2 % / **+47,0 %** |
-| `nur-geld` | −4,5 % / −2,5 % | +6,6 % / +4,6 % |
-| `nur-projekte` | −3,0 % / −0,1 % | +7,3 % / +3,1 % |
-| `nur-label` | −1,2 % / −0,8 % | +3,8 % / −0,2 % |
+Die Kopfzahlen sind die der **ENDEINSTELLUNG**, also des Stands, der heute in den
+Datendateien steht: `ANFRAGE_CHANCE` 0,09 und `LABEL.advanceDays` 3. Die rechte
+Spalte hält den **Lauf vor dem Balancing** fest (0,18 und 10 Tage) – das ist der
+Stand, der den Auslöser gerissen hat, und keine seiner Zahlen gilt noch. Beide
+Läufe haben dieselben Seeds, dieselbe Strategie und dieselbe Grundlage „aus"; die
+Grundlage ist von beiden Konstanten unberührt, weil sie den Zustellweg nie ruft.
 
-Die Decken halten: Honorar höchstens **221.558** (Coldplay 130 Mio, und nur ab
-55.285 eigenen Hörern – gemessen als größter Einzelbetrag über 842 Gastparts
-genau erreicht), Gage höchstens **×1,625** (gemessen 231.082 als größte),
-Kollabo-Faktor höchstens ×2,000 (gemessen nur bis **1,683**, im Mittel 1,145),
-Vorschuss 10 Tage Tantiemen (gemessen Ø 913.659, größter 3.372.861). Kein
-`unb`-Aufruf in `src/angebote.js`.
+| Variante (60 Läufe, Mediane / gepaart je Seed) | Endeinstellung: Musik+Creator | Endeinstellung: nur Musik | vor dem Balancing: M+C · nur Musik |
+|---|---|---|---|
+| `aus` | 303.876/Tag | 89.211/Tag | 303.876/Tag · 89.211/Tag (unberührt) |
+| `alles-ab` | −5,2 % / −2,8 % | +1,0 % / +0,0 % | −3,3 % / −0,4 % · +0,7 % / −0,1 % |
+| `alles-an` | −0,9 % / −0,4 % | +16,8 % / **+17,9 %** | +3,3 % / +8,6 % · +46,2 % / **+47,0 %** |
+| `nur-geld` | −6,2 % / −4,4 % | +2,6 % / +1,0 % | −4,5 % / −2,5 % · +6,6 % / +4,6 % |
+| `nur-projekte` | −1,6 % / +0,0 % | +5,3 % / +2,5 % | −3,0 % / −0,1 % · +7,3 % / +3,1 % |
+| `nur-label` | −4,5 % / −1,4 % | +0,1 % / −0,1 % | −1,2 % / −0,8 % · +3,8 % / −0,2 % |
+
+Die Decken halten – **Endeinstellung, 60 Läufe:** Honorar höchstens **221.558**
+(Coldplay 130 Mio, und nur ab 55.285 eigenen Hörern – als größter Einzelbetrag
+über 365 Gastparts genau erreicht, Ø 5.942), Gage höchstens **×1,625** (gemessen
+größte 158.038, Ø 52.993), Kollabo-Faktor höchstens ×2,000 (gemessen nur bis
+**1,069**, im Mittel **1,037**), Vorschuss **3 Tage** Tantiemen (gemessen
+Ø 222.815, größter 911.720). Kein `unb`-Aufruf in `src/angebote.js`.
+**Vor dem Balancing** waren es dieselbe Honorardecke 221.558 über 842 Gastparts
+(Ø 14.331), Gage größte 231.082 (Ø 63.219), Kollabo-Faktor bis 1,683 (Ø 1,145)
+und 10 Tage Vorschuss (Ø 913.659, größter 3.372.861).
 
 ### Sechs Abweichungen zwischen Spec und gebautem Code bzw. gemessener Wirklichkeit
 
 1. **Die Spec nennt Hans Zimmer (110 Mio) als größten Kontakt, der Katalog hat
    Coldplay mit 130 Mio.** Die Decke der Spec (`3 × 130.000.000^0,6` = 221.558)
    ist richtig, die Tabellenüberschrift darüber nicht ganz.
-2. **Der Kollabo-Faktor ist in der Praxis ×1,145 und nicht ×2,0.** Die Spec
-   rechnet mit „10.000 eigene Hörer gegen Hans Zimmer" – diese Lage kommt nicht
+2. **Der Kollabo-Faktor ist in der Praxis ×1,037 und nicht ×2,0** (vor dem
+   Balancing ×1,145). Die Spec rechnet mit „10.000 eigene Hörer gegen Hans
+   Zimmer" – diese Lage kommt nicht
    vor. Wer einen Partner aufbauen kann, baut ihn zu jemandem auf, der in seiner
    Größenordnung liegt: Die Antwortchance eines Künstlers mit 100.000 Hörern
    liegt bei Coldplay bei 6,7 % und bei den übrigen Riesen bei `CHANCE_MIN`
    2,0 %.
 3. **Die Spec fragt „lohnt sich das Kollabo?" – die Antwort ist nein, und die
-   gemessene Spielweise kann es nicht einmal abschließen.** 356 von 377
+   gemessene Spielweise kann es nicht einmal abschließen.** 174 von 195
    Kollabos sind mit **vollem** 18-Stunden-Konto verfallen, weil die sechs Titel
-   fehlten (3.630 Drücke mit `no_songs`). Bei gleicher
-   Veröffentlichungspolitik (ein eigenes Kontrollpaar, beide horten) liegt das
-   Kollabo bei −6,7 % / −4,2 % (Musik+Creator) und −1,5 % / −0,1 % (nur Musik).
+   fehlten (1.825 Drücke mit `no_songs`) – vor dem Balancing 356 von 377 und
+   3.630 Drücke. Bei gleicher Veröffentlichungspolitik (ein eigenes Kontrollpaar,
+   beide horten) liegt das Kollabo bei −5,3 % / −5,0 % (Musik+Creator) und
+   +3,7 % / +3,8 % (nur Musik); vor dem Balancing bei −6,7 % / −4,2 % und
+   −1,5 % / −0,1 %. Die 203 Kollabos dieses Paares haben ein Publikum ×1,054
+   (1,005 … 1,353) bzw. ×1,049 (1,004 … 1,360) gebracht.
    Die Spec hat mit „muss sich mit einem deutlich größeren Partner lohnen"
    richtig geahnt, dass es knapp wird; dass es nicht aufgeht, sagt erst die
    Messung.
@@ -389,7 +404,10 @@ Vorschuss 10 Tage Tantiemen (gemessen Ø 913.659, größter 3.372.861). Kein
    verschieben" (`src/data/musicDecisions.js`, `requires: { contract: true }`)
    war außerhalb Japans und Koreas unerreichbar. Seine Option „Durchziehen"
    lässt den Vertrag mit 40 % platzen, und das kostet 15 Tage Tantiemen:
-   gemessen **−1.823 am Tag** in `alles-an`. Die Spec erwähnt das nicht.
+   gemessen **−750 am Tag** in `alles-an` (vor dem Balancing −1.823). Die Spec
+   erwähnt das nicht. Und weil der gemessene Spieler jeden Vorfall mit einer
+   **zufälligen** Option beantwortet (`scripts/messung-geldquellen.js:1014`), ist
+   das der Preis des blinden Antwortens und nicht der des „Durchziehens".
 
 ### Der Zuschnitt: warum die isolierenden Varianten zu klein ausfallen
 
@@ -411,7 +429,8 @@ Plus). Der Auslöser „über +25 %" war damit erreicht. **Welche** Konstante, h
 Messung entschieden: jeder Hebel einzeln gefahren, 30 Läufe zur Suche, 60 zur
 Bestätigung (vollständige Tabelle in der Messdatei, Abschnitt „Der Auslöser").
 
-Zwei der vier Hebel, die Plan und Spec nennen, wirken nicht oder falsch:
+Zwei der vier Hebel, die der Plan nennt (die Spec nennt keine Hebelliste),
+wirken nicht oder falsch:
 
 * `VORGRUPPE_ANTEIL` 0,05 → 0 ändert die Zahl um **±0,0** Prozentpunkte. Die Gage
   ist fast vollständig die eigene Konzertgage; das mitgebrachte Publikum legt nur
@@ -448,8 +467,20 @@ Endeinstellung, 60 Läufe, gepaart: `alles-an` nur Musik **+17,9 %**,
 Musik+Creator **−0,4 %** · `alles-ab` +0,0 % / −2,8 % · `nur-geld` +1,0 % /
 −4,4 % · `nur-projekte` +2,5 % / +0,0 % · `nur-label` −0,1 % / −1,4 %.
 
-**Die Spec muss danach an drei Stellen gelesen werden wie folgt:**
-`ANFRAGE_CHANCE = 0.09` (nicht 0,18, Zeile 92) und `Vorschuss: 3 Tage Tantiemen`
-(nicht 10, Zeile 293 und die Label-Tabelle). Alles andere ist unangetastet: Jeder
-Betrag, den die Anzeige auf einen Knopf schreibt, ist der, den diese Spec
+**Die zwei gesenkten Konstanten stehen an VIER Stellen dieser Spec, und hier sind
+alle vier:**
+
+1. `ANFRAGE_CHANCE = 0.18` im Konstantenblock (Zeile 92) – zu lesen als **0.09**.
+2. `Vorschuss | 25 Tage | **10 Tage**` in der Label-Tabelle (Zeile 233) – zu
+   lesen als **3 Tage**.
+3. „**Vorschuss:** 10 Tage Tantiemen" in der Decken-Liste (Zeile 293) – zu lesen
+   als **3 Tage**.
+4. „ein `label`-Vertrag zahlt 10 Tage Vorschuss" in der Testliste (Zeile 328) –
+   dort **direkt berichtigt**, weil die Zeile beschreibt, was ein Test prüft, und
+   `test/music.test.js` prüft die 3.
+
+Gefunden mit `grep -n '0\.18\|10 Tage\|advanceDays'` über diese Datei; mehr als
+diese vier Stellen gibt es nicht – die weiteren Treffer stehen in diesem Addendum
+und sind dort als „vor dem Balancing" markiert. Sonst ist nichts angetastet:
+Jeder Betrag, den die Anzeige auf einen Knopf schreibt, ist der, den diese Spec
 versprochen hat.

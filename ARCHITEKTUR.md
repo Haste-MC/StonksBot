@@ -1394,7 +1394,7 @@ Kollabo über `music.publish`, der Vorschuss über `music.sign`, alle mit
   darunter bindet immer der Deckel. Wer selbst eine Million Hörer hat, bekommt
   für einen Gastpart bei einem 3,2-Mio-Künstler **24.000** gegen 238.364
   Tantiemen am Tag: für den zählt nur noch der Schub.
-* **Gage ×1,62.** Sein Publikum ist auf die eigene Hörerschaft gedeckelt, und
+* **Gage ×1,625.** Sein Publikum ist auf die eigene Hörerschaft gedeckelt, und
   die Gage hängt an `Hörer^0,7` – mehr als `2^0,7` = **×1,625** gibt es nicht.
   Gerechnet bei 10.000 eigenen Hörern: 5.048 allein und 8.200 mit einem Partner
   von 350.000 – und mit jedem größeren genau dasselbe, weil der Deckel bei der
@@ -1472,11 +1472,11 @@ ruft):
 
 **Höflichkeit kostet fast nichts, und das ist eine Nachricht.** `alles-ab` liegt
 beim reinen Musiker bei +0,0 % gepaart (Ausgangseinstellung −0,1 %): Wer jede
-Anfrage absagt, verliert Draht und steht an 27,8 % der Tage in der
-Zwei-Wochen-Pause, aber Geld kostet ihn das nicht. Bei Musik+Creator sind es
-−2,8 % (vorher −0,4 %) – das sind die Stunden, die das Lesen und Absagen
-trotzdem kostet, und sie liegen innerhalb der Streuung (Spanne je Seed −25,6 %
-… +32,3 %). Teuer ist nur das Liegenlassen (−8 Draht statt −5), und das steht in
+Anfrage absagt, verliert Draht und steht an 18,9 % der Tage in der
+Zwei-Wochen-Pause (Ausgangseinstellung 27,8 %), aber Geld kostet ihn das nicht.
+Bei Musik+Creator sind es −2,8 % (vorher −0,4 %) – das sind die Stunden, die das
+Lesen und Absagen trotzdem kostet, und sie liegen innerhalb der Streuung (Spanne
+je Seed −25,6 % … +32,3 %). Teuer ist nur das Liegenlassen (−8 Draht statt −5), und das steht in
 der Anzeige.
 
 **Die Summe der Teile ist ein Zehntel des Ganzen – und der Grund ist die Pause.**
@@ -1491,8 +1491,12 @@ Frage „welcher Weg trägt was?" musste deshalb eine zweite Zerlegung dazukomme
 (`--zerlegung`, 30 Läufe): „alles-an" gegen „alles-an ohne eine Gruppe", bei
 gleicher Zustellrate. Gepaart je Seed, reiner Musiker: **Honorar + Gage +18,2 % ·
 Kollabo + Tour +20,2 % · Label +5,9 % · Erwähnung +2,5 %** (Musik+Creator:
-+6,1 % · +7,6 % · +1,0 % · +4,7 %). Diese vier addieren sich auf +46,8 % und
-treffen damit die +47,0 % – bei voller Zustellrate sind die Wege fast additiv.
++6,1 % · +7,6 % · +1,0 % · +4,7 %). Für den reinen Musiker addieren sich diese
+vier auf +46,8 % und treffen damit die +47,0 % – bei voller Zustellrate sind die
+Wege dort fast additiv. **Für Musik+Creator gilt dieser Satz nicht:** Dieselben
+vier summieren auf +19,4 %, gemessen sind +5,6 %. Sein Tag ist voll, und die Zeit
+kostet mehr, als die Summe der Beiträge wert ist – wer die vier Zahlen der
+Klammer addiert, muss das mitlesen.
 
 **Woher das Geld wirklich kommt** (`alles-an`, reiner Musiker, 60 Läufe, je Tag,
 Endeinstellung): Tantiemen 93.478 (gegen 78.022 ohne Angebote), Konzert 17.191
@@ -1520,7 +1524,8 @@ Hörern bei Coldplay bei 6,7 % und bei den übrigen Riesen bei `CHANCE_MIN`
 **2,0 %**. Der Partner, den man überhaupt aufbauen kann, ist in seiner
 Größenordnung – gemessen hatten die Partner am Laufende eine Reichweite von Ø
 524.048 ohne Angebote und Ø 1.869.805 mit (Ausgangseinstellung: 6.574.127, weil
-dort dreimal so viele Anfragen den Draht dreimal so schnell hoben).
+dort gut doppelt so viele Anfragen zugestellt wurden – 3.362 gegen 1.630 – und
+jede angenommene den Draht um 8 hebt).
 
 **Das Kollabo-Album ist in der gemessenen Spielweise ein Totalverlust, und das
 ist eine Zahl, kein Eindruck.** Von **195** angenommenen Kollabos sind **5**
@@ -1536,13 +1541,14 @@ Kontrollpaar (beide horten, beide bringen Alben, nur eines ist ein Kollabo) lieg
 in der Endeinstellung bei **−5,3 % / −5,0 %** (Musik+Creator) und **+3,7 % /
 +3,8 %** (nur Musik), in der Ausgangseinstellung bei −6,7 % / −4,2 % und −1,5 % /
 −0,1 % – vier Zahlen, die um null streuen, bei Spannen je Seed von −48,6 % bis
-+70,9 %. 18 Stunden gegen 3 für ×1,037 Publikum ist eben kein Geschäft, und an
-der Stückzahl ist die Zahl nicht gescheitert: Im Kontrollpaar sind 203 von 206
-Kollabos erschienen (108 von 110 und 95 von 96), weil der Spieler dort seine
-Titel hortet. Die
-Gegenprobe gegen die Single-Grundlage zeigt, warum dieses Paar nötig war: „horten
-statt tägliche Single" allein ist **+821,8 %** bzw. **+3309,3 %** – wer ein
-Kollabo gegen die Single-Grundlage stellt, verkauft diesen Abstand als Wirkung
++70,9 %. 18 Stunden gegen 3 für ein Publikum ×1,054 (1,005 … 1,353) bzw. ×1,049
+(1,004 … 1,360) ist eben kein Geschäft – das sind die Faktoren, die die 203
+Kollabos **dieses** Paares wirklich gebracht haben, nicht die ×1,037 der fünf aus
+`alles-an`. An der Stückzahl ist die Zahl nicht gescheitert: Im Kontrollpaar sind
+203 von 206 Kollabos erschienen (108 von 110 und 95 von 96), weil der Spieler
+dort seine Titel hortet. Die Gegenprobe gegen die Single-Grundlage zeigt, warum
+dieses Paar nötig war: „horten statt tägliche Single" allein ist **+821,8 %**
+bzw. **+3309,3 %** – wer ein Kollabo gegen die Single-Grundlage stellt, verkauft diesen Abstand als Wirkung
 des Kollabos.
 
 **Der Deckel von +25 % hält, und er hat zwei Konstanten gekostet.** Der
@@ -1567,6 +1573,7 @@ die Messung entschieden und nicht die Vermutung – jeder Hebel einzeln gemessen
 | `ANFRAGE_CHANCE` | 18 % → 7 % | +28,7 % (−18,4, **nicht monoton**) |
 | `ANFRAGE_CHANCE` | 18 % → 6 % | +12,4 % (−34,7) |
 | `advanceDays` 3 **und** `ANFRAGE_CHANCE` 12 % | | +26,9 % (−20,2) |
+| `advanceDays` 3, `ANFRAGE_CHANCE` 12 % **und** `TOUR_KONZERTE` 3 | | +24,5 % (−22,6) |
 | `advanceDays` 3 **und** `ANFRAGE_CHANCE` 9 % | | +21,9 % (−25,2) |
 
 **Zwei der vier Hebel, die der Plan nennt, wirken nicht oder falsch.**
@@ -1586,12 +1593,33 @@ mitbesteuert – also die Wege, die das Problem verursachen, über einen Weg, de
 nur +5,9 % davon trägt. Dazu nähme der Label-Vertrag damit denselben Anteil wie
 das Idol-Angebot bei weniger Wachstum und kleineren Hallen, und `nur-label` fiele
 von −0,2 % auf −3,5 %: ein Vertrag, den niemand mehr unterschreiben sollte.
+**Eine Kombination aus der Liste kommt ebenfalls unter den Deckel, und sie ist
+trotzdem nicht gewählt:** `advanceDays` 3, `ANFRAGE_CHANCE` 12 % **und**
+`TOUR_KONZERTE` 3 liegt bei **+24,5 %** (30 Läufe, −22,6 Punkte). Sie bezahlt
+diesen Platz aber mit einer dritten Konstante und mit dem knappsten Abstand aller
+Kandidaten – die gewählte Einstellung liegt mit +17,9 % volle 7,1 Prozentpunkte
+unter dem Deckel –, und `TOUR_KONZERTE` von 5 auf 3 nimmt der Tour genau das, was
+sie von einem Konzert unterscheidet, obwohl die Zerlegung nicht auf die Zahl der
+Abende zeigt, sondern auf die Menge der Gelegenheiten.
 `ANFRAGE_CHANCE` ist der Hebel, den die Zerlegung benennt – alle vier Wege
 hängen an ihm gemeinsam –, aber **unter 0,12 ist er nicht auflösbar**: 0,09 gibt
 +23,0 %, 0,08 gibt +25,6 %, 0,07 gibt +26,9 %, und 0,06 gibt +14,0 % – bei 60
 Läufen, derselben Säung, einem Schritt von einem Prozentpunkt. Das ist kein
 Verlauf, sondern ein Rauschteppich um die +25 %; 5b hat dasselbe bei 10 Seeds
 gesehen, hier passiert es bei 60.
+
+**Das Messwerkzeug zieht an dieser Stelle einen anderen Schluss als dieser
+Abschnitt, und das steht so in der Rohausgabe.** Unter der Zerlegung druckt es die
+Faustregel „stärkster Beitrag: projekte +20,2 % – DAS ist die Gruppe, deren
+Konstante der Auslöser meint". Sie zeigt auf die Konstanten von Kollabo und Tour,
+und genau die sind oben einzeln gefahren: `KOLLABO_STUNDEN` hängt an einem Weg,
+der 423 von 130.432 am Tag ausmacht, `TOUR_STUNDEN` macht es mit +57,4 %
+schlechter, und `TOUR_KONZERTE` wirkt zwar (+31,5 %), bleibt allein aber über dem
+Deckel und kürzt die Tour auf drei Abende. Die Faustregel ist also eine Heuristik
+des Werkzeugs und kein Ergebnis; gewählt ist die Konstante, an der alle vier
+Gruppen **gemeinsam** hängen. Gedruckt bleibt die Zeile trotzdem – ein Werkzeug,
+das seinen eigenen Schluss zieht, muss nachlesbar sein, auch wenn die Messung
+dagegen entscheidet.
 
 **Gesenkt wurden deshalb ZWEI Zahlen, wie bei 5b, und sie ergeben zusammen eine
 Rechnung:**
@@ -1651,31 +1679,40 @@ selbst sind in **jeder** Variante bezahlt, also nicht Teil der Differenz; was si
 kosten, hat 5a gemessen (−8,3 %). (6) **`SHOW_MIN_LISTENERS` greift in der
 Messung nie.** Bis ein Draht für eine Vorgruppe steht, hat der gemessene Spieler
 längst mehr als 5.000 Hörer (am Tag der ersten gemessenen Annahme 14.108). Dass
-ein 500-Hörer-Künstler über eine Vorgruppe auf die Bühne kommt, ist also eine
-Rechnung (65 Gage, 10 Hörer Zuwachs) und **keine Messung**. (7) **Der
-Kollabo-Faktor ist nur bis ×1,069 gemessen** (in der Ausgangseinstellung bis
-×1,683), die Decke ×2,0 steht als Rechnung da. Ein Spieler, der es schafft, mit Coldplay befreundet zu sein, während er
-selbst klein ist, ist in keinem gemessenen Jahr vorgekommen – die Antwortchance
-dafür ist 2,0 %. (8) **5c macht einen alten Vorfall erstmals überall
+ein Künstler mit 10 Hörern über eine Vorgruppe auf die Bühne kommt, ist also eine
+Rechnung – dieselbe wie oben: 65 Gage auch neben Coldplay, und 0 Hörer Zuwachs,
+weil der Zuwachs 2 % der eigenen Hörerschaft ist (`src/music.js`, `showGain`) –
+und **keine Messung**. (7) **Der Kollabo-Faktor ist in `alles-an` nur bis ×1,069
+gemessen** (in der Ausgangseinstellung bis ×1,683, im Kontrollpaar bis ×1,353
+bzw. ×1,360), die
+Decke ×2,0 steht als Rechnung da. Ein Spieler, der es schafft, mit Coldplay
+befreundet zu sein, während er selbst klein ist, ist in keinem gemessenen Jahr
+vorgekommen – die Antwortchance dafür ist 2,0 %. (8) **5c macht einen alten Vorfall erstmals überall
 erreichbar.** „Das Label will verschieben" (`src/data/musicDecisions.js`,
 `requires: { contract: true }`) gab es vorher nur in Japan und Korea, weil nur
 dort ein Vertrag möglich war. Seine Option „Durchziehen" platzt mit 40 %, und das
-kostet 15 Tage Tantiemen: gemessen **−1.823 am Tag** in `alles-an` – ein Posten,
-den 5c nicht gebaut, aber freigeschaltet hat. (9) Der Beef läuft in allen
-Varianten mit (`ANZAEHL_CHANCE` 35 %), gleich in jeder – er ist Teil der
-Grundlage und nicht Teil der Differenz. Die Kombination „Beef-Sieg **und**
-Gegenanfrage" ist damit weiter **nicht** gemessen, genau wie 5b es für die
-andere Richtung festgehalten hat. (10) Die Messung ist eine reine Geldfrage; was
+kostet 15 Tage Tantiemen: gemessen **−750 am Tag** in `alles-an`
+(Ausgangseinstellung −1.823) – ein Posten, den 5c nicht gebaut, aber
+freigeschaltet hat. Was diese Zahl **nicht** ist: der Preis des „Durchziehens".
+Der gemessene Spieler wählt bei jedem Vorfall eine **zufällige** Option
+(`scripts/messung-geldquellen.js:1014`), also ist −750 der Preis des blinden
+Antwortens; was ein Spieler zahlt, der gezielt durchzieht oder gezielt nachgibt,
+ist nicht gemessen. (9) Der Beef läuft in allen Varianten mit
+(`ANZAEHL_CHANCE` 35 %), gleich in jeder – er ist Teil der Grundlage und nicht
+Teil der Differenz. Die Kombination „Beef-Sieg **und** Gegenanfrage" ist damit
+weiter **nicht** gemessen, genau wie 5b es für die andere Richtung festgehalten
+hat. (10) Die Messung ist eine reine Geldfrage; was
 die sechs Arten an Spielgefühl und Texten bringen, misst sie nicht. (11) Für
 **Musik+Creator** sind die Gegenanfragen damit **keine** Geldquelle in der
 Rangfolge oben: −0,4 % gepaart in der Endeinstellung (vor dem Balancing +8,6 %,
 36 von 60 Seeds im Plus) – sie kosten ihn so viel Zeit, wie sie einbringen. Für
 den **reinen Musiker** sind sie mit +17,9 % der stärkste Einzeleffekt, den dieses
 Spiel neben der Veröffentlichungsart kennt, und der Grund ist seine leere Zeit:
-Er verbraucht ohne Kanäle etwa neun seiner 24 Stunden, und die Gegenanfragen
-füllen den Rest, ohne dass er etwas verdrängen muss. Wer danach die Rangfolge
-oben fortschreibt, muss beides nennen – eine Zahl „für den Spieler" gibt es hier
-nicht.
+Gemessen macht er in jeder Variante **0,00** Kanalaktionen am Tag, Musik+Creator
+in `alles-an` **10,31** (ohne Angebote 10,70). Die Gegenanfragen füllen bei ihm
+also Stunden, um die nichts anderes konkurriert, und er muss nichts verdrängen.
+Wer danach die Rangfolge oben fortschreibt, muss beides nennen – eine Zahl „für
+den Spieler" gibt es hier nicht.
 
 ### Eine Bremse, nicht zwei
 
