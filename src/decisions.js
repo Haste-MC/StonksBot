@@ -46,6 +46,24 @@ const RISK_MAX = 0.04;
 const RISK_FULL = 1_500_000;
 
 /**
+ * Wahrscheinlichkeit je TAG – dieselbe Spanne, die die Firma nach Größe nutzt.
+ *
+ * Die Spanne je Aktion darüber (2…4 %) hat die Vorfälle an den Fleiß gehängt:
+ * Bei 2 % je Aktion dauert es im Schnitt fünfzig Aktionen bis zum ersten, und
+ * wer gemütlich spielt, kommt dort nie an. Über die Tage gerechnet ist die
+ * Größe weiter das, was gefährlich macht – aber die Zeit läuft für jeden.
+ */
+const RISK_MIN_DAY = 0.02;
+const RISK_MAX_DAY = 0.08;
+
+/**
+ * So viele Tage werden höchstens nachgeholt – dieselbe Zahl wie
+ * MAX_SETTLE_DAYS bei den Tantiemen. Drei Wochen Urlaub sollen keine Kette
+ * von Entscheidungen ausspucken.
+ */
+const ROLL_TAGE_MAX = 14;
+
+/**
  * Aufschlag auf die Verluste, wenn jemand gar nicht reagiert.
  *
  * Ohne ihn wäre Wegklicken eine Strategie: Die Ausgänge des Schweigens sind
@@ -76,6 +94,17 @@ function decision(kind) {
 /** Wie wahrscheinlich ein Vorfall je Aktion ist. */
 function riskFor(reach) {
   return clamp(RISK_MIN, RISK_MAX, (reach / RISK_FULL) * RISK_MAX);
+}
+
+/** Wie wahrscheinlich ein Vorfall je TAG ist. */
+function riskPerDay(reach) {
+  return clamp(RISK_MIN_DAY, RISK_MAX_DAY,
+    RISK_MIN_DAY + (Math.max(0, reach) / RISK_FULL) * (RISK_MAX_DAY - RISK_MIN_DAY));
+}
+
+/** Chance, in `tage` Tagen mindestens einen zu bekommen – wie company.riskFor. */
+function chanceOver(reach, tage) {
+  return 1 - Math.pow(1 - riskPerDay(reach), clamp(0, ROLL_TAGE_MAX, tage));
 }
 
 /** Verstärkung der Wirkungen bei großen Kanälen (1 … SEVERITY_MAX). */
@@ -121,13 +150,21 @@ function musicEligible(d, artist, contract) {
  *
  * `size` ist bei Creator die Reichweite, bei Musik die Hörerzahl – dieselbe
  * Risikokurve. Bei Firmen ist es `{ groesse, days, npc }`: Größe 0…9 mit
- * eigener Kurve (company.riskFor) über die abgerechneten Tage. Die Sperre
- * „solange einer offen ist" gilt über alle Domänen: Wer gerade ein
- * Creator-Drama hat, bekommt kein Musik- oder Firmen-Drama obendrauf.
+ * eigener Kurve (company.riskFor) über die abgerechneten Tage.
+ *
+ * Sperre und Mindestabstand gelten JE BEREICH: Wer ein Creator-Drama hat,
+ * bekommt trotzdem ein Musik-Drama. Über alle Bereiche gerechnet hätten sich
+ * die drei gegenseitig ausgehungert – und zwar umso mehr, je mehr Bereiche
+ * jemand bespielt.
+ *
+ * `schonGewuerfelt` ist für `tick`: Dort ist die Wahrscheinlichkeit schon über
+ * die vergangenen TAGE entschieden, hier wird nur noch der Vorfall gezogen.
+ * Alles andere – Sperre, Abstand, Kandidatenliste – gilt weiter.
  */
-function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator') {
-  if (db.openEvent(guildId, userId)) return null;
-  if (now - db.lastEventAt(guildId, userId) < MIN_GAP_MS) return null;
+function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator',
+  { schonGewuerfelt = false } = {}) {
+  if (db.openEvent(guildId, userId, domain)) return null;
+  if (now - db.lastEventAt(guildId, userId, domain) < MIN_GAP_MS) return null;
 
   let possible;
   if (domain === 'company') {
@@ -135,10 +172,10 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     // abgerechneten Tage, Kandidaten nach Größe und NPC-Zahl.
     const company = require('./company');
     const { groesse, days, npc } = size;
-    if (random() >= company.riskFor(groesse, days)) return null;
+    if (!schonGewuerfelt && random() >= company.riskFor(groesse, days)) return null;
     possible = COMPANY_DECISIONS.filter((d) => groesse >= d.minGroesse && npc >= (d.minNpc ?? 0));
   } else {
-    if (random() >= riskFor(size)) return null;
+    if (!schonGewuerfelt && random() >= riskFor(size)) return null;
     if (domain === 'music') {
       const artist = db.getArtist(guildId, userId, now);
       const contract = db.activeContract(guildId, userId);
@@ -161,6 +198,34 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
+}
+
+/**
+ * Der Tageswurf für Musik und Creator.
+ *
+ * Bis hierher hing ein Vorfall an der Zahl der AKTIONEN (2 % je Aktion, also
+ * im Schnitt fünfzig Aktionen bis zum ersten). Wer gemütlich spielt, sah
+ * deshalb nie einen. Die Firma rechnet seit jeher über die vergangenen TAGE –
+ * `tick` holt das für Musik und Creator nach, mit derselben Spanne.
+ *
+ * Faul (§4): Geschrieben wird die Uhr nur, wenn wirklich gewürfelt wurde.
+ * Abwesenheit zählt mit, aber höchstens `ROLL_TAGE_MAX` Tage – drei Wochen
+ * Urlaub sollen keine Kette von Entscheidungen ausspucken.
+ */
+function tick(guildId, userId, domain, size, now = Date.now(), random = Math.random) {
+  if (domain !== 'music' && domain !== 'creator') return null;
+  // Ein offener Vorfall DIESES Bereichs hält den nächsten auf.
+  if (db.openEvent(guildId, userId, domain)) return null;
+
+  const uhr = db.decisionUhr(guildId, userId, domain);
+  const tage = uhr.last_roll
+    ? Math.min(ROLL_TAGE_MAX, Math.floor((now - uhr.last_roll) / DAY_MS))
+    : 1;                       // beim allerersten Mal ein Wurf, nicht null
+  if (tage <= 0) return null;
+
+  db.saveDecisionUhr(guildId, userId, domain, now);
+  if (random() >= chanceOver(size, tage)) return null;
+  return roll(guildId, userId, size, now, random, domain, { schonGewuerfelt: true });
 }
 
 /**
@@ -501,8 +566,9 @@ function history(guildId, userId, limit = 5) {
 
 module.exports = {
   DECISIONS, MUSIC_DECISIONS, COMPANY_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
+  RISK_MIN_DAY, RISK_MAX_DAY, ROLL_TAGE_MAX,
   SEVERITY_MAX, SEVERITY_FULL,
   IGNORE_PENALTY,
-  decision, riskFor, severityFor, scaleMoney, pickOutcome, musicEligible,
-  roll, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
+  decision, riskFor, riskPerDay, chanceOver, severityFor, scaleMoney, pickOutcome, musicEligible,
+  roll, tick, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
 };

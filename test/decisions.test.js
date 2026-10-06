@@ -20,6 +20,22 @@ const creator = require('../src/creator');
 const { DECISIONS } = require('../src/data/decisions');
 const unb = require('../src/unb');
 
+/*
+ * Ein zweiter, nur LESENDER Zugang auf dieselbe Datei. Gebraucht wird er für
+ * genau eine Zusicherung, die über die Modulgrenze nicht sichtbar ist: Ein
+ * Lesen der Vorfall-Uhr darf keine Zeile anlegen (§4). Ohne Zählung von außen
+ * wäre „legt keine Zeile an" nicht prüfbar – db.decisionUhr liefert in beiden
+ * Fällen dieselben Vorgaben zurück.
+ */
+const { DatabaseSync } = require('node:sqlite');
+const nodePath = require('node:path');
+const roh = new DatabaseSync(nodePath.join(
+  process.env.DATA_DIR ? nodePath.resolve(process.env.DATA_DIR)
+    : nodePath.join(__dirname, '..', 'data'), 'shop.db'), { readOnly: true });
+const uhrZeilen = (g, u) => roh.prepare(
+  'SELECT COUNT(*) AS n FROM decision_uhr WHERE guild_id = ? AND user_id = ?')
+  .get(g, String(u)).n;
+
 let pass = 0, fail = 0;
 const check = (label, ok, extra = '') => {
   if (ok) { pass++; console.log(`  ✅ ${label}`); }
@@ -221,6 +237,172 @@ const never = () => 0.999;      // trifft immer den letzten
       decisions.roll(G, U, 5_000_000, now + 60_000, always) === null);
     check('nach dem Mindestabstand schon',
       decisions.roll(G, U, 5_000_000, now + decisions.MIN_GAP_MS + 1000, always) !== null);
+  }
+
+  console.log('\n--- Das Risiko je TAG ---');
+  {
+    /*
+     * Bis hierher hing ein Vorfall an der Zahl der AKTIONEN: 2 % je Aktion,
+     * also im Schnitt fünfzig Aktionen bis zum ersten. Wer gemütlich spielt,
+     * sah deshalb nie einen. Die Firma rechnet seit jeher über die vergangenen
+     * TAGE – dieselbe Spanne gilt jetzt auch für Musik und Creator.
+     */
+    const nah = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
+
+    check('Anfänger: 2 % je Tag', nah(decisions.riskPerDay(0), 0.02));
+    check('100.000 Reichweite: 2,4 %', nah(decisions.riskPerDay(100_000), 0.024));
+    check('500.000 Reichweite: 4 %', nah(decisions.riskPerDay(500_000), 0.04));
+    check('1 Mio Reichweite: 6 %', nah(decisions.riskPerDay(1_000_000), 0.06));
+    check('ab 1,5 Mio ist bei 8 % Schluss', nah(decisions.riskPerDay(1_500_000), 0.08));
+    check('und darüber bleibt es bei 8 %', nah(decisions.riskPerDay(5_000_000), 0.08));
+    check('negative Reichweite faellt auf den Boden', nah(decisions.riskPerDay(-5), 0.02));
+
+    check('ein Tag ist die Tageschance', nah(decisions.chanceOver(0, 1), 0.02));
+    check('zwei Tage zinsen auf', nah(decisions.chanceOver(0, 2), 1 - 0.98 * 0.98));
+    check('mehr als 14 Tage werden nicht nachgeholt',
+      nah(decisions.chanceOver(0, 30), decisions.chanceOver(0, 14)));
+    check('null Tage geben nichts', nah(decisions.chanceOver(0, 0), 0));
+    check('ROLL_TAGE_MAX sind 14 Tage – wie MAX_SETTLE_DAYS bei den Tantiemen',
+      decisions.ROLL_TAGE_MAX === 14);
+  }
+
+  console.log('\n--- Der Tageswurf (decisions.tick) ---');
+  {
+    const T0 = Date.UTC(2026, 0, 15, 12);
+    const STUNDE = 60 * 60 * 1000;
+
+    /** Ein Würfel, der immer denselben Wert liefert. */
+    const wert = (v) => () => v;
+    /** Derselbe Würfel, aber er zählt seine Würfe mit. */
+    const zaehlend = (v = 0.999) => {
+      const f = () => { f.wuerfe++; return v; };
+      f.wuerfe = 0;
+      return f;
+    };
+    /** Ein Künstler mit Hörern – sonst gäbe es keine Musik-Kandidaten. */
+    const musiker = (name, listeners) => {
+      db.clearArtist(G, name);
+      const a = db.getArtist(G, name, T0);
+      db.saveArtist(G, name, { ...a, persona: 'face', listeners, songs: 5, touched_at: T0 });
+      return name;
+    };
+
+    /*
+     * Alle Zahlen hier hängen an Reichweite 1 Mio = 6 % je Tag:
+     *   chanceOver(1 Mio,  1) = 0,0600
+     *   chanceOver(1 Mio,  2) = 0,1164
+     *   chanceOver(1 Mio, 13) = 0,5526
+     *   chanceOver(1 Mio, 14) = 0,5795
+     *   ungedeckelt über 30 Tage wären es 0,8437
+     * Ein fester Würfelwert zwischen zwei dieser Marken sagt deshalb genau,
+     * über wie viele Tage gewürfelt wurde.
+     */
+    {
+      const U = player('tick-erst');
+      db.clearEvents(G, U);
+      const w = zaehlend();
+      const r = decisions.tick(G, U, 'creator', 1_000_000, T0, w);
+      check('tick ohne Uhr wuerfelt genau einmal', w.wuerfe === 1 && r === null,
+        String(w.wuerfe));
+      check('und die Uhr steht danach auf diesem Wurf',
+        db.decisionUhr(G, U, 'creator').last_roll === T0);
+    }
+    {
+      const U = player('tick-eintag');
+      db.clearEvents(G, U);
+      check('beim allerersten Mal ist es genau EIN Tag (0,07 > 0,0600 geht daneben)',
+        decisions.tick(G, U, 'creator', 1_000_000, T0, wert(0.07)) === null);
+      const V = player('tick-eintag-treffer');
+      db.clearEvents(G, V);
+      check('… und 0,05 ist der Treffer dieses einen Tages',
+        decisions.tick(G, V, 'creator', 1_000_000, T0, wert(0.05)) !== null);
+    }
+    {
+      const U = player('tick-stunde');
+      db.clearEvents(G, U);
+      const w = zaehlend();
+      decisions.tick(G, U, 'creator', 1_000_000, T0, w);
+      const vorher = w.wuerfe;
+      check('tick zweimal in derselben Stunde: der zweite Aufruf wuerfelt nicht',
+        decisions.tick(G, U, 'creator', 1_000_000, T0 + STUNDE, w) === null
+        && w.wuerfe === vorher, String(w.wuerfe));
+      check('die Uhr wird nur geschrieben, wenn gewuerfelt wurde',
+        db.decisionUhr(G, U, 'creator').last_roll === T0);
+    }
+    {
+      const U = player('tick-urlaub');
+      db.clearEvents(G, U);
+      db.saveDecisionUhr(G, U, 'creator', T0 - 30 * DAY_MS);
+      check('30 Tage Abwesenheit geben hoechstens ROLL_TAGE_MAX Tage (0,58 > 0,5795)',
+        decisions.tick(G, U, 'creator', 1_000_000, T0, wert(0.58)) === null);
+      const V = player('tick-urlaub-treffer');
+      db.clearEvents(G, V);
+      db.saveDecisionUhr(G, V, 'creator', T0 - 30 * DAY_MS);
+      check('… aber die vollen 14 Tage zaehlen auch (0,57 < 0,5795, 13 Tage täten es nicht)',
+        decisions.tick(G, V, 'creator', 1_000_000, T0, wert(0.57)) !== null);
+    }
+    {
+      const U = musiker('tick-musik-offen', 100_000);
+      db.clearEvents(G, U);
+      db.insertEvent({ guildId: G, userId: U, kind: 'plagiat', platform: 'music',
+        createdAt: T0, expiresAt: T0 + DAY_MS });
+      const w = zaehlend(0);
+      check('ein offener MUSIK-Vorfall haelt den naechsten Musik-Wurf auf',
+        decisions.tick(G, U, 'music', 100_000, T0 + 2 * DAY_MS, w) === null && w.wuerfe === 0);
+      check('… und die Uhr bleibt unberührt – reines Lesen aendert nichts',
+        db.decisionUhr(G, U, 'music').last_roll === 0 && uhrZeilen(G, U) === 0);
+    }
+    {
+      const U = musiker('tick-firma-offen', 100_000);
+      db.clearEvents(G, U);
+      db.insertEvent({ guildId: G, userId: U, kind: 'plagiat', platform: 'company',
+        createdAt: T0, expiresAt: T0 + DAY_MS });
+      check('ein offener FIRMEN-Vorfall haelt den Musik-Wurf NICHT mehr auf',
+        decisions.tick(G, U, 'music', 100_000, T0 + 2 * DAY_MS, wert(0))?.platform === 'music');
+    }
+    {
+      const U = musiker('tick-creator-offen', 100_000);
+      db.clearEvents(G, U);
+      db.insertEvent({ guildId: G, userId: U, kind: DECISIONS[0].id,
+        platform: DECISIONS[0].platform ?? '', createdAt: T0, expiresAt: T0 + DAY_MS });
+      check('ein offener CREATOR-Vorfall haelt den Musik-Wurf NICHT auf',
+        decisions.tick(G, U, 'music', 100_000, T0 + 2 * DAY_MS, wert(0))?.platform === 'music');
+    }
+    {
+      // Die Firma zählt ihre Tage in company.settle selbst – tick fasst sie nicht an.
+      const U = player('tick-keine-firma');
+      db.clearEvents(G, U);
+      check('tick wuerfelt nur fuer Musik und Creator',
+        decisions.tick(G, U, 'company', { groesse: 5, days: 3, npc: 3 }, T0, wert(0)) === null
+        && uhrZeilen(G, U) === 0);
+    }
+    {
+      // MIN_GAP_MS gilt je Bereich – geprüft über roll, damit keine Uhr mitredet.
+      const U = 'tick-abstand';
+      musiker(U, 100_000);
+      player(U, 1_000_000);
+      db.clearEvents(G, U);
+      const ZEHN = 10 * STUNDE;
+      const m1 = decisions.roll(G, U, 100_000, T0, wert(0), 'music');
+      check('ein Musik-Vorfall entsteht', m1?.platform === 'music');
+      db.resolveEvent(G, m1.id, { status: 'done', at: T0 });
+      check('zwei Musik-Vorfaelle im Abstand von 10 h gehen nicht',
+        decisions.roll(G, U, 100_000, T0 + ZEHN, wert(0), 'music') === null);
+      const c1 = decisions.roll(G, U, 1_000_000, T0 + ZEHN, wert(0), 'creator');
+      check('ein Musik- und ein Creator-Vorfall im Abstand von 10 h gehen',
+        Boolean(c1) && c1.platform !== 'music' && c1.platform !== 'company');
+    }
+    {
+      const U = 'tick-uhr-leer';
+      check('db.decisionUhr gibt Vorgaben zurueck, auch ohne Zeile',
+        db.decisionUhr(G, U, 'music').last_roll === 0);
+      check('db.decisionUhr legt keine Zeile an (§4)', uhrZeilen(G, U) === 0);
+      db.saveDecisionUhr(G, U, 'music', T0);
+      check('saveDecisionUhr schreibt sie dann',
+        uhrZeilen(G, U) === 1 && db.decisionUhr(G, U, 'music').last_roll === T0);
+      check('und jeder Bereich hat seine eigene Uhr',
+        db.decisionUhr(G, U, 'creator').last_roll === 0 && uhrZeilen(G, U) === 1);
+    }
   }
 
   console.log('\n--- Kein Gelddrucker (§3) ---');
