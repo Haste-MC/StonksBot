@@ -966,9 +966,6 @@ async function act(
     + sim.followers - own.followers);
   const offer = rollDeal(guildId, userId, reachTotal, now, random);
 
-  // ... und ob heute etwas passiert, das eine Entscheidung verlangt.
-  const incident = require('./decisions').roll(guildId, userId, reachTotal, now, random);
-
   return {
     ok: true,
     startbonus: mitgebracht,
@@ -992,7 +989,11 @@ async function act(
     } : null,
     fatigue,
     energy: time.energy, factor: time.factor, tired: time.factor < 0.95,
-    deal, offer, incident,
+    deal, offer,
+    // Der schwere Vorfall hängt an der ZEIT, nicht an der Aktion: Gewürfelt
+    // wird einmal je Tag in der faulen Abrechnung (decisions.tick, §4). Das
+    // Feld bleibt, weil die Anzeige es liest.
+    incident: null,
     stock: sim.stock, hype: sim.hype, broke, balance,
     timeUsed: usedAfter, timeMax: TIME_PER_DAY,
   };
@@ -1084,7 +1085,8 @@ function status(guildId, userId, now = Date.now()) {
       minReach: MERCH_MIN_REACH,
       perDay: merchPerDay(total, community, market.deal),
     },
-    incident: require('./decisions').pending(guildId, userId, now),
+    // Nur das Netzwerk-Drama: Musik und Firma haben ihre eigene Ansicht.
+    incident: require('./decisions').pending(guildId, userId, now, 'creator'),
     incidents: require('./decisions').history(guildId, userId, 3),
     deal: db.activeDeal(guildId, userId),
     offers: db.listDeals(guildId, userId, 'offer').filter((d) => d.expires_at > now),

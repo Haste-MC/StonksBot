@@ -210,7 +210,7 @@ async function settle(interaction) {
  * abgelaufene Verträge. Läuft beim Öffnen der Ansichten (faule Abrechnung, §4)
  * und gibt eine fertige Notiz zurück – oder null, wenn nichts passiert ist.
  */
-async function settleCreator(guildId, userId) {
+async function settleCreator(guildId, userId, random = Math.random) {
   const creator = require('./creator');
   const symbol = await getSymbol(guildId);
   const lines = [];
@@ -240,22 +240,52 @@ async function settleCreator(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
+
+  // Der Tageswurf des Netzwerks: Reichweite wie beim Sponsorenangebot, also
+  // inklusive des Bodens, den eine Musikkarriere mitbringt (reachTotalOf).
+  const vorfall = tickLine(guildId, userId, 'creator',
+    creator.reachTotalOf(guildId, userId,
+      db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0)),
+    random);
+  if (vorfall) lines.push(vorfall);
+
   return lines.length ? lines.join('\n') : null;
 }
 
-/** Hinweiszeile, wenn eine Musik-Aktion einen Vorfall ausgelöst hat. */
+/** Die eine Zeile, mit der ein frischer Vorfall gemeldet wird. */
+function incidentLine(incident) {
+  const d = require('./decisions').decision(incident.kind);
+  return `⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – `
+    + 'du musst dich entscheiden (⚠️ Vorfall).';
+}
+
+/** Hinweiszeile, wenn eine Aktion einen Vorfall gemeldet hat. */
 function incidentNote(incident) {
   if (!incident) return '';
-  const d = require('./decisions').decision(incident.kind);
-  return `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
-    'du musst dich entscheiden (⚠️ Vorfall).';
+  return `\n${incidentLine(incident)}`;
+}
+
+/**
+ * Der Tageswurf (§4) für Musik und Creator – dieselbe Stelle wie jede andere
+ * faule Abrechnung, damit er weder vergessen noch verschluckt werden kann.
+ *
+ * Er steht NACH `decisions.settle`: Ein eben verfallener Vorfall darf den
+ * neuen nicht blockieren. Und nach `achievements.onSettle`, weil ein Vorfall
+ * nichts bucht – er ist kein Vermögenssprung, der die Zustands-Erfolge prüfen
+ * müsste.
+ *
+ * `random` gibt nur der Test mit, damit der Wurf dort sicher fällt.
+ */
+function tickLine(guildId, userId, domain, size, random) {
+  const neu = require('./decisions').tick(guildId, userId, domain, size, Date.now(), random);
+  return neu ? incidentLine(neu) : null;
 }
 
 /**
  * Rechnet die laufenden Tantiemen ab und beendet abgelaufene Verträge.
  * Läuft beim Öffnen des Studios (faule Abrechnung, §4).
  */
-async function settleMusic(guildId, userId) {
+async function settleMusic(guildId, userId, random = Math.random) {
   const music = require('./music');
   const symbol = await getSymbol(guildId);
   const lines = [];
@@ -292,6 +322,13 @@ async function settleMusic(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
+
+  // Der Tageswurf des Studios: Hörer sind hier das, was Reichweite beim
+  // Creator ist (dieselbe Risikokurve, siehe decisions.riskPerDay).
+  const vorfall = tickLine(guildId, userId, 'music',
+    music.status(guildId, userId).listeners, random);
+  if (vorfall) lines.push(vorfall);
+
   return lines.length ? lines.join('\n') : null;
 }
 
@@ -3357,13 +3394,22 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
-  /** Den offenen Vorfall ansehen. */
-  async vorfall(interaction) {
+  /**
+   * Den offenen Vorfall ansehen.
+   *
+   * Der Knopf trägt den Bereich, aus dessen Ansicht er stammt: Seit die Sperre
+   * je Bereich gilt, können drei Vorfälle gleichzeitig offen sein, und das
+   * Studio soll das Studio-Drama zeigen, nicht das neueste. Alte Knöpfe aus
+   * früheren Nachrichten tragen nur die Nutzer-ID – die zeigen weiter den
+   * neuesten (§6).
+   */
+  async vorfall(interaction, parts = []) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    const domain = parts.length > 1 ? parts[0] : null;
     const notes = await settleCreator(guildId, userId);
-    await interaction.editReply(await buildDecisionView({ guildId, userId }));
+    await interaction.editReply(await buildDecisionView({ guildId, userId, domain }));
     if (notes) {
       await interaction.followUp({ content: notes, flags: MessageFlags.Ephemeral })
         .catch(() => {});
@@ -3940,7 +3986,7 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge, settleMusic, kontaktNote,
+  homeNudge, settleMusic, settleCreator, kontaktNote,
   releaseNote, releaseProblem,
   beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
   angebotNote, mitAngebote, settleAngebote, settleStrasse, angebotProblem,

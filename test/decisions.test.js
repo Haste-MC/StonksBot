@@ -444,6 +444,139 @@ const never = () => 0.999;      // trifft immer den letzten
     }
   }
 
+  /*
+   * Seit dem Tageswurf (§4) hängt ein Vorfall an der ZEIT, nicht an der Zahl
+   * der Aktionen. `record`, `publish`, `show` und `creator.act` würfeln deshalb
+   * nicht mehr selbst – sonst addierten sich beide Raten, und der Fleißige wäre
+   * wieder der Gefährdete. Gewürfelt wird in der faulen Abrechnung, an
+   * derselben Stelle wie jede andere.
+   */
+  console.log('\n--- Der Wurf haengt an der Zeit, nicht an der Aktion ---');
+  {
+    const buttons = require('../src/buttons');
+    const company = require('../src/company');
+    const ui = require('../src/ui');
+    const immerTreffer = () => 0;      // erzwingt jeden Wurf, der noch da wäre
+
+    /** Ein Künstler mit Hörern – ohne sie gäbe es keine Musik-Kandidaten. */
+    const musiker = (name, listeners) => {
+      const jetzt = Date.now();
+      db.clearArtist(G, name);
+      const a = db.getArtist(G, name, jetzt);
+      db.saveArtist(G, name, {
+        ...a, genre: 'pop', persona: 'face', listeners, songs: 5,
+        touched_at: jetzt, paid_through: jetzt, last_action_at: jetzt,
+      });
+      return name;
+    };
+
+    {
+      const U = player('aktion-creator');
+      db.clearEvents(G, U);
+      // Twitter braucht keine Ausrüstung – die Aktion läuft ohne Vorbereitung.
+      const r = await creator.act(G, U, 'twitter', 'ankuendigung', Date.now(), immerTreffer);
+      check('creator.act legt keinen Vorfall mehr an (auch mit erzwungenem Wurf)',
+        r.ok && r.incident === null && db.openEvent(G, U) === null,
+        JSON.stringify({ reason: r.reason, incident: r.incident }));
+    }
+    {
+      const U = player('settle-creator');
+      db.clearEvents(G, U);
+      db.saveDecisionUhr(G, U, 'creator', Date.now() - 2 * DAY_MS);
+      const text = await buttons.settleCreator(G, U, immerTreffer);
+      const offen = db.openEvent(G, U, 'creator');
+      check('settleCreator holt den Tageswurf nach', Boolean(offen), String(text));
+      check('… und die Notiz nennt ihn',
+        Boolean(offen) && String(text).includes(decisions.decision(offen.kind).title),
+        String(text));
+      /*
+       * Der offene Vorfall allein würde den zweiten Wurf schon sperren – weg
+       * damit, denn geprüft wird die Uhr: Zweimal abrechnen heißt EIN Wurf.
+       */
+      db.clearEvents(G, U);
+      const text2 = await buttons.settleCreator(G, U, immerTreffer);
+      check('zweimal settleCreator hintereinander: nur ein Wurf',
+        db.openEvent(G, U, 'creator') === null, String(text2));
+    }
+    {
+      const U = musiker('settle-musik', 100_000);
+      db.clearEvents(G, U);
+      db.saveDecisionUhr(G, U, 'music', Date.now() - 2 * DAY_MS);
+      const text = await buttons.settleMusic(G, U, immerTreffer);
+      const offen = db.openEvent(G, U, 'music');
+      check('settleMusic holt den Tageswurf nach', offen?.platform === 'music', String(text));
+      check('… und die Notiz nennt ihn',
+        Boolean(offen) && String(text).includes(decisions.decision(offen.kind).title),
+        String(text));
+      db.clearEvents(G, U);
+      const text2 = await buttons.settleMusic(G, U, immerTreffer);
+      check('zweimal settleMusic hintereinander: nur ein Wurf',
+        db.openEvent(G, U, 'music') === null, String(text2));
+    }
+    {
+      /*
+       * Schritt 2b: Mit Sperren je Bereich können drei Vorfälle gleichzeitig
+       * offen sein. Ohne Bereich gäbe `pending` nur den NEUESTEN zurück – die
+       * anderen zwei wären über ihre Ansicht unerreichbar, bis sie verfallen,
+       * und das kostet den Ignorier-Aufschlag.
+       */
+      const U = 'drei-bereiche';
+      musiker(U, 100_000);
+      player(U, 1_000_000);
+      db.clearEvents(G, U);
+      const jetzt = Date.now();
+      const f = await company.found(G, U, 'cafe', 'Dreibereich', jetzt);
+      const vFirma = db.insertEvent({ guildId: G, userId: U, kind: 'wasserschaden',
+        platform: 'company', refId: f.company?.id ?? 0,
+        createdAt: jetzt, expiresAt: jetzt + DAY_MS });
+      const vCreator = db.insertEvent({ guildId: G, userId: U, kind: 'exklusivvertrag',
+        platform: 'twitch', createdAt: jetzt + 1, expiresAt: jetzt + DAY_MS });
+      const vMusik = db.insertEvent({ guildId: G, userId: U, kind: 'plagiat',
+        platform: 'music', createdAt: jetzt + 2, expiresAt: jetzt + DAY_MS });
+      check('drei Bereiche, drei offene Vorfälle – der Musik-Vorfall ist der neueste',
+        f.ok && vFirma.id < vCreator.id && vCreator.id < vMusik.id,
+        JSON.stringify(f.reason ?? ''));
+      check('die Musik-Ansicht zeigt den Musik-Vorfall',
+        music.status(G, U, jetzt).incident?.id === vMusik.id);
+      check('die Creator-Ansicht zeigt den Creator-Vorfall',
+        creator.status(G, U, jetzt).incident?.id === vCreator.id);
+      check('die Firmen-Ansicht zeigt den Firmen-Vorfall, nicht den neuesten',
+        company.status(G, U, jetzt, f.company?.id).incident?.id === vFirma.id);
+      check('ohne Bereich bleibt es wie bisher der neueste',
+        decisions.pending(G, U, jetzt)?.id === vMusik.id);
+      const ansicht = await ui.buildDecisionView({ guildId: G, userId: U, domain: 'company' });
+      check('die Vorfall-Ansicht zeigt den Bereich, nach dem sie fragt',
+        ansicht.embeds[0].data.title.startsWith('🏢'), ansicht.embeds[0].data.title);
+
+      /*
+       * Und der Knopf bringt den Bereich mit: ⚠️ Vorfall im Studio zeigt das
+       * Studio-Drama, auch wenn das Firmen-Drama neuer wäre. Ohne diesen Weg
+       * wäre der Bereich in `pending` nur halb angekommen.
+       */
+      const geklickt = async (...parts) => {
+        const gesehen = [];
+        await buttons.buttons.vorfall({
+          guildId: G,
+          user: { id: U },
+          deferUpdate: async () => {},
+          editReply: async (v) => { gesehen.push(v); return v; },
+          followUp: async () => {},
+        }, parts);
+        return gesehen[0]?.embeds?.[0]?.data?.title ?? '';
+      };
+      const titelMusik = await geklickt('music', U);
+      check('der Knopf aus dem Studio zeigt den Musik-Vorfall',
+        titelMusik.startsWith('🎵'), titelMusik);
+      const titelFirma = await geklickt('company', U);
+      check('der Knopf aus der Firma zeigt den Firmen-Vorfall',
+        titelFirma.startsWith('🏢'), titelFirma);
+      const titelAlt = await geklickt(U);
+      check('ein alter Knopf ohne Bereich zeigt weiter den neuesten (Musik)',
+        titelAlt.startsWith('🎵'), titelAlt);
+      db.clearEvents(G, U);
+    }
+  }
+
   console.log('\n--- Kein Gelddrucker (§3) ---');
   {
     // Die größte denkbare Auszahlung eines Vorfalls, gegen die Reichweite.

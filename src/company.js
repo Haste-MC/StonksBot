@@ -1473,7 +1473,7 @@ function status(guildId, userId, now = Date.now(), companyId = null) {
     umsatzBoost: c.umsatz_boost_until >= now ? { factor: c.umsatz_boost, until: c.umsatz_boost_until } : null,
     wageFactor: c.wage_factor_until >= now ? { factor: c.wage_factor, until: c.wage_factor_until } : null,
     // Offener Vorfall (spät gebunden, nur diese Domäne – decisions kennt alle drei).
-    incident: (() => { const p = require('./decisions').pending(guildId, userId, now); return p?.platform === 'company' ? p : null; })(),
+    incident: require('./decisions').pending(guildId, userId, now, 'company'),
     // Waren (Stück 3a): Tagespreis, Lager, Einstand und Reichweite bei Vollbetrieb.
     ware: (() => {
       const w = wareNow;

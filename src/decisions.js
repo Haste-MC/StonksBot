@@ -548,9 +548,18 @@ async function settle(guildId, userId, now = Date.now()) {
   return out;
 }
 
-/** Der offene Vorfall mit seiner Vorlage, oder null. */
-function pending(guildId, userId, now = Date.now()) {
-  const row = db.openEvent(guildId, userId);
+/**
+ * Der offene Vorfall mit seiner Vorlage, oder null.
+ *
+ * MIT `domain` der offene Vorfall DIESES Bereichs. Seit die Sperre je Bereich
+ * gilt, können drei gleichzeitig offen sein; ohne Bereich käme nur der neueste
+ * zurück und die anderen zwei wären über ihre Ansicht unerreichbar, bis sie
+ * verfallen – und ein verfallener Vorfall kostet den Ignorier-Aufschlag.
+ *
+ * Ohne `domain` verhält sie sich wie bisher: der neueste über alle Bereiche.
+ */
+function pending(guildId, userId, now = Date.now(), domain = null) {
+  const row = db.openEvent(guildId, userId, domain);
   if (!row) return null;
   const d = decision(row.kind);
   if (!d) return null;
