@@ -280,10 +280,13 @@ bleibt stehen, aber sie ist keine Zeile aus dem Code.
    nicht im Verhalten.** An `company.riskFor`, `company.settle` und am
    Firmenkatalog ist nichts geändert. Die Firma **feuert aber messbar häufiger**,
    weil ein offener Musik- oder Kanal-Vorfall ihre Abrechnung nicht mehr
-   aufhält: 18,16 gegen 17,42 Vorfälle im Jahr bei Größe 5, also **+4,2 %** (für
-   den Spieler, der nie antwortet: +5,1 %). Das ist die gewollte Folge der
-   getrennten Sperre, aber es ist eine Änderung auf dem Firmenpfad, und sie
-   gehört in die Bilanz.
+   aufhält: 18,16 Vorfälle im Jahr bei Größe 5 gegen 17,42 ohne Filter, wenn die
+   Firma zuerst würfelt, und gegen 16,51, wenn die Musik zuerst würfelt – also
+   **+4,2 bis +10,0 %**, je Würfelreihenfolge (für den Spieler, der nie
+   antwortet: +5,1 bis +11,6 %). Welche Reihenfolge gilt, entscheidet im Spiel
+   niemand, deshalb steht hier eine Spanne und keine Zahl. Das ist die gewollte
+   Folge der getrennten Sperre, aber es ist eine Änderung auf dem Firmenpfad, und
+   sie gehört in die Bilanz.
 5. **Die Behauptung des Aufgabenhefts zu `messung-geldquellen.js:1456` trifft
    nicht zu.** Zeile 1456 gehört zum FIRMENLAUF, und der würfelt über
    `company.settle` weiter wie immer (Gegenprobe: Kiosk, 365 Tage, **8**
@@ -296,11 +299,22 @@ bleibt stehen, aber sie ist keine Zeile aus dem Code.
    Zahl war falsch.** `test/musicEvents.test.js` nannte „gemessen 41"; gemessen
    sind **47** über fünf Jahre. Die Schwelle bleibt bei 35 (sie durfte nur
    strenger werden), der Name nennt jetzt die echte Zahl. Woher der Sprung kommt,
-   ist gemessen und nicht geraten: dieselben fünf Seeds an `e4582dc` (Σ 41) und
-   `9c3e97f` (Σ 47), in Wegwerf-Arbeitsbäumen. `9c3e97f` ist der Commit der vier
-   frühen Vorfälle – **+1,2 Vorfälle je Jahr**, die vorher unter 5.000 Hörern in
-   eine leere Kandidatenliste gefallen sind. Eine unabhängige Nachrechnung hatte
-   diesen Verlust auf 0,65 je Jahr geschätzt; er war fast doppelt so groß.
+   lässt sich nur der **Richtung** nach belegen: dieselben fünf Seeds an
+   `e4582dc` (Σ 41) und `9c3e97f` (Σ 47, dem Commit der vier frühen Vorfälle), in
+   Wegwerf-Arbeitsbäumen. Je Seed sind das 6→6, 8→**7**, 7→11, 11→16, 9→**7** –
+   zwei von fünf gehen nach **unten**, die Sprünge sind ±5, und das
+   Poisson-Rauschen auf einer Summe dieser Größe ist allein schon ±7. Die +6
+   trägt also kein „+1,2 je Jahr": Sie ist von 0 nicht zu trennen und erst recht
+   nicht von 5 × 0,65 = 3,25, und würfelpaarig sind die beiden Läufe nicht, weil
+   jeder Vorfall die Hörerkurve und damit jede folgende Rate verschiebt. **Sicher
+   belegt ist der andere Teil:** Der Verlust an die leere Kandidatenliste ist
+   jetzt **0** (0 leere Würfe mit Grund „kein Kandidat" in allen dreizehn Stufen,
+   ≥ 2 Kandidaten schon bei Reichweite 0). Und seine Größe zählt der
+   Karriere-Lauf aus: 44 von 584 Vorfällen des reinen Musikers fielen bei 10.000
+   Hörern oder darunter (**0,73 je Jahr**), und **30 davon unter 5.000** – genau
+   die vorher verlorenen Würfe: **0,50 je Jahr**, über fünf Jahre 2,5. Die
+   Nachrechnung eines Prüfers mit 0,65 je Jahr lag damit richtig, und die +6 des
+   Tests ist mehr als das Doppelte der gemessenen Erwartung.
 7. **Der Rest steht wie geschrieben.** `decision_uhr (guild_id, user_id, domain,
    last_roll)`, die Felder `maxListeners` und `maxReach` neben ihren vorhandenen
    Gegenstücken, `FRUEH_MAX` 10.000 (inklusiv – bei 10.000 Hörern sind die frühen
@@ -315,26 +329,46 @@ Die Spec sagte: „Weil die Firma am häufigsten feuert, nahm sie der Musik bish
 die Vorfälle weg." Das ist wahr und kleiner als die Formulierung klingt. Derselbe
 Lauf mit und ohne Bereichsfilter (100 Seeds à 365 Tage, Musik 100.000 Hörer,
 Kanäle 100.000 Reichweite, Firma Größe 5), für den Spieler, der jeden Vorfall am
-Tag seines Auftretens beantwortet: **Musik +14,4 %** (8,41 gegen 7,35),
-**Creator +17,5 %** (8,93 gegen 7,60), zusammen +9,7 %. Ohne Filter verlor die
-Musik 1.742 von 36.500 Würfen an einen fremden offenen Vorfall – 4,8 % der Tage.
+Tag seines Auftretens beantwortet. **Mit** Filter stehen Musik 8,41, Creator 8,93
+und Firma 18,16 – gleich, egal wer zuerst würfelt. **Ohne** Filter hängt genau
+daran, wer sie bekommt:
+
+| ohne Filter, „sofort" | Musik | Creator | Firma | zusammen |
+| --- | --- | --- | --- | --- |
+| Firma zuerst | 7,35 | 7,60 | 17,42 | 32,37 |
+| Musik zuerst | 7,78 | 8,24 | 16,51 | 32,53 |
+
+Der Gewinn ist deshalb eine **Spanne über die Würfelreihenfolge**: Musik **+8,1
+bis +14,4 %**, Creator **+8,4 bis +17,5 %**, Firma **+4,2 bis +10,0 %**, zusammen
++9,1 bis +9,7 %. Wie viele Vorfälle es gibt, ändert die Reihenfolge nicht (Summe
+32,37 gegen 32,53) – nur, wer sie bekommt: Ohne Filter verlor die Musik 1.742 von
+36.500 Würfen an einen fremden offenen Vorfall, wenn die Firma zuerst würfelt
+(4,8 % der Tage), und keinen einzigen, wenn sie selbst zuerst würfelt.
 
 **Und eine Mechanik, die in der Spec nicht steht:** Die Sperre durch `openEvent`
 ist **aufschiebend**, die durch `MIN_GAP_MS` ist **endgültig**. Bricht `tick`
 wegen eines offenen Vorfalls ab, wird die Uhr nicht geschrieben, und der nächste
 Wurf deckt zwei Tage mit der doppelten Chance. `MIN_GAP_MS` greift dagegen erst
 **nach** `saveDecisionUhr` – dieser Wurf ist weg. Deshalb hat ein Spieler, der
-nie antwortet, von der Trennung fast nichts (+0,9 % statt +14,4 %), obwohl er
-5.186 von 36.500 Musik-Tagen ohne Wurf verbringt.
+nie antwortet, von der Trennung nichts (bei der Musik zwischen −0,8 % und +0,9 %,
+je Würfelreihenfolge, statt der +8 bis +14 % des Spielers, der antwortet), obwohl
+er 5.186 von 36.500 Musik-Tagen ohne Wurf verbringt.
 
 ### Was §3 dazu sagt
 
 **Kein Geldrucker, und zwar deutlicher als erwartet.** Der Posten „Vorfall" im
 Konto ist winzig: **−559** am Tag beim reinen Musiker von 18.907 Differenz
 (3,0 %) und **−3.061** bei Musik+Creator von 39.976 (7,7 %). Die anderen 97 bzw.
-92 Prozent sind verlorene Hörer und Follower, die sich nicht mehr verzinsen:
-531.018 statt 693.797 Hörer (−23,5 %) und 4.695.384 statt 6.399.765 Follower
-(−26,6 %). Ein Vorfall ist damit keine Geldsenke, sondern eine Wachstumsbremse –
+92 Prozent sind alles außer diesem Posten – überwiegend verlorene Hörer und
+Follower, die sich nicht mehr verzinsen (531.018 statt 693.797 Hörer, −23,5 %;
+4.695.384 statt 6.399.765 Follower, −26,6 %), darin aber auch die Sperren auf
+Veröffentlichung und Konzert (`lockRelease`, `lockShow`), verbrauchte Ausrüstung
+(`gear`), gekürzte Community und der Vertragsbruch, dessen Strafe `music.leave`
+unter „Vertragsstrafe" bucht und nicht unter „Vorfall". Getrennt gemessen sind
+diese Kanäle nicht; klein sind sie in diesem Lauf (beim reinen Musiker 0,94
+Veröffentlichungen und 0,23 Konzerte je Tag mit wie ohne Vorfälle, und kein
+Vertrag).
+Ein Vorfall ist damit keine Geldsenke, sondern eine Wachstumsbremse –
 für §3 die konservative Richtung. Der §3-Treiber in `test/musicEvents.test.js`
 sieht mit anderer Spielweise und anderen Seeds dasselbe: Hörer-Median 441.957
 gegen 568.264, Faktor 0,778.

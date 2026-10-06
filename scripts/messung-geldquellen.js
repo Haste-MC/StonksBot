@@ -4110,6 +4110,18 @@ function neuerVorfallZaehler(variante) {
     zuDicht: 0,               // Verstöße gegen MIN_GAP_MS
     letzter: {},              // Bereich -> created_at des letzten Vorfalls
     fehler: [],               // abgelehnte `choose`-Aufrufe (muss leer bleiben)
+    /*
+     * Zeilen in `creator_events`, am Ende jedes Laufs direkt aus der Tabelle
+     * gezählt – NICHT von dieser Instrumentierung gefüllt.
+     *
+     * Der Grund steht in der Kontrollzeile: `vorfaelle` und `wuerfe` hängen
+     * beide an `vorfallWurf`, und die Variante „aus" ruft `vorfallWurf` nie.
+     * Zwei der drei Beine der Kontrolle wären damit null, weil sie niemand
+     * füllt, und nicht, weil nichts passiert ist. Diese Zeilenzahl und der
+     * Kontoposten „Vorfall" sind die zwei Beine, die ohne die Instrumentierung
+     * auskommen.
+     */
+    zeilen: 0,
   };
 }
 
@@ -4476,6 +4488,14 @@ async function vorfallvariante(kennungBasis, musik, strat, laeufe, tage, variant
        */
       vf.letzter = {};
       const r = await karriere(G, U, { musik, strat }, tage, 1000 + i);
+      /*
+       * Die Zeilen der Tabelle, bevor der nächste Lauf eine eigene Welt
+       * aufmacht. `eventHistory` liefert die entschiedenen und verfallenen,
+       * `openEvent` die eine, die noch offen stehen kann – zusammen jede Zeile,
+       * die dieser Lauf angelegt hat, gezählt an der Datenbank und nicht an
+       * einem Zähler dieses Skripts.
+       */
+      vf.zeilen += db.eventHistory(G, U, 1e9).length + (db.openEvent(G, U) ? 1 : 0);
       geld.push(r.geld);
       hoerer.push(r.hoerer);
       follower.push(r.follower);
@@ -4511,6 +4531,17 @@ function vorfallZeilen(z, tage, laeufe) {
   out.push(`frühe Vorfälle (Schwelle 0, Deckel ${de(decisions.FRUEH_MAX)}): ${de(summe(z.frueh))} ` +
     `(${v ? komma((summe(z.frueh) / v) * 100, 1) : '0,0'} % aller Vorfälle): ${liste(z.frueh)} · ` +
     `Reichweite beim Ziehen ${f(z.fruehReach, 0)} · die übrigen ${f(z.spaetReach, 0)}`);
+  /*
+   * Und die Zahl, um die es beim §3-Treiber geht: Wie viele Vorfälle unter 5.000
+   * gezogen wurden. Vor Stück 5f war der Musikkatalog dort LEER (der kleinste
+   * Mindestwert war 5.000), der Wurf fiel ins Leere, und die Uhr war trotzdem
+   * geschrieben. Genau diese Würfe sind der Gewinn der vier frühen Vorfälle –
+   * gezählt, nicht aus einem Mittelwert geschätzt.
+   */
+  const unter = z.fruehReach.filter((r) => r < 5000).length;
+  out.push(`davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): ${de(unter)} = ` +
+    `${komma((unter / n) * 365, 2)} je Jahr · bei 5.000 bis ${de(decisions.FRUEH_MAX)}: ` +
+    `${de(z.fruehReach.length - unter)} = ${komma(((z.fruehReach.length - unter) / n) * 365, 2)} je Jahr`);
   out.push(`Tageswürfe: gerufen ${liste(z.tage)} · wirklich gewürfelt ${liste(z.wuerfe)} · ` +
     `kein Wurf ${liste(z.keinWurf)} (davon Tür zu ${liste(z.tuerZu)}, ` +
     `offener Vorfall desselben Bereichs ${liste(z.offenBlockt)})`);
@@ -4680,16 +4711,48 @@ async function vorfaellelauf(laeufe, tage) {
       `${de(r.keinWurf)} (davon offener Vorfall ${de(r.offenBlockt)}) · verfallen ${de(r.verfallen)} · ` +
       `MIN_GAP gerissen ${r.zuDicht}`);
   }
+  /*
+   * Was die Trennung bringt – JE REIHENFOLGE und dann als SPANNE.
+   *
+   * Mit Filter ist die Reihenfolge gleichgültig (Kontrollzeile darunter), ohne
+   * Filter entscheidet sie darüber, WER die Sperre bekommt. Eine einzelne
+   * Reihenfolge als „das Ergebnis" zu melden, wäre die Wahl einer beliebigen
+   * Annahme: Für die Musik stehen dann +14,4 % oder +8,1 % da, aus demselben
+   * Lauf. Deshalb druckt dieser Abschnitt beide Zeilen UND die Spanne, und die
+   * Spanne ist die Zahl, die in Bericht und §15 gehört.
+   */
   for (const beantworten of ['sofort', 'nie']) {
     const an = sperre[`an/${beantworten}/firma-zuerst`];
-    const aus = sperre[`aus/${beantworten}/firma-zuerst`];
     const q = (a, b) => prozent(a / Math.max(1e-9, b) - 1);
-    console.log(`    Was die Trennung der Sperre bringt („${beantworten}", Firma zuerst): ` +
-      `MUSIK ${komma(an.music, 2)} gegen ${komma(aus.music, 2)} = ${q(an.music, aus.music)} · ` +
-      `CREATOR ${komma(an.creator, 2)} gegen ${komma(aus.creator, 2)} = ${q(an.creator, aus.creator)} · ` +
-      `FIRMA ${komma(an.company, 2)} gegen ${komma(aus.company, 2)} = ${q(an.company, aus.company)} · ` +
-      `zusammen ${komma(an.gesamt, 2)} gegen ${komma(aus.gesamt, 2)} = ${q(an.gesamt, aus.gesamt)}`);
+    for (const reihenfolge of ['firma-zuerst', 'musik-zuerst']) {
+      const aus = sperre[`aus/${beantworten}/${reihenfolge}`];
+      console.log(`    Was die Trennung der Sperre bringt („${beantworten}", ` +
+        `${reihenfolge === 'firma-zuerst' ? 'Firma zuerst' : 'Musik zuerst'}): ` +
+        `MUSIK ${komma(an.music, 2)} gegen ${komma(aus.music, 2)} = ${q(an.music, aus.music)} · ` +
+        `CREATOR ${komma(an.creator, 2)} gegen ${komma(aus.creator, 2)} = ${q(an.creator, aus.creator)} · ` +
+        `FIRMA ${komma(an.company, 2)} gegen ${komma(aus.company, 2)} = ${q(an.company, aus.company)} · ` +
+        `zusammen ${komma(an.gesamt, 2)} gegen ${komma(aus.gesamt, 2)} = ${q(an.gesamt, aus.gesamt)}`);
+    }
+    const spanne = (feld) => {
+      const w = ['firma-zuerst', 'musik-zuerst']
+        .map((r) => an[feld] / Math.max(1e-9, sperre[`aus/${beantworten}/${r}`][feld]) - 1);
+      return `${prozent(Math.min(...w))} … ${prozent(Math.max(...w))}`;
+    };
+    console.log(`    DIE SPANNE über die Würfelreihenfolge („${beantworten}") – das ist die Zahl, ` +
+      `die der Bericht nennt: MUSIK ${spanne('music')} · CREATOR ${spanne('creator')} · ` +
+      `FIRMA ${spanne('company')} · zusammen ${spanne('gesamt')}`);
   }
+  /*
+   * Die Gegenprobe zur Spanne: Sie darf nur UMVERTEILEN. Bewegt sich die Summe
+   * ohne Filter zwischen den zwei Reihenfolgen um mehr als eine Zehntelstelle,
+   * dann ändert die Reihenfolge nicht nur, WER die Vorfälle bekommt, sondern
+   * WIE VIELE es gibt – und dann trägt der ganze Absatz nicht mehr.
+   */
+  const summen = ['firma-zuerst', 'musik-zuerst'].map((r) => sperre[`aus/sofort/${r}`].gesamt);
+  console.log(`    KONTROLLE Spanne: die Reihenfolge verteilt nur um – Summe ohne Filter ` +
+    `${komma(summen[0], 2)} gegen ${komma(summen[1], 2)} ` +
+    `(${prozent(summen[1] / summen[0] - 1)}) ${Math.abs(summen[1] / summen[0] - 1) < 0.02
+      ? '✔' : 'FEHLER – die Reihenfolge ändert die Gesamtzahl, nicht nur die Verteilung'}`);
   const gleich = ['sofort', 'nie'].every((b) => Math.abs(sperre[`an/${b}/firma-zuerst`].music
     - sperre[`an/${b}/musik-zuerst`].music) < 1e-9);
   console.log(`    KONTROLLE Reihenfolge: Mit Filter darf sie nichts ändern – ` +
@@ -4773,19 +4836,34 @@ async function vorfaellelauf(laeufe, tage) {
      * sondern ohne jeden Wurf: Der Tageswurf ist die EINZIGE Quelle, seit die
      * Würfe je Aktion weg sind. Und „an" darf nicht leer sein, sonst misst der
      * Lauf eine stille Null und nennt sie Ergebnis.
+     *
+     * EHRLICH ZU DEN BEINEN DIESER KONTROLLE: `vorfaelle` und `wuerfe` kommen
+     * beide aus `vorfallWurf`, und die Variante „aus" ruft `vorfallWurf` gar
+     * nicht – diese zwei Beine sind dort null, WEIL SIE NIEMAND FÜLLT, und
+     * können einen überlebenden Wurf an einer anderen Stelle nicht finden. Das
+     * können nur die zwei Beine, die nicht an dieser Instrumentierung hängen:
+     * die Zeilen in `creator_events` (am Ende jedes Laufs direkt aus der
+     * Tabelle gezählt) und der Kontoposten „Vorfall". Deshalb stehen alle vier
+     * in der Zeile, und jedes sagt dazu, woher es kommt.
      */
     const sum = (o) => Object.values(o).reduce((x, y) => x + y, 0);
     const za = v.aus.vorfallZaehler;
     const zn = v.an.vorfallZaehler;
-    console.log(`      KONTROLLE „aus": Vorfälle ${sum(za.vorfaelle)}, Würfe ${sum(za.wuerfe)}, ` +
-      `Posten „Vorfall" ${de(vorfallGeld(v.aus))} – ${sum(za.vorfaelle) === 0 && sum(za.wuerfe) === 0
+    console.log(`      KONTROLLE „aus": Vorfälle ${sum(za.vorfaelle)}, Würfe ${sum(za.wuerfe)} ` +
+      `(beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events ` +
+      `${za.zeilen}, Posten „Vorfall" ${de(vorfallGeld(v.aus))} (beide UNABHÄNGIG davon – nur diese ` +
+      `zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – ` +
+      `${sum(za.vorfaelle) === 0 && sum(za.wuerfe) === 0 && za.zeilen === 0
         && vorfallGeld(v.aus) === 0
         ? 'alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)'
-        : 'FEHLER – „aus" hat Vorfälle oder Würfe'}`);
+        : 'FEHLER – „aus" hat Vorfälle, Würfe oder Zeilen'}`);
     console.log(`      KONTROLLE „an": Vorfälle ${sum(zn.vorfaelle)} ` +
       `(${komma(sum(zn.vorfaelle) / Math.max(1, laeufe), 2)} je Lauf), Würfe ${sum(zn.wuerfe)}, ` +
-      `Posten „Vorfall" ${de(vorfallGeld(v.an))} – ${sum(zn.vorfaelle) > 0 && sum(zn.wuerfe) > 0
-        ? 'nicht null ✔' : 'FEHLER – stille Null'}`);
+      `Zeilen in creator_events ${zn.zeilen}, Posten „Vorfall" ${de(vorfallGeld(v.an))} – ` +
+      `${sum(zn.vorfaelle) > 0 && sum(zn.wuerfe) > 0 && zn.zeilen > 0
+        ? 'nicht null ✔' : 'FEHLER – stille Null'}` +
+      `${zn.zeilen === sum(zn.vorfaelle) ? ' · Zeilen und gezählte Vorfälle stimmen überein ✔'
+        : ` · ACHTUNG: ${zn.zeilen} Zeilen gegen ${sum(zn.vorfaelle)} gezählte Vorfälle`}`);
     console.log(`      KONTROLLE Bereiche in „an": ${a.kanaele === false
       ? `der reine Musiker hat ${zn.vorfaelle.creator ?? 0} Creator-Vorfälle – ` +
         `${(zn.vorfaelle.creator ?? 0) === 0 ? 'erwartet 0 ✔ (nie eine Kanalaktion, die Tür bleibt zu)'

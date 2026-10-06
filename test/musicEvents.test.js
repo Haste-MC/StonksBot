@@ -708,10 +708,27 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
      * keinen Kandidaten, der Wurf fiel ins Leere, und die Uhr war trotzdem
      * geschrieben. Mit `proberaum` und `kleiner_auftritt` (Schwelle 0) geht dort
      * kein Wurf mehr verloren, und dieselben fünf Seeds geben 47.
-     * `docs/messungen/2026-10-06-vorfaelle.txt` zählt diesen Verlust für den
-     * ganzen Lauf: 0 leere Würfe wegen fehlender Kandidaten in jeder Stufe.
      *
-     * Wäre die Zahl Poisson-verteilt mit λ ≈ 47, läge P(Σ < 35) bei rund 4 % –
+     * EHRLICH ZU DIESEM VERGLEICH: 41 → 47 ist eine Differenz zweier Summen aus
+     * je fünf Stichproben, und sie trägt die RICHTUNG, nicht die GRÖSSE. Je Seed
+     * sind es 6→6, 8→7, 7→11, 11→16, 9→7 – zwei von fünf gehen nach UNTEN, die
+     * Bewegung ist ±5 je Seed, und das Poisson-Rauschen auf einer Summe dieser
+     * Größe liegt allein schon bei ±7. Die +6 ist damit von 0 nicht zu trennen,
+     * und würfelpaarig sind die beiden Läufe ohnehin nicht: Ein Vorfall
+     * verschiebt die Hörerkurve und damit jede folgende Rate. Aus diesen fünf
+     * Seeds eine Rate „je Jahr" zu rechnen, wäre ein Messfehler.
+     *
+     * WAS BELEGT IST, steht in `docs/messungen/2026-10-06-vorfaelle.txt`: Der
+     * Verlust an die leere Kandidatenliste ist jetzt 0 (0 leere Würfe mit Grund
+     * „kein Kandidat" in allen dreizehn Stufen, ≥ 2 Kandidaten schon bei
+     * Reichweite 0). Und seine Größe ist gezählt: Im Karriere-Lauf fielen 44 von
+     * 584 Vorfällen des reinen Musikers bei 10.000 Hörern oder darunter (0,73 je
+     * Jahr), und 30 davon unter 5.000 – genau die vorher verlorenen Würfe: 0,50
+     * je Jahr, über die fünf Jahre dieses Tests also 2,5. Die +6 oben ist mehr
+     * als das Doppelte davon; sie ist Rauschen und keine Rate.
+     *
+     * Wäre die Zahl Poisson-verteilt mit λ ≈ 47, läge P(Σ < 35) = P(Σ ≤ 34) bei
+     * 2,9 % (bei dem früheren λ = 41 waren es rund 15 %) –
      * die Schwelle taugt also NICHT als Schutz gegen Zufallsstreuung, und sie
      * muss es auch nicht: Mit festen Seeds fällt dieselbe Zahl bei jedem Lauf.
      * Sie ist ein Regressionsschutz. Fiele Σ unter 35, hätte sich etwas

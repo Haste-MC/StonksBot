@@ -12,9 +12,23 @@ Creator UND Firma – wobei die Firma am häufigsten feuert.
 
 Aufrufe (alle mit eigenem DATA_DIR, Start heute 6:00 Uhr und vorwärts):
 
-  Der Lauf, aus dem jede Zahl dieses Berichts kommt:
+  Drei Aufrufe, und WELCHE FAMILIE VON ZAHLEN AUS WELCHEM KOMMT, steht hier. Wer aus der
+  falschen Zeile nachrechnet, bekommt beim reinen Musiker −22,1 % statt der −16,9 %, die
+  dieser Bericht und §15 als Ergebnis nennen:
 
     node scripts/messung-geldquellen.js 10 365 --nur=vorfaelle
+      → die Teile (1) bis (4) – Handprüfung, Stufenlauf (6,90 · 8,44 · 26,43 …), Türprobe
+        (0 · 0 · 8) und Sperrelauf (8,41 gegen 7,35 bzw. 7,78 …). Diese vier hängen nicht an
+        der Zahl der Läufe und sind in allen drei Aufrufen ZEICHENGLEICH (geprüft mit `diff`).
+      → dazu Teil (5) bei 10 Läufen: die erste Stufe der Treppe, −11,9 % und −22,1 %.
+
+    node scripts/messung-geldquellen.js 30 365 --nur=vorfaelle
+      → nur Teil (5) bei 30 Läufen: die zweite Stufe der Treppe, −8,2 % und −22,2 %.
+
+    node scripts/messung-geldquellen.js 60 365 --nur=vorfaelle
+      → nur Teil (5) bei 60 Läufen, UND DARAUS KOMMEN DIE KARRIERE-ZAHLEN DIESES BERICHTS:
+        9,73 und 31,85 Vorfälle je Jahr, −16,9 % und −7,4 %, die Posten −559 und −3.061 am
+        Tag, 531.018 statt 693.797 Hörer, 44 von 584 frühen Vorfällen.
 
   Die Gegenprobe zur Behauptung „scripts/messung-geldquellen.js:1456 zählt seit Stück 2 eine stille
   Null" (siehe NACHTRAG unten – sie trifft nicht zu):
@@ -170,7 +184,8 @@ DER KARRIERE-LAUF – was es den Spieler kostet. 60 Läufe à 365 Tage (Treppe 1
   nur Musik        109.717/Tag        90.810/Tag      −17,2 % / −16,9 %      5 von 60
 
   Vorfälle je Jahr in der Karriere: Musik+Creator 31,85 (Musik 9,27 · Creator 22,58),
-  nur Musik 9,73. Frühe Vorfälle: 55 von 1.911 (2,9 %) bzw. 44 von 584 (7,5 %).
+  nur Musik 9,73. Frühe Vorfälle: 55 von 1.911 (2,9 %) bzw. 44 von 584 (7,5 %); davon unter 5.000
+  Reichweite – dort war der Musikkatalog vor 5f leer – 42 bzw. 30, also 0,70 bzw. 0,50 je Jahr.
 
 **DER AUSLÖSER IST IN KEINER RICHTUNG ERREICHT, und RISK_MAX_DAY bleibt bei 0,08.** Gepaart liegen
 beide Archetypen innerhalb von ±25 %: −7,4 % und −16,9 %. Die Treppe zeigt dabei genau das, was 5b
@@ -191,10 +206,17 @@ mehr Seeds zu fahren.
 **Der Verlust ist fast vollständig STRUKTURELL und nicht monetär – das ist der wichtigste Befund
 dieses Laufs.** Der Posten „Vorfall" im Konto ist winzig: −559 am Tag beim reinen Musiker von
 18.907 Differenz (3,0 %) und −3.061 am Tag bei Musik+Creator von 39.976 Differenz (7,7 %). Die
-anderen 97 bzw. 92 Prozent sind verlorene HÖRER und FOLLOWER, die sich nicht mehr verzinsen: der
-reine Musiker endet mit 531.018 statt 693.797 Hörern (−23,5 %), Musik+Creator mit 4.695.384 statt
-6.399.765 Followern (−26,6 %) und 402.796 statt 526.439 Hörern (−23,5 %). Vorfälle sind damit keine
-Geldsenke, sondern eine Wachstumsbremse – und für §3 ist das die konservative Richtung: Es kommt
+anderen 97 bzw. 92 Prozent sind ALLES AUSSER DIESEM POSTEN – überwiegend verlorene HÖRER und
+FOLLOWER, die sich nicht mehr verzinsen (der reine Musiker endet mit 531.018 statt 693.797 Hörern,
+−23,5 %, Musik+Creator mit 4.695.384 statt 6.399.765 Followern, −26,6 %, und 402.796 statt 526.439
+Hörern, −23,5 %), aber NICHT NUR: Ein Vorfall kann auch die Veröffentlichung oder das Konzert sperren
+(`lockRelease`, `lockShow`), Ausrüstung verbrauchen (`gear`), die Community kürzen und den Vertrag
+brechen – und die Vertragsstrafe bucht `music.leave` unter „Vertragsstrafe", also AUSSERHALB des
+Postens „Vorfall". Diese Kanäle sind hier nicht getrennt gemessen; dass sie in diesem Lauf klein
+sind, zeigt die Tagesleistung (beim reinen Musiker 0,94 Veröffentlichungen und 0,23 Konzerte je Tag,
+mit wie ohne Vorfälle) und die Quellenliste, in der keine Zeile „Vertragsstrafe" steht – der gemessene Spieler
+unterschreibt keinen Vertrag. „97 bzw. 92 Prozent" heißt also „alles außer dem Posten Vorfall" und
+nicht „Hörer und Follower". Vorfälle sind damit keine Geldsenke, sondern eine Wachstumsbremse – und für §3 ist das die konservative Richtung: Es kommt
 nichts dazu, es geht etwas weg, und zwar mehr, als die Kasse sieht.
 
 Die Gegenprobe dazu steht im §3-Treiber (`test/musicEvents.test.js`), ein völlig anderer Treiber mit
@@ -205,33 +227,43 @@ anderer Spielweise und anderen Seeds: Hörer-Median mit Ereignissen 441.957 gege
 WAS DIE TRENNUNG DER SPERRE BRINGT – derselbe Lauf mit und ohne Bereichsfilter, 100 Seeds à 365 Tage,
 ein Spieler mit Musik (100.000 Hörer), Kanälen (100.000 Reichweite) und einer Firma der Größe 5:
 
-  Spielweise         Bereich    Filter an    Filter aus (wie vor 5f)    Unterschied
-  sofort antworten   Musik          8,41                       7,35        +14,4 %
-                     Creator        8,93                       7,60        +17,5 %
-                     Firma         18,16                      17,42         +4,2 %
-                     zusammen      35,50                      32,37         +9,7 %
-  nie antworten      Musik          8,53                       8,45         +0,9 %
-                     Creator        9,16                       8,95         +2,3 %
-                     Firma         18,16                      17,28         +5,1 %
-                     zusammen      35,85                      34,68         +3,4 %
+Mit Filter ist die Würfelreihenfolge gleichgültig (Kontrollzeile); OHNE Filter entscheidet sie, WER
+die Sperre bekommt. Deshalb stehen hier beide Reihenfolgen, und der Gewinn der Trennung steht als
+SPANNE und nicht als eine Zahl:
+
+  Spielweise         Bereich    Filter an    Filter aus (wie vor 5f)       Unterschied
+                                             Firma zuerst  Musik zuerst
+  sofort antworten   Musik          8,41             7,35          7,78    +8,1 … +14,4 %
+                     Creator        8,93             7,60          8,24    +8,4 … +17,5 %
+                     Firma         18,16            17,42         16,51    +4,2 … +10,0 %
+                     zusammen      35,50            32,37         32,53    +9,1 …  +9,7 %
+  nie antworten      Musik          8,53             8,45          8,60    −0,8 …  +0,9 %
+                     Creator        9,16             8,95          9,15    +0,1 …  +2,3 %
+                     Firma         18,16            17,28         16,27    +5,1 … +11,6 %
+                     zusammen      35,85            34,68         34,02    +3,4 …  +5,4 %
 
 **„Die Firma nahm der Musik die Vorfälle weg" ist wahr, aber kleiner als die Formulierung klingt:
-+14,4 % für die Musik und +17,5 % für die Kanäle, nicht eine Verdopplung.** Der Grund, dass es nicht
-mehr ist, steht in der Zeile daneben: Ohne Filter verlor die Musik 1.742 von 36.500 Würfen an einen
-offenen Vorfall eines FREMDEN Bereichs – 4,8 % der Tage. Mehr war es nicht, weil der gemessene
-Spieler jeden Vorfall am Tag seines Auftretens beantwortet; die Sperre bindet dann nur noch über die
-36 Stunden Mindestabstand.
++8,1 bis +14,4 % für die Musik und +8,4 bis +17,5 % für die Kanäle, nicht eine Verdopplung.** Und die
+Reihenfolge verschiebt nur, WER die Vorfälle bekommt, nicht WIE VIELE es gibt: Die Summe ohne Filter
+ist in beiden Reihenfolgen praktisch dieselbe (32,37 gegen 32,53), während die Musik einmal 1.742 von
+36.500 Würfen an einen offenen Vorfall eines FREMDEN Bereichs verliert (Firma zuerst, 4,8 % der Tage)
+und einmal keinen einzigen (Musik zuerst). Welche Reihenfolge ein echter Spieler hat, weiß niemand –
+jeder Bereich würfelt, wenn er seine Ansicht öffnet. Mehr als diese Spanne war es auch deshalb nicht,
+weil der gemessene Spieler jeden Vorfall am Tag seines Auftretens beantwortet; die Sperre bindet dann
+nur noch über die 36 Stunden Mindestabstand.
 
-**Und wer NIE antwortet, hat von der Trennung fast nichts** (+0,9 %) – was zunächst wie ein
-Widerspruch aussieht und keiner ist: Wenn `tick` wegen eines offenen Vorfalls abbricht, wird die Uhr
+**Und wer NIE antwortet, hat von der Trennung nichts** (bei der Musik zwischen −0,8 % und +0,9 %, je
+Reihenfolge) – was zunächst wie ein Widerspruch aussieht und keiner ist: Wenn `tick` wegen eines offenen Vorfalls abbricht, wird die Uhr
 NICHT geschrieben. Der nächste Wurf deckt dann zwei Tage und hat die doppelte Chance
 (`chanceOver(reichweite, 2)`), und das holt den verlorenen Wurf fast vollständig zurück. Die Sperre
 durch `openEvent` ist also aufschiebend, die Sperre durch `MIN_GAP_MS` ist endgültig – denn sie greift
 erst NACH `saveDecisionUhr`. Gemessen: 5.186 von 36.500 Musik-Tagen ohne Wurf, und trotzdem nur
 8,45 gegen 8,53 Vorfälle.
 
-**Die Firma feuert jetzt 4,2 bis 5,1 % häufiger** (18,16 gegen 17,42 bzw. 17,28). Das ist die Kehrseite,
-die die Spec ausdrücklich wollte, aber es ist eine Änderung auf dem Firmenpfad: Ein offener Musik-
+**Die Firma feuert jetzt 4,2 bis 11,6 % häufiger** (18,16 gegen 17,42 bzw. 16,51 beim Spieler, der
+sofort antwortet, und gegen 17,28 bzw. 16,27 bei dem, der nie antwortet – die Spanne ist auch hier
+die Würfelreihenfolge). Das ist die Kehrseite, die die Spec ausdrücklich wollte, aber es ist eine
+Änderung auf dem Firmenpfad: Ein offener Musik-
 oder Kanal-Vorfall hält ihre Abrechnung nicht mehr auf. Niemand hat an `company.riskFor` gedreht;
 die Firma bekommt nur, was ihr Würfel schon immer hergab.
 
@@ -283,10 +315,13 @@ allen acht Sperre-Varianten und in beiden Archetypen beider Varianten; kleinster
      Lager, Werbung, Löhne und Entnahme. Für die Sperrfrage genügt das; was ein Firmen-Vorfall
      KOSTET, misst dieser Lauf nicht (das tut der Firmenlauf, §15 „Firmen").
 
- (6) DIE REIHENFOLGE DER DREI WÜRFE IST EINE ANNAHME. Im Spiel würfelt jeder Bereich, wenn der
-     Spieler seine Ansicht öffnet; welche er zuerst öffnet, weiß niemand. Ohne Filter ändert das die
-     Zahlen (Musik 8,45 gegen 8,60) – deshalb stehen beide Reihenfolgen da. Mit Filter ändert es
-     nichts, und das ist eine Kontrollzeile und kein Zufall.
+ (6) DIE REIHENFOLGE DER DREI WÜRFE IST EINE ANNAHME, UND SIE TRÄGT DIE ÜBERSCHRIFT DES
+     SPERRE-ABSCHNITTS. Im Spiel würfelt jeder Bereich, wenn der Spieler seine Ansicht öffnet; welche
+     er zuerst öffnet, weiß niemand. Ohne Filter ändert das die Zahlen genau da, wo es weh tut: Die
+     Musik steht bei 7,35, wenn die Firma zuerst würfelt, und bei 7,78, wenn sie selbst zuerst
+     würfelt – aus demselben Befund werden damit +14,4 % oder +8,1 %. Deshalb stehen beide
+     Reihenfolgen da und der Befund als Spanne. Mit Filter ändert es nichts, und das ist eine
+     Kontrollzeile und kein Zufall.
 
  (7) GEMESSEN SIND ZWEI ARCHETYPEN UND EINE STRATEGIE JE ARCHETYP. Der reine Creator kommt nicht
      vor; für ihn gilt der Creator-Teil des Stufenlaufs, aber nicht der Geldvergleich. Der Spieler,
@@ -346,22 +381,40 @@ mindestens 35 Vorfälle (gemessen 41)". Gemessen sind jetzt 47. Die Schwelle 35 
 darf nur strenger werden, nicht schwächer –, aber die Zahl im Namen war falsch, und eine falsche
 Zahl in der Testausgabe ist ein Messfehler, kein Schönheitsfehler.
 
-Woher der Sprung kommt, ist gemessen und nicht geraten: derselbe Test an zwei Commits, in
-Wegwerf-Arbeitsbäumen, dieselben fünf Seeds.
+Woher der Sprung kommt: derselbe Test an zwei Commits, in Wegwerf-Arbeitsbäumen, dieselben fünf
+Seeds.
 
     e4582dc (vor den frühen Vorfällen)   6 · 8 ·  7 · 11 · 9  =  Σ 41
     9c3e97f („vier entscheidungen vom anfangen")
                                          6 · 7 · 11 · 16 · 7  =  Σ 47
 
 `9c3e97f` hat ausschließlich die zwei Katalogdateien und den Reichweitenfilter in `src/decisions.js`
-angefasst. Der Sprung sind also genau die vier frühen Vorfälle: Vorher war die Kandidatenliste unter
-5.000 Hörern leer, der Wurf fiel ins Leere, und die Uhr war trotzdem geschrieben. +6 Vorfälle über
-5 Jahre sind **+1,2 je Jahr** – mehr, als die unabhängige Nachrechnung eines Prüfers mit 0,65 je
-Jahr geschätzt hatte.
+angefasst. Die Richtung ist damit belegt: Vorher war die Kandidatenliste unter 5.000 Hörern leer, der
+Wurf fiel ins Leere, und die Uhr war trotzdem geschrieben.
 
-Der Stufenlauf (2) bestätigt dasselbe von der anderen Seite: In JEDER Stufe stehen 0 leere Würfe mit
-Grund „kein Kandidat", und bei Reichweite 0 nennt die Zeile die zwei Kandidaten mit Namen
-(`proberaum`, `kleiner_auftritt`). Unter 5.000 Hörern geht seit 5f kein Wurf mehr verloren.
+**DIE GRÖSSE IST ES NICHT, UND DAS MUSS HIER STEHEN.** Die +6 ist eine Differenz zweier Summen aus je
+fünf Stichproben. Je Seed lauten die Zahlen 6→6, 8→7, 7→11, 11→16, 9→7: ZWEI VON FÜNF GEHEN NACH
+UNTEN, die Bewegung ist ±5 je Seed, und das Poisson-Rauschen auf einer Summe dieser Größe liegt allein
+schon bei ±7 (√41 = 6,4, √47 = 6,9). Die +6 ist deshalb von 0 nicht zu trennen und erst recht nicht
+von 5 × 0,65 = 3,25. Dazu sind die zwei Läufe nicht einmal würfelpaarig: Jeder zusätzliche Vorfall
+verschiebt die Hörerkurve und damit jede folgende Rate, also würfelt `9c3e97f` ab dem ersten frühen
+Vorfall einen anderen Spieler. „+1,2 je Jahr" aus fünf Seeds wäre eine Schätzung im Gewand einer
+Messung – genau der Fehler, den dieses Dokument nicht machen soll.
+
+WAS BELEGT IST, sind zwei andere Sätze:
+
+  • **Der Verlust an die leere Kandidatenliste ist 0.** Der Stufenlauf (2) zeigt in JEDER der dreizehn
+    Stufen 0 leere Würfe mit Grund „kein Kandidat", und bei Reichweite 0 nennt die Zeile die zwei
+    Kandidaten mit Namen (`proberaum`, `kleiner_auftritt`). Unter 5.000 Hörern geht seit 5f kein Wurf
+    mehr verloren – das ist gezählt und nicht gerechnet.
+
+  • **Wie groß der Verlust vorher war, ZÄHLT der Karriere-Lauf aus.** Beim reinen Musiker wurden 44
+    von 584 Vorfällen bei 10.000 Hörern oder darunter gezogen (0,73 je Jahr, mittlere Reichweite beim
+    Ziehen 4.060, kleinster 8, größter 9.820), und davon **30 unter 5.000 Hörern** – genau die Würfe,
+    die vorher in die leere Liste fielen: **0,50 je Jahr**, über fünf Jahre also 2,5. Die restlichen
+    14 lagen zwischen 5.000 und 10.000 (0,23 je Jahr) und wären auch vorher gefallen. Die unabhängige
+    Nachrechnung eines Prüfers mit 0,65 je Jahr lag damit richtig; die +6 des Tests ist mehr als das
+    Doppelte dieser Erwartung und genau deshalb Rauschen und keine Rate.
 
 ==================== ROHAUSGABE: node scripts/messung-geldquellen.js 10 365 --nur=vorfaelle ====================
 
@@ -446,7 +499,12 @@ sie steht in jedem anderen Messbericht und sagt über die Vorfälle nichts.)
     Filter aus/nie/firma-zuerst       Musik Ø  8,45 · Creator Ø  8,95 · Firma Ø 17,28 · zusammen Ø 34,68 je Jahr · Musik-Tage ohne Wurf 5.186 (davon offener Vorfall 5.186) · verfallen 3.448 · MIN_GAP gerissen 0
     Filter aus/nie/musik-zuerst       Musik Ø  8,60 · Creator Ø  9,15 · Firma Ø 16,27 · zusammen Ø 34,02 je Jahr · Musik-Tage ohne Wurf 3.395 (davon offener Vorfall 3.395) · verfallen 3.387 · MIN_GAP gerissen 0
     Was die Trennung der Sperre bringt („sofort", Firma zuerst): MUSIK 8,41 gegen 7,35 = +14,4 % · CREATOR 8,93 gegen 7,60 = +17,5 % · FIRMA 18,16 gegen 17,42 = +4,2 % · zusammen 35,50 gegen 32,37 = +9,7 %
+    Was die Trennung der Sperre bringt („sofort", Musik zuerst): MUSIK 8,41 gegen 7,78 = +8,1 % · CREATOR 8,93 gegen 8,24 = +8,4 % · FIRMA 18,16 gegen 16,51 = +10,0 % · zusammen 35,50 gegen 32,53 = +9,1 %
+    DIE SPANNE über die Würfelreihenfolge („sofort") – das ist die Zahl, die der Bericht nennt: MUSIK +8,1 % … +14,4 % · CREATOR +8,4 % … +17,5 % · FIRMA +4,2 % … +10,0 % · zusammen +9,1 % … +9,7 %
     Was die Trennung der Sperre bringt („nie", Firma zuerst): MUSIK 8,53 gegen 8,45 = +0,9 % · CREATOR 9,16 gegen 8,95 = +2,3 % · FIRMA 18,16 gegen 17,28 = +5,1 % · zusammen 35,85 gegen 34,68 = +3,4 %
+    Was die Trennung der Sperre bringt („nie", Musik zuerst): MUSIK 8,53 gegen 8,60 = −0,8 % · CREATOR 9,16 gegen 9,15 = +0,1 % · FIRMA 18,16 gegen 16,27 = +11,6 % · zusammen 35,85 gegen 34,02 = +5,4 %
+    DIE SPANNE über die Würfelreihenfolge („nie") – das ist die Zahl, die der Bericht nennt: MUSIK −0,8 % … +0,9 % · CREATOR +0,1 % … +2,3 % · FIRMA +5,1 % … +11,6 % · zusammen +3,4 % … +5,4 %
+    KONTROLLE Spanne: die Reihenfolge verteilt nur um – Summe ohne Filter 32,37 gegen 32,53 (+0,5 %) ✔
     KONTROLLE Reihenfolge: Mit Filter darf sie nichts ändern – Musik auf die Stelle identisch in beiden Spielweisen ✔; ohne Filter ändert sie etwas (Musik 8,45 gegen 8,60) – genau das ist der Befund.
     KONTROLLE MIN_GAP: mit Filter kein Verstoß innerhalb eines Bereichs in allen vier Läufen ✔
     KONTROLLE „nie": verfallene Vorfälle müssen > 0 sein, „sofort" muss 0 haben – sofort 0, nie 3.564 ✔
@@ -465,6 +523,7 @@ sie steht in jedem anderen Messbericht und sagt über die Vorfälle nichts.)
       Vorfälle 0 in 3.650 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -474,13 +533,14 @@ sie steht in jedem anderen Messbericht und sagt über die Vorfälle nichts.)
       Vorfälle 319 in 3.650 Tagen = 31,90 je Lauf (31,90 je Jahr): creator 231, music 88
       Arten: plagiat 34, stimme 28, algorithmus 26, steuer 24, community_mob 23, sponsor_betrug 21, skandal 21, stalker 20, kollege 19, exklusivvertrag 19, talkshow 17, hardware 17, leak 17, copyright 17, alter_clip 11, kleiner_auftritt 3, proberaum 2
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 5 (1,6 % aller Vorfälle): music 5 · Reichweite beim Ziehen Ø 1046 (kleinster 162, größter 2479) · die übrigen Ø 2166945 (kleinster 5961, größter 6139746)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 5 = 0,50 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen music 3.650, creator 3.650 · wirklich gewürfelt music 3.650, creator 3.650 · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch creator 251, music 90 · davon ohne Vorfall: abstand 22 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet creator 231, music 88 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 484,5 (kleinster 48,0, größter 5496,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 319 (31,90 je Lauf), Würfe 7300, Posten „Vorfall" -1.636.899 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 319 (31,90 je Lauf), Würfe 7300, Zeilen in creator_events 319, Posten „Vorfall" -1.636.899 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": Musik 88, Creator 231 – beide Bereiche feuern ✔
       AUSLÖSER „±25 % gepaart" für Musik+Creator: Mediane −12,7 %, gepaart −11,9 % → nicht erreicht
 
@@ -497,6 +557,7 @@ sie steht in jedem anderen Messbericht und sagt über die Vorfälle nichts.)
       Vorfälle 0 in 3.650 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -506,18 +567,19 @@ sie steht in jedem anderen Messbericht und sagt über die Vorfälle nichts.)
       Vorfälle 99 in 3.650 Tagen = 9,90 je Lauf (9,90 je Jahr): music 99
       Arten: stimme 35, skandal 30, plagiat 26, proberaum 5, kleiner_auftritt 3
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 8 (8,1 % aller Vorfälle): music 8 · Reichweite beim Ziehen Ø 3855 (kleinster 636, größter 7639) · die übrigen Ø 284785 (kleinster 11491, größter 724476)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 7 = 0,70 je Jahr · bei 5.000 bis 10.000: 1 = 0,10 je Jahr
       Tageswürfe: gerufen music 3.650, creator 3.650 · wirklich gewürfelt music 3.650 · kein Wurf creator 3.650 (davon Tür zu creator 3.650, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch music 102 · davon ohne Vorfall: abstand 3 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet music 99 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 815,2 (kleinster 48,0, größter 3840,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 99 (9,90 je Lauf), Würfe 3650, Posten „Vorfall" -122.661 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 99 (9,90 je Lauf), Würfe 3650, Zeilen in creator_events 99, Posten „Vorfall" -122.661 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": der reine Musiker hat 0 Creator-Vorfälle – erwartet 0 ✔ (nie eine Kanalaktion, die Tür bleibt zu)
       AUSLÖSER „±25 % gepaart" für nur Musik: Mediane −16,7 %, gepaart −22,1 % → nicht erreicht
 
 EXIT=0
-2026-10-06T20:57:44+02:00
+2026-10-06T21:55:49+02:00
 
 ==================== ROHAUSGABE: 30 Läufe à 365 Tage – nur Teil (5) ====================
 
@@ -540,6 +602,7 @@ einmal.
       Vorfälle 0 in 10.950 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -549,13 +612,14 @@ einmal.
       Vorfälle 968 in 10.950 Tagen = 32,27 je Lauf (32,27 je Jahr): creator 681, music 287
       Arten: plagiat 97, stimme 87, skandal 81, algorithmus 70, sponsor_betrug 66, leak 65, talkshow 60, steuer 59, community_mob 57, hardware 55, exklusivvertrag 55, stalker 54, copyright 54, kollege 49, alter_clip 36, kleiner_auftritt 14, proberaum 8, festplatte 1
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 23 (2,4 % aller Vorfälle): music 22, creator 1 · Reichweite beim Ziehen Ø 3654 (kleinster 162, größter 9784) · die übrigen Ø 2021160 (kleinster 493, größter 7089687)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 17 = 0,57 je Jahr · bei 5.000 bis 10.000: 6 = 0,20 je Jahr
       Tageswürfe: gerufen music 10.950, creator 10.950 · wirklich gewürfelt music 10.950, creator 10.950 · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch creator 727, music 293 · davon ohne Vorfall: abstand 52 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet creator 681, music 287 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 478,1 (kleinster 48,0, größter 5496,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 968 (32,27 je Lauf), Würfe 21900, Posten „Vorfall" -1.064.307 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 968 (32,27 je Lauf), Würfe 21900, Zeilen in creator_events 968, Posten „Vorfall" -1.064.307 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": Musik 287, Creator 681 – beide Bereiche feuern ✔
       AUSLÖSER „±25 % gepaart" für Musik+Creator: Mediane −8,2 %, gepaart −8,2 % → nicht erreicht
 
@@ -572,6 +636,7 @@ einmal.
       Vorfälle 0 in 10.950 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -581,18 +646,19 @@ einmal.
       Vorfälle 304 in 10.950 Tagen = 10,13 je Lauf (10,13 je Jahr): music 304
       Arten: stimme 99, skandal 98, plagiat 82, kleiner_auftritt 13, proberaum 12
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 25 (8,2 % aller Vorfälle): music 25 · Reichweite beim Ziehen Ø 4354 (kleinster 8, größter 9688) · die übrigen Ø 259583 (kleinster 9258, größter 724476)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 17 = 0,57 je Jahr · bei 5.000 bis 10.000: 8 = 0,27 je Jahr
       Tageswürfe: gerufen music 10.950, creator 10.950 · wirklich gewürfelt music 10.950 · kein Wurf creator 10.950 (davon Tür zu creator 10.950, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch music 310 · davon ohne Vorfall: abstand 6 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet music 304 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 784,9 (kleinster 48,0, größter 3840,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 304 (10,13 je Lauf), Würfe 10950, Posten „Vorfall" -127.626 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 304 (10,13 je Lauf), Würfe 10950, Zeilen in creator_events 304, Posten „Vorfall" -127.626 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": der reine Musiker hat 0 Creator-Vorfälle – erwartet 0 ✔ (nie eine Kanalaktion, die Tür bleibt zu)
       AUSLÖSER „±25 % gepaart" für nur Musik: Mediane −19,0 %, gepaart −22,2 % → nicht erreicht
 
 EXIT=0
-2026-10-06T21:01:41+02:00
+2026-10-06T21:56:48+02:00
 
 ==================== ROHAUSGABE: 60 Läufe à 365 Tage – nur Teil (5), die Bestätigung ====================
 
@@ -610,6 +676,7 @@ EXIT=0
       Vorfälle 0 in 21.900 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -619,13 +686,14 @@ EXIT=0
       Vorfälle 1.911 in 21.900 Tagen = 31,85 je Lauf (31,85 je Jahr): creator 1.355, music 556
       Arten: plagiat 193, skandal 160, stimme 152, algorithmus 128, steuer 126, sponsor_betrug 122, leak 121, hardware 116, talkshow 112, stalker 109, exklusivvertrag 109, community_mob 107, copyright 106, kollege 105, alter_clip 90, kleiner_auftritt 30, proberaum 21, festplatte 3, erster_sponsor 1
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 55 (2,9 % aller Vorfälle): music 51, creator 4 · Reichweite beim Ziehen Ø 3541 (kleinster 40, größter 9784) · die übrigen Ø 2075888 (kleinster 401, größter 7722220)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 42 = 0,70 je Jahr · bei 5.000 bis 10.000: 13 = 0,22 je Jahr
       Tageswürfe: gerufen music 21.900, creator 21.900 · wirklich gewürfelt music 21.900, creator 21.900 · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch creator 1.456, music 567 · davon ohne Vorfall: abstand 112 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet creator 1.355, music 556 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 476,9 (kleinster 48,0, größter 5496,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 1911 (31,85 je Lauf), Würfe 43800, Posten „Vorfall" -1.117.315 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 1911 (31,85 je Lauf), Würfe 43800, Zeilen in creator_events 1911, Posten „Vorfall" -1.117.315 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": Musik 556, Creator 1355 – beide Bereiche feuern ✔
       AUSLÖSER „±25 % gepaart" für Musik+Creator: Mediane −8,1 %, gepaart −7,4 % → nicht erreicht
 
@@ -642,6 +710,7 @@ EXIT=0
       Vorfälle 0 in 21.900 Tagen = 0,00 je Lauf (0,00 je Jahr): keine
       Arten: keine
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 0 (0,0 % aller Vorfälle): keine · Reichweite beim Ziehen keiner · die übrigen keiner
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 0 = 0,00 je Jahr · bei 5.000 bis 10.000: 0 = 0,00 je Jahr
       Tageswürfe: gerufen keine · wirklich gewürfelt keine · kein Wurf keine (davon Tür zu keine, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): keiner
       Würfel kam durch keine · davon ohne Vorfall: keine (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
@@ -651,21 +720,33 @@ EXIT=0
       Vorfälle 584 in 21.900 Tagen = 9,73 je Lauf (9,73 je Jahr): music 584
       Arten: stimme 193, skandal 174, plagiat 173, kleiner_auftritt 23, proberaum 21
       frühe Vorfälle (Schwelle 0, Deckel 10.000): 44 (7,5 % aller Vorfälle): music 44 · Reichweite beim Ziehen Ø 4060 (kleinster 8, größter 9820) · die übrigen Ø 268397 (kleinster 5606, größter 724476)
+      davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): 30 = 0,50 je Jahr · bei 5.000 bis 10.000: 14 = 0,23 je Jahr
       Tageswürfe: gerufen music 21.900, creator 21.900 · wirklich gewürfelt music 21.900 · kein Wurf creator 21.900 (davon Tür zu creator 21.900, offener Vorfall desselben Bereichs keine)
       nachgeholte Tage je Wurf (Deckel 14): Ø 1,00 (kleinster 1,00, größter 1,00)
       Würfel kam durch music 598 · davon ohne Vorfall: abstand 14 (abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)
       beantwortet music 584 · abgelehnte choose-Aufrufe 0 ✔
       Abstand zweier Vorfälle desselben Bereichs: Ø 789,2 (kleinster 48,0, größter 5184,0) Stunden · unter 36 h: 0 ✔
-      KONTROLLE „aus": Vorfälle 0, Würfe 0, Posten „Vorfall" 0 – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
-      KONTROLLE „an": Vorfälle 584 (9,73 je Lauf), Würfe 21900, Posten „Vorfall" -204.064 – nicht null ✔
+      KONTROLLE „aus": Vorfälle 0, Würfe 0 (beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events 0, Posten „Vorfall" 0 (beide UNABHÄNGIG davon – nur diese zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)
+      KONTROLLE „an": Vorfälle 584 (9,73 je Lauf), Würfe 21900, Zeilen in creator_events 584, Posten „Vorfall" -204.064 – nicht null ✔ · Zeilen und gezählte Vorfälle stimmen überein ✔
       KONTROLLE Bereiche in „an": der reine Musiker hat 0 Creator-Vorfälle – erwartet 0 ✔ (nie eine Kanalaktion, die Tür bleibt zu)
       AUSLÖSER „±25 % gepaart" für nur Musik: Mediane −17,2 %, gepaart −16,9 % → nicht erreicht
 
 EXIT=0
-2026-10-06T21:03:13+02:00
+2026-10-06T21:58:14+02:00
 
 ==================== LAUFZEITEN ====================
 
-  10 Läufe à 365 Tage:  2026-10-06T20:55:39+02:00 bis 2026-10-06T20:57:44+02:00
-  30 Läufe à 365 Tage:  2026-10-06T20:58:35+02:00 bis 2026-10-06T21:01:41+02:00
-  60 Läufe à 365 Tage:  2026-10-06T20:58:39+02:00 bis 2026-10-06T21:03:13+02:00
+  10 Läufe à 365 Tage:  2026-10-06T21:53:44+02:00 bis 2026-10-06T21:55:49+02:00
+  30 Läufe à 365 Tage:  2026-10-06T21:53:44+02:00 bis 2026-10-06T21:56:48+02:00
+  60 Läufe à 365 Tage:  2026-10-06T21:53:44+02:00 bis 2026-10-06T21:58:14+02:00
+  (drei Aufrufe parallel, eigenes DATA_DIR je Prozess)
+
+Diese drei Aufrufe sind zweimal nachgefahren worden, nachdem am Messwerkzeug zwei Dinge dazukamen:
+die zwei Beine der Kontrollzeile „aus", die NICHT an der Instrumentierung hängen (Zeilen in
+`creator_events` und der Kontoposten), und die Sperre-Vergleichszeile für die zweite
+Würfelreihenfolge samt Spanne. Beide Male gegen den Lauf davor geprüft mit `diff` über die ganze
+Rohausgabe: Die EINZIGEN Unterschiede sind die neuen bzw. erweiterten Zeilen. Keine gemessene Zahl
+hat sich bewegt – der Lauf ist zeichengleich reproduzierbar. Die Zeilenzahl aus der Tabelle stimmt
+dabei in jeder Variante genau mit den gezählten Vorfällen überein (319/99, 968/304, 1.911/584), und
+keine der Prozentzahlen dieses Berichts ist noch von Hand gerechnet: Auch die Spannen druckt jetzt
+das Skript.
