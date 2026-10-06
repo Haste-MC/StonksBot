@@ -18,6 +18,18 @@
  */
 module.exports = [
   {
+    version: '1.42.0',
+    date: '2026-10-06',
+    title: '⚠️ Vorfälle: jetzt passiert dir auch wirklich was',
+    lines: [
+      '⚠️ **Vorfälle hängen jetzt an der Zeit, nicht an deinem Fleiß.** Bisher wurde bei jeder Aufnahme, jeder Veröffentlichung, jedem Konzert und jeder Kanalaktion gewürfelt – im Schnitt fünfzig Aktionen bis zum ersten Drama. Wer gemütlich spielt, hat deshalb nie eines gesehen. Jetzt zählt der **Tag**, genau wie bei der Firma: Gemessen bekommst du als Anfänger **6,90 Vorfälle im Jahr**, mit 100.000 Hörern oder Followern **8,44**, und wer über 1,5 Millionen kommt, **26,43**. Du musst dafür nichts klicken – sie kommen beim nächsten Blick ins Studio oder in die Kanäle.',
+      '🎸 **Vier neue Vorfälle nur für den Anfang.** Der Proberaum wird dir gekündigt. Fünfzig Euro für einen Auftritt vor zwanzig Leuten, drei Stunden Fahrt. Die erste Sponsorenanfrage überhaupt – und sie klingt zu gut, um sauber zu sein. Die Festplatte mit dem ganzen Rohmaterial stirbt. Die Beträge sind so klein wie du: zweistellige Summen, keine Katastrophen. Und sie **verschwinden wieder**, sobald du über 10.000 Hörer oder Follower bist – der gekündigte Proberaum klopft nicht mehr an, wenn du Hallen füllst. Gemessen: Bei null Hörern sind **alle** deine Vorfälle von dieser Sorte, bei 5.000 die Hälfte, ab 20.000 keiner mehr.',
+      '🔓 **Musik, Kanäle und Firma blockieren sich nicht mehr gegenseitig.** Vorher sperrte ein einziger offener Vorfall alles – und weil die Firma am häufigsten feuert, nahm sie der Musik die Dramen weg. Jetzt hat jeder Bereich seine eigene Sperre: höchstens ein offener Vorfall **je Bereich**, also bis zu drei gleichzeitig, aber nie zwei aus derselben Richtung, und 36 Stunden Ruhe nach jedem. Gemessen bringt das der Musik **14,4 % mehr** Vorfälle (8,41 statt 7,35 im Jahr) und den Kanälen **17,5 % mehr** (8,93 statt 7,60); die Firma selbst feuert 4,2 % häufiger, weil ihr kein fremdes Drama mehr dazwischenkommt.',
+      '🚪 **Nur wo du wirklich etwas getan hast.** Ein Blick in die Creator-Ansicht reicht nicht mehr: Erst wenn du dort einmal etwas gesendet hast, kann dich ein Kanal-Drama treffen. Wer nur Musik macht, bekommt keine Kanal-Vorfälle, und wer nur eine Firma führt, keine von beiden. Umgekehrt braucht es keine Größe: Ein Kanal mit null Followern würfelt ab dem ersten Tag mit.',
+      '📉 **Was das kostet – gemessen, nicht geschätzt.** Über ein Jahr (60 Läufe, fester Würfel, jedes Mal eine zufällig gewählte Antwort): Ein reiner Musiker nimmt mit Vorfällen **16,9 % weniger** ein, wer Kanäle dazu betreibt **7,4 % weniger**. Und das Wichtigste daran: Fast nichts davon ist das Geld, das ein Vorfall direkt kostet – beim reinen Musiker sind es 559 von 18.907 am Tag, also 3,0 % der Differenz. Die anderen 97 % sind **Hörer und Follower, die weg sind und nicht mehr wachsen**: 531.018 statt 693.797 Hörer am Jahresende. Ein Vorfall ist also keine Rechnung, sondern ein Knick in der Kurve – und Schweigen ist weiter die teuerste Antwort (jeder Verlust × 1,6). (Alle Zahlen: `docs/messungen/2026-10-06-vorfaelle.txt`.)',
+    ],
+  },
+  {
     version: '1.41.0',
     date: '2026-10-02',
     title: '📬 Gegenanfragen und große Formate',

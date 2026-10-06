@@ -702,17 +702,26 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
      */
     const summe = counts.reduce((s, c) => s + c.vorfaelle, 0);
     /*
-     * Ehrlich zur Schwelle: Gemessen sind Σ 41 (feste Seeds, deterministisch).
-     * Wäre die Zahl Poisson-verteilt mit λ ≈ 41, läge P(Σ < 35) bei rund 15 % –
+     * Ehrlich zur Schwelle: Gemessen sind Σ 47 (feste Seeds, deterministisch).
+     * Die Zahl stand hier bis zur Messung von 5f als Σ 41 – das war der Stand
+     * vor den vier frühen Vorfällen: Unter 5.000 Hörern hatte der Katalog
+     * keinen Kandidaten, der Wurf fiel ins Leere, und die Uhr war trotzdem
+     * geschrieben. Mit `proberaum` und `kleiner_auftritt` (Schwelle 0) geht dort
+     * kein Wurf mehr verloren, und dieselben fünf Seeds geben 47.
+     * `docs/messungen/2026-10-06-vorfaelle.txt` zählt diesen Verlust für den
+     * ganzen Lauf: 0 leere Würfe wegen fehlender Kandidaten in jeder Stufe.
+     *
+     * Wäre die Zahl Poisson-verteilt mit λ ≈ 47, läge P(Σ < 35) bei rund 4 % –
      * die Schwelle taugt also NICHT als Schutz gegen Zufallsstreuung, und sie
      * muss es auch nicht: Mit festen Seeds fällt dieselbe Zahl bei jedem Lauf.
      * Sie ist ein Regressionsschutz. Fiele Σ unter 35, hätte sich etwas
-     * Strukturelles verändert (Rate, Sperre, Abstand, Wurfstelle) – rund 15 %
+     * Strukturelles verändert (Rate, Sperre, Abstand, Wurfstelle) – ein Viertel
      * weniger als gemessen. Strenger wäre sie nur durch Anlehnung an genau
-     * diesen einen Seed (41), und dann kippte jede harmlose Änderung der
-     * Würfelreihenfolge den Test, ohne dass die Rate falsch wäre.
+     * diesen einen Seed (47), und dann kippte jede harmlose Änderung der
+     * Würfelreihenfolge den Test, ohne dass die Rate falsch wäre. Die Schwelle
+     * selbst bleibt bei 35 – sie darf nur strenger werden, nicht schwächer.
      */
-    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (gemessen 41, Erwartung ≈ 40)',
+    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (gemessen 47 = 9,4 je Jahr)',
       summe >= 35, String(summe));
     check('… und in keinem Lauf weniger als 3',
       counts.every((c) => c.vorfaelle >= 3), counts.map((c) => c.vorfaelle).join(' '));
