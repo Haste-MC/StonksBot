@@ -112,9 +112,9 @@ bricht ab, sobald einer offen ist.
 
 ## Ein Satz Entscheidungen „vom Anfangen"
 
-Entscheidungen bekommen ein neues Feld **`maxReach`** als Gegenstück zu
-`minReach` (bzw. `maxListeners` zu `minListeners`). Ohne das klopfte der
-gekündigte Proberaum noch bei zwei Millionen Hörern an.
+Entscheidungen bekommen eine **Obergrenze** als Gegenstück zur vorhandenen
+Untergrenze. Ohne sie klopfte der gekündigte Proberaum noch bei zwei Millionen
+Hörern an.
 
 ```
 FRUEH_MAX = 10_000     // darüber verschwinden die frühen Vorfälle wieder
@@ -123,12 +123,16 @@ FRUEH_MAX = 10_000     // darüber verschwinden die frühen Vorfälle wieder
 Vier neue Einträge, Schwelle 0, `maxReach: FRUEH_MAX`, zwei für die Musik und
 zwei für den Creator – Dinge, die nur einem Niemand passieren:
 
-| Bereich | Vorfall | Worum es geht |
-|---|---|---|
-| Musik | `proberaum` | Der Proberaum wird gekündigt. Teurer nehmen, im Schlafzimmer aufnehmen, oder eine Weile pausieren? |
-| Musik | `demo_weiterleiten` | Ein Kumpel will dein Demo „mal rumschicken" – und sagt nicht, an wen. |
-| Creator | `kleiner_auftritt` | 50 € für einen Auftritt vor zwanzig Leuten, drei Stunden Fahrt. |
-| Creator | `festplatte` | Die Platte mit den Rohspuren stirbt. Datenrettung zahlen oder neu machen? |
+| Bereich | Vorfall | Feld | Worum es geht |
+|---|---|---|---|
+| Musik | `proberaum` | `maxListeners` | Der Proberaum wird gekündigt. Teurer nehmen, im Schlafzimmer aufnehmen, oder eine Weile pausieren? |
+| Musik | `kleiner_auftritt` | `maxListeners` | 50 € für einen Auftritt vor zwanzig Leuten, drei Stunden Fahrt. |
+| Creator | `erster_sponsor` | `maxReach` | Die erste Anfrage überhaupt – und sie klingt zu gut, um sauber zu sein. |
+| Creator | `festplatte` | `maxReach` | Die Platte mit dem ganzen Rohmaterial stirbt. Datenrettung zahlen oder alles neu machen? |
+
+Das neue Feld heißt in beiden Katalogen so wie sein vorhandenes Gegenstück:
+`maxListeners` bei den Musik-Entscheidungen (die `minListeners` tragen),
+`maxReach` bei den Creator-Entscheidungen (die `minReach` tragen).
 
 Die Beträge laufen durch das vorhandene `scaleMoney`, das sie an der Reichweite
 misst – bei einem Anfänger sind das zweistellige Summen, und genau so soll es
