@@ -206,11 +206,62 @@ async function settle(interaction) {
 }
 
 /**
+ * Discords Obergrenze für den Inhalt einer Nachricht ist 2000 Zeichen. Eine
+ * Abrechnungsnotiz bleibt darunter – mit Luft, weil die Aufrufer sie oft noch
+ * mit einer Patchnote oder einem Hinweis zusammenlegen.
+ */
+const NOTIZ_MAX = 1800;
+
+/**
+ * Setzt die Blöcke einer faulen Abrechnung zu einer Notiz zusammen, die
+ * Discord auch wirklich zustellt.
+ *
+ * Gebraucht wird das seit der Sperre je Bereich: Vorher konnte höchstens EIN
+ * Vorfall offen sein, jetzt drei – also können auch drei in einer einzigen
+ * Abrechnung verfallen, jeder mit Titelzeile UND Folgezeile, dazu Tantiemen,
+ * Katalog, Merch, Verträge, Beef und Angebote. Über 2000 Zeichen nimmt Discord
+ * die Nachricht nicht an, und jedes `followUp` dieser Notizen trägt sein
+ * `.catch(() => {})`: Der Spieler erführe dann nicht, warum seine Follower weg
+ * sind.
+ *
+ * Geschnitten wird an der Blockgrenze – eine Vorfallsmeldung besteht aus Titel
+ * und Folge, eine halbe Meldung ist schlimmer als keine. Und was wegfällt,
+ * wird gezählt und benannt, statt still zu verschwinden; vollständig steht es
+ * im Verlauf der Vorfall-Ansicht.
+ */
+function notizAus(bloecke, trenner = '\n', max = NOTIZ_MAX) {
+  if (!bloecke.length) return null;
+  const ganz = bloecke.join(trenner);
+  if (ganz.length <= max) return ganz;
+
+  const rest = (n) => `${trenner}_… und ${n} weitere `
+    + `${n === 1 ? 'Meldung' : 'Meldungen'} – sie stehen im Verlauf der `
+    + 'Vorfall-Ansicht._';
+  const drin = [];
+  let len = 0;
+  for (let i = 0; i < bloecke.length; i++) {
+    const dazu = (drin.length ? trenner.length : 0) + bloecke[i].length;
+    if (len + dazu + rest(bloecke.length - i).length > max) break;
+    drin.push(bloecke[i]);
+    len += dazu;
+  }
+  const uebrig = bloecke.length - drin.length;
+  // Ein einzelner Block sprengt die Grenze schon allein: hart schneiden, damit
+  // überhaupt etwas ankommt.
+  if (!drin.length) {
+    const marke = `${trenner}_… gekürzt – vollständig steht es im Verlauf der `
+      + 'Vorfall-Ansicht._';
+    return bloecke[0].slice(0, max - marke.length) + marke;
+  }
+  return drin.join(trenner) + rest(uebrig);
+}
+
+/**
  * Rechnet alles Laufende des Creator-Netzwerks ab: YouTube-Katalog, Merch und
  * abgelaufene Verträge. Läuft beim Öffnen der Ansichten (faule Abrechnung, §4)
  * und gibt eine fertige Notiz zurück – oder null, wenn nichts passiert ist.
  */
-async function settleCreator(guildId, userId) {
+async function settleCreator(guildId, userId, random = Math.random) {
   const creator = require('./creator');
   const symbol = await getSymbol(guildId);
   const lines = [];
@@ -240,22 +291,79 @@ async function settleCreator(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
-  return lines.length ? lines.join('\n') : null;
+
+  // Der Tageswurf des Netzwerks: Reichweite wie beim Sponsorenangebot, also
+  // inklusive des Bodens, den eine Musikkarriere mitbringt (reachTotalOf).
+  const vorfall = tickLine(guildId, userId, 'creator',
+    () => creator.reachTotalOf(guildId, userId,
+      db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0)),
+    random);
+  if (vorfall) lines.push(vorfall);
+
+  return notizAus(lines);
 }
 
-/** Hinweiszeile, wenn eine Musik-Aktion einen Vorfall ausgelöst hat. */
+/**
+ * Wo ein Vorfall wartet – abgeleitet aus seiner Plattform, genau wie die
+ * Bereichssperre in `db` (music / company / alles andere = Netzwerk).
+ *
+ * Der ⚠️-Knopf steht nur im Studio, im Netzwerk und in der Firma. Wer die
+ * Meldung aus einer Plattform-, Deal- oder Vorfall-Ansicht liest, hat ihn nicht
+ * auf dem Schirm – ein blankes „⚠️ Vorfall" schübe ihn dann auf einen Knopf, den
+ * es dort nicht gibt. Deshalb nennt die Zeile den Ort und nicht die Sache.
+ */
+function incidentOrt(platform) {
+  if (platform === 'music') return 'im Studio';
+  if (platform === 'company') return 'in der Firma';
+  return 'im Netzwerk';
+}
+
+/** Die eine Zeile, mit der ein frischer Vorfall gemeldet wird. */
+function incidentLine(incident) {
+  const d = require('./decisions').decision(incident.kind);
+  return `⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – `
+    + `du musst dich entscheiden (⚠️ ${incidentOrt(incident.platform)}).`;
+}
+
+/** Hinweiszeile, wenn eine Aktion einen Vorfall gemeldet hat. */
 function incidentNote(incident) {
   if (!incident) return '';
-  const d = require('./decisions').decision(incident.kind);
-  return `\n⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – ` +
-    'du musst dich entscheiden (⚠️ Vorfall).';
+  return `\n${incidentLine(incident)}`;
+}
+
+/**
+ * Der Tageswurf (§4) für Musik und Creator – dieselbe Stelle wie jede andere
+ * faule Abrechnung, damit er weder vergessen noch verschluckt werden kann.
+ *
+ * Er steht NACH `decisions.settle`: Ein eben verfallener Vorfall darf den
+ * neuen nicht blockieren. Und nach `achievements.onSettle`, weil ein Vorfall
+ * nichts bucht – er ist kein Vermögenssprung, der die Zustands-Erfolge prüfen
+ * müsste.
+ *
+ * `random` gibt nur der Test mit, damit der Wurf dort sicher fällt.
+ *
+ * `size` kommt als Funktion, und alles steckt in einem try/catch – aus dem
+ * gleichen Grund, aus dem jeder Nachbar in `settleMusic`/`settleCreator` sein
+ * `.catch(() => null)` trägt. Solange der Wurf an der Aktion hing, kostete ein
+ * Fehler darin nur diese Aktion. Als Teil der faulen Abrechnung würde er
+ * dagegen die ganze Ansicht mitnehmen (Studio, Netzwerk, Plattform, Deals,
+ * Vorfall) und dazu `/musik`, `/creator`, `!musik`, `!creator`. Ein Fehler darf
+ * den Wurf kosten, nicht die Ansicht – auch wenn er aus `music.status` oder
+ * `creator.reachTotalOf` kommt, also schon aus der Größe für den Wurf.
+ */
+function tickLine(guildId, userId, domain, size, random) {
+  try {
+    const neu = require('./decisions')
+      .tick(guildId, userId, domain, size(), Date.now(), random);
+    return neu ? incidentLine(neu) : null;
+  } catch { return null; }
 }
 
 /**
  * Rechnet die laufenden Tantiemen ab und beendet abgelaufene Verträge.
  * Läuft beim Öffnen des Studios (faule Abrechnung, §4).
  */
-async function settleMusic(guildId, userId) {
+async function settleMusic(guildId, userId, random = Math.random) {
   const music = require('./music');
   const symbol = await getSymbol(guildId);
   const lines = [];
@@ -292,7 +400,14 @@ async function settleMusic(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
-  return lines.length ? lines.join('\n') : null;
+
+  // Der Tageswurf des Studios: Hörer sind hier das, was Reichweite beim
+  // Creator ist (dieselbe Risikokurve, siehe decisions.riskPerDay).
+  const vorfall = tickLine(guildId, userId, 'music',
+    () => music.status(guildId, userId).listeners, random);
+  if (vorfall) lines.push(vorfall);
+
+  return notizAus(lines);
 }
 
 /** Verfallene Firmen-Vorfälle wirken beim Öffnen der Firma (§4) – wie settleMusic fürs Studio. */
@@ -305,7 +420,7 @@ async function settleFirma(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
-  return lines.length ? lines.join('\n') : null;
+  return notizAus(lines);
 }
 
 /**
@@ -1062,9 +1177,11 @@ function arbeitNote(res, symbol, now = Date.now()) {
       }
     });
     zeilen.push(`🎵 Die Tour mit **${name}** ist durch.`);
-    // Ein Vorfall aus einem der Abende wartet auf eine Entscheidung – ohne
-    // diese Zeile findet ihn niemand. `decisions.roll` lässt nur einen offen,
-    // also reicht der erste.
+    // Die Abende würfeln nicht mehr selbst: Einen Vorfall legt allein der
+    // Tageswurf `tick` an, und der läuft in `settleMusic`, nicht hier. `incident`
+    // der Abende ist deshalb leer, und diese Zeile bleibt als Netz für den Fall,
+    // dass ein Abend doch wieder einen meldet (je Bereich liegt höchstens einer
+    // offen, also reichte dann der erste).
     const note = zeilen.join('\n')
       + incidentNote(abende.find((a) => a?.incident)?.incident);
     // Wie bei `mshow`: Der fällige Beef steht VOR der Meldung. Abgerechnet hat
@@ -1132,6 +1249,12 @@ const buttons = {
     // derselbe Weg wie über den Knopf `musik` und den Befehl /musik.
     const studio = entryId === 'musik'
       ? await settleMusic(gid(interaction), uid(interaction)) : null;
+    // Das Netzwerk rechnet Katalog, Merch, Verträge, verfallene Vorfälle und den
+    // Tageswurf ab (§4) – derselbe Weg wie über die Plattform-Knöpfe und /creator.
+    // `menu.js` baut nur die Ansicht und hat keinen Weg für eine Notiz; darum
+    // steht die Abrechnung hier, wie beim Studio.
+    const netzwerk = entryId === 'creator'
+      ? await settleCreator(gid(interaction), uid(interaction)) : null;
     // Die Firma rechnet verfallene Vorfälle ab (§4) – derselbe Weg wie beim Studio.
     const firma = entryId === 'firma'
       ? await settleFirma(gid(interaction), uid(interaction)) : null;
@@ -1145,7 +1268,7 @@ const buttons = {
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, studio, firma, streit, nudge]
+    const notice = [news, settled, studio, netzwerk, firma, streit, nudge]
       .filter(Boolean).join('\n\n') || null;
 
     await interaction.update(
@@ -3357,13 +3480,22 @@ Object.assign(buttons, {
     await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
   },
 
-  /** Den offenen Vorfall ansehen. */
-  async vorfall(interaction) {
+  /**
+   * Den offenen Vorfall ansehen.
+   *
+   * Der Knopf trägt den Bereich, aus dessen Ansicht er stammt: Seit die Sperre
+   * je Bereich gilt, können drei Vorfälle gleichzeitig offen sein, und das
+   * Studio soll das Studio-Drama zeigen, nicht das neueste. Alte Knöpfe aus
+   * früheren Nachrichten tragen nur die Nutzer-ID – die zeigen weiter den
+   * neuesten (§6).
+   */
+  async vorfall(interaction, parts = []) {
     await interaction.deferUpdate();
     const guildId = gid(interaction);
     const userId = uid(interaction);
+    const domain = parts.length > 1 ? parts[0] : null;
     const notes = await settleCreator(guildId, userId);
-    await interaction.editReply(await buildDecisionView({ guildId, userId }));
+    await interaction.editReply(await buildDecisionView({ guildId, userId, domain }));
     if (notes) {
       await interaction.followUp({ content: notes, flags: MessageFlags.Ephemeral })
         .catch(() => {});
@@ -3940,7 +4072,7 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge, settleMusic, kontaktNote,
+  homeNudge, settleMusic, settleCreator, notizAus, NOTIZ_MAX, kontaktNote,
   releaseNote, releaseProblem,
   beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
   angebotNote, mitAngebote, settleAngebote, settleStrasse, angebotProblem,

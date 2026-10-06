@@ -57,14 +57,12 @@ function seq(...values) {
 }
 
 /**
- * Würfel für decisions.roll(): Der erste Aufruf (Risikoprüfung) trifft immer,
- * danach gleichverteilt (Auswahl der Vorlage). `() => 0` wäre falsch – die
+ * `roll` verlangt für Musik und Creator `schonGewuerfelt` – die Rate würfelt
+ * allein `tick`. Der Würfel, den man `roll` dann mitgibt, wird nur noch für die
+ * Auswahl der Vorlage gezogen (gleichverteilt). `() => 0` wäre falsch – die
  * Auswahl träfe dann immer die erste Vorlage.
  */
-function hit(rand) {
-  let first = true;
-  return () => { if (first) { first = false; return 0; } return rand(); };
-}
+const SCHON = { schonGewuerfelt: true };
 
 const setup = db.createItem({
   guildId: G, name: music.GEAR, price: 3400, kind: 'gear', stock: null, createdBy: 't',
@@ -101,13 +99,25 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
 (async () => {
   console.log('--- Der Katalog der schweren Vorfälle ---');
   {
-    check('fünf Vorfälle', MUSIC_DECISIONS.length === 5, String(MUSIC_DECISIONS.length));
+    // Fünf alte plus die zwei frühen (proberaum, kleiner_auftritt, Stück 3).
+    check('sieben Vorfälle', MUSIC_DECISIONS.length === 7, String(MUSIC_DECISIONS.length));
     const ids = new Set(MUSIC_DECISIONS.map((d) => d.id));
     check('IDs sind eindeutig', ids.size === MUSIC_DECISIONS.length);
     check('keine ID kollidiert mit einem Creator-Vorfall',
       DECISIONS.every((d) => !ids.has(d.id)));
+    /*
+     * Die Hörerschwelle muss DA sein – „> 0" war sie bis zu den frühen
+     * Vorfällen, und genau die fangen bei 0 an: Ein Anfänger hatte sonst keinen
+     * einzigen Kandidaten. Geprüft wird deshalb auf eine echte Zahl, nicht auf
+     * ein fehlendes Feld (undefined > 0 ist false, undefined >= 0 auch).
+     */
     check('jeder hat Titel, Text, Emoji, Hörerschwelle',
-      MUSIC_DECISIONS.every((d) => d.title && d.text && d.emoji && d.minListeners > 0));
+      MUSIC_DECISIONS.every((d) => d.title && d.text && d.emoji
+        && Number.isFinite(d.minListeners) && d.minListeners >= 0));
+    check('eine Obergrenze liegt, wenn sie da ist, über der Untergrenze',
+      MUSIC_DECISIONS.every((d) => d.maxListeners === undefined
+        || d.maxListeners > d.minListeners),
+      MUSIC_DECISIONS.map((d) => `${d.id}:${d.minListeners}-${d.maxListeners}`).join(' '));
     check('jeder hat mindestens zwei Optionen',
       MUSIC_DECISIONS.every((d) => d.options.length >= 2));
     check('jede Option hat gewichtete Ausgänge mit Text',
@@ -150,7 +160,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     let now = Date.now();
     for (let i = 0; i < 1000; i++) {
       const rand = rng(i + 1);
-      const ev = decisions.roll(G, U, 100_000, now, hit(rand), 'music');
+      const ev = decisions.roll(G, U, 100_000, now, rand, 'music', SCHON);
       if (ev) { got.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
       now += decisions.MIN_GAP_MS + 1000;
     }
@@ -162,10 +172,10 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       got.has('skandal'), [...got].join(' '));
     check('… und nie label (kein Vertrag)', !got.has('label'));
     check('die Zeile trägt platform = music',
-      decisions.roll(G, U, 100_000, now, () => 0, 'music')?.platform === 'music');
+      decisions.roll(G, U, 100_000, now, () => 0, 'music', SCHON)?.platform === 'music');
     db.clearEvents(G, U);
 
-    // Ein reiner Creator: Standard-Domäne, keine Musik-IDs.
+    // Ein reiner Creator: Bereich creator, keine Musik-IDs.
     const C = `fx:c${n++}`;
     db.clearCreator(G, C); db.clearEvents(G, C);
     const share = { twitch: 0.52, youtube: 0.24, instagram: 0.11, twitter: 0.13 };
@@ -176,7 +186,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     const gotC = new Set();
     for (let i = 0; i < 300; i++) {
       const rand = rng(i + 7);
-      const ev = decisions.roll(G, C, 1_000_000, now, hit(rand));
+      const ev = decisions.roll(G, C, 1_000_000, now, rand, 'creator', SCHON);
       if (ev) { gotC.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
       now += decisions.MIN_GAP_MS + 1000;
     }
@@ -194,7 +204,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       let t = now;
       for (let i = 0; i < tries; i++) {
         const rand = rng(i + 3);
-        const ev = decisions.roll(G, U, size, t, hit(rand), 'music');
+        const ev = decisions.roll(G, U, size, t, rand, 'music', SCHON);
         if (ev) { out.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: t }); }
         t += decisions.MIN_GAP_MS + 1000;
       }
@@ -537,22 +547,41 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     }
   }
 
-  console.log('\n--- Der Vorfall ist auffindbar ---');
+  console.log('\n--- Der Vorfall haengt am Tag, nicht an der Aktion ---');
   {
     const t0 = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + DAY_MS;
     const U = await artist({ listeners: 100_000, songs: 3 });
     check('ohne Vorfall: status().incident ist null', music.status(G, U, t0).incident === null);
-    // Der Vorfall-Würfel ist der letzte random()-Aufruf: erst Ereignis (none),
-    // dann Qualität, dann Vorfall (0 → trifft) und Auswahl (0 → erster).
+
+    /*
+     * Keine Aktion würfelt mehr selbst. Geprüft wird das mit Würfeln, bei
+     * denen ein verbliebener Wurf GANZ SICHER fiele: `record` mit der alten
+     * Folge (Ereignis none, Qualität, dann 0 für Risiko und Auswahl), `publish`
+     * und `show` mit einem Würfel, der durchweg 0 liefert. Addierten sich Rate
+     * je Aktion und Rate je Tag, wäre der Fleißige wieder der Gefährdete.
+     */
     const r = music.record(G, U, t0, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
-    check('eine Aktion kann einen Vorfall auslösen', r.ok && r.incident?.platform === 'music',
+    check('record legt keinen Vorfall mehr an', r.ok && r.incident === null,
       JSON.stringify(r.incident));
-    const s = music.status(G, U, t0 + 1);
-    check('status().incident zeigt ihn mit Vorlage', s.incident?.decision?.id === r.incident.kind);
-    const r2 = music.record(G, U, t0 + 7 * 3600e3, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
-    check('solange einer offen ist, kommt kein zweiter', r2.ok && r2.incident === null);
-    await decisions.choose(G, U, r.incident.id, s.incident.decision.options[0].id, t0 + 2, () => 0.5);
-    check('danach ist incident wieder null', music.status(G, U, t0 + 3).incident === null);
+    const rp = music.publish(G, U, 'single', t0 + 60e3, () => 0);
+    check('publish legt keinen Vorfall mehr an', rp.ok && rp.incident === null,
+      JSON.stringify(rp.reason ?? rp.incident));
+    const rs = await music.show(G, U, t0 + 120e3, () => 0);
+    check('show legt keinen Vorfall mehr an', rs.ok && rs.incident === null,
+      JSON.stringify(rs.reason ?? rs.incident));
+    check('… und nach drei Aktionen ist nichts offen', db.openEvent(G, U) === null);
+
+    // Gewürfelt wird der TAG – und dann ist der Vorfall auffindbar wie vorher.
+    const ev = decisions.tick(G, U, 'music', 100_000, t0 + 3600e3, () => 0);
+    check('der Tageswurf legt ihn an', ev?.platform === 'music', JSON.stringify(ev));
+    const s = music.status(G, U, t0 + 3600e3 + 1);
+    check('status().incident zeigt ihn mit Vorlage', s.incident?.decision?.id === ev.kind);
+    check('solange einer offen ist, kommt kein zweiter',
+      decisions.tick(G, U, 'music', 100_000, t0 + 2 * DAY_MS, () => 0) === null);
+    await decisions.choose(G, U, ev.id, s.incident.decision.options[0].id,
+      t0 + 3600e3 + 2, () => 0.5);
+    check('danach ist incident wieder null',
+      music.status(G, U, t0 + 3600e3 + 3).incident === null);
   }
 
   console.log('\n--- Ein verfallener Vorfall blockiert den nächsten Wurf nicht ---');
@@ -568,15 +597,15 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       createdAt: alt, expiresAt: alt + decisions.DECIDE_MS,
     });
     check('der überfällige Vorfall gilt als offen', db.openEvent(G, U)?.id === ev.id);
-    const blocked = music.record(G, U, t0, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
-    check('ohne Abrechnung blockiert er den Wurf', blocked.ok && blocked.incident === null);
+    check('ohne Abrechnung blockiert er den Tageswurf',
+      decisions.tick(G, U, 'music', 100_000, t0, () => 0) === null);
 
     const gone = await decisions.settle(G, U, t0 + 1);
     check('settle schließt ihn als verfallen', gone.length === 1 && gone[0].decision.id === 'plagiat'
       && db.openEvent(G, U) === null);
-    const r = music.record(G, U, t0 + 7 * 3600e3, seq(forceValue('record', pop, 'none'), 0.5, 0, 0));
-    check('danach kann die nächste Aktion einen neuen Vorfall würfeln',
-      r.ok && r.incident !== null && r.incident.id !== ev.id, JSON.stringify(r.incident));
+    const r = decisions.tick(G, U, 'music', 100_000, t0 + 7 * 3600e3, () => 0);
+    check('danach kann der nächste Tageswurf einen neuen Vorfall würfeln',
+      r !== null && r.id !== ev.id, JSON.stringify(r));
     db.clearEvents(G, U);
   }
 
@@ -601,6 +630,17 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       await music.settle(G, U, now);
       music.settleContracts(G, U, now + 1e5);
       await decisions.settle(G, U, now + 1.5e5);
+      /*
+       * Der Tageswurf steht an genau der Stelle, an der ihn das Spiel hat: in
+       * der faulen Abrechnung des Studios (buttons.settleMusic), NACH
+       * `decisions.settle` – ein eben verfallener Vorfall darf den neuen nicht
+       * blockieren. Ohne Ereignisse wird auch hier nicht gewürfelt, sonst wäre
+       * die Vergleichskarriere keine ohne Vorfälle mehr.
+       */
+      if (events) {
+        decisions.tick(G, U, 'music', music.status(G, U, now + 1.6e5).listeners,
+          now + 1.6e5, rand);
+      }
       const vor = music.status(G, U, now + 2e5);
       if (!(vor.showMs <= 0 && vor.listeners >= music.SHOW_MIN_LISTENERS)) {
         music.record(G, U, now + 2e5, rand, opts);
@@ -652,11 +692,53 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       countsOhne.map((c) => c.vorfaelle).join(' '));
     check('mit Ereignissen: Median höchstens 10 % über ohne (§3)',
       mMit <= mOhne * 1.1, `${de(mMit)} vs ${de(mOhne)}`);
-    // Erwartung ≈ 11 Vorfälle je Jahr am 2 %-Boden (riskFor bleibt unter 750.000 Hörern bei RISK_MIN).
-    // „≥ 10 je Lauf" wäre gegen die Poisson-Streuung ein Münzwurf; die Summe über fünf Läufe
-    // ist es nicht (P(Σ < 35 | λ = 55) < 0,3 %).
+    /*
+     * Gewürfelt wird jetzt der TAG (decisions.tick): 2…4 % je Tag in diesem
+     * Hörerbereich (riskPerDay unter 500.000), also rund 8 Vorfälle je Jahr und
+     * ≈ 40 über fünf Läufe. Vorher hing die Zahl an den Aktionen (2 % je
+     * Aktion) und schwankte entsprechend stark – 7 bis 16 je Lauf statt 6 bis 11.
+     * „≥ 10 je Lauf" wäre gegen die Streuung ein Münzwurf; die Summe über fünf
+     * Läufe ist es nicht.
+     */
     const summe = counts.reduce((s, c) => s + c.vorfaelle, 0);
-    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (Erwartung ≈ 55)',
+    /*
+     * Ehrlich zur Schwelle: Gemessen sind Σ 47 (feste Seeds, deterministisch).
+     * Die Zahl stand hier bis zur Messung von 5f als Σ 41 – das war der Stand
+     * vor den vier frühen Vorfällen: Unter 5.000 Hörern hatte der Katalog
+     * keinen Kandidaten, der Wurf fiel ins Leere, und die Uhr war trotzdem
+     * geschrieben. Mit `proberaum` und `kleiner_auftritt` (Schwelle 0) geht dort
+     * kein Wurf mehr verloren, und dieselben fünf Seeds geben 47.
+     *
+     * EHRLICH ZU DIESEM VERGLEICH: 41 → 47 ist eine Differenz zweier Summen aus
+     * je fünf Stichproben, und sie trägt die RICHTUNG, nicht die GRÖSSE. Je Seed
+     * sind es 6→6, 8→7, 7→11, 11→16, 9→7 – zwei von fünf gehen nach UNTEN, die
+     * Bewegung ist ±5 je Seed, und das Poisson-Rauschen auf einer Summe dieser
+     * Größe liegt allein schon bei ±7. Die +6 ist damit von 0 nicht zu trennen,
+     * und würfelpaarig sind die beiden Läufe ohnehin nicht: Ein Vorfall
+     * verschiebt die Hörerkurve und damit jede folgende Rate. Aus diesen fünf
+     * Seeds eine Rate „je Jahr" zu rechnen, wäre ein Messfehler.
+     *
+     * WAS BELEGT IST, steht in `docs/messungen/2026-10-06-vorfaelle.txt`: Der
+     * Verlust an die leere Kandidatenliste ist jetzt 0 (0 leere Würfe mit Grund
+     * „kein Kandidat" in allen dreizehn Stufen, ≥ 2 Kandidaten schon bei
+     * Reichweite 0). Und seine Größe ist gezählt: Im Karriere-Lauf fielen 44 von
+     * 584 Vorfällen des reinen Musikers bei 10.000 Hörern oder darunter (0,73 je
+     * Jahr), und 30 davon unter 5.000 – genau die vorher verlorenen Würfe: 0,50
+     * je Jahr, über die fünf Jahre dieses Tests also 2,5. Die +6 oben ist mehr
+     * als das Doppelte davon; sie ist Rauschen und keine Rate.
+     *
+     * Wäre die Zahl Poisson-verteilt mit λ ≈ 47, läge P(Σ < 35) = P(Σ ≤ 34) bei
+     * 2,9 % (bei dem früheren λ = 41 waren es rund 15 %) –
+     * die Schwelle taugt also NICHT als Schutz gegen Zufallsstreuung, und sie
+     * muss es auch nicht: Mit festen Seeds fällt dieselbe Zahl bei jedem Lauf.
+     * Sie ist ein Regressionsschutz. Fiele Σ unter 35, hätte sich etwas
+     * Strukturelles verändert (Rate, Sperre, Abstand, Wurfstelle) – ein Viertel
+     * weniger als gemessen. Strenger wäre sie nur durch Anlehnung an genau
+     * diesen einen Seed (47), und dann kippte jede harmlose Änderung der
+     * Würfelreihenfolge den Test, ohne dass die Rate falsch wäre. Die Schwelle
+     * selbst bleibt bei 35 – sie darf nur strenger werden, nicht schwächer.
+     */
+    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (gemessen 47 = 9,4 je Jahr)',
       summe >= 35, String(summe));
     check('… und in keinem Lauf weniger als 3',
       counts.every((c) => c.vorfaelle >= 3), counts.map((c) => c.vorfaelle).join(' '));

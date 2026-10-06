@@ -290,6 +290,33 @@ Reichweite aus `creator.reachTotalOf(guildId, userId, …)`. Den genauen Text im
 Stil der Nachbarzeilen in derselben Funktion wählen; `decisions.pending` liefert
 die Vorlage, falls `tick` nur die DB-Zeile zurückgibt.
 
+- [ ] **Schritt 2b: `pending` braucht einen Bereich**
+
+Mit Sperren je Bereich können **drei** Vorfälle gleichzeitig offen sein, aber
+`decisions.pending` ruft `db.openEvent(guildId, userId)` ohne Bereich und gibt
+nur den neuesten zurück (`ORDER BY id DESC LIMIT 1`). Die anderen zwei wären
+über die Ansicht unerreichbar, bis sie verfallen – und ein verfallener Vorfall
+kostet den Ignorier-Aufschlag.
+
+Dass das schon vorher ein Problem war, steht im Code: `src/company.js:1476`
+filtert das Ergebnis von `pending` behelfsweise selbst
+(`p?.platform === 'company' ? p : null`).
+
+`pending(guildId, userId, now, domain = null)` bekommt den Bereich durch, und
+alle vier Aufrufstellen geben ihren an:
+
+| Stelle | Bereich |
+|---|---|
+| `src/music.js:1089` (`status().incident`) | `'music'` |
+| `src/creator.js:1087` | `'creator'` |
+| `src/company.js:1476` | `'company'` – die behelfsmäßige Filterzeile fällt weg |
+| `src/ui.js:3533` | der Bereich der Ansicht, in der die Zeile steht |
+
+Ohne `domain` verhält sich `pending` wie bisher, damit nichts Ungeprüftes bricht.
+
+Test: drei Vorfälle gleichzeitig offen (Musik, Creator, Firma) – jede der drei
+Ansichten zeigt **ihren**, nicht den neuesten.
+
 - [ ] **Schritt 3: Tests**
 
 ```js

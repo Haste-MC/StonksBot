@@ -34,6 +34,7 @@
  *          node scripts/messung-geldquellen.js 10 365 --nur=kontakte
  *          node scripts/messung-geldquellen.js 10 365 --nur=beef
  *          node scripts/messung-geldquellen.js 10 365 --nur=angebote
+ *          node scripts/messung-geldquellen.js 10 365 --nur=vorfaelle
  *          node scripts/messung-geldquellen.js stufenprobe [würfe]
  *              – Gegenprobe: der gerechnete erwartete Stufenfaktor gegen die
  *                gewürfelte `contacts.stufeVon` (läuft in Sekunden).
@@ -106,6 +107,9 @@ const TRACE = (process.argv.find((a) => a.startsWith('--trace=')) ?? '').slice('
  *   `nachfrage` Nachfrage-Drift (Stück 3c) – billig, der Rest braucht Minuten.
  *   `kontakte`  Kontaktpflege mit und ohne (Stück 5a) – zwei Archetypen, je drei Varianten.
  *   `beef`      Beef und Disstracks (Stück 5b/5c) – zwei Archetypen, je SECHS Varianten
+ *   `vorfaelle` Vorfälle bei Musik und Creator (Stück 5f) – Handprüfung, Vorfälle je
+ *               Jahr nach Reichweite, Türprobe, Sperre mit und ohne Bereichsfilter,
+ *               dazu der Karriere-Lauf „aus" gegen „an" (zwei Archetypen).
  *   `angebote`  Gegenanfragen und große Formate (Stück 5c) – zwei Archetypen, je SECHS
  *               Varianten plus ein Kontrollpaar für das Kollabo-Album
  *               (ohne Beef · passiv · Beef-Spielweise · ohne Beef, aber Album statt Single ·
@@ -907,6 +911,15 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    */
   const angebotRand = rng(seed + 900_000);
   if (ag) ag.rand = angebotRand;
+  /*
+   * FÜNFTER Würfel für die Vorfälle (Stück 5f), aus genau dem Grund der drei
+   * davor: Der Tageswurf und die Wahl der Option dürfen den Musik- und
+   * Kanalstrom nicht verschieben, sonst wäre schon die Variante „ohne Vorfälle"
+   * ein anderer Lauf als die mit. Angelegt wird er in JEDER Variante – das
+   * Anlegen selbst berührt `rand` nicht.
+   */
+  const vorfallRand = rng(seed + 1_100_000);
+  if (vf) vf.rand = vorfallRand;
   ausruesten(G, U);
   await home.setHome(G, U, 'de');
   if (musik) music.setup(G, U, 'pop', music.PERSONAS[0].id);
@@ -1003,16 +1016,50 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
     energieSumme += creator.energyOf(G, U, Math.max(now + 20e6, now + 6e6 + minuten * 60_000)).energy;
 
     /*
-     * Vorfälle wie ein Spieler behandeln: Verfallene abrechnen, offene mit
-     * zufälliger Option entscheiden. Ohne das bleibt der erste Vorfall des
-     * Jahres ewig offen und blockiert alle weiteren – genau so hat eine
-     * frühere Messung „einen Vorfall pro Jahr" gemeldet.
+     * Vorfälle wie ein Spieler behandeln: Verfallene abrechnen, würfeln, offene
+     * mit zufälliger Option entscheiden. Ohne das Entscheiden bleibt der erste
+     * Vorfall des Jahres ewig offen und blockiert alle weiteren – genau so hat
+     * eine frühere Messung „einen Vorfall pro Jahr" gemeldet.
+     *
+     * DER TAGESWURF (Stück 5f) steht hinter `strat.vorfaelle` und läuft damit
+     * NUR im Vorfall-Abschnitt. Zwei Gründe: Die Zahlen der Abschnitte 5a–5c
+     * sind ohne ihn gemessen, und eine stille Rate in allen Läufen würde sie
+     * ändern, ohne dass es jemand sieht. Gerufen wird er mit DENSELBEN
+     * Argumenten wie im Spiel (`buttons.settleMusic`: Hörer · `settleCreator`:
+     * `creator.reachTotalOf`), NACH `decisions.settle` – ein eben verfallener
+     * Vorfall darf den neuen nicht blockieren.
+     *
+     * Ohne ihn hat ein Karriere-Lauf NULL Vorfälle, denn die Würfe je Aktion
+     * sind seit 5f weg: `music.record`, `publish`, `show` und `creator.act`
+     * rufen `decisions.roll` nicht mehr. Das ist genau die stille Null, gegen
+     * die die Kontrollzeilen des Abschnitts gebaut sind.
      */
     await decisions.settle(G, U, now + 20.5e6);
-    const offen = decisions.pending(G, U, now + 20.6e6);
-    if (offen) {
-      const o = offen.decision.options[Math.floor(rand() * offen.decision.options.length)];
-      await decisions.choose(G, U, offen.id, o.id, now + 20.6e6, rand);
+    if (strat.vorfaelle) {
+      if (musik) {
+        vorfallWurf(G, U, 'music', music.status(G, U, now + 20.52e6).listeners,
+          now + 20.52e6, vorfallRand);
+      }
+      vorfallWurf(G, U, 'creator', creator.reachTotalOf(G, U,
+        db.allCreator(G, U).reduce((s, r) => s + r.followers, 0)), now + 20.54e6, vorfallRand);
+    }
+    /*
+     * Entschieden wird JE BEREICH: Seit 5f können Musik, Creator und Firma
+     * gleichzeitig einen offenen Vorfall haben. `pending` ohne Bereich gäbe nur
+     * den neuesten zurück, die anderen verfielen – und ein verfallener Vorfall
+     * ist teurer (IGNORE_PENALTY 1,6). Der Würfel ist der Vorfallsstrom, sobald
+     * der Tageswurf läuft; ohne ihn kann hier ohnehin nichts offen sein.
+     */
+    for (const bereich of ['music', 'creator', 'company']) {
+      const offen = decisions.pending(G, U, now + 20.6e6, bereich);
+      if (!offen) continue;
+      const w = strat.vorfaelle ? vorfallRand : rand;
+      const o = offen.decision.options[Math.floor(w() * offen.decision.options.length)];
+      const ch = await decisions.choose(G, U, offen.id, o.id, now + 20.6e6, w);
+      if (vf) {
+        if (ch?.ok === false) vf.fehler.push(`${bereich}/${offen.kind}: ${ch.reason}`);
+        else vf.beantwortet[bereich] = (vf.beantwortet[bereich] ?? 0) + 1;
+      }
     }
 
     /*
@@ -3993,6 +4040,849 @@ async function angebotelauf(laeufe, tage) {
   }
 }
 
+// =====================================================================
+//  Vorfälle bei Musik und Creator (Stück 5f): vom Wurf je Aktion zum Wurf
+//  je Tag
+// =====================================================================
+/*
+ * Die eine Frage: Wie viele Vorfälle bekommt ein Spieler jetzt im JAHR – nach
+ * Reichweite aufgeschlüsselt –, und verschiebt das seine Bilanz um mehr als
+ * ±25 % in eine der beiden Richtungen?
+ *
+ * Warum es den Abschnitt gibt: Bis 5f hing ein Vorfall an der Zahl der
+ * AKTIONEN (2 % je Aktion, im Schnitt fünfzig Aktionen bis zum ersten) – für
+ * einen Gelegenheitsspieler unsichtbar. Seit 5f würfelt `decisions.tick` über
+ * die vergangenen TAGE, in derselben Form wie die Firma.
+ *
+ * WARUM DER WURF HIER NEU EINGEHÄNGT WERDEN MUSSTE: Die Würfe je Aktion sind
+ * weg (`music.record`, `publish`, `show` und `creator.act` rufen
+ * `decisions.roll` nicht mehr), und `karriere` rief `tick` nicht. Ein
+ * Karriere-Lauf hätte deshalb NULL Vorfälle gemeldet, ohne dass irgendetwas
+ * nach einem Fehler aussieht. Genau diese stille Null ist der Fehler, gegen
+ * den jede Kontrollzeile hier gebaut ist.
+ *
+ * Fünf Teile:
+ *
+ *  (1) HANDPRÜFUNG ohne Simulation – `riskPerDay` und `chanceOver` von Hand
+ *      nachgerechnet und gegen den Code gehalten.
+ *  (2) STUFENLAUF – Reichweite FESTGEHALTEN, ein Jahr je Stufe. Das ist die
+ *      Zahl, die neben der Spec-Tabelle steht, und sie misst ausdrücklich
+ *      etwas anderes als eine Karriere (siehe dort).
+ *  (3) TÜRPROBE – wer einen Bereich nicht betreten hat, würfelt dort nicht.
+ *  (4) SPERRE – derselbe Lauf mit und ohne Bereichsfilter, damit „die Firma
+ *      nahm der Musik die Vorfälle weg" eine Zahl bekommt.
+ *  (5) KARRIERE-LAUF – zwei Archetypen, Varianten „aus" und „an", gepaart je
+ *      Seed, gegen den ±25-%-Auslöser.
+ */
+
+/** Die vier Vorfälle „vom Anfangen" (Schwelle 0, Obergrenze FRUEH_MAX). */
+const VORFALL_FRUEH = new Set(['proberaum', 'kleiner_auftritt', 'erster_sponsor', 'festplatte']);
+
+/**
+ * Die Reichweitenstufen des Stufenlaufs – mindestens unter 5.000, um 100.000,
+ * über 1 Mio. 10.000 und 20.000 stehen beide darin, weil zwischen ihnen die
+ * frühen Vorfälle verschwinden (`FRUEH_MAX`, Obergrenze inklusiv).
+ */
+const VORFALL_STUFEN = [0, 2_000, 5_000, 10_000, 20_000, 100_000, 500_000, 1_000_000, 1_500_000];
+
+/** Zähler des laufenden Vorfall-Laufs – `null`, solange nicht gemessen wird. */
+let vf = null;
+
+function neuerVorfallZaehler(variante) {
+  return {
+    variante,
+    rand: null,
+    tage: {},                 // Bereich -> Tage, an denen `tick` gerufen wurde
+    wuerfe: {},               // Bereich -> Tage, an denen die Uhr geschrieben wurde (= gewürfelt)
+    keinWurf: {},             // Bereich -> Tage ohne Wurf
+    tuerZu: {},               // davon: Bereich nicht betreten
+    offenBlockt: {},          // davon: offener Vorfall DIESES Bereichs
+    durch: {},                // Bereich -> Würfe, bei denen der Würfel durchkam
+    leer: {},                 // Grund -> Würfe, die trotz Durchkommen nichts gaben
+    vorfaelle: {},            // Bereich -> Vorfälle
+    beantwortet: {},          // Bereich -> entschiedene Vorfälle
+    arten: {},                // Vorfall-ID -> Anzahl
+    frueh: {},                // Bereich -> frühe Vorfälle
+    fruehReach: [],           // Reichweite beim Ziehen eines frühen Vorfalls
+    spaetReach: [],           // dasselbe für die übrigen
+    nachgeholt: [],           // `tage` je Wurf (Deckel ROLL_TAGE_MAX)
+    abstaende: [],            // Stunden zwischen zwei Vorfällen DESSELBEN Bereichs
+    zuDicht: 0,               // Verstöße gegen MIN_GAP_MS
+    letzter: {},              // Bereich -> created_at des letzten Vorfalls
+    fehler: [],               // abgelehnte `choose`-Aufrufe (muss leer bleiben)
+    /*
+     * Zeilen in `creator_events`, am Ende jedes Laufs direkt aus der Tabelle
+     * gezählt – NICHT von dieser Instrumentierung gefüllt.
+     *
+     * Der Grund steht in der Kontrollzeile: `vorfaelle` und `wuerfe` hängen
+     * beide an `vorfallWurf`, und die Variante „aus" ruft `vorfallWurf` nie.
+     * Zwei der drei Beine der Kontrolle wären damit null, weil sie niemand
+     * füllt, und nicht, weil nichts passiert ist. Diese Zeilenzahl und der
+     * Kontoposten „Vorfall" sind die zwei Beine, die ohne die Instrumentierung
+     * auskommen.
+     */
+    zeilen: 0,
+  };
+}
+
+/**
+ * Wie viele Kandidaten der Katalog bei dieser Reichweite hergibt.
+ *
+ * NACHGEBAUT aus `decisions.roll` (dieselben Felder, dieselbe
+ * `musicEligible`-Prüfung) und nur zur Diagnose da: Sie sagt, WARUM ein
+ * durchgekommener Wurf nichts gegeben hat. Der Nachbau prüft sich selbst – jede
+ * leere Antwort, die er nicht erklärt, landet unter `leer.unerklaert`, und diese
+ * Zahl muss null sein.
+ */
+function vorfallKandidaten(G, U, domain, size, now) {
+  if (domain === 'music') {
+    const artist = db.getArtist(G, U, now);
+    const contract = db.activeContract(G, U);
+    return decisions.MUSIC_DECISIONS.filter((d) => size >= d.minListeners
+      && size <= (d.maxListeners ?? Infinity) && decisions.musicEligible(d, artist, contract));
+  }
+  return decisions.DECISIONS.filter((d) => size >= d.minReach && size <= (d.maxReach ?? Infinity));
+}
+
+/**
+ * Der Tageswurf im Messlauf – derselbe Aufruf wie in `buttons.settleMusic` und
+ * `buttons.settleCreator`, nur mit Zählung drumherum.
+ *
+ * Der Würfel wird in eine Hülle gelegt, die jeden Zug mitschreibt. Damit ist
+ * nachträglich zu sehen, ob der Würfel durchgekommen ist (erster Zug gegen
+ * `chanceOver`) – und ein Wurf, der durchkam und trotzdem nichts gab, bekommt
+ * seinen Grund statt einer Vermutung. Die Hülle gibt genau die Zahlen weiter,
+ * die der Strom liefert; der Lauf bleibt derselbe.
+ */
+function vorfallWurf(G, U, domain, size, now, rand) {
+  const uhrVor = db.decisionUhr(G, U, domain).last_roll;
+  const offenVor = Boolean(db.openEvent(G, U, domain));
+  const betreten = decisions.betreten(G, U, domain);
+  const abstandZu = now - db.lastEventAt(G, U, domain) < decisions.MIN_GAP_MS;
+  const kandidaten = vorfallKandidaten(G, U, domain, size, now).length;
+  const zuege = [];
+  const beob = () => { const v = rand(); zuege.push(v); return v; };
+  const neu = decisions.tick(G, U, domain, size, now, beob);
+  const z = vf;
+  if (!z) return neu;
+  z.tage[domain] = (z.tage[domain] ?? 0) + 1;
+  if (db.decisionUhr(G, U, domain).last_roll === uhrVor) {
+    z.keinWurf[domain] = (z.keinWurf[domain] ?? 0) + 1;
+    if (!betreten) z.tuerZu[domain] = (z.tuerZu[domain] ?? 0) + 1;
+    else if (offenVor) z.offenBlockt[domain] = (z.offenBlockt[domain] ?? 0) + 1;
+    return neu;
+  }
+  z.wuerfe[domain] = (z.wuerfe[domain] ?? 0) + 1;
+  const tage = uhrVor ? Math.min(decisions.ROLL_TAGE_MAX, Math.floor((now - uhrVor) / DAY)) : 1;
+  z.nachgeholt.push(tage);
+  if (zuege.length && zuege[0] < decisions.chanceOver(size, tage)) {
+    z.durch[domain] = (z.durch[domain] ?? 0) + 1;
+    if (!neu) {
+      const grund = abstandZu ? 'abstand' : kandidaten === 0 ? 'keinKandidat' : 'unerklaert';
+      z.leer[grund] = (z.leer[grund] ?? 0) + 1;
+    }
+  }
+  if (neu) {
+    z.vorfaelle[domain] = (z.vorfaelle[domain] ?? 0) + 1;
+    z.arten[neu.kind] = (z.arten[neu.kind] ?? 0) + 1;
+    if (VORFALL_FRUEH.has(neu.kind)) {
+      z.frueh[domain] = (z.frueh[domain] ?? 0) + 1;
+      z.fruehReach.push(Math.round(size));
+    } else z.spaetReach.push(Math.round(size));
+    const letzter = z.letzter[domain] ?? 0;
+    if (letzter) {
+      z.abstaende.push((neu.created_at - letzter) / 3600e3);
+      if (neu.created_at - letzter < decisions.MIN_GAP_MS) z.zuDicht++;
+    }
+    z.letzter[domain] = neu.created_at;
+  }
+  return neu;
+}
+
+/**
+ * (1) Die Handprüfung: dieselben Zahlen zweimal gerechnet.
+ *
+ * Links die Formel aus der Spec, hier von Hand hingeschrieben, rechts der Code.
+ * Stimmen sie nicht auf die vierte Stelle überein, ist jede weitere Zahl dieses
+ * Abschnitts wertlos – deshalb steht die Prüfung VOR jeder Simulation.
+ */
+function vorfallHandprobe() {
+  const out = [];
+  const handP = (r) => Math.min(0.08, Math.max(0.02, 0.02 + (Math.max(0, r) / 1_500_000) * 0.06));
+  const handChance = (r, t) => 1 - (1 - handP(r)) ** Math.min(14, Math.max(0, t));
+  let fehler = 0;
+  out.push('Formel von Hand: p = clamp(0,02; 0,08; 0,02 + reichweite / 1.500.000 × 0,06) · ' +
+    'chance(tage) = 1 − (1 − p)^min(tage, 14)');
+  out.push('Reichweite      p Hand   p Code   erwartet/Jahr (365×p)   chance(1 Tag) Hand/Code   ' +
+    'chance(14) Hand/Code   chance(30) Code (Deckel!)   30 Kalendertage 1−(1−p)^30');
+  for (const r of [0, 100_000, 500_000, 1_000_000, 1_500_000, 3_000_000]) {
+    const pH = handP(r);
+    const pC = decisions.riskPerDay(r);
+    const c1H = handChance(r, 1); const c1C = decisions.chanceOver(r, 1);
+    const c14H = handChance(r, 14); const c14C = decisions.chanceOver(r, 14);
+    const c30C = decisions.chanceOver(r, 30);
+    const kal = 1 - (1 - pH) ** 30;
+    const ok = Math.abs(pH - pC) < 1e-12 && Math.abs(c1H - c1C) < 1e-12 && Math.abs(c14H - c14C) < 1e-12;
+    if (!ok) fehler++;
+    out.push(`${de(r).padStart(10)}   ${komma(pH, 4)}   ${komma(pC, 4)}   ${komma(365 * pH, 1).padStart(6)}` +
+      `                  ${komma(c1H * 100, 2)} / ${komma(c1C * 100, 2)} %        ` +
+      `${komma(c14H * 100, 1)} / ${komma(c14C * 100, 1)} %        ${komma(c30C * 100, 1)} %` +
+      `                    ${komma(kal * 100, 1)} %   ${ok ? '✔' : 'FEHLER'}`);
+  }
+  out.push(`KONTROLLE Handprüfung: ${fehler === 0
+    ? 'Hand und Code stimmen an allen 6 Punkten auf 1e-12 überein ✔'
+    : `FEHLER – ${fehler} Punkte weichen ab`}`);
+  out.push('Spec-Tabelle zum Vergleich: 0 → 7,3 · 100.000 → 8,8 · 500.000 → 14,6 · 1 Mio → 21,9 · ' +
+    '≥ 1,5 Mio → 29,2 Vorfälle je Jahr. Das ist 365 × p und damit eine OBERGRENZE ohne Sperre:');
+  out.push('  Die Spec-Spalte „Chance in 30 Tagen" (45,5 % bei p = 0,02) ist 1 − (1 − p)^30, also 30 ' +
+    'einzelne Tageswürfe. `chanceOver(reichweite, 30)` gibt etwas anderes (24,4 %), weil ROLL_TAGE_MAX ' +
+    'die NACHGEHOLTEN Tage auf 14 deckelt – beide Zahlen sind richtig, sie antworten auf zwei Fragen. ' +
+    'Im normalen Spiel (ein Wurf je Tag) gilt die Spec-Spalte.');
+  return out;
+}
+
+/**
+ * (2) Ein Stufenlauf: Reichweite FESTGEHALTEN, ein Jahr, ein Bereich.
+ *
+ * Warum festgehalten: Die Spec-Tabelle ist eine Zeile je Reichweite, nicht eine
+ * Karriere. „8,8 Vorfälle bei 100.000" heißt „wer ein Jahr lang 100.000 hat" –
+ * nicht „wer im Laufe des Jahres dort ankommt". Genau deshalb steht dieser Lauf
+ * neben dem Karriere-Lauf und nicht an seiner Stelle.
+ *
+ * Der Vorfall wird gezählt und SOFORT GESCHLOSSEN (`db.resolveEvent`), seine
+ * Wirkung bleibt aus: Gemessen wird hier die HÄUFIGKEIT bei festgehaltener
+ * Reichweite. Würde der Lauf entscheiden, verschöbe `applyMusic` die Hörerzahl
+ * der Künstlerzeile – und die festgehaltene Reichweite wäre keine mehr. Was ein
+ * Vorfall KOSTET, misst Teil (5).
+ */
+async function stufenlauf(domain, reach, tage, seed) {
+  const kennung = `vf_stufe_${domain}_${reach}_${seed}`;
+  const G = welt(kennung);
+  const U = `fx:${kennung}`;
+  ausruesten(G, U);
+  await home.setHome(G, U, 'de');
+  let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+  const rand = rng(seed);
+  // Die Tür aufmachen – `betreten` prüft die BENUTZUNG, nicht die Größe.
+  if (domain === 'music') music.setup(G, U, 'pop', music.PERSONAS[0].id);
+  else {
+    const p = creator.PLATFORMS[0];
+    const f = creator.formats(p.id)[0];
+    const r = await creator.act(G, U, p.id, f.id, now, rand);
+    if (!r.ok) throw new Error(`Stufenlauf ${domain}: erste Kanalaktion abgelehnt (${r.reason})`);
+  }
+  if (!decisions.betreten(G, U, domain)) throw new Error(`Stufenlauf ${domain}: Tür blieb zu`);
+  const merk = vf;
+  vf = neuerVorfallZaehler(`stufe_${domain}_${reach}`);
+  let z;
+  let kandidaten = [];
+  try {
+    for (let d = 0; d < tage; d++) {
+      const t = now + 1.6e5;
+      await decisions.settle(G, U, t - 1e4);
+      const neu = vorfallWurf(G, U, domain, reach, t, rand);
+      if (neu) {
+        db.resolveEvent(G, neu.id, {
+          status: 'done', choice: '(nur gezählt)', outcome: '', effect: '', at: t + 1e3,
+        });
+        vf.beantwortet[domain] = (vf.beantwortet[domain] ?? 0) + 1;
+      }
+      now += DAY;
+    }
+    kandidaten = vorfallKandidaten(G, U, domain, reach, now);
+  } finally {
+    // Der Zähler muss weg, auch wenn ein Lauf abbricht – sonst zählt die Hülle
+    // in jeden folgenden Lauf hinein.
+    z = vf;
+    vf = merk;
+  }
+  return { z, kandidaten };
+}
+
+/**
+ * (3) Die Türprobe: Wer einen Bereich nicht betreten hat, würfelt dort nicht.
+ *
+ * Drei Spieler, ein Jahr, dieselbe Reichweite im Aufruf:
+ *   „nur geschaut"  – `creator.settle` hat die Kanalzeile angelegt, 0 Aktionen.
+ *   „nur Musik"     – echte Musikkarriere, nie eine Kanalaktion gesendet.
+ *   „hat gesendet"  – eine echte `creator.act`.
+ * Die ersten zwei MÜSSEN null Creator-Vorfälle haben, der dritte nicht.
+ */
+async function tuerprobe(tage) {
+  const out = [];
+  const faelle = [
+    ['nur geschaut (creator.settle hat die Zeile angelegt, 0 Aktionen)', 'geschaut'],
+    ['nur Musik (Karriere gestartet, nie eine Kanalaktion)', 'nurmusik'],
+    ['hat gesendet (eine echte creator.act)', 'gesendet'],
+  ];
+  for (const [titel, art] of faelle) {
+    const G = welt(`vf_tuer_${art}`);
+    const U = `fx:vf_tuer_${art}`;
+    ausruesten(G, U);
+    await home.setHome(G, U, 'de');
+    let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+    const rand = rng(77);
+    if (art === 'geschaut') await creator.settle(G, U, now);
+    if (art === 'nurmusik') music.setup(G, U, 'pop', music.PERSONAS[0].id);
+    if (art === 'gesendet') {
+      const p = creator.PLATFORMS[0];
+      const r = await creator.act(G, U, p.id, creator.formats(p.id)[0].id, now, rand);
+      if (!r.ok) throw new Error(`Türprobe: Kanalaktion abgelehnt (${r.reason})`);
+    }
+    let n = 0;
+    for (let d = 0; d < tage; d++) {
+      const t = now + 1.6e5;
+      await decisions.settle(G, U, t - 1e4);
+      const neu = decisions.tick(G, U, 'creator', 100_000, t, rand);
+      if (neu) {
+        n++;
+        db.resolveEvent(G, neu.id, { status: 'done', choice: '(nur gezählt)', outcome: '', effect: '', at: t + 1e3 });
+      }
+      now += DAY;
+    }
+    const soll = art === 'gesendet';
+    out.push(`${titel}: ${n} Creator-Vorfälle in ${tage} Tagen – ` +
+      `${soll ? (n > 0 ? 'erwartet > 0 ✔' : 'FEHLER – die Tür ist zu, obwohl gesendet wurde')
+        : (n === 0 ? 'erwartet 0 ✔' : 'FEHLER – gewürfelt, ohne den Bereich betreten zu haben')}` +
+      `  (reachTotalOf im Aufruf: 100.000, also wäre der Katalog voll)`);
+  }
+  return out;
+}
+
+/**
+ * (4) Die Sperre: derselbe Lauf mit und ohne Bereichsfilter.
+ *
+ * Ein Spieler, der alle drei Bereiche bespielt: Musik (Hörer festgehalten),
+ * Creator (Reichweite festgehalten) und eine Firma der Größe `groesse`. Jeden
+ * Tag würfeln alle drei, dann wird jeder offene Vorfall geschlossen – ein
+ * Spieler, der täglich hereinschaut, hat am Abend nichts offen.
+ *
+ * Der FIRMENWURF steht hier als direkter `decisions.roll(…, 'company')` mit
+ * einem abgerechneten Tag – genau der Aufruf, den `company.settle` macht
+ * (`src/company.js`, „Ein Vorfall je Abrechnung"). Eine echte Firma mit Lager,
+ * Werbung und Entnahme braucht es dafür nicht; gemessen wird die SPERRE, nicht
+ * das Geld. Alle Vorfälle werden deshalb gezählt und sofort geschlossen, ohne
+ * Wirkung.
+ *
+ * „Ohne Filter" ist der Zustand VOR 5f: `db.openEvent` und `db.lastEventAt`
+ * ohne Bereich, also eine Sperre und ein Mindestabstand für alles. Gelegt wird
+ * das über eine Hülle um die zwei Abfragen – derselbe Code, nur das Argument
+ * fällt weg.
+ *
+ * Die REIHENFOLGE der drei Würfe ist im Spiel beliebig (jeder Bereich würfelt,
+ * wenn der Spieler seine Ansicht öffnet). Ohne Filter entscheidet sie darüber,
+ * wer die Sperre bekommt – deshalb wird sie als eigene Variante mitgefahren.
+ */
+async function sperrelauf(tage, seed, { filter, reihenfolge, beantworten, hoerer, reichweite, groesse, npc }) {
+  const kennung = `vf_sperre_${filter ? 'an' : 'aus'}_${reihenfolge}_${beantworten}_${seed}`;
+  const G = welt(kennung);
+  const U = `fx:${kennung}`;
+  ausruesten(G, U);
+  await home.setHome(G, U, 'de');
+  let now = new Date(new Date().setHours(6, 0, 0, 0)).getTime();
+  music.setup(G, U, 'pop', music.PERSONAS[0].id);
+  const p = creator.PLATFORMS[0];
+  const erst = await creator.act(G, U, p.id, creator.formats(p.id)[0].id, now, rng(seed + 7));
+  if (!erst.ok) throw new Error(`Sperrelauf: erste Kanalaktion abgelehnt (${erst.reason})`);
+  // Je Bereich ein eigener Würfel: Ohne Filter würfelt ein gesperrter Bereich
+  // gar nicht, und ein gemeinsamer Strom wäre danach verschoben – die Differenz
+  // wäre dann zur Hälfte ein anderer Würfel.
+  const randM = rng(seed);
+  const randC = rng(seed + 10_000);
+  const randF = rng(seed + 20_000);
+  const echtOpen = db.openEvent;
+  const echtLast = db.lastEventAt;
+  if (!filter) {
+    db.openEvent = (g, u) => echtOpen(g, u);
+    db.lastEventAt = (g, u) => echtLast(g, u);
+  }
+  const merk = vf;
+  vf = neuerVorfallZaehler(`sperre_${filter ? 'an' : 'aus'}_${reihenfolge}_${beantworten}`);
+  let z;
+  try {
+    for (let d = 0; d < tage; d++) {
+      const t = now + 1.6e5;
+      /*
+       * Morgens wird geschlossen, was abgelaufen ist – OHNE Wirkung und NICHT
+       * über `decisions.settle`: Das würde den Ignorier-Aufschlag buchen und die
+       * festgehaltene Reichweite verschieben. Hier wird die SPERRE gemessen,
+       * nicht das Geld.
+       *
+       * Das ist der Unterschied zwischen den zwei Spielweisen dieses Teils: Wer
+       * `beantworten: 'sofort'` spielt, hat abends nichts offen; wer „nie"
+       * spielt, lässt jeden Vorfall die vollen DECIDE_MS stehen.
+       *
+       * Die Uhr des Tages, von Hand nachgerechnet: Schnitt bei `t − 2e4`, die
+       * drei Würfe bei `t`, `t + 1e3`, `t + 2e3`, Abendschluss bei `t + 1e4`.
+       * Ein Vorfall von Tag d läuft bei `t_d + DAY` ab, also GENAU zum Wurf von
+       * Tag d+1 – der Schnitt um 20 Sekunden davor erwischt ihn nicht, der Wurf
+       * ist gesperrt, und am Tag darauf wird er vor dem Wurf geschlossen. Wer
+       * nie beantwortet, verliert damit genau einen folgenden Wurf je Vorfall;
+       * DECIDE_MS sind 24 h, also genau ein Tag.
+       */
+      for (const row of db.overdueEvents(G, U, t - 2e4)) {
+        db.resolveEvent(G, row.id, {
+          status: 'expired', choice: '', outcome: '', effect: '', at: t - 2e4,
+        });
+        vf.verfallenZahl = (vf.verfallenZahl ?? 0) + 1;
+      }
+      const musikWurf = () => vorfallWurf(G, U, 'music', hoerer, t, randM);
+      const kanalWurf = () => vorfallWurf(G, U, 'creator', reichweite, t + 1e3, randC);
+      const firmaWurf = () => {
+        const neu = decisions.roll(G, U, { groesse, days: 1, npc, companyId: 0 },
+          t + 2e3, randF, 'company');
+        if (neu) {
+          vf.vorfaelle.company = (vf.vorfaelle.company ?? 0) + 1;
+          vf.arten[neu.kind] = (vf.arten[neu.kind] ?? 0) + 1;
+        }
+        vf.tage.company = (vf.tage.company ?? 0) + 1;
+        return neu;
+      };
+      const reihe = reihenfolge === 'firma-zuerst'
+        ? [firmaWurf, musikWurf, kanalWurf] : [musikWurf, kanalWurf, firmaWurf];
+      for (const w of reihe) w();
+      // Abends ist nichts mehr offen – wie ein Spieler, der täglich hereinschaut.
+      for (const bereich of (beantworten === 'sofort' ? ['music', 'creator', 'company'] : [])) {
+        const offen = db.openEvent(G, U, bereich);
+        if (!offen) continue;
+        db.resolveEvent(G, offen.id, {
+          status: 'done', choice: '(nur gezählt)', outcome: '', effect: '', at: t + 1e4,
+        });
+        vf.beantwortet[bereich] = (vf.beantwortet[bereich] ?? 0) + 1;
+      }
+      now += DAY;
+    }
+  } finally {
+    db.openEvent = echtOpen;
+    db.lastEventAt = echtLast;
+    z = vf;
+    vf = merk;
+  }
+  return z;
+}
+
+/**
+ * (5) Eine Variante des Karriere-Laufs – gebaut wie `angebotvariante`: dieselbe
+ * Säung, dieselbe Strategie, nur die Spielweise wechselt.
+ */
+async function vorfallvariante(kennungBasis, musik, strat, laeufe, tage, variante) {
+  kz = neuerZaehler();
+  vf = neuerVorfallZaehler(variante);
+  const geld = [];
+  const hoerer = [];
+  const follower = [];
+  const summe = {};
+  let zaehler;
+  let vorfallZaehler;
+  try {
+    for (let i = 0; i < laeufe; i++) {
+      const kennung = `${kennungBasis}_${i}`;
+      const G = welt(kennung);
+      const U = `fx:${kennung}`;
+      /*
+       * Der Zeitpunkt des letzten Vorfalls gehört zum LAUF, nicht zur Variante:
+       * Jeder Lauf beginnt wieder heute 6:00, und ohne diesen Schnitt wäre der
+       * „Abstand" zwischen dem letzten Vorfall von Lauf i und dem ersten von
+       * Lauf i+1 eine erfundene Zahl – womöglich eine negative. Alles andere
+       * wird über alle Läufe aufsummiert.
+       */
+      vf.letzter = {};
+      const r = await karriere(G, U, { musik, strat }, tage, 1000 + i);
+      /*
+       * Die Zeilen der Tabelle, bevor der nächste Lauf eine eigene Welt
+       * aufmacht. `eventHistory` liefert die entschiedenen und verfallenen,
+       * `openEvent` die eine, die noch offen stehen kann – zusammen jede Zeile,
+       * die dieser Lauf angelegt hat, gezählt an der Datenbank und nicht an
+       * einem Zähler dieses Skripts.
+       */
+      vf.zeilen += db.eventHistory(G, U, 1e9).length + (db.openEvent(G, U) ? 1 : 0);
+      geld.push(r.geld);
+      hoerer.push(r.hoerer);
+      follower.push(r.follower);
+      for (const [k, v] of Object.entries(r.quellen)) summe[k] = (summe[k] ?? 0) + v;
+    }
+  } finally {
+    zaehler = kz; kz = null;
+    vorfallZaehler = vf; vf = null;
+  }
+  return {
+    geld, zaehler, vorfallZaehler,
+    median: median(geld), q25: quantil(geld, 0.25), q75: quantil(geld, 0.75),
+    hoerer: median(hoerer), follower: median(follower),
+    quellen: Object.fromEntries(Object.entries(summe)
+      .map(([k, v]) => [k, v / Math.max(1, laeufe)]).sort((a, b) => b[1] - a[1])),
+  };
+}
+
+/** Die Zählerzeilen einer Vorfall-Variante – roh, ohne Rundung auf schöne Zahlen. */
+function vorfallZeilen(z, tage, laeufe) {
+  const out = [];
+  const n = tage * laeufe;
+  const summe = (o) => Object.values(o).reduce((a, b) => a + b, 0);
+  const liste = (o) => Object.entries(o).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `${k} ${de(v)}`).join(', ') || 'keine';
+  const f = (a, k = 1) => (a.length
+    ? `Ø ${komma(mittel(a), k)} (kleinster ${komma(Math.min(...a), k)}, größter ${komma(Math.max(...a), k)})`
+    : 'keiner');
+  const v = summe(z.vorfaelle);
+  out.push(`Vorfälle ${de(v)} in ${de(n)} Tagen = ${komma(v / Math.max(1, laeufe), 2)} je Lauf ` +
+    `(${komma((v / n) * 365, 2)} je Jahr): ${liste(z.vorfaelle)}`);
+  out.push(`Arten: ${liste(z.arten)}`);
+  out.push(`frühe Vorfälle (Schwelle 0, Deckel ${de(decisions.FRUEH_MAX)}): ${de(summe(z.frueh))} ` +
+    `(${v ? komma((summe(z.frueh) / v) * 100, 1) : '0,0'} % aller Vorfälle): ${liste(z.frueh)} · ` +
+    `Reichweite beim Ziehen ${f(z.fruehReach, 0)} · die übrigen ${f(z.spaetReach, 0)}`);
+  /*
+   * Und die Zahl, um die es beim §3-Treiber geht: Wie viele Vorfälle unter 5.000
+   * gezogen wurden. Vor Stück 5f war der Musikkatalog dort LEER (der kleinste
+   * Mindestwert war 5.000), der Wurf fiel ins Leere, und die Uhr war trotzdem
+   * geschrieben. Genau diese Würfe sind der Gewinn der vier frühen Vorfälle –
+   * gezählt, nicht aus einem Mittelwert geschätzt.
+   */
+  const unter = z.fruehReach.filter((r) => r < 5000).length;
+  out.push(`davon unter 5.000 (dort war der Musikkatalog vor 5f LEER): ${de(unter)} = ` +
+    `${komma((unter / n) * 365, 2)} je Jahr · bei 5.000 bis ${de(decisions.FRUEH_MAX)}: ` +
+    `${de(z.fruehReach.length - unter)} = ${komma(((z.fruehReach.length - unter) / n) * 365, 2)} je Jahr`);
+  out.push(`Tageswürfe: gerufen ${liste(z.tage)} · wirklich gewürfelt ${liste(z.wuerfe)} · ` +
+    `kein Wurf ${liste(z.keinWurf)} (davon Tür zu ${liste(z.tuerZu)}, ` +
+    `offener Vorfall desselben Bereichs ${liste(z.offenBlockt)})`);
+  out.push(`nachgeholte Tage je Wurf (Deckel ${decisions.ROLL_TAGE_MAX}): ${f(z.nachgeholt, 2)}`);
+  out.push(`Würfel kam durch ${liste(z.durch)} · davon ohne Vorfall: ${liste(z.leer)} ` +
+    `(abstand = MIN_GAP_MS, keinKandidat = leere Liste, unerklaert MUSS 0 sein)`);
+  out.push(`beantwortet ${liste(z.beantwortet)} · abgelehnte choose-Aufrufe ${z.fehler.length}` +
+    `${z.fehler.length ? ` – FEHLER: ${z.fehler.slice(0, 3).join(' | ')}` : ' ✔'}`);
+  out.push(`Abstand zweier Vorfälle desselben Bereichs: ${f(z.abstaende, 1)} Stunden · ` +
+    `unter ${decisions.MIN_GAP_MS / 3600e3} h: ${z.zuDicht} ` +
+    `${z.zuDicht === 0 ? '✔' : 'FEHLER – MIN_GAP_MS gerissen'}`);
+  return out;
+}
+
+async function vorfaellelauf(laeufe, tage) {
+  /*
+   * Die Teile (2) bis (4) würfeln nur und spielen nicht – ein Jahr kostet dort
+   * Millisekunden, nicht Minuten. Deshalb 100 Seeds statt 10: Bei 10 Seeds ist
+   * der Standardfehler des Mittels am unteren Ende ±0,85 Vorfälle, und eine
+   * Abweichung von der Spec-Tabelle wäre nicht von Rauschen zu trennen. Mit 100
+   * sind es ±0,27 – dann ist eine Abweichung ein Befund.
+   */
+  const STUFEN_SEEDS = 100;
+  console.log('  (1) HANDPRÜFUNG – gerechnet, nicht simuliert:');
+  for (const l of vorfallHandprobe()) console.log(`    ${l}`);
+  console.log();
+
+  console.log(`  (2) VORFÄLLE JE JAHR NACH REICHWEITE – Reichweite FESTGEHALTEN, ` +
+    `${STUFEN_SEEDS} Seeds à 365 Tage je Stufe, Würfel rng(seed), Start heute 6:00 vorwärts.`);
+  console.log('      Das ist die Zahl neben der Spec-Tabelle: „wer ein Jahr lang X hat", NICHT ' +
+    '„wer im Lauf des Jahres bei X ankommt".');
+  const stufen = { music: [], creator: [] };
+  for (const domain of ['music', 'creator']) {
+    const liste = domain === 'music' ? VORFALL_STUFEN : [0, 2_000, 100_000, 1_500_000];
+    for (const reach of liste) {
+      const zs = [];
+      let kandidaten = [];
+      for (let s = 1; s <= STUFEN_SEEDS; s++) {
+        const r = await stufenlauf(domain, reach, 365, 4000 + s);
+        zs.push(r.z);
+        kandidaten = r.kandidaten;
+      }
+      const je = zs.map((z) => (z.vorfaelle[domain] ?? 0));
+      const frueh = zs.map((z) => (z.frueh[domain] ?? 0));
+      const pTag = decisions.riskPerDay(reach);
+      const erwartet = 365 * pTag;
+      /*
+       * Die Erwartung MIT Sperre, von Hand hergeleitet und nicht geschätzt:
+       * Jeder Vorfall sperrt den Wurf des FOLGENDEN Tages (36 h Mindestabstand,
+       * ein Wurf je Tag – 24 h sind weniger als 36). Von 365 Würfen gehen also
+       * `I` ins Leere, wenn `I` Vorfälle fallen:
+       *     I = p × (365 − I)  ⟹  I = 365 × p / (1 + p)
+       * Das ist die Zahl, gegen die der Stufenlauf verglichen werden MUSS; die
+       * Spec-Tabelle (365 × p) ist die Obergrenze ohne Sperre.
+       */
+      const erwartetMitSperre = (365 * pTag) / (1 + pTag);
+      const sd = Math.sqrt(mittel(je.map((x) => (x - mittel(je)) ** 2)));
+      const se = sd / Math.sqrt(je.length);
+      const abst = zs.flatMap((z) => z.abstaende);
+      const eintrag = {
+        domain, reach, je, erwartet, erwartetMitSperre, pTag, se,
+        mittel: mittel(je), median: median(je),
+        frueh: mittel(frueh),
+        kandidaten: kandidaten.map((d) => d.id),
+        durch: zs.reduce((s, z) => s + (z.durch[domain] ?? 0), 0),
+        wuerfe: zs.reduce((s, z) => s + (z.wuerfe[domain] ?? 0), 0),
+        keinWurf: zs.reduce((s, z) => s + (z.keinWurf[domain] ?? 0), 0),
+        leerAbstand: zs.reduce((s, z) => s + (z.leer.abstand ?? 0), 0),
+        leerKein: zs.reduce((s, z) => s + (z.leer.keinKandidat ?? 0), 0),
+        leerUnerklaert: zs.reduce((s, z) => s + (z.leer.unerklaert ?? 0), 0),
+        zuDicht: zs.reduce((s, z) => s + z.zuDicht, 0),
+        minAbstand: abst.length ? Math.min(...abst) : null,
+        arten: zs.reduce((o, z) => {
+          for (const [k, x] of Object.entries(z.arten)) o[k] = (o[k] ?? 0) + x;
+          return o;
+        }, {}),
+      };
+      stufen[domain].push(eintrag);
+      console.log(`    ${domain === 'music' ? 'Musik  ' : 'Creator'} ${de(reach).padStart(9)}: ` +
+        `Ø ${komma(eintrag.mittel, 2).padStart(5)} ± ${komma(se, 2)} Vorfälle/Jahr ` +
+        `(Median ${komma(eintrag.median, 1)}, Spanne ${Math.min(...je)} … ${Math.max(...je)}) · ` +
+        `erwartet MIT Sperre 365p/(1+p) = ${komma(erwartetMitSperre, 2)} ` +
+        `(${komma((eintrag.mittel / erwartetMitSperre) * 100, 1)} % davon, Abweichung ` +
+        `${komma((eintrag.mittel - erwartetMitSperre) / Math.max(1e-9, se), 1)} σ) · ` +
+        `Spec-Tabelle 365 × p = ${komma(erwartet, 1)} · ` +
+        `davon früh Ø ${komma(eintrag.frueh, 2)} · Kandidaten ${eintrag.kandidaten.length} ` +
+        `(${eintrag.kandidaten.join(', ') || 'KEINE'})`);
+      /*
+       * Gegenprobe der Sperre, ohne zweite Annahme: Jeder Vorfall sperrt genau
+       * den folgenden Wurf, also MUSS die Zahl der leeren Würfe „Abstand"
+       * p × Vorfälle sein. Stimmt das nicht, ist die Herleitung oben falsch.
+       */
+      const vorfaelleGesamt = je.reduce((a, b) => a + b, 0);
+      console.log(`                        Würfe ${de(eintrag.wuerfe)} (kein Wurf ` +
+        `${de(eintrag.keinWurf)}), Würfel kam durch ${de(eintrag.durch)}, davon ohne Vorfall: ` +
+        `Abstand ${de(eintrag.leerAbstand)} (erwartet p × Vorfälle = ` +
+        `${komma(pTag * vorfaelleGesamt, 1)}), kein Kandidat ${de(eintrag.leerKein)}, ` +
+        `unerklärt ${de(eintrag.leerUnerklaert)} ${eintrag.leerUnerklaert === 0 ? '✔' : 'FEHLER'} · ` +
+        `kleinster Abstand ${eintrag.minAbstand === null ? '–' : `${komma(eintrag.minAbstand, 1)} h`}, ` +
+        `unter 36 h ${eintrag.zuDicht} ${eintrag.zuDicht === 0 ? '✔' : 'FEHLER'}`);
+      console.log(`                        Arten: ${Object.entries(eintrag.arten)
+        .sort((a, b) => b[1] - a[1]).map(([k, x]) => `${k} ${x}`).join(', ') || 'keine'}`);
+    }
+  }
+  /*
+   * Die KONTROLLZEILE dieses Teils: Der Verlust gegen 365 × p muss sich aus
+   * den gezählten Gründen ergeben – Abstand und leere Kandidatenliste. Bleibt
+   * ein Rest, ist die Zählung falsch und nicht die Rate.
+   */
+  const kontrolleStufe = stufen.music.concat(stufen.creator)
+    .filter((e) => e.leerUnerklaert > 0 || e.zuDicht > 0);
+  console.log(`    KONTROLLE Stufenlauf: ${kontrolleStufe.length === 0
+    ? 'jeder durchgekommene Wurf ohne Vorfall hat seinen Grund (Abstand oder leere Liste), ' +
+      'und MIN_GAP_MS ist in keiner Stufe gerissen ✔'
+    : `FEHLER in ${kontrolleStufe.length} Stufen: ${kontrolleStufe
+      .map((e) => `${e.domain}/${de(e.reach)}`).join(', ')}`}`);
+  console.log(`    KONTROLLE „keine stille Null": ${stufen.music.concat(stufen.creator)
+    .every((e) => e.mittel > 0) ? 'jede Stufe hat Vorfälle ✔'
+    : `FEHLER – Stufen ohne jeden Vorfall: ${stufen.music.concat(stufen.creator)
+      .filter((e) => e.mittel === 0).map((e) => `${e.domain}/${de(e.reach)}`).join(', ')}`}`);
+  console.log();
+
+  console.log('  (3) DIE TÜR – wer den Bereich nicht betreten hat, würfelt dort nicht (365 Tage je Fall):');
+  for (const l of await tuerprobe(365)) console.log(`    ${l}`);
+  console.log();
+
+  console.log(`  (4) DIE SPERRE JE BEREICH – ein Spieler mit Musik (100.000 Hörer), Kanälen ` +
+    `(100.000 Reichweite) und einer Firma der Größe 5 mit 3 NPCs, ${STUFEN_SEEDS} Seeds à 365 Tage.`);
+  console.log('      Zwei Spielweisen: „sofort" beantwortet jeden Vorfall am Tag seines Auftretens, ' +
+    '„nie" lässt jeden die vollen 24 h stehen – der Gelegenheitsspieler, um den es geht.');
+  const sperre = {};
+  for (const filter of [true, false]) {
+    for (const beantworten of ['sofort', 'nie']) {
+      for (const reihenfolge of ['firma-zuerst', 'musik-zuerst']) {
+        const zs = [];
+        for (let s = 1; s <= STUFEN_SEEDS; s++) {
+          zs.push(await sperrelauf(365, 5000 + s, {
+            filter, reihenfolge, beantworten,
+            hoerer: 100_000, reichweite: 100_000, groesse: 5, npc: 3,
+          }));
+        }
+        const je = (bereich) => zs.map((z) => (z.vorfaelle[bereich] ?? 0));
+        sperre[`${filter ? 'an' : 'aus'}/${beantworten}/${reihenfolge}`] = {
+          music: mittel(je('music')), creator: mittel(je('creator')), company: mittel(je('company')),
+          gesamt: mittel(zs.map((z) => Object.values(z.vorfaelle).reduce((a, b) => a + b, 0))),
+          zuDicht: zs.reduce((s, z) => s + z.zuDicht, 0),
+          keinWurf: zs.reduce((s, z) => s + (z.keinWurf.music ?? 0), 0),
+          offenBlockt: zs.reduce((s, z) => s + (z.offenBlockt.music ?? 0), 0),
+          verfallen: zs.reduce((s, z) => s + (z.verfallenZahl ?? 0), 0),
+        };
+      }
+    }
+  }
+  const namen = [];
+  for (const filter of ['an', 'aus']) {
+    for (const beantworten of ['sofort', 'nie']) {
+      for (const reihenfolge of ['firma-zuerst', 'musik-zuerst']) {
+        namen.push(`${filter}/${beantworten}/${reihenfolge}`);
+      }
+    }
+  }
+  for (const name of namen) {
+    const r = sperre[name];
+    console.log(`    Filter ${name.padEnd(26)} Musik Ø ${komma(r.music, 2).padStart(5)} · Creator Ø ` +
+      `${komma(r.creator, 2).padStart(5)} · Firma Ø ${komma(r.company, 2).padStart(5)} · ` +
+      `zusammen Ø ${komma(r.gesamt, 2).padStart(5)} je Jahr · Musik-Tage ohne Wurf ` +
+      `${de(r.keinWurf)} (davon offener Vorfall ${de(r.offenBlockt)}) · verfallen ${de(r.verfallen)} · ` +
+      `MIN_GAP gerissen ${r.zuDicht}`);
+  }
+  /*
+   * Was die Trennung bringt – JE REIHENFOLGE und dann als SPANNE.
+   *
+   * Mit Filter ist die Reihenfolge gleichgültig (Kontrollzeile darunter), ohne
+   * Filter entscheidet sie darüber, WER die Sperre bekommt. Eine einzelne
+   * Reihenfolge als „das Ergebnis" zu melden, wäre die Wahl einer beliebigen
+   * Annahme: Für die Musik stehen dann +14,4 % oder +8,1 % da, aus demselben
+   * Lauf. Deshalb druckt dieser Abschnitt beide Zeilen UND die Spanne, und die
+   * Spanne ist die Zahl, die in Bericht und §15 gehört.
+   */
+  for (const beantworten of ['sofort', 'nie']) {
+    const an = sperre[`an/${beantworten}/firma-zuerst`];
+    const q = (a, b) => prozent(a / Math.max(1e-9, b) - 1);
+    for (const reihenfolge of ['firma-zuerst', 'musik-zuerst']) {
+      const aus = sperre[`aus/${beantworten}/${reihenfolge}`];
+      console.log(`    Was die Trennung der Sperre bringt („${beantworten}", ` +
+        `${reihenfolge === 'firma-zuerst' ? 'Firma zuerst' : 'Musik zuerst'}): ` +
+        `MUSIK ${komma(an.music, 2)} gegen ${komma(aus.music, 2)} = ${q(an.music, aus.music)} · ` +
+        `CREATOR ${komma(an.creator, 2)} gegen ${komma(aus.creator, 2)} = ${q(an.creator, aus.creator)} · ` +
+        `FIRMA ${komma(an.company, 2)} gegen ${komma(aus.company, 2)} = ${q(an.company, aus.company)} · ` +
+        `zusammen ${komma(an.gesamt, 2)} gegen ${komma(aus.gesamt, 2)} = ${q(an.gesamt, aus.gesamt)}`);
+    }
+    const spanne = (feld) => {
+      const w = ['firma-zuerst', 'musik-zuerst']
+        .map((r) => an[feld] / Math.max(1e-9, sperre[`aus/${beantworten}/${r}`][feld]) - 1);
+      return `${prozent(Math.min(...w))} … ${prozent(Math.max(...w))}`;
+    };
+    console.log(`    DIE SPANNE über die Würfelreihenfolge („${beantworten}") – das ist die Zahl, ` +
+      `die der Bericht nennt: MUSIK ${spanne('music')} · CREATOR ${spanne('creator')} · ` +
+      `FIRMA ${spanne('company')} · zusammen ${spanne('gesamt')}`);
+  }
+  /*
+   * Die Gegenprobe zur Spanne: Sie darf nur UMVERTEILEN. Bewegt sich die Summe
+   * ohne Filter zwischen den zwei Reihenfolgen um mehr als eine Zehntelstelle,
+   * dann ändert die Reihenfolge nicht nur, WER die Vorfälle bekommt, sondern
+   * WIE VIELE es gibt – und dann trägt der ganze Absatz nicht mehr.
+   */
+  const summen = ['firma-zuerst', 'musik-zuerst'].map((r) => sperre[`aus/sofort/${r}`].gesamt);
+  console.log(`    KONTROLLE Spanne: die Reihenfolge verteilt nur um – Summe ohne Filter ` +
+    `${komma(summen[0], 2)} gegen ${komma(summen[1], 2)} ` +
+    `(${prozent(summen[1] / summen[0] - 1)}) ${Math.abs(summen[1] / summen[0] - 1) < 0.02
+      ? '✔' : 'FEHLER – die Reihenfolge ändert die Gesamtzahl, nicht nur die Verteilung'}`);
+  const gleich = ['sofort', 'nie'].every((b) => Math.abs(sperre[`an/${b}/firma-zuerst`].music
+    - sperre[`an/${b}/musik-zuerst`].music) < 1e-9);
+  console.log(`    KONTROLLE Reihenfolge: Mit Filter darf sie nichts ändern – ` +
+    `${gleich ? 'Musik auf die Stelle identisch in beiden Spielweisen ✔'
+      : 'FEHLER, die Bereiche sehen sich also doch'}; ohne Filter ändert sie etwas ` +
+    `(Musik ${komma(sperre['aus/nie/firma-zuerst'].music, 2)} gegen ` +
+    `${komma(sperre['aus/nie/musik-zuerst'].music, 2)}) – genau das ist der Befund.`);
+  console.log(`    KONTROLLE MIN_GAP: ${namen.filter((n) => n.startsWith('an/'))
+    .every((n) => sperre[n].zuDicht === 0)
+    ? 'mit Filter kein Verstoß innerhalb eines Bereichs in allen vier Läufen ✔' : 'FEHLER'}`);
+  console.log(`    KONTROLLE „nie": verfallene Vorfälle müssen > 0 sein, „sofort" muss 0 haben – ` +
+    `sofort ${de(sperre['an/sofort/firma-zuerst'].verfallen)}, nie ` +
+    `${de(sperre['an/nie/firma-zuerst'].verfallen)} ` +
+    `${sperre['an/sofort/firma-zuerst'].verfallen === 0
+      && sperre['an/nie/firma-zuerst'].verfallen > 0 ? '✔' : 'FEHLER'}`);
+  console.log();
+
+  console.log(`  (5) DER KARRIERE-LAUF – ${laeufe} Läufe à ${tage} Tage, Varianten „aus" (keine ` +
+    `Vorfälle) und „an" (Tageswurf in Musik UND Kanälen), gepaart je Seed.`);
+  const paare = [
+    { titel: 'Musik+Creator', musik: true, kennung: 'vf_beides' },
+    { titel: 'nur Musik', musik: true, kennung: 'vf_musik', kanaele: false },
+  ];
+  const ergebnis = {};
+  for (const a of paare) {
+    const alle = a.kanaele === false
+      ? strategien(true).filter((s) => s.name.startsWith('Ertrag je Zeit +0B'))
+        .map((s) => ({ ...s, kanaele: false }))
+      : strategien(a.musik);
+    let strat;
+    if (STRATEGIE && alle.some((s) => s.name === STRATEGIE)) {
+      strat = alle.find((s) => s.name === STRATEGIE);
+    } else {
+      const such = await durchlauf(`${a.kennung}_suche`, a.musik, Math.max(2, Math.min(3, laeufe)),
+        Math.min(tage, 180), alle, true);
+      strat = alle.find((s) => s.name === such.strategie);
+    }
+    console.log(`    ${a.titel}: Strategie "${strat.name}" (Suche ohne Vorfälle), ${laeufe} Läufe à ` +
+      `${tage} Tage, Würfel rng(1000+i), Vorfallswürfe rng(1101000+i) – ein EIGENER Strom, damit ` +
+      `„aus" und „an" denselben Musik- und Kanallauf haben`);
+    const v = {};
+    for (const name of ['aus', 'an']) {
+      v[name] = await vorfallvariante(`${a.kennung}_${name}`, a.musik,
+        { ...strat, vorfaelle: name === 'an' }, laeufe, tage, name);
+    }
+    ergebnis[a.titel] = v;
+    const zeile = (was, r) => `    ${was.padEnd(24)}${de(r.median / tage).padStart(10)}/Tag   ` +
+      `[${de(r.q25 / tage)} … ${de(r.q75 / tage)}]   ${de(r.follower)} Follower` +
+      (r.hoerer ? `, ${de(r.hoerer)} Hörer` : '');
+    const paarweise = (r, b) => r.geld.map((g, i) => g / Math.max(1, b.geld[i]));
+    console.log(zeile('aus (die Grundlage)', v.aus));
+    console.log(zeile('an', v.an));
+    const p = paarweise(v.an, v.aus);
+    const rauf = p.filter((x) => x > 1).length;
+    console.log(`      gegen „aus": Mediane ${prozent(v.an.median / Math.max(1, v.aus.median) - 1)} · ` +
+      `je Seed (gepaart) Median ${prozent(median(p) - 1)}, ` +
+      `Spanne ${prozent(Math.min(...p) - 1)} … ${prozent(Math.max(...p) - 1)}, ` +
+      `${rauf} von ${p.length} Seeds im Plus`);
+    console.log(`      je Seed: ${p.map((x) => prozent(x - 1)).join(' · ')}`);
+    const quellenzeile = (was, r) => `      Quellen ${was.padEnd(6)}` + (Object.entries(r.quellen)
+      .filter(([, x]) => Math.abs(x) > 1)
+      .map(([k, x]) => `${k} ${de(x / tage)}/Tag (${Math.round((x / Math.max(1, r.median)) * 100)} %)`)
+      .join(' · ') || 'keine');
+    for (const name of ['aus', 'an']) console.log(quellenzeile(`${name}:`, v[name]));
+    const vorfallGeld = (r) => (r.quellen.Vorfall ?? 0);
+    console.log(`      Der Posten „Vorfall" allein: aus ${de(vorfallGeld(v.aus))} je Lauf, an ` +
+      `${de(vorfallGeld(v.an))} je Lauf (${de(vorfallGeld(v.an) / tage)}/Tag) – ` +
+      `${vorfallGeld(v.an) < 0 ? 'ein Minusposten' : 'ein Plusposten'}`);
+    const l = (r) => leistung(r.zaehler, tage, laeufe);
+    console.log(`      Tagesleistung Ø/Tag (Kanalaktionen · Veröffentlichungen · Konzerte): ` +
+      ['aus', 'an'].map((name) => {
+        const x = l(v[name]);
+        return `${name} ${komma(x.akte)} · ${komma(x.publishes)} · ${komma(x.shows)}`;
+      }).join(' → '));
+    for (const name of ['aus', 'an']) {
+      console.log(`    ${name}:`);
+      for (const z of vorfallZeilen(v[name].vorfallZaehler, tage, laeufe)) console.log(`      ${z}`);
+    }
+    /*
+     * Die Kontrollzeilen. „aus" MUSS leer sein – nicht nur ohne Vorfälle,
+     * sondern ohne jeden Wurf: Der Tageswurf ist die EINZIGE Quelle, seit die
+     * Würfe je Aktion weg sind. Und „an" darf nicht leer sein, sonst misst der
+     * Lauf eine stille Null und nennt sie Ergebnis.
+     *
+     * EHRLICH ZU DEN BEINEN DIESER KONTROLLE: `vorfaelle` und `wuerfe` kommen
+     * beide aus `vorfallWurf`, und die Variante „aus" ruft `vorfallWurf` gar
+     * nicht – diese zwei Beine sind dort null, WEIL SIE NIEMAND FÜLLT, und
+     * können einen überlebenden Wurf an einer anderen Stelle nicht finden. Das
+     * können nur die zwei Beine, die nicht an dieser Instrumentierung hängen:
+     * die Zeilen in `creator_events` (am Ende jedes Laufs direkt aus der
+     * Tabelle gezählt) und der Kontoposten „Vorfall". Deshalb stehen alle vier
+     * in der Zeile, und jedes sagt dazu, woher es kommt.
+     */
+    const sum = (o) => Object.values(o).reduce((x, y) => x + y, 0);
+    const za = v.aus.vorfallZaehler;
+    const zn = v.an.vorfallZaehler;
+    console.log(`      KONTROLLE „aus": Vorfälle ${sum(za.vorfaelle)}, Würfe ${sum(za.wuerfe)} ` +
+      `(beide aus dieser Instrumentierung, also nur so gut wie sie) · Zeilen in creator_events ` +
+      `${za.zeilen}, Posten „Vorfall" ${de(vorfallGeld(v.aus))} (beide UNABHÄNGIG davon – nur diese ` +
+      `zwei finden einen Wurf, der an einer ungezählten Stelle überlebt hätte) – ` +
+      `${sum(za.vorfaelle) === 0 && sum(za.wuerfe) === 0 && za.zeilen === 0
+        && vorfallGeld(v.aus) === 0
+        ? 'alles null ✔ (keine Würfe je Aktion mehr, kein Tageswurf – die Grundlage ist wirklich leer)'
+        : 'FEHLER – „aus" hat Vorfälle, Würfe oder Zeilen'}`);
+    console.log(`      KONTROLLE „an": Vorfälle ${sum(zn.vorfaelle)} ` +
+      `(${komma(sum(zn.vorfaelle) / Math.max(1, laeufe), 2)} je Lauf), Würfe ${sum(zn.wuerfe)}, ` +
+      `Zeilen in creator_events ${zn.zeilen}, Posten „Vorfall" ${de(vorfallGeld(v.an))} – ` +
+      `${sum(zn.vorfaelle) > 0 && sum(zn.wuerfe) > 0 && zn.zeilen > 0
+        ? 'nicht null ✔' : 'FEHLER – stille Null'}` +
+      `${zn.zeilen === sum(zn.vorfaelle) ? ' · Zeilen und gezählte Vorfälle stimmen überein ✔'
+        : ` · ACHTUNG: ${zn.zeilen} Zeilen gegen ${sum(zn.vorfaelle)} gezählte Vorfälle`}`);
+    console.log(`      KONTROLLE Bereiche in „an": ${a.kanaele === false
+      ? `der reine Musiker hat ${zn.vorfaelle.creator ?? 0} Creator-Vorfälle – ` +
+        `${(zn.vorfaelle.creator ?? 0) === 0 ? 'erwartet 0 ✔ (nie eine Kanalaktion, die Tür bleibt zu)'
+          : 'FEHLER – gewürfelt, ohne den Bereich betreten zu haben'}`
+      : `Musik ${zn.vorfaelle.music ?? 0}, Creator ${zn.vorfaelle.creator ?? 0} – ` +
+        `${(zn.vorfaelle.music ?? 0) > 0 && (zn.vorfaelle.creator ?? 0) > 0
+          ? 'beide Bereiche feuern ✔' : 'FEHLER – ein Bereich bleibt stumm'}`}`);
+    const gepaart = median(p) - 1;
+    const mediane = v.an.median / Math.max(1, v.aus.median) - 1;
+    const schlimmer = Math.abs(gepaart) > Math.abs(mediane) ? gepaart : mediane;
+    console.log(`      AUSLÖSER „±25 % gepaart" für ${a.titel}: Mediane ${prozent(mediane)}, ` +
+      `gepaart ${prozent(gepaart)} → ${Math.abs(schlimmer) > 0.25
+        ? `ERREICHT (${schlimmer > 0 ? 'nach oben' : 'nach unten'}), RISK_MAX_DAY senken und neu messen`
+        : 'nicht erreicht'}`);
+    console.log();
+  }
+  return { stufen, sperre, ergebnis };
+}
+
 /** Für Prüf- und Kontrollläufe importierbar (test/…, Handprüfung): nur als Hauptprogramm messen. */
 module.exports = { firmenlauf, handelslauf, karriere, kanaltag, strategien, welt, angebotDecken, main };
 
@@ -4075,6 +4965,25 @@ async function main() {
         LABEL_VORSCHUSS_ARG, LABEL_CUT_ARG, TOUR_KONZERTE_ARG, ANFRAGE_CHANCE_ARG].some((x) => x !== null)
         ? '   (* über die Kommandozeile gesetzt, nicht aus der Datendatei)' : ''}\n`);
     await angebotelauf(LAEUFE, TAGE);
+    return;
+  }
+
+  if (NUR === 'vorfaelle') {
+    console.log(`\n--- Vorfälle bei Musik und Creator (Stück 5f: vom Wurf je Aktion zum Wurf je Tag ` +
+      `– ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
+    // Alle Zahlen, an denen dieser Abschnitt hängt, stehen in der Kopfzeile –
+    // damit in der Rohausgabe zu sehen ist, welche Einstellung sie gemessen hat.
+    console.log(`  RISK_MIN_DAY ${komma(decisions.RISK_MIN_DAY, 3)}` +
+      `, RISK_MAX_DAY ${komma(decisions.RISK_MAX_DAY, 3)}` +
+      `, RISK_FULL ${de(decisions.RISK_FULL)}` +
+      `, ROLL_TAGE_MAX ${decisions.ROLL_TAGE_MAX}` +
+      `, MIN_GAP_MS ${decisions.MIN_GAP_MS / 3600e3} h` +
+      `, DECIDE_MS ${decisions.DECIDE_MS / 3600e3} h` +
+      `, FRUEH_MAX ${de(decisions.FRUEH_MAX)}` +
+      `, SEVERITY_MAX ${komma(decisions.SEVERITY_MAX, 2)} ab ${de(decisions.SEVERITY_FULL)}` +
+      `, IGNORE_PENALTY ${komma(decisions.IGNORE_PENALTY, 2)}` +
+      `   (alle aus src/decisions.js, keine Kommandozeile greift hier)\n`);
+    await vorfaellelauf(LAEUFE, TAGE);
     return;
   }
 

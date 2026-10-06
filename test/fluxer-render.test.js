@@ -133,7 +133,7 @@ function view(buttons) {
     check('Werbung und Anpacken sind bei Schließung gesperrt', row1[0].data.disabled === true && row1[1].data.disabled === true);
     const row2Ids = row2.map((b) => b.data.custom_id);
     check('zweite Zeile hat den Vorfall UND einen Rückweg',
-      row2Ids.includes(`vorfall|${FU}`) && row2Ids[row2Ids.length - 1] === `home|${FU}`, row2Ids.join(' '));
+      row2Ids.includes(`vorfall|company|${FU}`) && row2Ids[row2Ids.length - 1] === `home|${FU}`, row2Ids.join(' '));
     // Nicht die (immer wahre) Länge nach dem Abschneiden prüfen, sondern dass nichts abgeschnitten wurde.
     check('Firmenansicht hält das Fluxer-Limit (kein Überlauf)', render.mapReactions(v).overflow === undefined, String(render.mapReactions(v).overflow));
 
@@ -596,11 +596,11 @@ function view(buttons) {
     const vorfallA = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: a });
     check('Vorfall: A zeigt das Feld', vorfallA.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
       vorfallA.embeds[0].data.fields.map((f) => f.name).join(', '));
-    check('Vorfall: A hat den Knopf', idsOf(vorfallA).includes(`vorfall|${FU}`), idsOf(vorfallA).join(' '));
+    check('Vorfall: A hat den Knopf', idsOf(vorfallA).includes(`vorfall|company|${FU}`), idsOf(vorfallA).join(' '));
     const vorfallB = await ui.buildFirmaView({ guildId: FG, userId: FU, companyId: b });
     check('Vorfall: B zeigt KEIN Vorfall-Feld', !vorfallB.embeds[0].data.fields.some((f) => f.name === '⚠️ Vorfall'),
       vorfallB.embeds[0].data.fields.map((f) => f.name).join(', '));
-    check('Vorfall: B hat KEINEN Vorfall-Knopf', !idsOf(vorfallB).includes(`vorfall|${FU}`), idsOf(vorfallB).join(' '));
+    check('Vorfall: B hat KEINEN Vorfall-Knopf', !idsOf(vorfallB).some((id) => id.startsWith('vorfall|')), idsOf(vorfallB).join(' '));
     check('Vorfall: B behält den Rückweg (Firmen und Home)',
       idsOf(vorfallB).includes(`firma|firmen|0|${FU}`) && idsOf(vorfallB).includes(`home|${FU}`), idsOf(vorfallB).join(' '));
     for (const row of vorfallA.components) check('Vorfall: A hat höchstens fünf Knöpfe je Zeile', row.components.length <= 5, String(row.components.length));

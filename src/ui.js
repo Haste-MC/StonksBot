@@ -1340,7 +1340,7 @@ async function buildFirmaView({ guildId, userId, companyId = null }) {
       // zusätzlich dazu (5 Knöpfe = Fluxer-Budget 9); ein Vorfall dieser Firma
       // nimmt den Platz und verdrängt Home, nie den Weg zurück.
       ...(vorfall
-        ? [new ButtonBuilder().setCustomId(`vorfall|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)]
+        ? [new ButtonBuilder().setCustomId(`vorfall|company|${userId}`).setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger)]
         : []),
       ...(list.length > 1 || mehr
         ? [new ButtonBuilder().setCustomId(`firma|firmen|0|${userId}`)
@@ -1850,7 +1850,7 @@ async function buildCreatorView({ guildId, userId }) {
 
   const incidentButton = s.incident
     ? new ButtonBuilder()
-      .setCustomId(`vorfall|${userId}`)
+      .setCustomId(`vorfall|creator|${userId}`)
       .setLabel('Entscheidung').setEmoji('⚠️')
       .setStyle(ButtonStyle.Danger)
     : null;
@@ -2503,7 +2503,7 @@ async function buildMusicView({ guildId, userId }) {
       .setLabel('Gesicht zeigen').setEmoji('🎭').setStyle(ButtonStyle.Danger));
   }
   if (s.incident) {
-    extra.push(new ButtonBuilder().setCustomId(`vorfall|${userId}`)
+    extra.push(new ButtonBuilder().setCustomId(`vorfall|music|${userId}`)
       .setLabel('Vorfall').setEmoji('⚠️').setStyle(ButtonStyle.Danger));
   }
   extra.push(homeButton(userId));
@@ -3527,10 +3527,13 @@ async function buildLanguageConfirm({ guildId, userId, key }) {
  * Bewusst ohne Zahlen: Was eine Option kostet oder bringt, steht nirgends –
  * sonst wäre es Rechnen statt Entscheiden. Sichtbar ist nur die Frist.
  */
-async function buildDecisionView({ guildId, userId }) {
+async function buildDecisionView({ guildId, userId, domain = null }) {
   const creator = require('./creator');
   const decisions = require('./decisions');
-  const open = decisions.pending(guildId, userId);
+  // `domain` ist der Bereich der Ansicht, aus der der Knopf kam: Drei Vorfälle
+  // können gleichzeitig offen sein, und das Studio soll das Studio-Drama
+  // zeigen. Ohne Bereich bleibt es der neueste über alle Bereiche.
+  const open = decisions.pending(guildId, userId, Date.now(), domain);
 
   if (!open) {
     const past = decisions.history(guildId, userId, 5);

@@ -1,5 +1,5 @@
 const db = require('./db');
-const { DECISIONS } = require('./data/decisions');
+const { DECISIONS, FRUEH_MAX } = require('./data/decisions');
 const { MUSIC_DECISIONS } = require('./data/musicDecisions');
 const { COMPANY_DECISIONS } = require('./data/companyDecisions');
 // Spät gebunden: creator.js zieht dieses Modul selbst herein (Kreis vermeiden).
@@ -40,10 +40,35 @@ const DECIDE_MS = 24 * 60 * 60 * 1000;
 /** Mindestabstand zwischen zwei Vorfällen. */
 const MIN_GAP_MS = 36 * 60 * 60 * 1000;
 
-/** Wahrscheinlichkeit je Aktion – wächst mit der Reichweite. */
+/**
+ * Die frühere Spanne je AKTION (2…4 %, wächst mit der Reichweite).
+ *
+ * Keine Aktion würfelt damit mehr: Musik und Creator werfen je TAG
+ * (`tick`, RISK_*_DAY unten), die Firma über ihre abgerechneten Tage. Die
+ * Konstanten und `riskFor` stehen noch da, weil Tests und Messskripte die
+ * alte Kurve als Vergleich lesen – gewürfelt wird mit ihnen nirgends.
+ */
 const RISK_MIN = 0.02;
 const RISK_MAX = 0.04;
 const RISK_FULL = 1_500_000;
+
+/**
+ * Wahrscheinlichkeit je TAG – dieselbe Spanne, die die Firma nach Größe nutzt.
+ *
+ * Die Spanne je Aktion darüber (2…4 %) hat die Vorfälle an den Fleiß gehängt:
+ * Bei 2 % je Aktion dauert es im Schnitt fünfzig Aktionen bis zum ersten, und
+ * wer gemütlich spielt, kommt dort nie an. Über die Tage gerechnet ist die
+ * Größe weiter das, was gefährlich macht – aber die Zeit läuft für jeden.
+ */
+const RISK_MIN_DAY = 0.02;
+const RISK_MAX_DAY = 0.08;
+
+/**
+ * So viele Tage werden höchstens nachgeholt – dieselbe Zahl wie
+ * MAX_SETTLE_DAYS bei den Tantiemen. Drei Wochen Urlaub sollen keine Kette
+ * von Entscheidungen ausspucken.
+ */
+const ROLL_TAGE_MAX = 14;
 
 /**
  * Aufschlag auf die Verluste, wenn jemand gar nicht reagiert.
@@ -73,9 +98,20 @@ function decision(kind) {
   return byId.get(String(kind)) ?? null;
 }
 
-/** Wie wahrscheinlich ein Vorfall je Aktion ist. */
+/** Wie wahrscheinlich ein Vorfall je Aktion WÄRE – nur noch Vergleichskurve, siehe RISK_MIN. */
 function riskFor(reach) {
   return clamp(RISK_MIN, RISK_MAX, (reach / RISK_FULL) * RISK_MAX);
+}
+
+/** Wie wahrscheinlich ein Vorfall je TAG ist. */
+function riskPerDay(reach) {
+  return clamp(RISK_MIN_DAY, RISK_MAX_DAY,
+    RISK_MIN_DAY + (Math.max(0, reach) / RISK_FULL) * (RISK_MAX_DAY - RISK_MIN_DAY));
+}
+
+/** Chance, in `tage` Tagen mindestens einen zu bekommen – wie company.riskFor. */
+function chanceOver(reach, tage) {
+  return 1 - Math.pow(1 - riskPerDay(reach), clamp(0, ROLL_TAGE_MAX, tage));
 }
 
 /** Verstärkung der Wirkungen bei großen Kanälen (1 … SEVERITY_MAX). */
@@ -121,13 +157,37 @@ function musicEligible(d, artist, contract) {
  *
  * `size` ist bei Creator die Reichweite, bei Musik die Hörerzahl – dieselbe
  * Risikokurve. Bei Firmen ist es `{ groesse, days, npc }`: Größe 0…9 mit
- * eigener Kurve (company.riskFor) über die abgerechneten Tage. Die Sperre
- * „solange einer offen ist" gilt über alle Domänen: Wer gerade ein
- * Creator-Drama hat, bekommt kein Musik- oder Firmen-Drama obendrauf.
+ * eigener Kurve (company.riskFor) über die abgerechneten Tage.
+ *
+ * Sperre und Mindestabstand gelten JE BEREICH: Wer ein Creator-Drama hat,
+ * bekommt trotzdem ein Musik-Drama. Über alle Bereiche gerechnet hätten sich
+ * die drei gegenseitig ausgehungert – und zwar umso mehr, je mehr Bereiche
+ * jemand bespielt.
+ *
+ * `schonGewuerfelt` ist für `tick`: Dort ist die Wahrscheinlichkeit schon über
+ * die vergangenen TAGE entschieden, hier wird nur noch der Vorfall gezogen.
+ * Alles andere – Sperre, Abstand, Kandidatenliste – gilt weiter.
+ *
+ * Für `music` und `creator` ist `schonGewuerfelt` PFLICHT: Nur `tick` darf
+ * diese beiden Bereiche anstoßen. Ohne die Pflicht würde ein künftiger Aufruf
+ * `roll(g, u, size, now, rand)` stillschweigend eine zweite Rate auf den
+ * Tageswurf setzen – genau das, was der Tageswurf abgelöst hat. Der Aufruf
+ * wirft deshalb einen Fehler, statt still zu würfeln oder still nichts zu tun.
+ * Die Firma würfelt weiter hier (company.riskFor über ihre Tage).
+ *
+ * Eine Domäne gibt es nicht mehr als Vorgabe: Wer `roll` ruft, sagt, wen.
  */
-function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator') {
-  if (db.openEvent(guildId, userId)) return null;
-  if (now - db.lastEventAt(guildId, userId) < MIN_GAP_MS) return null;
+function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain,
+  { schonGewuerfelt = false } = {}) {
+  if (domain !== 'music' && domain !== 'creator' && domain !== 'company') {
+    throw new Error(`decisions.roll: unbekannter Bereich "${domain}"`);
+  }
+  if (domain !== 'company' && !schonGewuerfelt) {
+    throw new Error(`decisions.roll: "${domain}" würfelt nur über tick `
+      + '(schonGewuerfelt fehlt) – sonst entstünde neben dem Tageswurf eine zweite Rate');
+  }
+  if (db.openEvent(guildId, userId, domain)) return null;
+  if (now - db.lastEventAt(guildId, userId, domain) < MIN_GAP_MS) return null;
 
   let possible;
   if (domain === 'company') {
@@ -135,17 +195,25 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     // abgerechneten Tage, Kandidaten nach Größe und NPC-Zahl.
     const company = require('./company');
     const { groesse, days, npc } = size;
-    if (random() >= company.riskFor(groesse, days)) return null;
+    if (!schonGewuerfelt && random() >= company.riskFor(groesse, days)) return null;
     possible = COMPANY_DECISIONS.filter((d) => groesse >= d.minGroesse && npc >= (d.minNpc ?? 0));
   } else {
-    if (random() >= riskFor(size)) return null;
+    /*
+     * Nach OBEN begrenzt, nicht nur nach unten: Die frühen Vorfälle (0 …
+     * FRUEH_MAX) gehören dem Anfang und verschwinden wieder, sobald jemand
+     * darüber hinaus ist. Ohne Obergrenze stünde der gekündigte Proberaum
+     * neben dem Plattenvertrag. Ein Eintrag ohne das Feld verhält sich wie
+     * bisher – nach oben offen.
+     */
     if (domain === 'music') {
       const artist = db.getArtist(guildId, userId, now);
       const contract = db.activeContract(guildId, userId);
       possible = MUSIC_DECISIONS.filter((d) =>
-        size >= d.minListeners && musicEligible(d, artist, contract));
+        size >= d.minListeners && size <= (d.maxListeners ?? Infinity)
+        && musicEligible(d, artist, contract));
     } else {
-      possible = DECISIONS.filter((d) => size >= d.minReach);
+      possible = DECISIONS.filter((d) =>
+        size >= d.minReach && size <= (d.maxReach ?? Infinity));
     }
   }
   if (!possible.length) return null;
@@ -161,6 +229,72 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     createdAt: now,
     expiresAt: now + DECIDE_MS,
   });
+}
+
+/**
+ * Hat der Spieler diesen Bereich überhaupt betreten?
+ *
+ * Geprüft wird die BENUTZUNG, nicht die Größe: Ein Anfänger mit einem Kanal und
+ * null Followern soll würfeln – für ihn sind die frühen Vorfälle gemacht. Wer
+ * aber nie gesendet hat, bekommt kein Creator-Drama, und wer nie eine Karriere
+ * gestartet hat, kein Musik-Drama.
+ *
+ * Nicht auf die EXISTENZ der Kanalzeile: `db.getCreator` legt sie beim ersten
+ * Zugriff an, und `buttons.settleCreator` ruft über `creator.settle` genau das –
+ * noch bevor es hier fragt. Ein einziger Blick in die Creator-Ansicht hätte die
+ * Tür also dauerhaft aufgestoßen, auch der Klick auf das eigene Firmendrama:
+ * genau der Fall, gegen den die Tür gebaut ist (`creator.reachTotalOf` zählt
+ * den Boden mit, den eine Musikkarriere mitbringt). Dasselbe gilt für
+ * `followers`: Eine Musikkarriere schüttet über `music`s Übertrag echte
+ * Follower auf fremde Kanäle aus, ohne dass der Spieler sie angefasst hat.
+ *
+ * `actions` zählt allein `creator.act` hoch – eine wirklich gesendete Aktion.
+ * Eine automatisch angelegte Zeile trägt dort 0, eine übertragene auch.
+ *
+ * Reines Lesen (§4): `db.hasArtist` steht vor `music.started`, weil `started`
+ * die Künstlerzeile sonst anlegen würde.
+ *
+ * Nur für die zwei Bereiche, die der Tageswurf kennt. Die Firma zählt ihre Tage
+ * in `company.settle` selbst und fragt hier nie – jeder andere Bereich bekommt
+ * deshalb `false` statt eines stillen `true`.
+ */
+function betreten(guildId, userId, domain) {
+  if (domain === 'music') {
+    return db.hasArtist(guildId, userId) && require('./music').started(guildId, userId);
+  }
+  if (domain === 'creator') return db.allCreator(guildId, userId).some((r) => r.actions > 0);
+  return false;
+}
+
+/**
+ * Der Tageswurf für Musik und Creator.
+ *
+ * Bis hierher hing ein Vorfall an der Zahl der AKTIONEN (2 % je Aktion, also
+ * im Schnitt fünfzig Aktionen bis zum ersten). Wer gemütlich spielt, sah
+ * deshalb nie einen. Die Firma rechnet seit jeher über die vergangenen TAGE –
+ * `tick` holt das für Musik und Creator nach, mit derselben Spanne.
+ *
+ * Faul (§4): Geschrieben wird die Uhr nur, wenn wirklich gewürfelt wurde.
+ * Abwesenheit zählt mit, aber höchstens `ROLL_TAGE_MAX` Tage – drei Wochen
+ * Urlaub sollen keine Kette von Entscheidungen ausspucken.
+ */
+function tick(guildId, userId, domain, size, now = Date.now(), random = Math.random) {
+  if (domain !== 'music' && domain !== 'creator') return null;
+  // Wer den Bereich nicht betreten hat, würfelt dort nicht – und seine Uhr
+  // bleibt stehen, damit der erste echte Tag auch der erste Wurf ist.
+  if (!betreten(guildId, userId, domain)) return null;
+  // Ein offener Vorfall DIESES Bereichs hält den nächsten auf.
+  if (db.openEvent(guildId, userId, domain)) return null;
+
+  const uhr = db.decisionUhr(guildId, userId, domain);
+  const tage = uhr.last_roll
+    ? Math.min(ROLL_TAGE_MAX, Math.floor((now - uhr.last_roll) / DAY_MS))
+    : 1;                       // beim allerersten Mal ein Wurf, nicht null
+  if (tage <= 0) return null;
+
+  db.saveDecisionUhr(guildId, userId, domain, now);
+  if (random() >= chanceOver(size, tage)) return null;
+  return roll(guildId, userId, size, now, random, domain, { schonGewuerfelt: true });
 }
 
 /**
@@ -483,9 +617,18 @@ async function settle(guildId, userId, now = Date.now()) {
   return out;
 }
 
-/** Der offene Vorfall mit seiner Vorlage, oder null. */
-function pending(guildId, userId, now = Date.now()) {
-  const row = db.openEvent(guildId, userId);
+/**
+ * Der offene Vorfall mit seiner Vorlage, oder null.
+ *
+ * MIT `domain` der offene Vorfall DIESES Bereichs. Seit die Sperre je Bereich
+ * gilt, können drei gleichzeitig offen sein; ohne Bereich käme nur der neueste
+ * zurück und die anderen zwei wären über ihre Ansicht unerreichbar, bis sie
+ * verfallen – und ein verfallener Vorfall kostet den Ignorier-Aufschlag.
+ *
+ * Ohne `domain` verhält sie sich wie bisher: der neueste über alle Bereiche.
+ */
+function pending(guildId, userId, now = Date.now(), domain = null) {
+  const row = db.openEvent(guildId, userId, domain);
   if (!row) return null;
   const d = decision(row.kind);
   if (!d) return null;
@@ -501,8 +644,9 @@ function history(guildId, userId, limit = 5) {
 
 module.exports = {
   DECISIONS, MUSIC_DECISIONS, COMPANY_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
-  SEVERITY_MAX, SEVERITY_FULL,
+  RISK_MIN_DAY, RISK_MAX_DAY, ROLL_TAGE_MAX,
+  SEVERITY_MAX, SEVERITY_FULL, FRUEH_MAX,
   IGNORE_PENALTY,
-  decision, riskFor, severityFor, scaleMoney, pickOutcome, musicEligible,
-  roll, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
+  decision, riskFor, riskPerDay, chanceOver, severityFor, scaleMoney, pickOutcome, musicEligible,
+  betreten, roll, tick, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
 };

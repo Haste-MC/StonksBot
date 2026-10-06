@@ -443,14 +443,13 @@ function record(guildId, userId, now = Date.now(), random = Math.random, { event
   // Zählt für den Titel im Profil – ein Song ist Arbeit, auch ohne Buchung.
   require('./activity').record(guildId, userId, 'music', now);
 
-  // … und ob heute etwas passiert, das eine Entscheidung verlangt (§8: spät gebunden).
-  const incident = events
-    ? require('./decisions').roll(guildId, userId, row.listeners, now, random, 'music') : null;
-
   return {
     ok: true, songs, quality, factor: time.factor,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
-    incident,
+    // Der schwere Vorfall hängt an der ZEIT, nicht an der Aktion: Gewürfelt
+    // wird einmal je Tag in der faulen Abrechnung (decisions.tick, §4). Das
+    // Feld bleibt, weil die Anzeige es liest.
+    incident: null,
     text: pick(data.STUDIO, random), time,
   };
 }
@@ -606,9 +605,6 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
   // 7. Klopft eine Agentur an?
   const offer = rollContract(guildId, userId, listeners, market, now, random);
 
-  const incident = events
-    ? require('./decisions').roll(guildId, userId, listeners, now, random, 'music') : null;
-
   // Wer chartet, wird gesehen – und manchmal angezählt (5b). Der Wurf steht
   // bewusst ganz am Ende: Die neue Hörerzahl ist da schon geschrieben, und er
   // verschiebt keinen der Würfel davor.
@@ -625,7 +621,8 @@ function publish(guildId, userId, typeId, now = Date.now(), random = Math.random
     buzz, position: charted ? position : 0, best,
     spill, spilled, offer, time,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
-    incident,
+    // Siehe `record`: der Vorfall kommt aus dem Tageswurf, nicht von hier.
+    incident: null,
     kontakt: kb ? {
       id: kb.contact?.id ?? '', name: kb.contact?.name ?? '',
       request: kb.request?.name ?? kb.requestId,
@@ -863,10 +860,6 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
     last_action_at: now, last_show_at: now, touched_at: now,
   });
 
-  const incident = events
-    ? require('./decisions').roll(guildId, userId, before.listeners + gained, now, random, 'music')
-    : null;
-
   const cut = kond ? Math.round(gross * kond.cut) : 0;
   // Erst der Anteil der Agentur, dann der Level-Zuschlag auf das, was bleibt.
   const net = cancelled ? 0 : require('./perks').payout(guildId, userId, gross - cut);
@@ -878,7 +871,8 @@ async function show(guildId, userId, now = Date.now(), random = Math.random,
   return {
     ok: true, gross, cut, amount: net, gained, quality, factor: time.factor, genre: g, beefVorher,
     event: event.id === 'none' ? null : { id: event.id, text: event.text },
-    incident, cancelled, extraHoerer,
+    // Siehe `record`: der Vorfall kommt aus dem Tageswurf, nicht von hier.
+    incident: null, cancelled, extraHoerer,
     kontakt: kb ? {
       id: kb.contact?.id ?? '', name: kb.contact?.name ?? '',
       request: kb.request?.name ?? kb.requestId,
@@ -1085,8 +1079,10 @@ function status(guildId, userId, now = Date.now()) {
     releaseMs: remainingMs(row, 'last_release_at', RELEASE_COOLDOWN_MIN, now),
     showMs: remainingMs(row, 'last_show_at', SHOW_COOLDOWN_MIN, now),
     hasGear: hasGear(guildId, userId),
-    // Der offene Vorfall – egal welcher Domäne: Beide blockieren die Musik.
-    incident: require('./decisions').pending(guildId, userId, now),
+    // Der offene Vorfall DIESER Domäne: Seit die Sperre je Bereich gilt, kann
+    // gleichzeitig ein Creator- oder Firmen-Drama offen sein – das gehört in
+    // die jeweilige Ansicht, nicht ins Studio.
+    incident: require('./decisions').pending(guildId, userId, now, 'music'),
   };
 }
 

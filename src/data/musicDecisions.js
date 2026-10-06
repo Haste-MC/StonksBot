@@ -10,6 +10,7 @@
  * AUFBAU
  * ------
  *   minListeners  ab wie vielen Hörern der Vorfall auftaucht
+ *   maxListeners  bis zu wie vielen noch (fehlt = nach oben offen)
  *   requires      Zulassung: { persona: 'face' } | { songs: 3 } | { contract: true }
  *   options       2–3 Wahlmöglichkeiten, jede mit gewichteten Ausgängen
  *   expire        Ausgang, wenn niemand reagiert (× IGNORE_PENALTY auf Verluste)
@@ -27,6 +28,11 @@
  *   publish      true = alles Aufgenommene wird sofort veröffentlicht …
  *   audience     … mit diesem Faktor auf das Publikum
  */
+
+// Die Obergrenze der frühen Vorfälle steht bei den Creator-Vorfällen – ein
+// Wert für beide Kataloge, damit „früh" nicht in zwei Dateien getrennt
+// davonläuft. data/decisions.js hängt an keinem Modul, der Weg ist also kreisfrei.
+const { FRUEH_MAX } = require('./decisions');
 
 const MUSIC_DECISIONS = [
   {
@@ -216,6 +222,101 @@ const MUSIC_DECISIONS = [
     expire: {
       lockRelease: 7,
       text: 'Keine Antwort heißt: Das Label entscheidet. Und das Label wartet.',
+    },
+  },
+
+  // --------------------------------------------------------------------
+  //  Die frühen Vorfälle: 0 … FRUEH_MAX Hörer
+  //
+  //  Ohne Zulassungshürde (`requires`), denn sie sollen den treffen, der
+  //  gerade anfängt – ohne Songs, ohne Vertrag, ohne Gesicht. Kein Ausgang
+  //  zahlt etwas aus: ein früher Vorfall ist eine Entscheidung, keine
+  //  Einnahmequelle (§3). `cash` zählt in Tagen Tantiemen, bei null Hörern
+  //  also in Kleingeld – gemeint ist der Abend, nicht die Summe.
+  // --------------------------------------------------------------------
+  {
+    id: 'proberaum',
+    emoji: '🚪',
+    title: 'Der Proberaum ist gekündigt',
+    minListeners: 0,
+    maxListeners: FRUEH_MAX,
+    text: 'Zum Monatsende. Die Hausverwaltung baut Wohnungen daraus. Zwei Straßen '
+      + 'weiter gibt es einen – für das Doppelte.',
+    options: [
+      {
+        id: 'teurer', label: 'Den teureren nehmen', emoji: '🔑',
+        outcomes: [
+          { weight: 7, cash: -2,
+            text: 'Doppelte Miete, derselbe Hall. Dafür stehst du nächste Woche wieder am Pult.' },
+          { weight: 3, cash: -3, hype: 1.05,
+            text: 'Der neue Raum ist der bessere. Es tut weh, aber man hört es.' },
+        ],
+      },
+      {
+        id: 'schlafzimmer', label: 'Im Schlafzimmer aufnehmen', emoji: '🛏️',
+        outcomes: [
+          { weight: 6, hype: 0.9,
+            text: 'Matratze an die Wand, Decke über den Schrank. Es geht – es klingt nur nicht so.' },
+          { weight: 4, listeners: -0.04, hype: 0.85,
+            text: 'Ab acht klopfen die Nachbarn. Was danach fertig wird, hört man das an.' },
+        ],
+      },
+      {
+        id: 'pause', label: 'Erst mal pausieren', emoji: '⏸️',
+        outcomes: [
+          { weight: 6, lockRelease: 3,
+            text: 'Drei Tage ohne Raum und ohne Veröffentlichung. Kostet nichts außer Zeit.' },
+          { weight: 4, lockRelease: 3, hype: 0.9,
+            text: 'Die Pause zieht sich. Wer nichts rausbringt, wird schnell nicht mehr erwartet.' },
+        ],
+      },
+    ],
+    expire: {
+      lockRelease: 5, hype: 0.9,
+      text: 'Die Kündigung läuft einfach ab. Deine Sachen stehen jetzt im Flur deiner Wohnung.',
+    },
+  },
+  {
+    id: 'kleiner_auftritt',
+    emoji: '🚐',
+    title: 'Fünfzig Euro und drei Stunden Fahrt',
+    minListeners: 0,
+    maxListeners: FRUEH_MAX,
+    text: 'Ein Jugendzentrum fragt an: Samstag, zwanzig Minuten, fünfzig Euro. '
+      + 'Drei Stunden hin, drei zurück, zwanzig Leute im Raum.',
+    options: [
+      {
+        id: 'hinfahren', label: 'Hinfahren', emoji: '🚗',
+        outcomes: [
+          { weight: 6, cash: -1, listeners: 0.03,
+            text: 'Zwanzig Leute, und sie bleiben bis zum letzten Ton. Der Tank kostet mehr als die Gage.' },
+          { weight: 4, cash: -2, hype: 1.1,
+            text: 'Halb leerer Raum – aber hinten steht jemand, der zwei Straßen weiter Konzerte bucht. Der Name bleibt hängen.' },
+        ],
+      },
+      {
+        id: 'nachfragen', label: 'Mehr Gage verlangen', emoji: '💬',
+        outcomes: [
+          { weight: 5,
+            text: 'Sie haben kein Budget mehr. Ehrlich gesagt war es die Fahrt auch nicht wert.' },
+          { weight: 5, hype: 0.95,
+            text: 'Sie nehmen jemand anderen. Die Bühne war klein, der Flurfunk nicht.' },
+        ],
+      },
+      {
+        id: 'absagen', label: 'Absagen und schreiben', emoji: '🛋️',
+        outcomes: [
+          { weight: 7, lockShow: 1,
+            text: 'Du bleibst da und arbeitest. Kein Verlust, kein Publikum.' },
+          { weight: 3, hype: 0.9,
+            text: 'Der Abend bleibt frei und leer. Irgendwann fragt niemand mehr an.' },
+        ],
+      },
+    ],
+    expire: {
+      lockShow: 2, hype: 0.9,
+      text: 'Du hast nicht geantwortet. Samstag spielt jemand anderes, und gefragt '
+        + 'wird beim nächsten Mal auch jemand anderes.',
     },
   },
 ];

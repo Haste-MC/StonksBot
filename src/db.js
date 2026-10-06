@@ -914,6 +914,16 @@ db.exec(`
   );
   CREATE INDEX IF NOT EXISTS idx_creator_events
     ON creator_events (guild_id, user_id, status);
+
+  -- Wann zuletzt um einen Vorfall gewürfelt wurde, je Bereich. Die Firma
+  -- braucht keine Zeile: sie zählt ihre Tage in company.settle selbst.
+  CREATE TABLE IF NOT EXISTS decision_uhr (
+    guild_id  TEXT    NOT NULL,
+    user_id   TEXT    NOT NULL,
+    domain    TEXT    NOT NULL,          -- music | creator
+    last_roll INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (guild_id, user_id, domain)
+  );
 `);
 // Stück 4: Ein Firmen-Vorfall gehört zu EINER Firma – seit es mehrere je
 // Spieler gibt, reicht die User-ID nicht mehr. Spalte nachrüsten statt
@@ -1386,6 +1396,27 @@ for (const [column, definition] of [
 
 // 5 pro Seite: so passen die Kauf-Buttons in genau eine Discord-Zeile.
 const PAGE_SIZE = 5;
+
+/*
+ * Woran ein Vorfall hängt, als SQL-Bedingung.
+ *
+ * Die Sperre „höchstens einer gleichzeitig" galt bisher über alle Bereiche:
+ * Wer ein Creator-Drama hatte, bekam kein Musik-Drama obendrauf. Seit der
+ * Tageswurf dazukommt, ist das zu scharf – drei Bereiche würden sich
+ * gegenseitig aushungern. Jeder Bereich bekommt deshalb seine eigene Sperre.
+ *
+ * Abgeleitet wird der Bereich aus der VORHANDENEN Spalte `platform` – kein
+ * Schema-Update: 'music' und 'company' tragen ihren Namen dort, alles andere
+ * ist Creator (eine Plattform-ID oder leer = netzwerkweit).
+ */
+const EVENT_DOMAIN_SQL = {
+  music: "platform = 'music'",
+  company: "platform = 'company'",
+  creator: "platform NOT IN ('music', 'company')",
+};
+
+/** Gibt es diesen Bereich? (`null` und Unsinn sind keiner) */
+const istBereich = (domain) => Object.hasOwn(EVENT_DOMAIN_SQL, String(domain));
 
 const stmt = {
   listItems: db.prepare(
@@ -2402,6 +2433,23 @@ const stmt = {
   lastEvent: db.prepare(
     `SELECT MAX(created_at) AS at FROM creator_events WHERE guild_id = ? AND user_id = ?`),
   clearEvents: db.prepare('DELETE FROM creator_events WHERE guild_id = ? AND user_id = ?'),
+  // Dieselben zwei Sperrabfragen, auf einen Bereich eingeschränkt.
+  openEventIn: Object.fromEntries(Object.entries(EVENT_DOMAIN_SQL).map(([domain, where]) =>
+    [domain, db.prepare(
+      `SELECT * FROM creator_events WHERE guild_id = ? AND user_id = ? AND status = 'open'
+         AND ${where} ORDER BY id DESC LIMIT 1`)])),
+  lastEventIn: Object.fromEntries(Object.entries(EVENT_DOMAIN_SQL).map(([domain, where]) =>
+    [domain, db.prepare(
+      `SELECT MAX(created_at) AS at FROM creator_events WHERE guild_id = ? AND user_id = ?
+         AND ${where}`)])),
+
+  decisionUhr: db.prepare(
+    'SELECT * FROM decision_uhr WHERE guild_id = ? AND user_id = ? AND domain = ?'),
+  // Die Uhr = EINE Anweisung (§7).
+  saveDecisionUhr: db.prepare(
+    `INSERT INTO decision_uhr (guild_id, user_id, domain, last_roll)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (guild_id, user_id, domain) DO UPDATE SET last_roll = excluded.last_roll`),
   lockCreator: db.prepare(
     `UPDATE creator_channels SET locked_until = ?
      WHERE guild_id = ? AND user_id = ? AND platform = ?`),
@@ -4009,9 +4057,19 @@ function getEvent(guildId, id) {
   return stmt.getEvent.get(guildId, Number(id)) ?? null;
 }
 
-/** Der offene Vorfall eines Spielers, oder null. */
-function openEvent(guildId, userId) {
-  return stmt.openEvent.get(guildId, String(userId)) ?? null;
+/**
+ * Der offene Vorfall eines Spielers, oder null.
+ *
+ * Ohne `domain` zählt jeder Bereich – so, wie es war. Mit `domain` nur dieser
+ * eine: Musik, Creator und Firma sperren sich seit dem Tageswurf nicht mehr
+ * gegenseitig (siehe EVENT_DOMAIN_SQL).
+ *
+ * Ein unbekannter Bereich fällt auf „alle" zurück, nicht auf „keiner": Ein
+ * Tippfehler im Aufruf soll die Sperre verschärfen, nicht aufheben.
+ */
+function openEvent(guildId, userId, domain = null) {
+  const q = istBereich(domain) ? stmt.openEventIn[domain] : stmt.openEvent;
+  return q.get(guildId, String(userId)) ?? null;
 }
 
 /** Offene Vorfälle, deren Frist abgelaufen ist. */
@@ -4030,12 +4088,36 @@ function eventHistory(guildId, userId, limit = 5) {
   return stmt.eventHistory.all(guildId, String(userId), limit);
 }
 
-/** Wann zuletzt überhaupt ein Vorfall auftrat (0 = noch nie). */
-function lastEventAt(guildId, userId) {
-  return stmt.lastEvent.get(guildId, String(userId))?.at ?? 0;
+/**
+ * Wann zuletzt ein Vorfall auftrat (0 = noch nie). Ohne `domain` über alle
+ * Bereiche, mit `domain` nur in diesem – und ein unbekannter Bereich fällt
+ * auch hier auf „alle" zurück, wie bei `openEvent`.
+ */
+function lastEventAt(guildId, userId, domain = null) {
+  const q = istBereich(domain) ? stmt.lastEventIn[domain] : stmt.lastEvent;
+  return q.get(guildId, String(userId))?.at ?? 0;
 }
 
-/** Löscht alle Vorfälle eines Spielers – domänenübergreifend (Tests). */
+/**
+ * Die Uhr des Tageswurfs – immer eine Zeile, auch wenn noch keine geschrieben
+ * wurde. Lesen darf nichts anlegen (§4), genau wie bei `angebotUhr`.
+ */
+function decisionUhr(guildId, userId, domain) {
+  return stmt.decisionUhr.get(guildId, String(userId), String(domain))
+    ?? { guild_id: guildId, user_id: String(userId), domain: String(domain), last_roll: 0 };
+}
+
+/** Die Uhr = EINE Anweisung (§7). */
+function saveDecisionUhr(guildId, userId, domain, lastRoll = 0) {
+  stmt.saveDecisionUhr.run(guildId, String(userId), String(domain), Number(lastRoll) || 0);
+}
+
+/**
+ * Löscht alle Vorfälle eines Spielers – domänenübergreifend (Tests). Die Uhr
+ * aus `decision_uhr` bleibt stehen: Wer danach einen „ersten" Wurf erwartet,
+ * sieht die Tage seit der alten Uhr – ein frischer Spielername oder
+ * `saveDecisionUhr(g, u, domain, 0)` setzt sie zurück.
+ */
 function clearEvents(guildId, userId) {
   stmt.clearEvents.run(guildId, String(userId));
 }
@@ -4609,6 +4691,7 @@ module.exports = {
   getCreatorState, saveCreatorState, topCreator, topCreatorTotal, clearCreator,
   insertEvent, getEvent, openEvent, overdueEvents, resolveEvent, eventHistory,
   lastEventAt, clearEvents, lockCreator,
+  decisionUhr, saveDecisionUhr,
   insertDeal, getDeal, listDeals, activeDeal, countOffers, acceptDeal,
   setDealStatus, advanceDeal, expireOffers, dealHistory,
   getTreasury, bookTreasury, topTreasurySources, topTreasuryPayers, treasuryPayer,

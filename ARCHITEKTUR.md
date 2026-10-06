@@ -1756,6 +1756,222 @@ Zuschlag nicht. Geändert ist nichts – jede Änderung an `gageOf` oder `honora
 würde die Messung oben ungültig machen –, aber wer die Hallen-Boni einmal
 anfasst, fasst diese beiden Stellen mit an.
 
+**Vorfälle bei Musik und Creator (seit 1.42.0, Stück 5f):** Ein Vorfall ist eine
+Entscheidung mit Frist – „Plagiatsvorwurf", „Die Platte klackt" –, und sie
+hängt jetzt an der **Zeit** statt am Fleiß. `decisions.tick` rechnet faul über
+die vergangenen Tage ab und würfelt in derselben Form wie die Firma:
+`p(reichweite) = clamp(0,02; 0,08; 0,02 + reichweite/1.500.000 × 0,06)`,
+`chance(tage) = 1 − (1 − p)^min(tage, 14)`. Gerufen wird er aus den fauligen
+Sammlern, die es schon gibt (`buttons.settleMusic` mit der Hörerzahl,
+`buttons.settleCreator` mit `creator.reachTotalOf`), und nur von dort: Für
+`music` und `creator` verlangt `decisions.roll` seitdem `schonGewuerfelt` und
+wirft sonst einen Fehler, damit neben dem Tageswurf keine zweite Rate entstehen
+kann. Dazu vier Vorfälle „vom Anfangen" mit Schwelle 0 und Obergrenze
+`FRUEH_MAX` 10.000, und eine Sperre **je Bereich** statt einer im ganzen Spiel.
+
+**Warum es sich geändert hat:** Vorher wurde **je Aktion** gewürfelt – 2 % je
+`record`, `publish`, `show` und `creator.act`, Erwartungswert fünfzig Aktionen
+bis zum ersten Vorfall. Für einen Gelegenheitsspieler war der ganze Mechanismus
+damit unsichtbar, und wer viel klickte, bekam entsprechend mehr – die Rate hing
+allein an der Zahl der Aktionen und an nichts sonst. Dazu kamen zwei
+Verstärker: Unter 5.000 Hörern war die Kandidatenliste **leer**, der Wurf fiel
+ins Leere und die Uhr war trotzdem geschrieben; und `db.openEvent` fragte nur
+nach `(guild_id, user_id)`, also sperrte ein einziger offener Vorfall Musik,
+Creator **und** Firma gleichzeitig – wobei die Firma am häufigsten feuert.
+
+**Gemessen** (`node scripts/messung-geldquellen.js 60 365 --nur=vorfaelle`,
+vollständige Ausgabe in `docs/messungen/2026-10-06-vorfaelle.txt`; Reichweite
+festgehalten, 100 Seeds à 365 Tage je Stufe, jeder Vorfall sofort geschlossen –
+gemessen ist die Häufigkeit, nicht das Geld):
+
+| Reichweite | Musik | Creator | erwartet mit Sperre | Spec-Tabelle |
+| --- | --- | --- | --- | --- |
+| 0 (Anfänger) | **6,90 ± 0,24** | **6,89 ± 0,22** | 7,16 | 7,3 |
+| 5.000 | 6,99 ± 0,24 | – | 7,23 | 7,4 |
+| 10.000 | 7,06 ± 0,24 | – | 7,30 | 7,4 |
+| 20.000 | 7,27 ± 0,25 | – | 7,44 | 7,6 |
+| 100.000 | **8,44 ± 0,27** | **8,42 ± 0,26** | 8,55 | 8,8 |
+| 500.000 | 13,78 ± 0,35 | – | 14,04 | 14,6 |
+| 1,5 Mio | **26,43 ± 0,46** | **26,48 ± 0,46** | 27,04 | 29,2 |
+
+**Die Spec-Tabelle ist eine Obergrenze, nicht eine Vorhersage – und das ist der
+Grund für jede Abweichung in der letzten Spalte.** Sie ist `365 × p` und nimmt
+an, dass jeder der 365 Würfe zählt. Er zählt aber nicht: Jeder Vorfall sperrt
+über `MIN_GAP_MS` den Wurf des **folgenden** Tages (ein Wurf je Tag, 24 h sind
+weniger als 36 h). Daraus folgt `I = p × (365 − I)`, also **`365p/(1+p)`** – die
+Spalte davor, und die trifft die Messung auf 96,3 bis 98,7 % bei höchstens 1,3 σ
+Abweichung. Die Herleitung prüft sich selbst: Die Zahl der durchgekommenen
+Würfe, die trotzdem nichts gaben, muss `p × Vorfälle` sein, und sie stimmt im
+Rahmen des Rauschens (gemessen 206 gegen gerechnet 211,4 bei 1,5 Mio, 11 gegen
+13,8 bei null – das sind 20 % zu wenig, auf einer gezählten 11 aber nur 0,75 σ); der
+kleinste gemessene Abstand zweier Vorfälle desselben Bereichs ist in **jeder**
+Stufe genau 48,0 Stunden, nie 24 und nie 36.
+
+**Ein Anfänger sieht jetzt wirklich welche, und zwar nur die, die zu ihm
+passen.** Bei 0 und 2.000 Hörern sind **100 %** der 6,90 bzw. 6,93 Vorfälle frühe
+(`proberaum`, `kleiner_auftritt` – die einzigen zwei Kandidaten dort), bei 5.000
+und 10.000 die Hälfte (3,51 und 3,56), bei 20.000 **keiner** mehr. Die Grenze
+liegt also genau auf `FRUEH_MAX`. Beim Creator sind es bei null 4,71 von 6,89
+(68 %), weil `hardware` ebenfalls ab null geht und nach oben offen ist.
+
+**Was es kostet** (60 Läufe à 365 Tage, dieselbe je Archetyp einmal gesuchte
+Strategie, eigener fünfter Würfel `rng(1101000+i)` für die Vorfälle, damit „aus"
+und „an" denselben Musik- und Kanallauf haben; gepaart je Seed, Zahlen in
+`docs/messungen/2026-10-06-vorfaelle.txt`):
+
+| Archetyp | ohne Vorfälle | mit Vorfällen | Mediane / gepaart | Vorfälle/Jahr |
+| --- | --- | --- | --- | --- |
+| Musik+Creator | 495.099/Tag | 455.123/Tag | −8,1 % / **−7,4 %** | 31,85 |
+| nur Musik | 109.717/Tag | 90.810/Tag | −17,2 % / **−16,9 %** | 9,73 |
+
+**Der Deckel von ±25 % hält in beide Richtungen, und `RISK_MAX_DAY` bleibt bei
+0,08.** Vorfälle können die Bilanz nach oben *und* nach unten schieben; gemessen
+schieben sie sie nach unten, und zwar 7,4 bzw. 16,9 % – der reine Musiker damit
+8,1 Prozentpunkte vor dem Auslöser, Musik+Creator 17,6. Die Treppe ist dabei dieselbe Lehre wie bei 5b und 5c: Bei **10**
+Läufen stand der reine Musiker bei −22,1 %, bei **30** bei −22,2 %, bei **60**
+bei −16,9 %. Wer diese Messung wiederholt und bei 10 Seeds über −25 % landet,
+hat nicht die Konstante zu senken, sondern mehr Seeds zu fahren.
+
+**Der Verlust ist fast vollständig eine Wachstumsbremse und kaum eine
+Geldsenke** – das ist der Befund, auf den §3 hier ankommt. Der Posten „Vorfall"
+im Konto ist winzig: **−559** am Tag beim reinen Musiker von 18.907 Differenz
+(3,0 %) und **−3.061** bei Musik+Creator von 39.976 (7,7 %) – die Differenz aus
+den Medianen, der Posten als Mittel über die Läufe, also streng genommen nicht
+dieselbe Statistik; die Größenordnung ist es. Die anderen 97 bzw. 92 Prozent sind
+**alles außer diesem Posten** – überwiegend verlorene Hörer und Follower, die
+sich nicht mehr verzinsen (531.018 statt 693.797 Hörer, −23,5 %, beim reinen
+Musiker; 4.695.384 statt 6.399.765 Follower, −26,6 %, bei Musik+Creator), aber
+nicht nur: Darin stecken auch die Sperren auf Veröffentlichung und Konzert
+(`lockRelease`, `lockShow`), verbrauchte Ausrüstung (`gear`), gekürzte Community
+und der Vertragsbruch, dessen Strafe `music.leave` unter „Vertragsstrafe" bucht
+und nicht unter „Vorfall". Getrennt gemessen sind diese Kanäle nicht; dass sie in
+diesem Lauf klein sind, zeigt die Tagesleistung (beim reinen Musiker 0,94
+Veröffentlichungen und 0,23 Konzerte je Tag, mit wie ohne Vorfälle), und einen
+Vertrag unterschreibt der gemessene Spieler nie. Der §3-Treiber in
+`test/musicEvents.test.js` sieht mit anderer Spielweise und anderen Seeds
+dasselbe: Hörer-Median 441.957 gegen 568.264, Faktor 0,778.
+
+**Was die Trennung der Sperre bringt** (derselbe Lauf mit und ohne
+Bereichsfilter, 100 Seeds à 365 Tage, ein Spieler mit Musik 100.000 Hörer,
+Kanälen 100.000 Reichweite und einer Firma der Größe 5;
+`docs/messungen/2026-10-06-vorfaelle.txt`): Mit Filter stehen beim Spieler, der
+jeden Vorfall am Tag seines Auftretens beantwortet, Musik **8,41**, Creator
+**8,93** und Firma **18,16** Vorfälle im Jahr – und zwar gleich, egal welcher
+Bereich zuerst würfelt. **Ohne** Filter hängt genau daran, wer sie bekommt:
+
+| ohne Filter, „sofort" | Musik | Creator | Firma | zusammen |
+| --- | --- | --- | --- | --- |
+| Firma zuerst | 7,35 | 7,60 | 17,42 | 32,37 |
+| Musik zuerst | 7,78 | 8,24 | 16,51 | 32,53 |
+
+Der Gewinn der Trennung ist deshalb eine **Spanne über die Würfelreihenfolge** und
+keine einzelne Zahl: Musik **+8,1 bis +14,4 %**, Creator **+8,4 bis +17,5 %**,
+zusammen +9,1 bis +9,7 %. „Die Firma nahm der Musik die Vorfälle weg" ist damit
+wahr und kleiner als die Formulierung klingt – und die Reihenfolge verschiebt nur,
+**wer** die Vorfälle bekommt, nicht wie viele es gibt: Die Summe ohne Filter ist
+in beiden Reihenfolgen praktisch dieselbe (32,37 gegen 32,53), während die Musik
+einmal 1.742 von 36.500 Würfen an einen fremden offenen Vorfall verliert (Firma
+zuerst, 4,8 % der Tage) und einmal keinen einzigen (Musik zuerst). Welche
+Reihenfolge ein echter Spieler hat, weiß niemand – er öffnet seine Ansichten,
+wie er will. **Und die Firma feuert jetzt selbst 4,2 bis 10,0 % häufiger** (18,16
+gegen 17,42 bzw. 16,51), weil ein offener Musik- oder Kanal-Vorfall ihre
+Abrechnung nicht mehr aufhält; an `company.riskFor` ist nichts geändert.
+
+**Die Sperre durch `openEvent` ist aufschiebend, die durch `MIN_GAP_MS` ist
+endgültig.** Wer nie antwortet, hat von der Trennung nichts (bei der Musik
+zwischen −0,8 % und +0,9 %, je Würfelreihenfolge, statt der +8 bis +14 % des
+Spielers, der antwortet) – und das ist kein Widerspruch, sondern die Reihenfolge im Code: Bricht
+`tick` wegen eines offenen Vorfalls ab, wird die Uhr **nicht** geschrieben, der
+nächste Wurf deckt zwei Tage und hat die doppelte Chance. `MIN_GAP_MS` greift
+dagegen erst **nach** `saveDecisionUhr`, und dieser Wurf ist weg. Gemessen: 5.186
+von 36.500 Musik-Tagen ohne Wurf und trotzdem 8,45 gegen 8,53 Vorfälle.
+
+**Die Tür** (`decisions.betreten`) fragt nach der **Benutzung**, nicht nach der
+Größe und nicht nach der Existenz einer Zeile: `db.getCreator` legt die
+Kanalzeile beim ersten Zugriff an, und `buttons.settleCreator` tut genau das –
+ein Blick in die Creator-Ansicht hätte die Tür sonst dauerhaft aufgestoßen.
+Gezählt wird `actions`, das allein `creator.act` hochzählt. Gemessen über je 365
+Tage mit 100.000 Reichweite im Aufruf: wer nur geschaut hat **0** Vorfälle, wer
+eine Musikkarriere und keine Kanalaktion hat **0**, wer wirklich gesendet hat
+**8**. Ein reiner Firmenspieler zieht damit keine Creator-Vorfälle mehr; vorher
+sammelte `reachTotalOf` sie ihm ein.
+
+**Ehrliche Grenzen:** (1) **Die Streuung ist größer als die Zahl.** Je Seed reicht
+die Spanne beim reinen Musiker von −40,7 % bis +5,0 % (5 von 60 Seeds im Plus),
+bei Musik+Creator von −29,7 % bis +4,1 % (2 von 60). −16,9 % ist eine Aussage
+über sechzig Jahre, nicht über eines. (2) **Der Stufenlauf hält die Reichweite
+fest, eine Karriere tut das nicht.** Deshalb sind „14,6 bei 500.000" aus der
+Tabelle und „9,73 je Jahr" aus dem Karriere-Lauf kein Widerspruch: Der gemessene
+Musiker **erreicht** 531.018 Hörer erst am Jahresende und verbringt die ersten
+Monate unter 100.000, wo `p` bei 0,020…0,024 liegt. Wer die Tabelle auf eine
+Karriere anwendet, liest die Zahl eines Spielers, der zwölf Monate lang Weltstar
+war. (3) **Der gemessene Spieler wählt bei jedem Vorfall eine zufällige Option.**
+−16,9 % ist der Preis des blinden Antwortens; was ein Spieler zahlt, der gezielt
+wählt, ist nicht gemessen, und wer gar nicht antwortet, zahlt dazu den
+Ignorier-Aufschlag von 1,6 auf jeden Verlust. (4) **Im Stufenlauf, in der
+Türprobe und im Sperrelauf wird kein Vorfall beantwortet** – jeder wird gezählt
+und sofort geschlossen, ohne Wirkung. Gemessen ist dort die Häufigkeit und die
+Sperre; was ein Vorfall kostet, misst nur der Karriere-Lauf. (5) **Der
+Stufenlauf hat keine aufgenommenen Titel und keinen Vertrag,** also kommen
+`album_leak` (braucht 3 Titel) und `label` (braucht einen Vertrag) dort nie vor –
+bei 1,5 Mio stehen drei Kandidaten statt fünf. Das ändert, **welche** Vorfälle
+gezogen werden, nicht wie viele; leer war die Liste in keiner Stufe. (6) **Der
+Firmenwurf im Sperrelauf ist ein Aufruf, keine Firma:** `decisions.roll(…,
+'company')` über einen abgerechneten Tag, ohne Lager, Werbung, Löhne und
+Entnahme. Für die Sperrfrage genügt das; was ein Firmen-Vorfall kostet, misst der
+Firmenlauf. (7) **Die Reihenfolge der drei Würfe ist eine Annahme, und sie trägt
+die Überschrift oben** – im Spiel würfelt jeder Bereich, wenn der Spieler seine
+Ansicht öffnet. Ohne Filter ändert sie die Zahlen genau da, wo es weh tut: Musik
+7,35 (Firma zuerst) gegen 7,78 (Musik zuerst), also **+14,4 % gegen +8,1 %** für
+denselben Befund. Deshalb steht er oben als Spanne und nicht als Zahl. Mit Filter
+ändert sie nichts, und dass sie es nicht tut, ist eine Kontrollzeile. (8) **Der Tageswurf hängt im Messskript an
+`strat.vorfaelle` und läuft nur in diesem Abschnitt.** Die Rangfolge der
+Archetypen oben und die Zahlen von 5a, 5b und 5c sind damit **ohne** Vorfälle
+gemessen – **anders als vorher.** Vor diesem Stück würfelte jede Aktion
+(`git show main:src/music.js` 448/610/867 und `main:src/creator.js:970`), und der
+Karriere-Lauf fährt mit `events: true` (`scripts/messung-geldquellen.js:78`) –
+Vorfälle kamen also vor, und sie stehen im Ergebnis des letzten Laufs vor diesem
+Stück: `docs/messungen/2026-10-02-angebote.txt:439` „· Vorfall -2.791/Tag (-1 %)"
+(Musik+Creator) und `:607` „· Vorfall -1.051/Tag (-1 %)" (nur Musik). Entfernt hat
+die Würfe je Aktion **Schritt 2 dieses Stücks** (`eab3576`) – nicht Stück 2 des
+Projekts, das ist der Firmen-Ausbau. Für die älteren Zahlen heißt das: Sie wurden
+**mit** einer Vorfallsbremse von rund 1 % des Tageseinkommens gemessen, die es
+jetzt nicht mehr gibt – wer 5a bis 5e heute neu fährt, landet rund ein Prozent
+**höher** als das, was hier steht. Und wer sie mit dem Tageswurf fährt, muss beim
+reinen Musiker rund 17 % weniger erwarten als die Zahlen oben. (9) **Die
+100 Seeds sind in jeder Stufe dieselben,** damit die Stufen vergleichbar sind –
+ihre Abweichungen von der Erwartung sind deshalb korreliert, und alle dreizehn
+zeigen nach unten. (10) **Die Abwesenheit ist nicht gemessen.** `ROLL_TAGE_MAX`
+deckelt das Nachholen auf 14 Tage, und in diesem Lauf greift der Deckel **nie**:
+„nachgeholte Tage je Wurf Ø 1,00 (kleinster 1,00, größter 1,00)". Der gemessene
+Spieler ist jeden Tag da; was jemand bekommt, der drei Wochen weg war, steht in
+`test/decisions.test.js`. **Damit gilt die gemessene Häufigkeit für genau diesen
+Spieler:** für den, der täglich zur selben Stunde hereinschaut (Ø 1,00 nachgeholte
+Tage je Wurf). `tick` rechnet volle Tage und stellt die Uhr danach auf jetzt, also
+fällt der Rest unter 24 Stunden weg – wer seltener oder unregelmäßig kommt,
+bekommt entsprechend **weniger** Würfe und damit weniger Vorfälle als die Zahlen
+oben. Um wie viel weniger, ist **nicht gemessen**; rein **abgeleitet** (keine
+Messung) wären es bei einem Blick alle 36 Stunden 8760 / 36 = 243 Würfe im Jahr
+statt 365, bei p = 0,02 also rund 4,9 statt 6,90 Vorfälle. (11) **Der reine
+Creator kommt im Geldvergleich nicht vor;** für ihn gilt der Creator-Teil des Stufenlaufs, aber keine Bilanzzahl.
+(12) **Die vier frühen Vorfälle haben eine alte Zahl bewegt – die Richtung ist
+gemessen, die Größe nicht.** Der §3-Treiber in `test/musicEvents.test.js` ging mit
+ihnen von Σ **41** auf Σ **47** über fünf Jahre (dieselben fünf Seeds, in
+Wegwerf-Arbeitsbäumen an `e4582dc` und `9c3e97f` gefahren). Fünf Seeds tragen
+daraus nur das Vorzeichen: Je Seed lauten die Zahlen 6→6, 8→**7**, 7→11, 11→16,
+9→**7** – zwei von fünf gehen nach **unten**, die Sprünge sind ±5, und das
+Poisson-Rauschen auf einer Summe dieser Größe liegt allein schon bei ±7. Die +6
+ist damit von 0 nicht zu trennen, erst recht nicht von 5 × 0,65 = 3,25; und
+würfelpaarig sind die zwei Läufe ohnehin nicht, weil jeder Vorfall die Hörerkurve
+verschiebt und damit jede folgende Rate. **Was wirklich null ist, ist der Verlust
+an die leere Kandidatenliste:** 0 leere Würfe mit Grund „kein Kandidat" in allen
+dreizehn Stufen, und bei Reichweite 0 stehen zwei Kandidaten bereit. **Und was
+seine Größe ist, zählt der Karriere-Lauf aus:** 44 von 584 Vorfällen des reinen
+Musikers fielen bei 10.000 Hörern oder darunter (0,73 je Jahr), und **30 davon
+unter 5.000** – genau die Würfe, die vorher ins Leere fielen: **0,50 je Jahr**,
+über fünf Jahre also 2,5. Die +6 des Tests ist mehr als das Doppelte davon, und
+genau daran sieht man, dass sie Rauschen ist und keine Rate.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,

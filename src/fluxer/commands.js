@@ -128,8 +128,12 @@ const COMMANDS = [
   {
     names: ['creator', 'netzwerk', 'social'],
     info: 'Dein Creator-Netzwerk (alle Plattformen)',
-    run: async ({ guildId, userId }) =>
-      ({ view: await ui.buildCreatorView({ guildId, userId }) }),
+    run: async ({ guildId, userId }) => {
+      // Dieselbe Abrechnung wie /creator und die Knöpfe – auch hier fällt der
+      // Tageswurf, und ein neuer Vorfall wird gemeldet statt verschwiegen.
+      const note = await require('../buttons').settleCreator(guildId, userId);
+      return { view: await ui.buildCreatorView({ guildId, userId }), note };
+    },
   },
   {
     names: ['vorfall', 'vorfaelle', 'entscheidung', 'drama'],
