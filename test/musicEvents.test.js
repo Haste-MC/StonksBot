@@ -99,13 +99,25 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
 (async () => {
   console.log('--- Der Katalog der schweren Vorfälle ---');
   {
-    check('fünf Vorfälle', MUSIC_DECISIONS.length === 5, String(MUSIC_DECISIONS.length));
+    // Fünf alte plus die zwei frühen (proberaum, kleiner_auftritt, Stück 3).
+    check('sieben Vorfälle', MUSIC_DECISIONS.length === 7, String(MUSIC_DECISIONS.length));
     const ids = new Set(MUSIC_DECISIONS.map((d) => d.id));
     check('IDs sind eindeutig', ids.size === MUSIC_DECISIONS.length);
     check('keine ID kollidiert mit einem Creator-Vorfall',
       DECISIONS.every((d) => !ids.has(d.id)));
+    /*
+     * Die Hörerschwelle muss DA sein – „> 0" war sie bis zu den frühen
+     * Vorfällen, und genau die fangen bei 0 an: Ein Anfänger hatte sonst keinen
+     * einzigen Kandidaten. Geprüft wird deshalb auf eine echte Zahl, nicht auf
+     * ein fehlendes Feld (undefined > 0 ist false, undefined >= 0 auch).
+     */
     check('jeder hat Titel, Text, Emoji, Hörerschwelle',
-      MUSIC_DECISIONS.every((d) => d.title && d.text && d.emoji && d.minListeners > 0));
+      MUSIC_DECISIONS.every((d) => d.title && d.text && d.emoji
+        && Number.isFinite(d.minListeners) && d.minListeners >= 0));
+    check('eine Obergrenze liegt, wenn sie da ist, über der Untergrenze',
+      MUSIC_DECISIONS.every((d) => d.maxListeners === undefined
+        || d.maxListeners > d.minListeners),
+      MUSIC_DECISIONS.map((d) => `${d.id}:${d.minListeners}-${d.maxListeners}`).join(' '));
     check('jeder hat mindestens zwei Optionen',
       MUSIC_DECISIONS.every((d) => d.options.length >= 2));
     check('jede Option hat gewichtete Ausgänge mit Text',

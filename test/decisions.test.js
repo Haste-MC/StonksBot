@@ -285,11 +285,17 @@ const never = () => 0.999;      // trifft immer den letzten
       f.wuerfe = 0;
       return f;
     };
-    /** Ein Künstler mit Hörern – sonst gäbe es keine Musik-Kandidaten. */
+    /**
+     * Ein Künstler mit Hörern – sonst gäbe es keine Musik-Kandidaten.
+     *
+     * Genre UND Auftrittsform, denn `tick` würfelt nur in einem betretenen
+     * Bereich (Stück 3), und gestartet ist eine Karriere erst mit beidem.
+     */
     const musiker = (name, listeners) => {
       db.clearArtist(G, name);
       const a = db.getArtist(G, name, T0);
-      db.saveArtist(G, name, { ...a, persona: 'face', listeners, songs: 5, touched_at: T0 });
+      db.saveArtist(G, name,
+        { ...a, genre: 'pop', persona: 'face', listeners, songs: 5, touched_at: T0 });
       return name;
     };
 
@@ -682,6 +688,216 @@ const never = () => 0.999;      // trifft immer den letzten
       check('ein alter Knopf ohne Bereich zeigt weiter den neuesten (Musik)',
         titelAlt.startsWith('🎵'), titelAlt);
       db.clearEvents(G, U);
+    }
+  }
+
+  /*
+   * Die frühen Vorfälle (Stück 3). Vorher war der Anfang leer: Jede
+   * Musik-Vorlage verlangt mindestens 5.000 Hörer, elf von zwölf
+   * Creator-Vorlagen mindestens 10.000 Reichweite. Gewürfelt wird aber seit
+   * dem Tageswurf ab dem ersten Tag – der Wurf fand nur keine Kandidaten und
+   * wurde weggeworfen.
+   */
+  console.log('\n--- Die frühen Vorfälle (0 … FRUEH_MAX) ---');
+  {
+    const { MUSIC_DECISIONS } = require('../src/data/musicDecisions');
+    const FRUEH_MUSIK = ['proberaum', 'kleiner_auftritt'];
+    const FRUEH_CREATOR = ['erster_sponsor', 'festplatte'];
+    const FRUEH = [...FRUEH_MUSIK, ...FRUEH_CREATOR];
+    const alle = [...MUSIC_DECISIONS, ...DECISIONS];
+    const frueh = alle.filter((d) => FRUEH.includes(d.id));
+    const T0 = Date.UTC(2026, 1, 3, 12);
+
+    /*
+     * Ein Würfel, der über die Läufe die ganze Spanne abschreitet (goldener
+     * Schnitt) – `() => 0` träfe immer dieselbe erste Vorlage und zeigte
+     * nichts über die Kandidatenliste.
+     */
+    const fegend = (i) => () => (i * 0.6180339887) % 1;
+
+    /**
+     * Welche Vorlagen bei dieser Größe überhaupt gezogen werden.
+     *
+     * Die Uhr läuft über alle Proben hinweg weiter: `MIN_GAP_MS` vergleicht mit
+     * dem letzten Vorfall, und ein zweiter Durchlauf am alten Anfang läge
+     * davor – er bekäme keinen einzigen Vorfall mehr.
+     */
+    let zeit = T0;
+    const kinds = (U, domain, size, tries = 400) => {
+      const out = new Set();
+      for (let i = 0; i < tries; i++) {
+        const ev = decisions.roll(G, U, size, zeit, fegend(i + 1), domain, SCHON);
+        if (ev) { out.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: zeit }); }
+        zeit += decisions.MIN_GAP_MS + 1000;
+      }
+      return out;
+    };
+
+    /*
+     * Ein Künstler, der ALLES erfüllt, was die alten Vorlagen verlangen
+     * (Gesicht, fünf Titel) – nur den Vertrag nicht. Dass bei 0 Hörern
+     * trotzdem allein die frühen kommen, liegt dann sicher an der Schwelle.
+     */
+    const musiker = (name) => {
+      db.clearArtist(G, name);
+      db.clearEvents(G, name);
+      const a = db.getArtist(G, name, T0);
+      db.saveArtist(G, name, { ...a, genre: 'pop', persona: 'face', songs: 5, touched_at: T0 });
+      return name;
+    };
+
+    const sortiert = (set) => [...set].sort().join(' ');
+
+    check('alle vier frühen Vorfälle stehen im Katalog', frueh.length === 4,
+      frueh.map((d) => d.id).join(' '));
+    check('FRUEH_MAX sind 10.000', decisions.FRUEH_MAX === 10_000,
+      String(decisions.FRUEH_MAX));
+    check('jeder frühe Vorfall geht von 0 bis FRUEH_MAX',
+      frueh.every((d) => (d.minListeners ?? d.minReach) === 0
+        && (d.maxListeners ?? d.maxReach) === decisions.FRUEH_MAX));
+    check('die alten Vorlagen bleiben nach oben offen',
+      alle.filter((d) => !FRUEH.includes(d.id))
+        .every((d) => d.maxListeners === undefined && d.maxReach === undefined));
+
+    // --- Musik ---
+    {
+      const U = musiker('frueh-musiker');
+      const k0 = kinds(U, 'music', 0);
+      check('ein Anfänger (0 Hörer) bekommt überhaupt Kandidaten – vorher war die Liste leer',
+        k0.size > 0, sortiert(k0));
+      check('… und zwar NUR die frühen', sortiert(k0) === 'kleiner_auftritt proberaum',
+        sortiert(k0));
+
+      const k20 = kinds(U, 'music', 20_000);
+      check('bei 20.000 Hörern sind die frühen weg',
+        FRUEH_MUSIK.every((id) => !k20.has(id)), sortiert(k20));
+      check('… und die alten da (plagiat, stimme, album_leak, skandal)',
+        sortiert(k20) === 'album_leak plagiat skandal stimme', sortiert(k20));
+
+      const grenze = kinds(U, 'music', decisions.FRUEH_MAX);
+      check('genau an der Grenze FRUEH_MAX ist der frühe noch dabei (<=)',
+        FRUEH_MUSIK.every((id) => grenze.has(id)), sortiert(grenze));
+      const drueber = kinds(U, 'music', decisions.FRUEH_MAX + 1);
+      check('einen Hörer darüber nicht mehr',
+        FRUEH_MUSIK.every((id) => !drueber.has(id)), sortiert(drueber));
+    }
+
+    // --- Creator ---
+    {
+      /*
+       * „Das Setup macht Geräusche" (hardware, minReach 0) war der eine
+       * Vorfall, den ein Anfänger schon vorher ziehen konnte – allein. Er
+       * bleibt nach oben offen und steht deshalb in beiden erwarteten Mengen.
+       */
+      const U = player('frueh-creator', 0);
+      const c0 = kinds(U, 'creator', 0);
+      check('ein Creator-Anfänger: die zwei frühen plus hardware',
+        sortiert(c0) === 'erster_sponsor festplatte hardware', sortiert(c0));
+      const c20 = kinds(U, 'creator', 20_000);
+      check('bei 20.000 Reichweite sind die frühen weg, die alten da',
+        sortiert(c20) === 'algorithmus copyright hardware', sortiert(c20));
+      const grenze = kinds(U, 'creator', decisions.FRUEH_MAX);
+      check('auch hier ist die Grenze selbst noch drin (<=)',
+        FRUEH_CREATOR.every((id) => grenze.has(id)), sortiert(grenze));
+      const drueber = kinds(U, 'creator', decisions.FRUEH_MAX + 1);
+      check('eine Reichweite darüber nicht mehr',
+        FRUEH_CREATOR.every((id) => !drueber.has(id)), sortiert(drueber));
+    }
+
+    // --- Form: wie die Nachbarn in derselben Datei ---
+    {
+      const spanne = (liste) => {
+        const n = liste.filter((d) => !FRUEH.includes(d.id)).map((d) => d.options.length);
+        return [Math.min(...n), Math.max(...n)];
+      };
+      for (const [name, liste] of [['musicDecisions', MUSIC_DECISIONS], ['decisions', DECISIONS]]) {
+        const [min, max] = spanne(liste);
+        const eigene = liste.filter((d) => FRUEH.includes(d.id));
+        check(`jeder frühe Vorfall hat so viele Optionen wie seine Nachbarn in ${name} (${min}…${max})`,
+          eigene.length === 2 && eigene.every((d) => d.options.length >= min && d.options.length <= max),
+          eigene.map((d) => `${d.id}:${d.options.length}`).join(' '));
+      }
+      check('die frühen Musik-Vorfälle haben keine Zulassungshürde – sie sollen den Anfänger treffen',
+        MUSIC_DECISIONS.filter((d) => FRUEH.includes(d.id)).every((d) => !d.requires));
+      check('jeder frühe Vorfall hat einen Ausgang fürs Nichtstun',
+        frueh.every((d) => d.expire && d.expire.text));
+    }
+
+    // --- Kein früher Vorfall ist eine Einnahmequelle (§3) ---
+    {
+      const ausgaenge = (d) => [...d.options.flatMap((o) => o.outcomes), d.expire];
+      const zahlt = frueh.flatMap((d) => ausgaenge(d)
+        .filter((x) => (x.cash ?? 0) > 0).map(() => d.id));
+      check('keine Option eines frühen Vorfalls bringt netto Geld', zahlt.length === 0,
+        zahlt.join(' '));
+      const erwartung = (o) => {
+        const total = o.outcomes.reduce((s, x) => s + x.weight, 0);
+        return o.outcomes.reduce((s, x) => s + x.weight * (x.cash ?? 0), 0) / total;
+      };
+      check('… auch nicht im Erwartungswert',
+        frueh.every((d) => d.options.every((o) => erwartung(o) <= 0)));
+    }
+  }
+
+  /*
+   * Stück 3, zweiter Teil: Der Tageswurf darf nur dort fallen, wo jemand
+   * wirklich drin ist. Geprüft wird die EXISTENZ, nicht die Größe – ein
+   * Anfänger mit einem Kanal bei null Followern soll würfeln, ein reiner
+   * Firmenspieler nicht. Ohne diese Tür sammelte er Creator-Vorfälle ein:
+   * `creator.reachTotalOf` zählt den Musikboden mit, und `settleCreator` läuft
+   * an jedem Klick, der die Creator-Ansicht öffnet.
+   */
+  console.log('\n--- tick würfelt nur in betretenen Bereichen ---');
+  {
+    const T = Date.UTC(2026, 1, 10, 12);
+    const treffer = () => 0;              // der Wurf fällt sicher, wenn er fällt
+
+    {
+      const U = 'frueh-ohne-kanal';
+      db.clearCreator(G, U);
+      check('ohne einen einzigen Kanal würfelt tick(creator) nicht',
+        decisions.tick(G, U, 'creator', 500_000, T, treffer) === null
+        && db.allCreator(G, U).length === 0);
+      check('… und die Uhr bleibt stehen – der erste echte Tag soll der erste Wurf sein',
+        db.decisionUhr(G, U, 'creator').last_roll === 0 && uhrZeilen(G, U) === 0);
+
+      const row = db.getCreator(G, U, 'twitch', T);
+      db.saveCreator(G, U, 'twitch', { ...row, followers: 0, touched_at: T });
+      const ev = decisions.tick(G, U, 'creator', 0, T, treffer);
+      check('mit EINEM Kanal bei null Followern schon – genau dafür sind die frühen da',
+        ev !== null, JSON.stringify(ev));
+    }
+    {
+      const U = 'frueh-ohne-karriere';
+      db.clearArtist(G, U);
+      db.clearEvents(G, U);
+      check('ohne gestartete Karriere würfelt tick(music) nicht',
+        decisions.tick(G, U, 'music', 500_000, T, treffer) === null);
+      check('… und die Künstlerzeile wird dabei nicht angelegt (§4)',
+        db.hasArtist(G, U) === false);
+      check('… und die Uhr bleibt stehen',
+        db.decisionUhr(G, U, 'music').last_roll === 0);
+
+      check('Genre und Auftrittsform gewählt', music.setup(G, U, 'pop', 'anon', T).ok === true);
+      const ev = decisions.tick(G, U, 'music', 0, T, treffer);
+      check('mit gestarteter Karriere bei null Hörern schon',
+        ev?.platform === 'music' && ['proberaum', 'kleiner_auftritt'].includes(ev.kind),
+        JSON.stringify(ev?.kind));
+    }
+    {
+      // Eine angelegte, aber leere Künstlerzeile ist keine Karriere.
+      const U = 'frueh-halbe-karriere';
+      db.clearArtist(G, U);
+      db.clearEvents(G, U);
+      db.getArtist(G, U, T);
+      check('eine leere Künstlerzeile zählt nicht als gestartet',
+        db.hasArtist(G, U) === true
+        && decisions.tick(G, U, 'music', 500_000, T, treffer) === null);
+    }
+    {
+      // Und die Tür steht nur für die zwei Bereiche, die tick überhaupt kennt.
+      check('betreten() kennt keinen dritten Bereich',
+        decisions.betreten(G, 'frueh-ohne-kanal', 'company') === false);
     }
   }
 

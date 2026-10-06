@@ -1,5 +1,5 @@
 const db = require('./db');
-const { DECISIONS } = require('./data/decisions');
+const { DECISIONS, FRUEH_MAX } = require('./data/decisions');
 const { MUSIC_DECISIONS } = require('./data/musicDecisions');
 const { COMPANY_DECISIONS } = require('./data/companyDecisions');
 // Spät gebunden: creator.js zieht dieses Modul selbst herein (Kreis vermeiden).
@@ -198,13 +198,22 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     if (!schonGewuerfelt && random() >= company.riskFor(groesse, days)) return null;
     possible = COMPANY_DECISIONS.filter((d) => groesse >= d.minGroesse && npc >= (d.minNpc ?? 0));
   } else {
+    /*
+     * Nach OBEN begrenzt, nicht nur nach unten: Die frühen Vorfälle (0 …
+     * FRUEH_MAX) gehören dem Anfang und verschwinden wieder, sobald jemand
+     * darüber hinaus ist. Ohne Obergrenze stünde der gekündigte Proberaum
+     * neben dem Plattenvertrag. Ein Eintrag ohne das Feld verhält sich wie
+     * bisher – nach oben offen.
+     */
     if (domain === 'music') {
       const artist = db.getArtist(guildId, userId, now);
       const contract = db.activeContract(guildId, userId);
       possible = MUSIC_DECISIONS.filter((d) =>
-        size >= d.minListeners && musicEligible(d, artist, contract));
+        size >= d.minListeners && size <= (d.maxListeners ?? Infinity)
+        && musicEligible(d, artist, contract));
     } else {
-      possible = DECISIONS.filter((d) => size >= d.minReach);
+      possible = DECISIONS.filter((d) =>
+        size >= d.minReach && size <= (d.maxReach ?? Infinity));
     }
   }
   if (!possible.length) return null;
@@ -223,6 +232,34 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
 }
 
 /**
+ * Hat der Spieler diesen Bereich überhaupt betreten?
+ *
+ * Geprüft wird die EXISTENZ, nicht die Größe: Ein Anfänger mit einem Kanal und
+ * null Followern soll würfeln – für ihn sind die frühen Vorfälle gemacht. Wer
+ * aber nie einen Kanal angelegt hat, bekommt kein Creator-Drama, und wer nie
+ * eine Karriere gestartet hat, kein Musik-Drama.
+ *
+ * Ohne diese Tür sammelte ein reiner Firmenspieler Creator-Vorfälle ein:
+ * `creator.reachTotalOf` zählt den Boden mit, den eine Musikkarriere mitbringt,
+ * und `buttons.settleCreator` läuft an jedem Klick, der die Creator-Ansicht
+ * öffnet – auch an dem auf sein eigenes Firmendrama.
+ *
+ * Reines Lesen (§4): `db.hasArtist` steht vor `music.started`, weil `started`
+ * die Künstlerzeile sonst anlegen würde.
+ *
+ * Nur für die zwei Bereiche, die der Tageswurf kennt. Die Firma zählt ihre Tage
+ * in `company.settle` selbst und fragt hier nie – jeder andere Bereich bekommt
+ * deshalb `false` statt eines stillen `true`.
+ */
+function betreten(guildId, userId, domain) {
+  if (domain === 'music') {
+    return db.hasArtist(guildId, userId) && require('./music').started(guildId, userId);
+  }
+  if (domain === 'creator') return db.allCreator(guildId, userId).length > 0;
+  return false;
+}
+
+/**
  * Der Tageswurf für Musik und Creator.
  *
  * Bis hierher hing ein Vorfall an der Zahl der AKTIONEN (2 % je Aktion, also
@@ -236,6 +273,9 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
  */
 function tick(guildId, userId, domain, size, now = Date.now(), random = Math.random) {
   if (domain !== 'music' && domain !== 'creator') return null;
+  // Wer den Bereich nicht betreten hat, würfelt dort nicht – und seine Uhr
+  // bleibt stehen, damit der erste echte Tag auch der erste Wurf ist.
+  if (!betreten(guildId, userId, domain)) return null;
   // Ein offener Vorfall DIESES Bereichs hält den nächsten auf.
   if (db.openEvent(guildId, userId, domain)) return null;
 
@@ -598,8 +638,8 @@ function history(guildId, userId, limit = 5) {
 module.exports = {
   DECISIONS, MUSIC_DECISIONS, COMPANY_DECISIONS, DECIDE_MS, MIN_GAP_MS, RISK_MIN, RISK_MAX, RISK_FULL,
   RISK_MIN_DAY, RISK_MAX_DAY, ROLL_TAGE_MAX,
-  SEVERITY_MAX, SEVERITY_FULL,
+  SEVERITY_MAX, SEVERITY_FULL, FRUEH_MAX,
   IGNORE_PENALTY,
   decision, riskFor, riskPerDay, chanceOver, severityFor, scaleMoney, pickOutcome, musicEligible,
-  roll, tick, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
+  betreten, roll, tick, apply, applyMusic, applyCompany, choose, expire, settle, pending, history,
 };

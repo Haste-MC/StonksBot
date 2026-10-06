@@ -15,6 +15,7 @@
  * AUFBAU
  * ------
  *   minReach   ab welcher Gesamtreichweite der Vorfall überhaupt auftaucht
+ *   maxReach   bis zu welcher er noch auftaucht (fehlt = nach oben offen)
  *   platform   betroffener Kanal (null = trifft das ganze Netzwerk)
  *   options    2–3 Wahlmöglichkeiten, jede mit gewichteten Ausgängen
  *   expire     Ausgang, wenn niemand reagiert (Schweigen ist auch eine Wahl)
@@ -30,6 +31,24 @@
  *   lock          Tage, die der Kanal gesperrt ist
  *   gear          true = die Ausrüstung dieser Plattform geht kaputt
  */
+
+/**
+ * Die Obergrenze der frühen Vorfälle – darüber verschwinden sie wieder.
+ *
+ * Der Anfang war leer: Bei der Musik verlangt jede alte Vorlage mindestens
+ * 5.000 Hörer, hier elf von zwölf mindestens 10.000 Reichweite – übrig blieb
+ * „Das Setup macht Geräusche". Gewürfelt wird aber seit dem Tageswurf (§4) ab
+ * dem ersten Tag, und ein Wurf ohne Kandidaten wird weggeworfen: Wer anfängt,
+ * spielt also genau die Fleißaufgabe, die diese Vorfälle aufbrechen sollen.
+ *
+ * Die frühen Vorfälle füllen diese Lücke und gehen wieder, sobald jemand
+ * darüber hinaus ist. Sonst stünde der gekündigte Proberaum neben dem
+ * Plattenvertrag – und die erste Sponsorenanfrage neben der Betriebsprüfung.
+ *
+ * `musicDecisions.js` liest denselben Wert; `decisions.js` (die Auswahl) nimmt
+ * ihn aus `maxReach` / `maxListeners`, nicht aus dieser Konstante.
+ */
+const FRUEH_MAX = 10_000;
 
 const DECISIONS = [
   {
@@ -474,6 +493,94 @@ const DECISIONS = [
       text: 'Du hast es weiter ignoriert. Vorerst geht es gut.',
     },
   },
+
+  // --------------------------------------------------------------------
+  //  Die frühen Vorfälle: 0 … FRUEH_MAX Reichweite
+  //
+  //  Beides ist eine Entscheidung, keine Einnahme (§3): Kein Ausgang zahlt
+  //  etwas aus. Durch `scaleMoney` sind die Beträge bei einem Anfänger
+  //  zweistellig – genau so gewollt, denn gemeint ist der Abend, nicht die
+  //  Summe.
+  // --------------------------------------------------------------------
+  {
+    id: 'erster_sponsor',
+    emoji: '📬',
+    title: 'Die erste Anfrage',
+    minReach: 0,
+    maxReach: FRUEH_MAX,
+    platform: null,
+    text: 'Eine Mail: "Wir lieben deinen Content!" Dreihundert Euro pro Video, '
+      + 'sofortiger Start, keine Rückfragen. Im Absender steht eine Zahl.',
+    options: [
+      {
+        id: 'annehmen', label: 'Sofort zusagen', emoji: '✍️',
+        outcomes: [
+          { weight: 5, cash: -2, community: -4,
+            text: 'Du sollst das Produkt "zur Vorstellung" erst selbst kaufen. Das Honorar kommt "nach der Kampagne". Es kommt nicht.' },
+          { weight: 5, followersAll: -0.05, community: -8,
+            text: 'Der Link in deiner Beschreibung führt auf eine Seite, die es zwei Tage später nicht mehr gibt. Geworben hast du trotzdem.' },
+        ],
+      },
+      {
+        id: 'pruefen', label: 'Nachfragen und prüfen', emoji: '🔍',
+        outcomes: [
+          { weight: 7, community: 3,
+            text: 'Du fragst nach Impressum, Vertrag und Firmensitz. Es kommt keine Antwort – das war die Antwort.' },
+          { weight: 3, cash: -1,
+            text: 'Ein Abend Recherche und eine kurze Rechtsauskunft später weißt du: nichts dahinter. Das Wissen war billiger als der Schaden.' },
+        ],
+      },
+      {
+        id: 'ablehnen', label: 'Löschen und weitermachen', emoji: '🗑️',
+        outcomes: [
+          { weight: 8, community: 2,
+            text: 'Du erzählst es im Stream als Anekdote. Die zwölf Leute im Chat finden es richtig.' },
+          { weight: 2, hype: 0.95,
+            text: 'Vielleicht war sie echt. Du wirst es nie erfahren, und das nagt einen Tag.' },
+        ],
+      },
+    ],
+    expire: {
+      followersAll: -0.03, community: -6,
+      text: 'Du hast nie geantwortet. Die Masche läuft bei jemand anderem weiter – '
+        + 'und dein Postfach bleibt genauso leer wie vorher.',
+    },
+  },
+  {
+    id: 'festplatte',
+    emoji: '💽',
+    title: 'Die Platte klackt',
+    minReach: 0,
+    maxReach: FRUEH_MAX,
+    platform: null,
+    text: 'Auf ihr liegt alles: Rohmaterial, Schnittprojekte, die Aufnahmen von '
+      + 'vier Monaten. Sie klackt, und dann meldet sie sich nicht mehr.',
+    options: [
+      {
+        id: 'rettung', label: 'Datenrettung bezahlen', emoji: '💾',
+        outcomes: [
+          { weight: 7, cash: -3,
+            text: 'Ein Labor holt neun von zehn Dateien zurück. Die Rechnung ist die Lehre, das Material ist da.' },
+          { weight: 3, cash: -4, followersAll: -0.02,
+            text: 'Vier Wochen Wartezeit, und zwei Projekte bleiben trotzdem weg. Bezahlt hast du den Versuch.' },
+        ],
+      },
+      {
+        id: 'neu', label: 'Alles neu machen', emoji: '🎬',
+        outcomes: [
+          { weight: 5, fatigue: 20, community: 4,
+            text: 'Zwei Wochen von vorn. Die zweite Fassung ist die bessere – das schreiben sogar die Kommentare.' },
+          { weight: 5, fatigue: 25, followersAll: -0.04, hype: 0.9,
+            text: 'Von vorn, und diesmal ohne Lust. Man sieht es in jeder Einstellung.' },
+        ],
+      },
+    ],
+    expire: {
+      followersAll: -0.05, fatigue: 15,
+      text: 'Die Platte bleibt tot und der Kanal still. Aus der Pause ist irgendwann '
+        + 'eine Antwort geworden.',
+    },
+  },
 ];
 
-module.exports = { DECISIONS };
+module.exports = { DECISIONS, FRUEH_MAX };
