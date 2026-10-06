@@ -240,7 +240,7 @@ const MUSIC_DECISIONS = [
     title: 'Der Proberaum ist gekündigt',
     minListeners: 0,
     maxListeners: FRUEH_MAX,
-    text: 'Zum Monatsende. Der Vermieter baut Wohnungen daraus. Zwei Straßen '
+    text: 'Zum Monatsende. Die Hausverwaltung baut Wohnungen daraus. Zwei Straßen '
       + 'weiter gibt es einen – für das Doppelte.',
     options: [
       {

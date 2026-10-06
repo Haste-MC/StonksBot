@@ -510,7 +510,7 @@ const DECISIONS = [
     maxReach: FRUEH_MAX,
     platform: null,
     text: 'Eine Mail: "Wir lieben deinen Content!" Dreihundert Euro pro Video, '
-      + 'sofortiger Start, keine Rückfragen. Im Absender steht eine Zahl.',
+      + 'sofortiger Start, keine Rückfragen. Im Absenderfeld steht eine Zahl.',
     options: [
       {
         id: 'annehmen', label: 'Sofort zusagen', emoji: '✍️',
@@ -536,7 +536,7 @@ const DECISIONS = [
           { weight: 8, community: 2,
             text: 'Du erzählst es im Stream als Anekdote. Die zwölf Leute im Chat finden es richtig.' },
           { weight: 2, hype: 0.95,
-            text: 'Vielleicht war sie echt. Du wirst es nie erfahren, und das nagt einen Tag.' },
+            text: 'Vielleicht war die Anfrage echt. Du wirst es nie erfahren, und das nagt einen Tag.' },
         ],
       },
     ],

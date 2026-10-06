@@ -234,15 +234,22 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
 /**
  * Hat der Spieler diesen Bereich überhaupt betreten?
  *
- * Geprüft wird die EXISTENZ, nicht die Größe: Ein Anfänger mit einem Kanal und
+ * Geprüft wird die BENUTZUNG, nicht die Größe: Ein Anfänger mit einem Kanal und
  * null Followern soll würfeln – für ihn sind die frühen Vorfälle gemacht. Wer
- * aber nie einen Kanal angelegt hat, bekommt kein Creator-Drama, und wer nie
- * eine Karriere gestartet hat, kein Musik-Drama.
+ * aber nie gesendet hat, bekommt kein Creator-Drama, und wer nie eine Karriere
+ * gestartet hat, kein Musik-Drama.
  *
- * Ohne diese Tür sammelte ein reiner Firmenspieler Creator-Vorfälle ein:
- * `creator.reachTotalOf` zählt den Boden mit, den eine Musikkarriere mitbringt,
- * und `buttons.settleCreator` läuft an jedem Klick, der die Creator-Ansicht
- * öffnet – auch an dem auf sein eigenes Firmendrama.
+ * Nicht auf die EXISTENZ der Kanalzeile: `db.getCreator` legt sie beim ersten
+ * Zugriff an, und `buttons.settleCreator` ruft über `creator.settle` genau das –
+ * noch bevor es hier fragt. Ein einziger Blick in die Creator-Ansicht hätte die
+ * Tür also dauerhaft aufgestoßen, auch der Klick auf das eigene Firmendrama:
+ * genau der Fall, gegen den die Tür gebaut ist (`creator.reachTotalOf` zählt
+ * den Boden mit, den eine Musikkarriere mitbringt). Dasselbe gilt für
+ * `followers`: Eine Musikkarriere schüttet über `music`s Übertrag echte
+ * Follower auf fremde Kanäle aus, ohne dass der Spieler sie angefasst hat.
+ *
+ * `actions` zählt allein `creator.act` hoch – eine wirklich gesendete Aktion.
+ * Eine automatisch angelegte Zeile trägt dort 0, eine übertragene auch.
  *
  * Reines Lesen (§4): `db.hasArtist` steht vor `music.started`, weil `started`
  * die Künstlerzeile sonst anlegen würde.
@@ -255,7 +262,7 @@ function betreten(guildId, userId, domain) {
   if (domain === 'music') {
     return db.hasArtist(guildId, userId) && require('./music').started(guildId, userId);
   }
-  if (domain === 'creator') return db.allCreator(guildId, userId).length > 0;
+  if (domain === 'creator') return db.allCreator(guildId, userId).some((r) => r.actions > 0);
   return false;
 }
 

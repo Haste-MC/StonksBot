@@ -52,7 +52,14 @@ let bookings = 0;
 unb.changeCash = async (g, u, a) => { earned += a; bookings++; return { cash: a, bank: 0, total: a }; };
 unb.getBalance = async () => ({ cash: 1_000_000, bank: 0, total: 1_000_000 });
 
-/** Ein Spieler mit gesetzter Reichweite. */
+/**
+ * Ein Spieler mit gesetzter Reichweite.
+ *
+ * `actions: 1` gehört dazu: Daran erkennt `decisions.betreten`, dass der Bereich
+ * wirklich benutzt wurde (nur `creator.act` zählt es hoch). Ohne das wäre dieser
+ * Spieler eine leere, automatisch angelegte Zeile – und würfelte zu Recht nicht.
+ * `last_action_at` bleibt 0, damit kein Cooldown in den Tests steht.
+ */
 function player(name, reach = 1_000_000) {
   db.clearCreator(G, name);
   const share = { twitch: 0.52, youtube: 0.24, instagram: 0.11, twitter: 0.13 };
@@ -60,7 +67,8 @@ function player(name, reach = 1_000_000) {
   for (const [id, part] of Object.entries(share)) {
     const row = db.getCreator(G, name, id, now);
     db.saveCreator(G, name, id, {
-      ...row, followers: Math.round(reach * part), touched_at: now, last_action_at: 0,
+      ...row, followers: Math.round(reach * part), actions: 1,
+      touched_at: now, last_action_at: 0,
     });
   }
   return name;
@@ -861,10 +869,11 @@ const never = () => 0.999;      // trifft immer den letzten
       check('… und die Uhr bleibt stehen – der erste echte Tag soll der erste Wurf sein',
         db.decisionUhr(G, U, 'creator').last_roll === 0 && uhrZeilen(G, U) === 0);
 
+      // Ein wirklich gesendeter Kanal (`actions: 1`), aber ohne einen Follower.
       const row = db.getCreator(G, U, 'twitch', T);
-      db.saveCreator(G, U, 'twitch', { ...row, followers: 0, touched_at: T });
+      db.saveCreator(G, U, 'twitch', { ...row, followers: 0, actions: 1, touched_at: T });
       const ev = decisions.tick(G, U, 'creator', 0, T, treffer);
-      check('mit EINEM Kanal bei null Followern schon – genau dafür sind die frühen da',
+      check('mit EINEM benutzten Kanal bei null Followern schon – genau dafür sind die frühen da',
         ev !== null, JSON.stringify(ev));
     }
     {
@@ -893,6 +902,51 @@ const never = () => 0.999;      // trifft immer den letzten
       check('eine leere Künstlerzeile zählt nicht als gestartet',
         db.hasArtist(G, U) === true
         && decisions.tick(G, U, 'music', 500_000, T, treffer) === null);
+    }
+    {
+      /*
+       * Die Tür muss auf dem ECHTEN Weg halten, nicht nur in `tick`.
+       * `buttons.settleCreator` ruft zuerst `creator.settle`, und das holt sich
+       * `db.getCreator(..., 'youtube', ...)` – das „legt sie beim ersten Zugriff
+       * an" (db.js). Eine Tür, die nur die EXISTENZ einer Kanalzeile prüft,
+       * stand danach für immer offen: Gemessen genügte ein Blick in die
+       * Creator-Ansicht – auch der Klick auf das eigene Firmendrama – für einen
+       * `sponsor_betrug`. Genau deshalb läuft dieser Test über den Knopf und
+       * nicht über `tick`; über `tick` fiel der Fehler nicht auf.
+       */
+      const buttons = require('../src/buttons');
+      const treffer2 = () => 0;
+      {
+        const U = 'nur-geschaut';
+        db.clearCreator(G, U);
+        db.clearEvents(G, U);
+        const text = await buttons.settleCreator(G, U, treffer2);
+        const zeilen = db.allCreator(G, U);
+        check('settleCreator legt selbst eine Kanalzeile an – das war das Leck',
+          zeilen.length > 0 && zeilen.every((r) => r.actions === 0),
+          zeilen.map((r) => `${r.platform}:${r.actions}`).join(' '));
+        check('wer nur geschaut hat, würfelt trotzdem nicht (über settleCreator)',
+          db.openEvent(G, U, 'creator') === null, String(text));
+        check('… und seine Uhr bleibt stehen',
+          db.decisionUhr(G, U, 'creator').last_roll === 0);
+      }
+      {
+        const U = 'wirklich-gesendet';
+        db.clearCreator(G, U);
+        db.clearEvents(G, U);
+        const r = await creator.act(G, U, 'twitter', 'ankuendigung', Date.now(), treffer2);
+        check('eine echte Aktion zählt `actions` hoch',
+          r.ok === true && db.allCreator(G, U).some((row) => row.actions > 0),
+          JSON.stringify({ reason: r.reason }));
+        // Null Follower sind erlaubt – genau dafür sind die frühen Vorfälle da.
+        for (const row of db.allCreator(G, U)) {
+          db.saveCreator(G, U, row.platform, { ...row, followers: 0 });
+        }
+        db.clearEvents(G, U);
+        const text = await buttons.settleCreator(G, U, treffer2);
+        check('wer wirklich gesendet hat, würfelt – auch bei null Followern (über settleCreator)',
+          db.openEvent(G, U, 'creator') !== null, String(text));
+      }
     }
     {
       // Und die Tür steht nur für die zwei Bereiche, die tick überhaupt kennt.
