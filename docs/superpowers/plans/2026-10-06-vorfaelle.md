@@ -69,7 +69,7 @@ Jede Aufgabe erbt diesen Abschnitt.
 
 **Dateien:**
 - Ändern: `src/decisions.js`, `src/db.js`, `test/decisions.test.js`
-  (existiert? Wenn nicht: anlegen und in `package.json` eintragen)
+  (existiert bereits, 257 Zeilen, steht schon im `test`-Skript von `package.json`)
 
 **Schnittstellen:**
 - Nutzt bestehend: `db.openEvent(guildId, userId)`, `db.lastEventAt(guildId,
@@ -154,7 +154,24 @@ rm -rf .testdata && DATA_DIR=.testdata node test/decisions.test.js
 ```
 Erwartet zuerst `decisions.riskPerDay is not a function`, nach Schritt 2 grün.
 
-- [ ] **Schritt 4: `decisions.tick`**
+- [ ] **Schritt 4: Der Bereichsfilter an den Sperren**
+
+`src/db.js`: `openEvent(guildId, userId, domain = null)` und
+`lastEventAt(guildId, userId, domain = null)` bekommen einen optionalen
+Bereich. Abgeleitet wird er aus der **vorhandenen** Spalte `platform` – kein
+Schema-Update:
+
+```sql
+-- domain 'music'   -> platform = 'music'
+-- domain 'company' -> platform = 'company'
+-- domain 'creator' -> platform NOT IN ('music', 'company')
+```
+
+Ohne `domain` verhalten sich beide wie bisher (alle Bereiche), damit jeder
+bestehende Aufrufer unverändert weiterläuft. `roll` reicht seinen `domain`
+an beide durch.
+
+- [ ] **Schritt 5: `decisions.tick`**
 
 ```js
 /**
@@ -171,8 +188,7 @@ Erwartet zuerst `decisions.riskPerDay is not a function`, nach Schritt 2 grün.
  */
 function tick(guildId, userId, domain, size, now = Date.now(), random = Math.random) {
   if (domain !== 'music' && domain !== 'creator') return null;
-  // Ein offener Vorfall DIESES Bereichs hält den nächsten auf – der Filter
-  // kommt in Schritt 5 dazu; bis dahin ist es der alte, bereichsweite.
+  // Ein offener Vorfall DIESES Bereichs hält den nächsten auf (Schritt 4).
   if (db.openEvent(guildId, userId, domain)) return null;
 
   const uhr = db.decisionUhr(guildId, userId, domain);
@@ -192,23 +208,6 @@ Ist er gesetzt, überspringt `roll` seine eigene `random() >= riskFor(size)`-Pr�
 (die Wahrscheinlichkeit hat `tick` schon entschieden), prüft aber alles andere
 weiter – Sperre, Abstand, Kandidatenliste. Die Firma ruft `roll` unverändert
 auf und ist davon nicht berührt.
-
-- [ ] **Schritt 5: Der Bereichsfilter an den Sperren**
-
-`src/db.js`: `openEvent(guildId, userId, domain = null)` und
-`lastEventAt(guildId, userId, domain = null)` bekommen einen optionalen
-Bereich. Abgeleitet wird er aus der **vorhandenen** Spalte `platform` – kein
-Schema-Update:
-
-```sql
--- domain 'music'   -> platform = 'music'
--- domain 'company' -> platform = 'company'
--- domain 'creator' -> platform NOT IN ('music', 'company')
-```
-
-Ohne `domain` verhalten sich beide wie bisher (alle Bereiche), damit jeder
-bestehende Aufrufer unverändert weiterläuft. `roll` reicht seinen `domain`
-an beide durch.
 
 - [ ] **Schritt 6: Tests für `tick` und die Sperren**
 
