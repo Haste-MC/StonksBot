@@ -19,6 +19,7 @@ const decisions = require('../src/decisions');
 const creator = require('../src/creator');
 const { DECISIONS } = require('../src/data/decisions');
 const unb = require('../src/unb');
+const music = require('../src/music');
 
 /*
  * Ein zweiter, nur LESENDER Zugang auf dieselbe Datei. Gebraucht wird er für
@@ -263,7 +264,10 @@ const never = () => 0.999;      // trifft immer den letzten
       nah(decisions.chanceOver(0, 30), decisions.chanceOver(0, 14)));
     check('null Tage geben nichts', nah(decisions.chanceOver(0, 0), 0));
     check('ROLL_TAGE_MAX sind 14 Tage – wie MAX_SETTLE_DAYS bei den Tantiemen',
-      decisions.ROLL_TAGE_MAX === 14);
+      decisions.ROLL_TAGE_MAX === music.MAX_SETTLE_DAYS);
+    // Das Literal bleibt: Wandert MAX_SETTLE_DAYS, soll das hier auffallen und
+    // bewusst nachgezogen werden, nicht beide still gemeinsam davonlaufen.
+    check('… und beide sind derzeit 14', decisions.ROLL_TAGE_MAX === 14);
   }
 
   console.log('\n--- Der Tageswurf (decisions.tick) ---');
@@ -367,6 +371,41 @@ const never = () => 0.999;      // trifft immer den letzten
         platform: DECISIONS[0].platform ?? '', createdAt: T0, expiresAt: T0 + DAY_MS });
       check('ein offener CREATOR-Vorfall haelt den Musik-Wurf NICHT auf',
         decisions.tick(G, U, 'music', 100_000, T0 + 2 * DAY_MS, wert(0))?.platform === 'music');
+    }
+    {
+      /*
+       * Fast alle Creator-Vorlagen tragen eine Plattform (6 von 12: twitch,
+       * youtube, twitter) – der Test oben mit DECISIONS[0] hat `platform: null`,
+       * also '', und deckt nur den Fall „netzwerkweit" ab. Der Bereich Creator
+       * heißt in der Datenbank aber „alles außer music und company".
+       */
+      const U = player('tick-creator-plattform');
+      db.clearEvents(G, U);
+      db.insertEvent({ guildId: G, userId: U, kind: 'exklusivvertrag', platform: 'twitch',
+        createdAt: T0, expiresAt: T0 + DAY_MS });
+      check('ein offener Vorfall auf twitch sperrt den CREATOR-Bereich',
+        db.openEvent(G, U, 'creator')?.platform === 'twitch'
+        && db.lastEventAt(G, U, 'creator') === T0);
+      const w = zaehlend(0);
+      check('… und haelt den naechsten Creator-Wurf auf',
+        decisions.tick(G, U, 'creator', 1_000_000, T0 + 2 * DAY_MS, w) === null && w.wuerfe === 0);
+      check('… aber nicht den Musik-Bereich',
+        db.openEvent(G, U, 'music') === null && db.lastEventAt(G, U, 'music') === 0);
+      check('… und nicht den Firmen-Bereich',
+        db.openEvent(G, U, 'company') === null && db.lastEventAt(G, U, 'company') === 0);
+    }
+    {
+      // Ein Tippfehler im Bereich darf die Sperre nicht abschalten, sondern verschärft sie.
+      const U = player('tick-bereich-tippfehler');
+      db.clearEvents(G, U);
+      check('ohne Vorfall bleibt auch ein unbekannter Bereich leer',
+        db.openEvent(G, U, 'musik') === null && db.lastEventAt(G, U, 'musik') === 0);
+      db.insertEvent({ guildId: G, userId: U, kind: 'exklusivvertrag', platform: 'twitch',
+        createdAt: T0, expiresAt: T0 + DAY_MS });
+      check('ein unbekannter Bereich („musik") sieht den offenen Vorfall trotzdem',
+        db.openEvent(G, U, 'musik') !== null);
+      check('… und lastEventAt auch (nicht 0)',
+        db.lastEventAt(G, U, 'musik') === T0);
     }
     {
       // Die Firma zählt ihre Tage in company.settle selbst – tick fasst sie nicht an.

@@ -4112,7 +4112,12 @@ function saveDecisionUhr(guildId, userId, domain, lastRoll = 0) {
   stmt.saveDecisionUhr.run(guildId, String(userId), String(domain), Number(lastRoll) || 0);
 }
 
-/** Löscht alle Vorfälle eines Spielers – domänenübergreifend (Tests). */
+/**
+ * Löscht alle Vorfälle eines Spielers – domänenübergreifend (Tests). Die Uhr
+ * aus `decision_uhr` bleibt stehen: Wer danach einen „ersten" Wurf erwartet,
+ * sieht die Tage seit der alten Uhr – ein frischer Spielername oder
+ * `saveDecisionUhr(g, u, domain, 0)` setzt sie zurück.
+ */
 function clearEvents(guildId, userId) {
   stmt.clearEvents.run(guildId, String(userId));
 }
