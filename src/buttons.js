@@ -1099,9 +1099,11 @@ function arbeitNote(res, symbol, now = Date.now()) {
       }
     });
     zeilen.push(`🎵 Die Tour mit **${name}** ist durch.`);
-    // Ein Vorfall aus einem der Abende wartet auf eine Entscheidung – ohne
-    // diese Zeile findet ihn niemand. `decisions.roll` lässt nur einen offen,
-    // also reicht der erste.
+    // Die Abende würfeln nicht mehr selbst: Einen Vorfall legt allein der
+    // Tageswurf `tick` an, und der läuft in `settleMusic`, nicht hier. `incident`
+    // der Abende ist deshalb leer, und diese Zeile bleibt als Netz für den Fall,
+    // dass ein Abend doch wieder einen meldet (je Bereich liegt höchstens einer
+    // offen, also reichte dann der erste).
     const note = zeilen.join('\n')
       + incidentNote(abende.find((a) => a?.incident)?.incident);
     // Wie bei `mshow`: Der fällige Beef steht VOR der Meldung. Abgerechnet hat
@@ -1169,6 +1171,12 @@ const buttons = {
     // derselbe Weg wie über den Knopf `musik` und den Befehl /musik.
     const studio = entryId === 'musik'
       ? await settleMusic(gid(interaction), uid(interaction)) : null;
+    // Das Netzwerk rechnet Katalog, Merch, Verträge, verfallene Vorfälle und den
+    // Tageswurf ab (§4) – derselbe Weg wie über die Plattform-Knöpfe und /creator.
+    // `menu.js` baut nur die Ansicht und hat keinen Weg für eine Notiz; darum
+    // steht die Abrechnung hier, wie beim Studio.
+    const netzwerk = entryId === 'creator'
+      ? await settleCreator(gid(interaction), uid(interaction)) : null;
     // Die Firma rechnet verfallene Vorfälle ab (§4) – derselbe Weg wie beim Studio.
     const firma = entryId === 'firma'
       ? await settleFirma(gid(interaction), uid(interaction)) : null;
@@ -1182,7 +1190,7 @@ const buttons = {
     // Neue Patchnotes einmalig zustellen (idempotent, siehe patchnotes.js).
     const news = patchnotes.deliver(gid(interaction), uid(interaction));
     const nudge = homeNudge(gid(interaction), uid(interaction));
-    const notice = [news, settled, studio, firma, streit, nudge]
+    const notice = [news, settled, studio, netzwerk, firma, streit, nudge]
       .filter(Boolean).join('\n\n') || null;
 
     await interaction.update(

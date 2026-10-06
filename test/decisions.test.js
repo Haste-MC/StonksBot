@@ -66,6 +66,8 @@ function player(name, reach = 1_000_000) {
   return name;
 }
 
+// roll() verlangt für Musik und Creator `schonGewuerfelt` – nur tick würfelt die Rate.
+const SCHON = { schonGewuerfelt: true };
 const always = () => 0;         // trifft immer den ersten Ausgang
 const never = () => 0.999;      // trifft immer den letzten
 
@@ -129,10 +131,10 @@ const never = () => 0.999;      // trifft immer den letzten
   {
     const U = player('ablauf');
     const now = Date.now();
-    const ev = decisions.roll(G, U, 1_000_000, now, always);
+    const ev = decisions.roll(G, U, 1_000_000, now, always, 'creator', SCHON);
     check('ein Vorfall entsteht', Boolean(ev) && ev.status === 'open');
     check('es gibt nur einen gleichzeitig',
-      decisions.roll(G, U, 1_000_000, now, always) === null);
+      decisions.roll(G, U, 1_000_000, now, always, 'creator', SCHON) === null);
 
     const open = decisions.pending(G, U, now);
     check('er lässt sich abrufen', open?.decision?.id === ev.kind);
@@ -162,7 +164,7 @@ const never = () => 0.999;      // trifft immer den letzten
   {
     const U = player('ignorant');
     const now = Date.now();
-    const ev = decisions.roll(G, U, 1_000_000, now, always);
+    const ev = decisions.roll(G, U, 1_000_000, now, always, 'creator', SCHON);
     const before = db.allCreator(G, U).reduce((s, r) => s + r.followers, 0);
 
     check('vor Fristablauf passiert nichts',
@@ -230,14 +232,14 @@ const never = () => 0.999;      // trifft immer den letzten
   {
     const U = player('takt');
     const now = Date.now();
-    decisions.roll(G, U, 5_000_000, now, always);
+    decisions.roll(G, U, 5_000_000, now, always, 'creator', SCHON);
     const first = decisions.pending(G, U, now);
     await decisions.choose(G, U, first.id, first.decision.options[0].id, now, always);
 
     check('direkt danach kommt kein neuer',
-      decisions.roll(G, U, 5_000_000, now + 60_000, always) === null);
+      decisions.roll(G, U, 5_000_000, now + 60_000, always, 'creator', SCHON) === null);
     check('nach dem Mindestabstand schon',
-      decisions.roll(G, U, 5_000_000, now + decisions.MIN_GAP_MS + 1000, always) !== null);
+      decisions.roll(G, U, 5_000_000, now + decisions.MIN_GAP_MS + 1000, always, 'creator', SCHON) !== null);
   }
 
   console.log('\n--- Das Risiko je TAG ---');
@@ -416,18 +418,47 @@ const never = () => 0.999;      // trifft immer den letzten
         && uhrZeilen(G, U) === 0);
     }
     {
+      /*
+       * `roll` darf Musik und Creator nicht auf eigene Faust würfeln: Sonst läge
+       * neben dem Tageswurf (tick) wieder eine zweite Rate je Aufruf. Nur
+       * `schonGewuerfelt` – das setzt allein tick – lässt es zu.
+       */
+      const wirft = (fn) => { try { fn(); return null; } catch (e) { return e.message; } };
+      const U = musiker('roll-pflicht', 100_000);
+      player(U, 1_000_000);
+      db.clearEvents(G, U);
+      for (const [bereich, groesse] of [['music', 100_000], ['creator', 1_000_000]]) {
+        check(`roll(${bereich}) ohne schonGewuerfelt wirft – auch mit sicherem Wurf`,
+          /schonGewuerfelt/.test(wirft(() => decisions.roll(G, U, groesse, T0, wert(0), bereich)) ?? ''));
+        check(`… und mit leerem Optionsobjekt (${bereich})`,
+          wirft(() => decisions.roll(G, U, groesse, T0, wert(0), bereich, {})) !== null);
+        check(`… und es legt nichts an (${bereich})`,
+          db.openEvent(G, U, bereich) === null && db.lastEventAt(G, U, bereich) === 0);
+      }
+      check('roll ohne Bereich wirft, statt still „creator" zu nehmen',
+        wirft(() => decisions.roll(G, U, 1_000_000, T0, wert(0))) !== null
+        && db.openEvent(G, U, 'creator') === null);
+      check('roll mit unbekanntem Bereich wirft',
+        wirft(() => decisions.roll(G, U, 1_000_000, T0, wert(0), 'musik', SCHON)) !== null);
+      check('mit schonGewuerfelt (so ruft tick) entsteht der Vorfall',
+        decisions.roll(G, U, 100_000, T0, wert(0), 'music', SCHON)?.platform === 'music');
+      // Die Firma würfelt ihre Rate weiter selbst in roll (company.settle) – dort kein Fehler.
+      check('Firmen-Bereich braucht schonGewuerfelt nicht',
+        wirft(() => decisions.roll(G, U, { groesse: 5, days: 3, npc: 3 }, T0, wert(0.99), 'company')) === null);
+    }
+    {
       // MIN_GAP_MS gilt je Bereich – geprüft über roll, damit keine Uhr mitredet.
       const U = 'tick-abstand';
       musiker(U, 100_000);
       player(U, 1_000_000);
       db.clearEvents(G, U);
       const ZEHN = 10 * STUNDE;
-      const m1 = decisions.roll(G, U, 100_000, T0, wert(0), 'music');
+      const m1 = decisions.roll(G, U, 100_000, T0, wert(0), 'music', SCHON);
       check('ein Musik-Vorfall entsteht', m1?.platform === 'music');
       db.resolveEvent(G, m1.id, { status: 'done', at: T0 });
       check('zwei Musik-Vorfaelle im Abstand von 10 h gehen nicht',
-        decisions.roll(G, U, 100_000, T0 + ZEHN, wert(0), 'music') === null);
-      const c1 = decisions.roll(G, U, 1_000_000, T0 + ZEHN, wert(0), 'creator');
+        decisions.roll(G, U, 100_000, T0 + ZEHN, wert(0), 'music', SCHON) === null);
+      const c1 = decisions.roll(G, U, 1_000_000, T0 + ZEHN, wert(0), 'creator', SCHON);
       check('ein Musik- und ein Creator-Vorfall im Abstand von 10 h gehen',
         Boolean(c1) && c1.platform !== 'music' && c1.platform !== 'company');
     }
@@ -512,6 +543,83 @@ const never = () => 0.999;      // trifft immer den letzten
       const text2 = await buttons.settleMusic(G, U, immerTreffer);
       check('zweimal settleMusic hintereinander: nur ein Wurf',
         db.openEvent(G, U, 'music') === null, String(text2));
+    }
+    {
+      /*
+       * Der Tageswurf hängt an jeder Tür, die die Creator-Ansicht öffnet – nicht
+       * nur an den Plattform-Knöpfen. Sonst hinge die gemessene Rate daran,
+       * welche Tür jemand benutzt. Die Türen nehmen keinen Würfel mit, darum
+       * wird Math.random für die Dauer des Aufrufs auf 0 gesetzt (= Treffer).
+       */
+      const wuerfelTreffer = async (fn) => {
+        const echt = Math.random;
+        Math.random = () => 0;
+        try { return await fn(); } finally { Math.random = echt; }
+      };
+      const vorbereiten = (name) => {
+        const U = player(name);
+        db.clearEvents(G, U);
+        db.saveDecisionUhr(G, U, 'creator', Date.now() - 2 * DAY_MS);
+        return U;
+      };
+      const netz = (view) => JSON.stringify(view ?? '');
+      const fake = (U, rec) => ({
+        guildId: G,
+        user: { id: U },
+        memberPermissions: { has: () => false },
+        options: { getString: () => null },
+        deferUpdate: async () => {},
+        deferReply: async () => {},
+        update: async (v) => { rec.views.push(v); },
+        editReply: async (v) => { rec.views.push(v); },
+        followUp: async (v) => { rec.notes.push(v.content ?? v); },
+      });
+
+      {
+        const U = vorbereiten('tuer-menue');
+        const rec = { views: [], notes: [] };
+        await wuerfelTreffer(() => buttons.buttons.menu(fake(U, rec), ['creator', '1', U]));
+        check('Tür Menü (Knopf „creator"): der Tageswurf fällt',
+          db.openEvent(G, U, 'creator') !== null, JSON.stringify(rec.notes));
+        check('… und die Notiz meldet ihn', rec.notes.some((n) => String(n).includes('Vorfall')),
+          JSON.stringify(rec.notes));
+      }
+      {
+        const U = vorbereiten('tuer-plattform');
+        const rec = { views: [], notes: [] };
+        await wuerfelTreffer(() => buttons.buttons.creator(fake(U, rec), ['twitch']));
+        check('Tür Plattform-Knopf: der Tageswurf fällt', db.openEvent(G, U, 'creator') !== null);
+      }
+      {
+        const U = vorbereiten('tuer-slash');
+        const rec = { views: [], notes: [] };
+        await wuerfelTreffer(() => require('../src/commands/creator').execute(fake(U, rec)));
+        check('Tür /creator: der Tageswurf fällt', db.openEvent(G, U, 'creator') !== null,
+          JSON.stringify(rec.notes));
+        check('… und die Notiz meldet ihn', rec.notes.some((n) => String(n).includes('Vorfall')),
+          JSON.stringify(rec.notes));
+        check('… und die Ansicht kam trotzdem', rec.views.length === 1 && netz(rec.views[0]).length > 2);
+      }
+      {
+        const U = vorbereiten('tuer-fluxer');
+        const cmd = require('../src/fluxer/commands').find('creator');
+        const res = await wuerfelTreffer(() => cmd.run({ guildId: G, userId: U, args: [], name: 'creator' }));
+        check('Tür Fluxer !creator: der Tageswurf fällt', db.openEvent(G, U, 'creator') !== null);
+        check('… und die Notiz kommt als `note` mit', String(res.note ?? '').includes('Vorfall'),
+          String(res.note));
+        check('… zusammen mit der Ansicht', Boolean(res.view));
+      }
+      {
+        const U = vorbereiten('tuer-zweimal');
+        const rec = { views: [], notes: [] };
+        await wuerfelTreffer(async () => {
+          await require('../src/commands/creator').execute(fake(U, rec));
+          db.clearEvents(G, U);
+          await buttons.buttons.menu(fake(U, rec), ['creator', '1', U]);
+        });
+        check('zwei Türen hintereinander: nur ein Wurf (die Uhr ist gestellt)',
+          db.openEvent(G, U, 'creator') === null);
+      }
     }
     {
       /*

@@ -57,14 +57,12 @@ function seq(...values) {
 }
 
 /**
- * Würfel für decisions.roll(): Der erste Aufruf (Risikoprüfung) trifft immer,
- * danach gleichverteilt (Auswahl der Vorlage). `() => 0` wäre falsch – die
+ * `roll` verlangt für Musik und Creator `schonGewuerfelt` – die Rate würfelt
+ * allein `tick`. Der Würfel, den man `roll` dann mitgibt, wird nur noch für die
+ * Auswahl der Vorlage gezogen (gleichverteilt). `() => 0` wäre falsch – die
  * Auswahl träfe dann immer die erste Vorlage.
  */
-function hit(rand) {
-  let first = true;
-  return () => { if (first) { first = false; return 0; } return rand(); };
-}
+const SCHON = { schonGewuerfelt: true };
 
 const setup = db.createItem({
   guildId: G, name: music.GEAR, price: 3400, kind: 'gear', stock: null, createdBy: 't',
@@ -150,7 +148,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     let now = Date.now();
     for (let i = 0; i < 1000; i++) {
       const rand = rng(i + 1);
-      const ev = decisions.roll(G, U, 100_000, now, hit(rand), 'music');
+      const ev = decisions.roll(G, U, 100_000, now, rand, 'music', SCHON);
       if (ev) { got.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
       now += decisions.MIN_GAP_MS + 1000;
     }
@@ -162,10 +160,10 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       got.has('skandal'), [...got].join(' '));
     check('… und nie label (kein Vertrag)', !got.has('label'));
     check('die Zeile trägt platform = music',
-      decisions.roll(G, U, 100_000, now, () => 0, 'music')?.platform === 'music');
+      decisions.roll(G, U, 100_000, now, () => 0, 'music', SCHON)?.platform === 'music');
     db.clearEvents(G, U);
 
-    // Ein reiner Creator: Standard-Domäne, keine Musik-IDs.
+    // Ein reiner Creator: Bereich creator, keine Musik-IDs.
     const C = `fx:c${n++}`;
     db.clearCreator(G, C); db.clearEvents(G, C);
     const share = { twitch: 0.52, youtube: 0.24, instagram: 0.11, twitter: 0.13 };
@@ -176,7 +174,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
     const gotC = new Set();
     for (let i = 0; i < 300; i++) {
       const rand = rng(i + 7);
-      const ev = decisions.roll(G, C, 1_000_000, now, hit(rand));
+      const ev = decisions.roll(G, C, 1_000_000, now, rand, 'creator', SCHON);
       if (ev) { gotC.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: now }); }
       now += decisions.MIN_GAP_MS + 1000;
     }
@@ -194,7 +192,7 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
       let t = now;
       for (let i = 0; i < tries; i++) {
         const rand = rng(i + 3);
-        const ev = decisions.roll(G, U, size, t, hit(rand), 'music');
+        const ev = decisions.roll(G, U, size, t, rand, 'music', SCHON);
         if (ev) { out.add(ev.kind); db.resolveEvent(G, ev.id, { status: 'done', at: t }); }
         t += decisions.MIN_GAP_MS + 1000;
       }
@@ -691,7 +689,18 @@ const refill = (U) => { if (!gear(U)) db.reservePurchase(G, U, setup.id, 1); };
      * Läufe ist es nicht.
      */
     const summe = counts.reduce((s, c) => s + c.vorfaelle, 0);
-    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (Erwartung ≈ 40)',
+    /*
+     * Ehrlich zur Schwelle: Gemessen sind Σ 41 (feste Seeds, deterministisch).
+     * Wäre die Zahl Poisson-verteilt mit λ ≈ 41, läge P(Σ < 35) bei rund 15 % –
+     * die Schwelle taugt also NICHT als Schutz gegen Zufallsstreuung, und sie
+     * muss es auch nicht: Mit festen Seeds fällt dieselbe Zahl bei jedem Lauf.
+     * Sie ist ein Regressionsschutz. Fiele Σ unter 35, hätte sich etwas
+     * Strukturelles verändert (Rate, Sperre, Abstand, Wurfstelle) – rund 15 %
+     * weniger als gemessen. Strenger wäre sie nur durch Anlehnung an genau
+     * diesen einen Seed (41), und dann kippte jede harmlose Änderung der
+     * Würfelreihenfolge den Test, ohne dass die Rate falsch wäre.
+     */
+    check('mit Ereignissen: über 5 Jahre zusammen mindestens 35 Vorfälle (gemessen 41, Erwartung ≈ 40)',
       summe >= 35, String(summe));
     check('… und in keinem Lauf weniger als 3',
       counts.every((c) => c.vorfaelle >= 3), counts.map((c) => c.vorfaelle).join(' '));

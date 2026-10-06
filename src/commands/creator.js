@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const ui = require('../ui');
 const creator = require('../creator');
 
@@ -14,15 +14,17 @@ module.exports = {
     await interaction.deferReply();
     const ctx = { guildId: interaction.guildId, userId: interaction.user.id };
 
-    // Beim Öffnen laufen Katalog, Merch und Vertragsfristen mit (§4).
-    await creator.settle(ctx.guildId, ctx.userId).catch(() => null);
-    await creator.settleMerch(ctx.guildId, ctx.userId).catch(() => null);
-    await creator.settleDeals(ctx.guildId, ctx.userId).catch(() => null);
-    await require('../decisions').settle(ctx.guildId, ctx.userId).catch(() => []);
+    // Beim Öffnen laufen Katalog, Merch, Vertragsfristen, der Verfall offener
+    // Vorfälle und der Tageswurf mit (§4) – dieselbe Abrechnung wie über die
+    // Knöpfe, damit der Wurf an jeder Tür fällt und nicht nur an einigen.
+    const note = await require('../buttons').settleCreator(ctx.guildId, ctx.userId);
 
     const key = interaction.options.getString('plattform');
-    return interaction.editReply(key
+    await interaction.editReply(key
       ? await ui.buildPlatformView({ ...ctx, key })
       : await ui.buildCreatorView(ctx));
+    if (note) {
+      await interaction.followUp({ content: note, flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
   },
 };

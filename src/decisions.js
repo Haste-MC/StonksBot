@@ -40,7 +40,14 @@ const DECIDE_MS = 24 * 60 * 60 * 1000;
 /** Mindestabstand zwischen zwei Vorfällen. */
 const MIN_GAP_MS = 36 * 60 * 60 * 1000;
 
-/** Wahrscheinlichkeit je Aktion – wächst mit der Reichweite. */
+/**
+ * Die frühere Spanne je AKTION (2…4 %, wächst mit der Reichweite).
+ *
+ * Keine Aktion würfelt damit mehr: Musik und Creator werfen je TAG
+ * (`tick`, RISK_*_DAY unten), die Firma über ihre abgerechneten Tage. Die
+ * Konstanten und `riskFor` stehen noch da, weil Tests und Messskripte die
+ * alte Kurve als Vergleich lesen – gewürfelt wird mit ihnen nirgends.
+ */
 const RISK_MIN = 0.02;
 const RISK_MAX = 0.04;
 const RISK_FULL = 1_500_000;
@@ -91,7 +98,7 @@ function decision(kind) {
   return byId.get(String(kind)) ?? null;
 }
 
-/** Wie wahrscheinlich ein Vorfall je Aktion ist. */
+/** Wie wahrscheinlich ein Vorfall je Aktion WÄRE – nur noch Vergleichskurve, siehe RISK_MIN. */
 function riskFor(reach) {
   return clamp(RISK_MIN, RISK_MAX, (reach / RISK_FULL) * RISK_MAX);
 }
@@ -160,9 +167,25 @@ function musicEligible(d, artist, contract) {
  * `schonGewuerfelt` ist für `tick`: Dort ist die Wahrscheinlichkeit schon über
  * die vergangenen TAGE entschieden, hier wird nur noch der Vorfall gezogen.
  * Alles andere – Sperre, Abstand, Kandidatenliste – gilt weiter.
+ *
+ * Für `music` und `creator` ist `schonGewuerfelt` PFLICHT: Nur `tick` darf
+ * diese beiden Bereiche anstoßen. Ohne die Pflicht würde ein künftiger Aufruf
+ * `roll(g, u, size, now, rand)` stillschweigend eine zweite Rate auf den
+ * Tageswurf setzen – genau das, was der Tageswurf abgelöst hat. Der Aufruf
+ * wirft deshalb einen Fehler, statt still zu würfeln oder still nichts zu tun.
+ * Die Firma würfelt weiter hier (company.riskFor über ihre Tage).
+ *
+ * Eine Domäne gibt es nicht mehr als Vorgabe: Wer `roll` ruft, sagt, wen.
  */
-function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain = 'creator',
+function roll(guildId, userId, size, now = Date.now(), random = Math.random, domain,
   { schonGewuerfelt = false } = {}) {
+  if (domain !== 'music' && domain !== 'creator' && domain !== 'company') {
+    throw new Error(`decisions.roll: unbekannter Bereich "${domain}"`);
+  }
+  if (domain !== 'company' && !schonGewuerfelt) {
+    throw new Error(`decisions.roll: "${domain}" würfelt nur über tick `
+      + '(schonGewuerfelt fehlt) – sonst entstünde neben dem Tageswurf eine zweite Rate');
+  }
   if (db.openEvent(guildId, userId, domain)) return null;
   if (now - db.lastEventAt(guildId, userId, domain) < MIN_GAP_MS) return null;
 
@@ -175,7 +198,6 @@ function roll(guildId, userId, size, now = Date.now(), random = Math.random, dom
     if (!schonGewuerfelt && random() >= company.riskFor(groesse, days)) return null;
     possible = COMPANY_DECISIONS.filter((d) => groesse >= d.minGroesse && npc >= (d.minNpc ?? 0));
   } else {
-    if (!schonGewuerfelt && random() >= riskFor(size)) return null;
     if (domain === 'music') {
       const artist = db.getArtist(guildId, userId, now);
       const contract = db.activeContract(guildId, userId);
