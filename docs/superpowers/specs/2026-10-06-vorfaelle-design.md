@@ -292,9 +292,20 @@ bleibt stehen, aber sie ist keine Zeile aus dem Code.
    `company.settle` weiter wie immer (Gegenprobe: Kiosk, 365 Tage, **8**
    Vorfälle, erwartet 7,16). Die stille Null steckte in `karriere` – dem
    Karriere-Lauf, aus dem jede Archetypen-Zahl in §15 kommt: Er hatte keinen
-   Vorfallszähler und rief `tick` nicht, konnte also seit Stück 2 keinen Vorfall
-   mehr bekommen und hätte schweigend null gemeldet. Deshalb prüft jetzt jede
-   Variante „aus" auf Vorfälle **und** auf Würfe.
+   Vorfallszähler und rief `tick` nicht, konnte also seit **Schritt 2 dieses
+   Stücks** (`eab3576` – nicht Stück 2 des Projekts, das ist der Firmen-Ausbau)
+   keinen Vorfall mehr bekommen und hätte schweigend null gemeldet. Deshalb prüft
+   jetzt jede Variante „aus" auf Vorfälle **und** auf Würfe. **Vor** diesem Schritt
+   bekam er sehr wohl Vorfälle: Jede Aktion würfelte
+   (`git show main:src/music.js` 448/610/867, `main:src/creator.js:970`) und der
+   Lauf fährt mit `events: true` (`scripts/messung-geldquellen.js:78`). Im letzten
+   Lauf vor diesem Stück stehen sie deshalb in der Ausgabe:
+   `docs/messungen/2026-10-02-angebote.txt:439` „· Vorfall -2.791/Tag (-1 %)"
+   (Musik+Creator) und `:607` „· Vorfall -1.051/Tag (-1 %)" (nur Musik). Die
+   Archetypen-Zahlen von 5a bis 5e sind also **mit** einer Vorfallsbremse von rund
+   1 % des Tageseinkommens gemessen, die dieses Stück aus den Aktionen entfernt:
+   Wer sie heute neu fährt, landet rund ein Prozent **höher**; wer sie mit dem
+   Tageswurf fährt, beim reinen Musiker rund 17 % niedriger.
 6. **Die Regression im §3-Treiber ist strenger geworden, aber ihre dokumentierte
    Zahl war falsch.** `test/musicEvents.test.js` nannte „gemessen 41"; gemessen
    sind **47** über fünf Jahre. Die Schwelle bleibt bei 35 (sie durfte nur

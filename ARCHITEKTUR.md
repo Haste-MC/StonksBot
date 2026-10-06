@@ -1927,18 +1927,33 @@ denselben Befund. Deshalb steht er oben als Spanne und nicht als Zahl. Mit Filte
 ändert sie nichts, und dass sie es nicht tut, ist eine Kontrollzeile. (8) **Der Tageswurf hängt im Messskript an
 `strat.vorfaelle` und läuft nur in diesem Abschnitt.** Die Rangfolge der
 Archetypen oben und die Zahlen von 5a, 5b und 5c sind damit **ohne** Vorfälle
-gemessen – so, wie sie es auch vor 5f waren, denn in einem Messlauf kamen damals
-ohnehin keine vor: Die Würfe je Aktion hatte Stück 2 entfernt, und `tick` rief
-niemand. Sie sind nicht falsch geworden, aber wer sie neu fährt und Vorfälle
-dabeihaben will, muss beim reinen Musiker rund 17 % weniger erwarten. (9) **Die
+gemessen – **anders als vorher.** Vor diesem Stück würfelte jede Aktion
+(`git show main:src/music.js` 448/610/867 und `main:src/creator.js:970`), und der
+Karriere-Lauf fährt mit `events: true` (`scripts/messung-geldquellen.js:78`) –
+Vorfälle kamen also vor, und sie stehen im Ergebnis des letzten Laufs vor diesem
+Stück: `docs/messungen/2026-10-02-angebote.txt:439` „· Vorfall -2.791/Tag (-1 %)"
+(Musik+Creator) und `:607` „· Vorfall -1.051/Tag (-1 %)" (nur Musik). Entfernt hat
+die Würfe je Aktion **Schritt 2 dieses Stücks** (`eab3576`) – nicht Stück 2 des
+Projekts, das ist der Firmen-Ausbau. Für die älteren Zahlen heißt das: Sie wurden
+**mit** einer Vorfallsbremse von rund 1 % des Tageseinkommens gemessen, die es
+jetzt nicht mehr gibt – wer 5a bis 5e heute neu fährt, landet rund ein Prozent
+**höher** als das, was hier steht. Und wer sie mit dem Tageswurf fährt, muss beim
+reinen Musiker rund 17 % weniger erwarten als die Zahlen oben. (9) **Die
 100 Seeds sind in jeder Stufe dieselben,** damit die Stufen vergleichbar sind –
 ihre Abweichungen von der Erwartung sind deshalb korreliert, und alle dreizehn
 zeigen nach unten. (10) **Die Abwesenheit ist nicht gemessen.** `ROLL_TAGE_MAX`
 deckelt das Nachholen auf 14 Tage, und in diesem Lauf greift der Deckel **nie**:
 „nachgeholte Tage je Wurf Ø 1,00 (kleinster 1,00, größter 1,00)". Der gemessene
 Spieler ist jeden Tag da; was jemand bekommt, der drei Wochen weg war, steht in
-`test/decisions.test.js`. (11) **Der reine Creator kommt im Geldvergleich nicht
-vor;** für ihn gilt der Creator-Teil des Stufenlaufs, aber keine Bilanzzahl.
+`test/decisions.test.js`. **Damit gilt die gemessene Häufigkeit für genau diesen
+Spieler:** für den, der täglich zur selben Stunde hereinschaut (Ø 1,00 nachgeholte
+Tage je Wurf). `tick` rechnet volle Tage und stellt die Uhr danach auf jetzt, also
+fällt der Rest unter 24 Stunden weg – wer seltener oder unregelmäßig kommt,
+bekommt entsprechend **weniger** Würfe und damit weniger Vorfälle als die Zahlen
+oben. Um wie viel weniger, ist **nicht gemessen**; rein **abgeleitet** (keine
+Messung) wären es bei einem Blick alle 36 Stunden 8760 / 36 = 243 Würfe im Jahr
+statt 365, bei p = 0,02 also rund 4,9 statt 6,90 Vorfälle. (11) **Der reine
+Creator kommt im Geldvergleich nicht vor;** für ihn gilt der Creator-Teil des Stufenlaufs, aber keine Bilanzzahl.
 (12) **Die vier frühen Vorfälle haben eine alte Zahl bewegt – die Richtung ist
 gemessen, die Größe nicht.** Der §3-Treiber in `test/musicEvents.test.js` ging mit
 ihnen von Σ **41** auf Σ **47** über fünf Jahre (dieselben fünf Seeds, in

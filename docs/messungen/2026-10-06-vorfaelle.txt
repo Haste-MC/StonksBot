@@ -370,9 +370,29 @@ Acht Vorfälle im Jahr bei Größe 0, erwartet 365 × 0,02 / 1,02 = 7,16. Kein s
 Die stille Null steckte woanders, und zwar schlimmer: `karriere` – der KARRIERE-Lauf, aus dem jede
 Archetypen-Zahl dieses Dokuments und jede Zahl der Abschnitte 5a, 5b und 5c kommt – hatte überhaupt
 keinen Vorfallszähler und rief `tick` nicht. Er rechnete Vorfälle ab und entschied sie, konnte aber
-seit Stück 2 keine mehr bekommen, weil `music.record`, `publish`, `show` und `creator.act` nicht
-mehr würfeln. Ein Lauf hätte also schweigend null gemeldet – ohne eine Zeile, die „null" sagt. Genau
-deshalb hat jede Variante hier eine Kontrollzeile, die „aus" auf Vorfälle UND auf Würfe prüft.
+seit SCHRITT 2 DIESES STÜCKS (`eab3576`) keine mehr bekommen, weil `music.record`, `publish`, `show`
+und `creator.act` seitdem nicht mehr würfeln. (Nicht „seit Stück 2": Stück 2 des Projekts ist der
+Firmen-Ausbau – die Verwechslung datierte den Wegfall auf 1.32.0 statt auf dieses Stück.) Ein Lauf
+hätte also schweigend null gemeldet – ohne eine Zeile, die „null" sagt. Genau deshalb hat jede
+Variante hier eine Kontrollzeile, die „aus" auf Vorfälle UND auf Würfe prüft.
+
+Wichtig, und hier stand es vorher falsch: VOR diesem Schritt kamen in einem Messlauf sehr wohl
+Vorfälle vor. Belege:
+
+    git show main:src/music.js   Zeilen 448 / 610 / 867   -> decisions.roll(..., 'music') je Aktion
+    git show main:src/creator.js Zeile 970                -> decisions.roll(...) je Aktion
+    scripts/messung-geldquellen.js:78  const musikOpts = { events: !OHNE_EREIGNISSE }
+
+Der Karriere-Lauf fuhr also mit `events: true`, und die Vorfälle stehen in seiner eigenen Ausgabe –
+im letzten Lauf vor diesem Stück:
+
+    docs/messungen/2026-10-02-angebote.txt:439   ... · Vorfall -2.791/Tag (-1 %)   (Musik+Creator)
+    docs/messungen/2026-10-02-angebote.txt:607   ... · Vorfall -1.051/Tag (-1 %)   (nur Musik)
+
+Was das für die älteren Zahlen heißt: Die Archetypen-Rangfolge und die Zahlen von 5a bis 5e sind MIT
+einer Vorfallsbremse von rund 1 % des Tageseinkommens gemessen, die dieses Stück aus den Aktionen
+entfernt. Wer sie heute neu fährt, landet deshalb rund ein Prozent HÖHER als das, was dort steht.
+Wer sie mit dem Tageswurf fährt, landet beim reinen Musiker rund 17 % NIEDRIGER.
 
 ==================== NACHTRAG 2: der §3-Treiber sprang von Σ 41 auf Σ 47 ====================
 

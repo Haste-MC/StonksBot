@@ -535,6 +535,13 @@ const never = () => 0.999;      // trifft immer den letzten
         Boolean(offen) && String(text).includes(decisions.decision(offen.kind).title),
         String(text));
       /*
+       * Und sie nennt den ORT, nicht die Sache: Aus einer Plattform-, Deal-
+       * oder Vorfall-Ansicht ist kein ⚠️-Knopf zu sehen, ein blankes
+       * „⚠️ Vorfall" schübe den Spieler dort auf nichts.
+       */
+      check('… und sagt, wo er wartet (⚠️ im Netzwerk)',
+        String(text).includes('⚠️ im Netzwerk'), String(text));
+      /*
        * Der offene Vorfall allein würde den zweiten Wurf schon sperren – weg
        * damit, denn geprüft wird die Uhr: Zweimal abrechnen heißt EIN Wurf.
        */
@@ -553,10 +560,150 @@ const never = () => 0.999;      // trifft immer den letzten
       check('… und die Notiz nennt ihn',
         Boolean(offen) && String(text).includes(decisions.decision(offen.kind).title),
         String(text));
+      check('… und sagt, wo er wartet (⚠️ im Studio)',
+        String(text).includes('⚠️ im Studio'), String(text));
       db.clearEvents(G, U);
       const text2 = await buttons.settleMusic(G, U, immerTreffer);
       check('zweimal settleMusic hintereinander: nur ein Wurf',
         db.openEvent(G, U, 'music') === null, String(text2));
+    }
+    {
+      /*
+       * Ein Fehler im Tageswurf darf den Wurf kosten, nicht die Ansicht.
+       *
+       * Jeder andere Schritt der faulen Abrechnung trägt sein
+       * `.catch(() => null)`; der Tageswurf war der einzige ohne Netz – samt
+       * seinen Argumenten (`music.status`, `creator.reachTotalOf`). Solange der
+       * Wurf an der Aktion hing, kostete ein Fehler darin nur diese Aktion.
+       * Als Teil der Abrechnung nimmt er Studio, Netzwerk, Plattform, Deals und
+       * die Vorfall-Ansicht mit, dazu /musik, /creator, !musik und !creator.
+       *
+       * Geprüft wird nicht nur „kein Wurf", sondern dass die Abrechnung sonst
+       * ganz durchläuft: Der verfallene Vorfall muss in der Notiz stehen.
+       */
+      const kaputt = () => { throw new Error('Wurf kaputt'); };
+      /** Führt `fn` aus, während `obj[key]` wirft – und setzt es danach zurück. */
+      const mitFehler = async (obj, key, fn) => {
+        const echt = obj[key];
+        obj[key] = kaputt;
+        try { return { note: await fn(), fehler: null }; }
+        catch (e) { return { note: null, fehler: e }; }
+        finally { obj[key] = echt; }
+      };
+      /** Ein Spieler mit einem gerade verfallenen Vorfall des Bereichs. */
+      const mitVerfall = (name, kind, platform) => {
+        db.clearEvents(G, name);
+        const jetzt = Date.now();
+        db.saveDecisionUhr(G, name, platform === 'music' ? 'music' : 'creator',
+          jetzt - 2 * DAY_MS);
+        db.insertEvent({ guildId: G, userId: name, kind, platform,
+          createdAt: jetzt - 2 * DAY_MS, expiresAt: jetzt - 1000 });
+        return decisions.decision(kind).title;
+      };
+
+      {
+        const U = musiker('wurf-wirft-musik', 100_000);
+        const titel = mitVerfall(U, 'plagiat', 'music');
+        const r = await mitFehler(decisions, 'tick',
+          () => buttons.settleMusic(G, U, immerTreffer));
+        check('ein werfender Tageswurf reisst die Studio-Abrechnung nicht mit',
+          r.fehler === null, String(r.fehler));
+        check('… und der verfallene Vorfall steht trotzdem in der Notiz',
+          String(r.note).includes(titel), String(r.note));
+      }
+      {
+        const U = player('wurf-wirft-creator');
+        const titel = mitVerfall(U, 'exklusivvertrag', 'twitch');
+        const r = await mitFehler(decisions, 'tick',
+          () => buttons.settleCreator(G, U, immerTreffer));
+        check('ein werfender Tageswurf reisst die Netzwerk-Abrechnung nicht mit',
+          r.fehler === null, String(r.fehler));
+        check('… und der verfallene Vorfall steht trotzdem in der Notiz',
+          String(r.note).includes(titel), String(r.note));
+      }
+      {
+        /*
+         * Auch die GRÖSSE für den Wurf liegt hinter dem Netz: `reachTotalOf`
+         * ist ein Aufruf wie jeder andere und kann werfen.
+         *
+         * Die Musik-Seite wird hier nur über `decisions.tick` geprüft, nicht
+         * über ein werfendes `music.status`: Das benutzt auch die
+         * Angebots-Abrechnung (`angebote.settle` über `settleStrasse`), die
+         * VOR dem Wurf läuft – ein Fehler dort ist ein älterer, anderer Weg.
+         */
+        const U = player('wurf-wirft-reichweite');
+        const titel = mitVerfall(U, 'exklusivvertrag', 'twitch');
+        const r = await mitFehler(creator, 'reachTotalOf',
+          () => buttons.settleCreator(G, U, immerTreffer));
+        check('ein werfendes creator.reachTotalOf reisst die Abrechnung nicht mit',
+          r.fehler === null, String(r.fehler));
+        check('… und der verfallene Vorfall steht trotzdem in der Notiz',
+          String(r.note).includes(titel), String(r.note));
+      }
+    }
+    {
+      /*
+       * Drei Vorfaelle in EINER Notiz.
+       *
+       * Vor der Sperre je Bereich konnte höchstens einer offen sein, also auch
+       * nur einer auf einmal verfallen. Jetzt sind es drei, jeder mit Titel- UND
+       * Folgezeile. Über 2000 Zeichen nimmt Discord die Nachricht nicht an, und
+       * jedes `followUp` dieser Notizen hat sein `.catch(() => {})` – der
+       * Spieler erführe nicht, warum seine Follower weg sind.
+       */
+      const U = 'drei-verfallen';
+      musiker(U, 100_000);
+      player(U, 1_000_000);
+      db.clearEvents(G, U);
+      const jetzt = Date.now();
+      const f = await company.found(G, U, 'cafe', 'Dreiverfall', jetzt);
+      const vorlagen = [
+        db.insertEvent({ guildId: G, userId: U, kind: 'wasserschaden',
+          platform: 'company', refId: f.company?.id ?? 0,
+          createdAt: jetzt - 2 * DAY_MS, expiresAt: jetzt - 1000 }),
+        db.insertEvent({ guildId: G, userId: U, kind: 'exklusivvertrag',
+          platform: 'twitch', createdAt: jetzt - 2 * DAY_MS, expiresAt: jetzt - 1000 }),
+        db.insertEvent({ guildId: G, userId: U, kind: 'plagiat',
+          platform: 'music', createdAt: jetzt - 2 * DAY_MS, expiresAt: jetzt - 1000 }),
+      ];
+      check('drei Bereiche, drei faellige Vorfaelle', f.ok && vorlagen.every(Boolean),
+        JSON.stringify(f.reason ?? ''));
+      // `() => 1` statt eines Treffers: Geprüft wird der Verfall, nicht ein
+      // neuer Wurf, der die Notiz zufällig verlängern würde.
+      const notiz = String(await buttons.settleCreator(G, U, () => 1));
+      for (const v of vorlagen) {
+        check(`… und ${v.kind} steht in der einen Notiz`,
+          notiz.includes(decisions.decision(v.kind).title), notiz);
+      }
+      check('drei Verfaelle auf einmal bleiben unter Discords Grenze',
+        notiz.length <= 2000, `${notiz.length} Zeichen`);
+      check('… und nichts bleibt offen', db.openEvent(G, U) === null);
+    }
+    {
+      /*
+       * Und wenn es doch zu lang wird, wird gekürzt und GESAGT, dass gekürzt
+       * wurde – still verschlucken ist genau der Fehler, der behoben wird.
+       * Geschnitten wird an der Blockgrenze: Eine Vorfallsmeldung besteht aus
+       * Titel und Folge, eine halbe Meldung ist schlimmer als keine.
+       */
+      const kurz = ['eins', 'zwei'];
+      check('eine kurze Notiz bleibt unangetastet',
+        buttons.notizAus(kurz) === 'eins\nzwei', String(buttons.notizAus(kurz)));
+      check('nichts zu melden heisst keine Notiz', buttons.notizAus([]) === null);
+
+      const lang = ['A'.repeat(700), 'B'.repeat(700), 'C'.repeat(700)];
+      const gek = buttons.notizAus(lang);
+      check('eine zu lange Notiz wird gekuerzt', gek.length <= buttons.NOTIZ_MAX,
+        `${gek.length} Zeichen`);
+      check('… an der Blockgrenze, nicht mitten im Block',
+        gek.startsWith('A'.repeat(700)) && !gek.includes('C'), gek.slice(-120));
+      check('… und die fehlenden Meldungen werden benannt',
+        gek.includes('1 weitere Meldung') && gek.includes('Verlauf'), gek.slice(-120));
+
+      const riesig = buttons.notizAus(['X'.repeat(5000)]);
+      check('selbst ein einzelner Riesenblock kommt zugestellt an',
+        riesig.length <= buttons.NOTIZ_MAX && riesig.startsWith('XXX')
+        && riesig.includes('gekürzt'), `${riesig.length} Zeichen`);
     }
     {
       /*
@@ -589,13 +736,25 @@ const never = () => 0.999;      // trifft immer den letzten
         followUp: async (v) => { rec.notes.push(v.content ?? v); },
       });
 
+      /*
+       * Meldet eine Notiz den offenen Vorfall? Geprüft wird sein TITEL und der
+       * ORT, an dem er wartet – das Wort „Vorfall" allein stand bis hierher im
+       * Text und sagte dem Spieler nicht, wohin er gehen soll.
+       */
+      const meldetVorfall = (texte, user) => {
+        const offen = db.openEvent(G, user, 'creator');
+        if (!offen) return false;
+        return texte.some((n) => String(n).includes(decisions.decision(offen.kind).title)
+          && String(n).includes('⚠️ im Netzwerk'));
+      };
+
       {
         const U = vorbereiten('tuer-menue');
         const rec = { views: [], notes: [] };
         await wuerfelTreffer(() => buttons.buttons.menu(fake(U, rec), ['creator', '1', U]));
         check('Tür Menü (Knopf „creator"): der Tageswurf fällt',
           db.openEvent(G, U, 'creator') !== null, JSON.stringify(rec.notes));
-        check('… und die Notiz meldet ihn', rec.notes.some((n) => String(n).includes('Vorfall')),
+        check('… und die Notiz meldet ihn', meldetVorfall(rec.notes, U),
           JSON.stringify(rec.notes));
       }
       {
@@ -610,7 +769,7 @@ const never = () => 0.999;      // trifft immer den letzten
         await wuerfelTreffer(() => require('../src/commands/creator').execute(fake(U, rec)));
         check('Tür /creator: der Tageswurf fällt', db.openEvent(G, U, 'creator') !== null,
           JSON.stringify(rec.notes));
-        check('… und die Notiz meldet ihn', rec.notes.some((n) => String(n).includes('Vorfall')),
+        check('… und die Notiz meldet ihn', meldetVorfall(rec.notes, U),
           JSON.stringify(rec.notes));
         check('… und die Ansicht kam trotzdem', rec.views.length === 1 && netz(rec.views[0]).length > 2);
       }
@@ -619,7 +778,7 @@ const never = () => 0.999;      // trifft immer den letzten
         const cmd = require('../src/fluxer/commands').find('creator');
         const res = await wuerfelTreffer(() => cmd.run({ guildId: G, userId: U, args: [], name: 'creator' }));
         check('Tür Fluxer !creator: der Tageswurf fällt', db.openEvent(G, U, 'creator') !== null);
-        check('… und die Notiz kommt als `note` mit', String(res.note ?? '').includes('Vorfall'),
+        check('… und die Notiz kommt als `note` mit', meldetVorfall([res.note ?? ''], U),
           String(res.note));
         check('… zusammen mit der Ansicht', Boolean(res.view));
       }

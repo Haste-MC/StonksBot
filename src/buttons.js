@@ -206,6 +206,57 @@ async function settle(interaction) {
 }
 
 /**
+ * Discords Obergrenze für den Inhalt einer Nachricht ist 2000 Zeichen. Eine
+ * Abrechnungsnotiz bleibt darunter – mit Luft, weil die Aufrufer sie oft noch
+ * mit einer Patchnote oder einem Hinweis zusammenlegen.
+ */
+const NOTIZ_MAX = 1800;
+
+/**
+ * Setzt die Blöcke einer faulen Abrechnung zu einer Notiz zusammen, die
+ * Discord auch wirklich zustellt.
+ *
+ * Gebraucht wird das seit der Sperre je Bereich: Vorher konnte höchstens EIN
+ * Vorfall offen sein, jetzt drei – also können auch drei in einer einzigen
+ * Abrechnung verfallen, jeder mit Titelzeile UND Folgezeile, dazu Tantiemen,
+ * Katalog, Merch, Verträge, Beef und Angebote. Über 2000 Zeichen nimmt Discord
+ * die Nachricht nicht an, und jedes `followUp` dieser Notizen trägt sein
+ * `.catch(() => {})`: Der Spieler erführe dann nicht, warum seine Follower weg
+ * sind.
+ *
+ * Geschnitten wird an der Blockgrenze – eine Vorfallsmeldung besteht aus Titel
+ * und Folge, eine halbe Meldung ist schlimmer als keine. Und was wegfällt,
+ * wird gezählt und benannt, statt still zu verschwinden; vollständig steht es
+ * im Verlauf der Vorfall-Ansicht.
+ */
+function notizAus(bloecke, trenner = '\n', max = NOTIZ_MAX) {
+  if (!bloecke.length) return null;
+  const ganz = bloecke.join(trenner);
+  if (ganz.length <= max) return ganz;
+
+  const rest = (n) => `${trenner}_… und ${n} weitere `
+    + `${n === 1 ? 'Meldung' : 'Meldungen'} – sie stehen im Verlauf der `
+    + 'Vorfall-Ansicht._';
+  const drin = [];
+  let len = 0;
+  for (let i = 0; i < bloecke.length; i++) {
+    const dazu = (drin.length ? trenner.length : 0) + bloecke[i].length;
+    if (len + dazu + rest(bloecke.length - i).length > max) break;
+    drin.push(bloecke[i]);
+    len += dazu;
+  }
+  const uebrig = bloecke.length - drin.length;
+  // Ein einzelner Block sprengt die Grenze schon allein: hart schneiden, damit
+  // überhaupt etwas ankommt.
+  if (!drin.length) {
+    const marke = `${trenner}_… gekürzt – vollständig steht es im Verlauf der `
+      + 'Vorfall-Ansicht._';
+    return bloecke[0].slice(0, max - marke.length) + marke;
+  }
+  return drin.join(trenner) + rest(uebrig);
+}
+
+/**
  * Rechnet alles Laufende des Creator-Netzwerks ab: YouTube-Katalog, Merch und
  * abgelaufene Verträge. Läuft beim Öffnen der Ansichten (faule Abrechnung, §4)
  * und gibt eine fertige Notiz zurück – oder null, wenn nichts passiert ist.
@@ -244,19 +295,34 @@ async function settleCreator(guildId, userId, random = Math.random) {
   // Der Tageswurf des Netzwerks: Reichweite wie beim Sponsorenangebot, also
   // inklusive des Bodens, den eine Musikkarriere mitbringt (reachTotalOf).
   const vorfall = tickLine(guildId, userId, 'creator',
-    creator.reachTotalOf(guildId, userId,
+    () => creator.reachTotalOf(guildId, userId,
       db.allCreator(guildId, userId).reduce((sum, r) => sum + r.followers, 0)),
     random);
   if (vorfall) lines.push(vorfall);
 
-  return lines.length ? lines.join('\n') : null;
+  return notizAus(lines);
+}
+
+/**
+ * Wo ein Vorfall wartet – abgeleitet aus seiner Plattform, genau wie die
+ * Bereichssperre in `db` (music / company / alles andere = Netzwerk).
+ *
+ * Der ⚠️-Knopf steht nur im Studio, im Netzwerk und in der Firma. Wer die
+ * Meldung aus einer Plattform-, Deal- oder Vorfall-Ansicht liest, hat ihn nicht
+ * auf dem Schirm – ein blankes „⚠️ Vorfall" schübe ihn dann auf einen Knopf, den
+ * es dort nicht gibt. Deshalb nennt die Zeile den Ort und nicht die Sache.
+ */
+function incidentOrt(platform) {
+  if (platform === 'music') return 'im Studio';
+  if (platform === 'company') return 'in der Firma';
+  return 'im Netzwerk';
 }
 
 /** Die eine Zeile, mit der ein frischer Vorfall gemeldet wird. */
 function incidentLine(incident) {
   const d = require('./decisions').decision(incident.kind);
   return `⚠️ **${d?.emoji ?? ''} ${d?.title ?? 'Etwas ist passiert'}** – `
-    + 'du musst dich entscheiden (⚠️ Vorfall).';
+    + `du musst dich entscheiden (⚠️ ${incidentOrt(incident.platform)}).`;
 }
 
 /** Hinweiszeile, wenn eine Aktion einen Vorfall gemeldet hat. */
@@ -275,10 +341,22 @@ function incidentNote(incident) {
  * müsste.
  *
  * `random` gibt nur der Test mit, damit der Wurf dort sicher fällt.
+ *
+ * `size` kommt als Funktion, und alles steckt in einem try/catch – aus dem
+ * gleichen Grund, aus dem jeder Nachbar in `settleMusic`/`settleCreator` sein
+ * `.catch(() => null)` trägt. Solange der Wurf an der Aktion hing, kostete ein
+ * Fehler darin nur diese Aktion. Als Teil der faulen Abrechnung würde er
+ * dagegen die ganze Ansicht mitnehmen (Studio, Netzwerk, Plattform, Deals,
+ * Vorfall) und dazu `/musik`, `/creator`, `!musik`, `!creator`. Ein Fehler darf
+ * den Wurf kosten, nicht die Ansicht – auch wenn er aus `music.status` oder
+ * `creator.reachTotalOf` kommt, also schon aus der Größe für den Wurf.
  */
 function tickLine(guildId, userId, domain, size, random) {
-  const neu = require('./decisions').tick(guildId, userId, domain, size, Date.now(), random);
-  return neu ? incidentLine(neu) : null;
+  try {
+    const neu = require('./decisions')
+      .tick(guildId, userId, domain, size(), Date.now(), random);
+    return neu ? incidentLine(neu) : null;
+  } catch { return null; }
 }
 
 /**
@@ -326,10 +404,10 @@ async function settleMusic(guildId, userId, random = Math.random) {
   // Der Tageswurf des Studios: Hörer sind hier das, was Reichweite beim
   // Creator ist (dieselbe Risikokurve, siehe decisions.riskPerDay).
   const vorfall = tickLine(guildId, userId, 'music',
-    music.status(guildId, userId).listeners, random);
+    () => music.status(guildId, userId).listeners, random);
   if (vorfall) lines.push(vorfall);
 
-  return lines.length ? lines.join('\n') : null;
+  return notizAus(lines);
 }
 
 /** Verfallene Firmen-Vorfälle wirken beim Öffnen der Firma (§4) – wie settleMusic fürs Studio. */
@@ -342,7 +420,7 @@ async function settleFirma(guildId, userId) {
   // an dem sich das Vermögen bewegt hat – also der ehrlichste Moment, die
   // Zustands-Erfolge zu prüfen. `onSettle` drosselt selbst (siehe dort).
   if (lines.length) require('./achievements').onSettle(guildId, userId);
-  return lines.length ? lines.join('\n') : null;
+  return notizAus(lines);
 }
 
 /**
@@ -3994,7 +4072,7 @@ const modals = {
 
 module.exports = {
   buttons, modals, parseId, failureText, workshopFailure, shiftResult, settle,
-  homeNudge, settleMusic, settleCreator, kontaktNote,
+  homeNudge, settleMusic, settleCreator, notizAus, NOTIZ_MAX, kontaktNote,
   releaseNote, releaseProblem,
   beefNote, mitBeef, settleBeef, beefProblem, anstachelnNote, dissNote, friedenNote,
   angebotNote, mitAngebote, settleAngebote, settleStrasse, angebotProblem,
