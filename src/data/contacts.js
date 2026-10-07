@@ -77,7 +77,12 @@ const DRAHT_FLUECHTIG = 2;
 const DRAHT_IGNORIERT = -1;
 const DRAHT_VERSTIMMT = -5;
 
-/** Ohne Kontakt kühlt die Beziehung ab: zwei Punkte je Woche Richtung 0. */
+/**
+ * Ohne Kontakt kühlt die Beziehung ab: zwei Punkte je Woche Richtung 0.
+ * Bleibt als REFERENZ des Paritätstests stehen (test/beziehungen.test.js) und
+ * wird von contacts.decay noch gelesen – nicht mit den übrigen DRAHT_*
+ * aufräumen.
+ */
 const DRAHT_DECAY_PRO_WOCHE = 2;
 
 /** Schwellen der Beziehungsstufen. */
@@ -116,7 +121,9 @@ const ACHSEN = {
  * Wer dich einmal ernst genommen hat, tut das auch in einem halben Jahr noch –
  * verlassen tut er sich nur auf jemanden, von dem er zuletzt etwas gehört hat.
  * (1 + 3) / 2 = 2, also kühlt der Draht mit genau den alten zwei Punkten ab,
- * solange Vertrauen über seinem Boden steht.
+ * solange beide Achsen ihr Ziel im Zeitraum nicht erreichen (Respekt die 0,
+ * Vertrauen seinen Boden). Läuft eine Achse auf, kühlt der Draht langsamer:
+ * Respekt 40 / Vertrauen 2, eine Woche – alt 21 → 19, neu 19,5 → 20.
  */
 const RESPEKT_DECAY_PRO_WOCHE = 1;
 const VERTRAUEN_DECAY_PRO_WOCHE = 3;
