@@ -331,8 +331,13 @@ function diss(guildId, userId, contactId, now = Date.now(), random = Math.random
     ...b, hitze, runden_ich: rundenIch, runden_er: rundenEr,
     last_hit: now, last_cool: now, konter_at: konterAt,
   });
+  // Welches Achsenpaar, entscheidet der Ausgang: Der gelandete Diss nimmt ihn
+  // ERNSTER (+10 Respekt), die Häme ist das Gegenteil davon – sie hat ihm die
+  // Runde gegeben und dich Hype und Hörer gekostet, und genau das bucht sie
+  // auch. Ein gemeinsames Paar für beide Zweige wäre eine falsche Aussage.
   const draht = contacts.move(guildId, userId, contactId, {
-    ...data.ACHSEN_DISS, merken: { art: 'diss', detail: '' },
+    ...(haeme ? data.ACHSEN_HAEME : data.ACHSEN_DISS),
+    merken: { art: 'diss', detail: '' },
   }, now);
 
   return {
@@ -612,10 +617,10 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
   // verbrennen, die bloßes Auskühlen gar nichts gekostet hätte.
   //
   // Respekt bleibt unberührt: Was du getroffen hast, respektiert er weiter.
-  const vorherAchsen = contacts.achsenJetzt(
-    db.getContact(guildId, userId, contactId), now);
+  // `d` steht oben schon und trägt das abgekühlte Vertrauen (§4) – ein zweites
+  // `achsenJetzt(db.getContact(…))` rechnete dasselbe Abkühlen noch einmal.
   const draht = contacts.move(guildId, userId, contactId, {
-    setzeVertrauen: friedenZiel(vorherAchsen.vertrauen),
+    setzeVertrauen: friedenZiel(d.vertrauen),
     merken: { art: 'frieden', detail: '' },
   }, now, { sperre: true });
 

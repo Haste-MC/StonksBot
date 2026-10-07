@@ -153,11 +153,19 @@ const SZENE_MALUS = 0.15;
  *
  * Anstacheln bringt keinen Respekt: Eine Provokation ist noch kein Treffer.
  * Sich zu blamieren kostet Respekt, nicht Vertrauen – er hat ja nichts
- * zugesagt, du hast dich nur vorgeführt.
+ * zugesagt, du hast dich nur vorgeführt. Und der ausgelachte Diss (`ACHSEN_HAEME`)
+ * ist das Gegenteil des gelandeten, nicht dieselbe Buchung: Er senkt den
+ * Respekt, statt ihn zu heben.
  */
 const ACHSEN_ANSTACHELN = { respekt: 0, vertrauen: -24 };    // Mittel −12 (vorher −15)
 const ACHSEN_BLAMAGE = { respekt: -10, vertrauen: -4 };      // Mittel  −7 (vorher  −5)
 const ACHSEN_DISS = { respekt: 10, vertrauen: -36 };         // Mittel −13 (vorher −20)
+/**
+ * Nach unten geschlagen und sich dabei vorgeführt. Anders als beim gelandeten
+ * Diss nimmt er dich danach WENIGER ernst – er hat die Runde, du hast Hype und
+ * Hörer verloren, und die Szene hat gesehen, auf wen du gezielt hast.
+ */
+const ACHSEN_HAEME = { respekt: -8, vertrauen: -20 };        // Mittel −14
 const ACHSEN_KONTER = { respekt: -6, vertrauen: -14 };       // Mittel −10 (wie vorher)
 const ACHSEN_ANGEZAEHLT = { respekt: -4, vertrauen: -16 };   // Mittel −10 (wie vorher)
 
@@ -348,7 +356,8 @@ module.exports = {
   DISS_AUFMERK, HAEME_MAX, HAEME_AUDIENCE, HAEME_HYPE, HAEME_HOERER,
   KONTER_HYPE, KONTER_HOERER, KONTER_LAECHERLICH, KONTER_MIN_TAGE, KONTER_MAX_TAGE,
   ANZAEHL_CHANCE, SZENE_MALUS,
-  ACHSEN_ANSTACHELN, ACHSEN_BLAMAGE, ACHSEN_DISS, ACHSEN_KONTER, ACHSEN_ANGEZAEHLT,
+  ACHSEN_ANSTACHELN, ACHSEN_BLAMAGE, ACHSEN_DISS, ACHSEN_HAEME, ACHSEN_KONTER,
+  ACHSEN_ANGEZAEHLT,
   BLAMAGE_HYPE, FRIEDEN_PLUS, FRIEDEN_DECKEL,
   BONUS_TAGE, BONUS_SIEG, BONUS_NIEDERLAGE,
 };

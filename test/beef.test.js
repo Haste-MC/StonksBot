@@ -272,6 +272,18 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && db.getContact(G, U, klein.id).respekt === data.ACHSEN_ANSTACHELN.respekt
       && db.getContact(G, U, klein.id).vertrauen === data.ACHSEN_ANSTACHELN.vertrauen,
       JSON.stringify(e1.draht));
+    /*
+     * Der Einstieg sperrt den Kontakt drei Tage – `{ sperre: true }` an
+     * `contacts.move` setzt `last_try`. Ohne das wäre der Kontakt nicht dicht
+     * und ließe sich in derselben Minute anschreiben; nur der Blamage-Zweig
+     * war darauf gepinnt, der Einstieg nicht.
+     */
+    check('Der Einstieg setzt last_try und sperrt damit drei Tage',
+      db.getContact(G, U, klein.id).last_try === t0
+      && contacts.detail(G, U, klein.id, t0).gesperrtBis
+        === t0 + cdata.SPERRE_TAGE * 86_400_000,
+      JSON.stringify({ last_try: db.getContact(G, U, klein.id).last_try,
+        bis: contacts.detail(G, U, klein.id, t0).gesperrtBis, t0 }));
     check('Zwei offene Beefs', e2.ok && beef.offeneBeefs(G, U, t0).length === 2);
     check('Einstieg merkt sich die Art „beef_start"',
       JSON.stringify(db.memoryOf(G, U, klein.id, 5).map((m) => m.art)) === '["beef_start"]', JSON.stringify(db.memoryOf(G, U, klein.id, 5).map((m) => m.art)));
@@ -409,6 +421,17 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && db.getContact(G, U, klein.id).vertrauen === -30
       && db.getContact(G, U, klein.id).respekt === -60,
       JSON.stringify(f1.reason ?? f1.draht));
+    /*
+     * Auch die Versöhnung sperrt drei Tage (`{ sperre: true }`): Der Kommentar
+     * in `beef.frieden` hängt seine Argumentation ausdrücklich daran, und ohne
+     * `last_try` ließe sich derselbe Kontakt in derselben Minute anschreiben.
+     */
+    check('Der Frieden setzt last_try und sperrt damit drei Tage',
+      db.getContact(G, U, klein.id).last_try === t0
+      && contacts.detail(G, U, klein.id, t0).gesperrtBis
+        === t0 + cdata.SPERRE_TAGE * 86_400_000,
+      JSON.stringify({ last_try: db.getContact(G, U, klein.id).last_try,
+        bis: contacts.detail(G, U, klein.id, t0).gesperrtBis, t0 }));
     check('Frieden merkt sich als neueste Art „frieden"',
       db.memoryOf(G, U, klein.id, 1)[0]?.art === 'frieden',
       JSON.stringify(db.memoryOf(G, U, klein.id, 3)));
@@ -830,6 +853,31 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
         - data.HAEME_HOERER) < 0.001,
       JSON.stringify(r.beef.treffer));
     check('Hitze +30 auch bei Häme', nah(row.hitze, 70), String(row.hitze));
+    /*
+     * Die Häme bucht NICHT das Paar des gelandeten Disses.
+     *
+     * Hier ist nachweislich das Gegenteil passiert: Die Runde ging an ihn, Hype
+     * und Hörer sind weg, und die Meldung sagt „Das ging nach hinten los".
+     * Danach respektiert er dich WENIGER, nicht um zehn Punkte mehr. Mit einer
+     * Zahl war das gleichgültig (−20 Draht in beiden Zweigen), seit der
+     * Spaltung ist es eine Aussage. Ausgangszustand 0/0, also Draht −14.
+     */
+    check('Häme senkt den Respekt (−8) und das Vertrauen (−20): Draht −14',
+      db.getContact(G, U, klein.id).respekt === data.ACHSEN_HAEME.respekt
+      && db.getContact(G, U, klein.id).vertrauen === data.ACHSEN_HAEME.vertrauen
+      && db.getContact(G, U, klein.id).draht === mittel(data.ACHSEN_HAEME)
+      && r.beef.draht.achsen.respekt === data.ACHSEN_HAEME.respekt
+      && r.beef.draht.achsen.vertrauen === data.ACHSEN_HAEME.vertrauen,
+      JSON.stringify(db.getContact(G, U, klein.id)));
+    check('der gelandete Diss HEBT den Respekt, die ausgelachte Häme senkt ihn',
+      data.ACHSEN_DISS.respekt > 0 && r.beef.draht.achsen.respekt < 0
+      && r.beef.draht.achsen.respekt !== data.ACHSEN_DISS.respekt,
+      JSON.stringify({ diss: data.ACHSEN_DISS, gebucht: r.beef.draht.achsen }));
+    check('und das Gedächtnis erzählt dieselbe Buchung (Respekt −8, Vertrauen −20)',
+      db.memoryOf(G, U, klein.id, 1)[0]?.art === 'diss'
+      && db.memoryOf(G, U, klein.id, 1)[0].d_respekt === data.ACHSEN_HAEME.respekt
+      && db.memoryOf(G, U, klein.id, 1)[0].d_vertrauen === data.ACHSEN_HAEME.vertrauen,
+      JSON.stringify(db.memoryOf(G, U, klein.id, 1)));
   }
 
   console.log('--- Ein gescheiterter Disstrack lässt den Beef unberührt ---');
