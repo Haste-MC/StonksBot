@@ -366,6 +366,10 @@ const aufraeumen = () => {
     }
   }
 
+  // Reine Arithmetik: Diese Zeilen halten die KONSTANTEN fest, nicht das
+  // Verhalten der Schreibmechanik – die Klemme und die Wochenzählung sind hier
+  // Test-Eigenbau. Durch die echte move/achsenJetzt-Mechanik führt erst
+  // Task 3 Step 9 dieselbe Kette.
   console.log('--- Die gewollte Abweichung vom alten Draht ---');
   {
     // Mit den ECHTEN Zahlen läuft die neue Kette vom alten Draht weg. Das ist

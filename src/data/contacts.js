@@ -120,10 +120,20 @@ const ACHSEN = {
  * Ohne Kontakt kühlt die Beziehung ab. Respekt bleibt länger als Vertrauen:
  * Wer dich einmal ernst genommen hat, tut das auch in einem halben Jahr noch –
  * verlassen tut er sich nur auf jemanden, von dem er zuletzt etwas gehört hat.
- * (1 + 3) / 2 = 2, also kühlt der Draht mit genau den alten zwei Punkten ab,
- * solange beide Achsen ihr Ziel im Zeitraum nicht erreichen (Respekt die 0,
- * Vertrauen seinen Boden). Läuft eine Achse auf, kühlt der Draht langsamer:
- * Respekt 40 / Vertrauen 2, eine Woche – alt 21 → 19, neu 19,5 → 20.
+ * (1 + 3) / 2 = 2, also kühlt der Draht mit genau den alten zwei Punkten ab –
+ * aber nur unter ZWEI Voraussetzungen:
+ *
+ *   • Keine Achse erreicht ihr Ziel im Zeitraum (Respekt die 0, Vertrauen
+ *     seinen Boden). Läuft eine auf, kühlt der Draht langsamer: Respekt 40 /
+ *     Vertrauen 2, eine Woche – alt 21 → 19, neu 19,5 → 20.
+ *   • Beide Achsen haben dasselbe Vorzeichen. Bei gemischtem Vorzeichen kühlt
+ *     der Draht gar nicht ab, er driftet um einen Punkt je Woche VON der Null
+ *     weg: Respekt 50 / Vertrauen −50 ist Draht 0 und steht nach einer Woche
+ *     auf +1 (49 / −47), nach zehn auf +10. Umgekehrt −50 / 50 auf −1. Das ist
+ *     gewollt – eine vernachlässigte Beziehung wird von selbst zu „er kennt
+ *     dich, verlässt sich aber nicht mehr auf dich" – und steht als
+ *     Zusicherung im Abschnitt „Die gewollte Abweichung" in
+ *     test/beziehungen.test.js.
  */
 const RESPEKT_DECAY_PRO_WOCHE = 1;
 const VERTRAUEN_DECAY_PRO_WOCHE = 3;

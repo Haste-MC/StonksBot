@@ -1188,7 +1188,20 @@ Die Fälle, die `contacts.drahtStufe` aufrufen, auf `contacts.artOf` umstellen. 
 | `drahtStufe(-20) === 'verstimmt'` | `artOf({ respekt: 0, vertrauen: -40 }) === 'verstimmt'` |
 | `drahtStufe(-50) === 'beef'` | **entfällt** — `beef` heißt jetzt „offener Beef", nicht „Draht ≤ −50". Ein Draht von −50 ohne Beef ist `verstimmt` oder `rivale`. |
 
-Fälle, die `contacts.chanceOf({ …, draht: N })` aufrufen, auf `respekt: N, vertrauen: N` umstellen — **und die Erwartung neu rechnen**, nicht blind übernehmen: Das Gewicht ist bei gleicher Größe 0,12 statt 0,25. Wo der alte Test eine Zahl hart kodiert hat, wird sie mit `contacts.respektGewicht` ausgedrückt, damit sie nicht wieder einfriert.
+Die vier Fälle, die `contacts.chanceOf({ …, draht: N })` aufrufen, auf `respekt: N, vertrauen: N` umstellen (gleichmäßige Spaltung). **Die Erwartungen sind vorgerechnet** — der `arg()`-Helfer dort steht auf 1.000 gegen 1.000 Hörer, also gleiche Größe, Gewicht 0,12:
+
+| Zusicherung heute | neu |
+|---|---|
+| `'Draht 50 hebt um 0,125'` | **`'Respekt 50 hebt um 0,06'`** — `(50/100) × 0,12 = 0,06`. Das ist die Umverteilung: Auf Augenhöhe wiegt die Beziehung weniger als früher. |
+| `'Draht −100 senkt um 0,25'` | **`'Vertrauen −100 senkt um 0,25'`** — unverändert. Der Respekt-Term ist bei negativem Respekt 0 (`Math.max(0, respekt)`), der Vertrauens-Malus liefert `min(0, −1) × 0,25`. |
+| `'Partner gibt +0,10'` | unverändert |
+| `'Obergrenze 0,95'` (mit `draht: 100`) | unverändert, mit `respekt: 100, vertrauen: 100` |
+
+Drück die 0,06 im Test über `contacts.respektGewicht(1_000, 1_000)` aus statt als Literal, damit sie nicht einfriert, wenn `RESPEKT_W_MIN` sich bewegt — die Zusicherung soll die **Formel** prüfen, nicht eine Zahl.
+
+Die drei Fälle mit `contacts.stufeVon(r, { ratio, draht })` auf `{ ratio, respekt }` umstellen.
+
+**`test/beef.test.js` ist nachgeprüft nicht betroffen:** Seine zwei `chanceOf`-Aufrufe übergeben gar keinen Draht, sie messen nur die Differenz des Szene-Malus. Lass die Datei in Ruhe.
 
 Fälle mit `contacts.stufeVon(r, { ratio, draht })` auf `{ ratio, respekt }` umstellen.
 
