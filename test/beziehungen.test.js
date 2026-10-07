@@ -268,7 +268,15 @@ const aufraeumen = () => {
     /**
      * Die neue Kette mit GLEICHMÄSSIGER Spaltung und gleicher Abkühlrate:
      * beide Achsen tragen in jedem Schritt dasselbe, also gilt (d+d)/2 = d.
-     * Weicht das ab, liegt der Fehler in der Mechanik – nicht in den Zahlen.
+     *
+     * Das ist eine ENTARTUNG, und sie ist mit Absicht so gebaut: Die Rundung in
+     * drahtVon wird nie berührt (die Summe ist immer gerade), und die echten
+     * ACHSEN und echten Abkühlraten kommen in keiner der beiden Ketten vor.
+     * Bewiesen ist damit: die BUCHFÜHRUNG ist neutral (decayAchse mit Boden 0
+     * verhält sich wie decay, drahtVon(d, d) ist d). NICHT bewiesen ist das
+     * Spielverhalten – mit den echten Zahlen laufen die Ketten auseinander, und
+     * das ist gewollt; der Abschnitt „Die gewollte Abweichung" unten hält es fest.
+     * Weicht dieser Abschnitt ab, liegt der Fehler in der Mechanik, nicht in den Zahlen.
      */
     const neuKette = (folge) => {
       let r = 0, v = 0;
@@ -334,6 +342,68 @@ const aufraeumen = () => {
       `${cdata.RESPEKT_DECAY_PRO_WOCHE}/${cdata.VERTRAUEN_DECAY_PRO_WOCHE}`);
   }
 
+  console.log('--- Die verbindlichen Zahlen, als Literale ---');
+  {
+    // Die Mittelwert-Zusicherungen oben tragen „verhaltensneutral zu früher";
+    // sie lassen aber Paare und Raten offen, die denselben Mittelwert haben.
+    // Hier steht jede Zahl selbst.
+    const cdata = require('../src/data/contacts');
+    check('Respekt kühlt mit 1 je Woche ab', cdata.RESPEKT_DECAY_PRO_WOCHE === 1,
+      String(cdata.RESPEKT_DECAY_PRO_WOCHE));
+    check('Vertrauen kühlt mit 3 je Woche ab (dreimal so schnell wie Respekt)',
+      cdata.VERTRAUEN_DECAY_PRO_WOCHE === 3, String(cdata.VERTRAUEN_DECAY_PRO_WOCHE));
+    check('der Boden steigt höchstens auf 30', cdata.BODEN_MAX === 30, String(cdata.BODEN_MAX));
+    const erwartet = {
+      zusage: [12, 12], echt: [9, 3], fluechtig: [3, 1], ignoriert: [-2, 0], verstimmt: [-8, -2],
+    };
+    check('ACHSEN hat genau die fünf Arten',
+      Object.keys(cdata.ACHSEN).sort().join() === Object.keys(erwartet).sort().join(),
+      Object.keys(cdata.ACHSEN).join());
+    for (const [art, [r, v]] of Object.entries(erwartet)) {
+      const a = cdata.ACHSEN[art];
+      check(`ACHSEN.${art}: Respekt ${r}, Vertrauen ${v}`,
+        a.respekt === r && a.vertrauen === v, JSON.stringify(a));
+    }
+  }
+
+  console.log('--- Die gewollte Abweichung vom alten Draht ---');
+  {
+    // Mit den ECHTEN Zahlen läuft die neue Kette vom alten Draht weg. Das ist
+    // das Design, kein Fehler: Respekt und Vertrauen verhalten sich verschieden.
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+    const klemm = (x) => Math.max(-100, Math.min(100, x));
+
+    // Zwanzig echte Antworten. Alt: 20 × +6, geklemmt: Draht 100.
+    let r = 0, v = 0;
+    for (let i = 0; i < 20; i++) {
+      r = klemm(r + cdata.ACHSEN.echt.respekt);
+      v = klemm(v + cdata.ACHSEN.echt.vertrauen);
+    }
+    check('20 × echt: Respekt sättigt bei 100, Vertrauen steht bei 60',
+      r === 100 && v === 60, `${r}/${v}`);
+    check('20 × echt: der Draht ist 80, nicht die alten 100',
+      contacts.drahtVon(r, v) === 80, String(contacts.drahtVon(r, v)));
+
+    // Respekt 50, Vertrauen -50: Draht 0, dann nichts. Alt: bleibt 0 (ein Draht
+    // von 0 kühlt nicht ab). Neu: Vertrauen läuft dreimal schneller gegen 0.
+    const nach = (wochen) => {
+      const rr = contacts.decayAchse(50, wochen * cdata.RESPEKT_DECAY_PRO_WOCHE, 0);
+      const vv = contacts.decayAchse(-50, wochen * cdata.VERTRAUEN_DECAY_PRO_WOCHE, 0);
+      return { rr, vv, draht: contacts.drahtVon(rr, vv) };
+    };
+    check('Ausgangspunkt: Respekt 50 / Vertrauen -50 ist Draht 0',
+      contacts.drahtVon(50, -50) === 0);
+    check('nach einer Woche: Draht +1 (49 / -47)',
+      nach(1).rr === 49 && nach(1).vv === -47 && nach(1).draht === 1, JSON.stringify(nach(1)));
+    check('nach vier Wochen: Draht +4 (Respekt 46, Vertrauen -38)',
+      nach(4).rr === 46 && nach(4).vv === -38 && nach(4).draht === 4, JSON.stringify(nach(4)));
+    check('nach zehn Wochen: Draht +10 (Respekt 40, Vertrauen -20)',
+      nach(10).rr === 40 && nach(10).vv === -20 && nach(10).draht === 10, JSON.stringify(nach(10)));
+    check('der alte Draht hätte bei 0 stillgestanden',
+      contacts.decay(0, 70) === 0 && contacts.decay(0, 28) === 0);
+  }
+
   console.log('--- Abkühlen mit Boden ---');
   {
     const contacts = require('../src/contacts');
@@ -381,12 +451,14 @@ const aufraeumen = () => {
       `${g(undefined, 1_000)} / ${g(0, 1_000)}`);
     check('seine unter 1 zählt als 1 (kein NaN, kein Minus)',
       near(g(100_000, 0), 0.12) && near(g(100_000, -5), 0.12), `${g(100_000, 0)} / ${g(100_000, -5)}`);
-    check('die Zwischenstufe steht in der Mitte: 3,16× ist ein halbes Dekadenpaar',
+    check('3,16× ist eine halbe Dekade: 0,12 + 0,33 · 0,5 / 3 = 0,175',
       near(g(100_000, 316_228), 0.12 + 0.33 * 0.5 / 3, 1e-4), String(g(100_000, 316_228)));
     // Die Grenze, an der das neue Gewicht die alten 0,25 übersteigt.
+    // Die Grenze liegt bei Faktor 15,199: darunter (15×: 0,24937) unter 0,25,
+    // darüber (16×: 0,2524) mit Luft darüber.
     check('Faktor 15,2 ist die Grenze',
-      g(100_000, 1_520_000) > 0.25 && g(100_000, 1_500_000) < 0.2501,
-      `${g(100_000, 1_500_000)} / ${g(100_000, 1_520_000)}`);
+      g(100_000, 1_600_000) > 0.25 && g(100_000, 1_500_000) < 0.25,
+      `${g(100_000, 1_500_000)} / ${g(100_000, 1_600_000)}`);
   }
 
 
