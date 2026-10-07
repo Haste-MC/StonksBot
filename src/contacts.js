@@ -149,8 +149,11 @@ function respektGewicht(meine, seine) {
 }
 
 /**
- * Fester Partner. Die EINZIGE Regel – gültig für das ⭐, die +10 Punkte
- * Antwortchance, die Türöffner-Zählung und die Anzählrunde in beef.js.
+ * Fester Partner. Die EINZIGE Regel – gültig heute für drei Stellen: das ⭐,
+ * die +10 Punkte Antwortchance und die Türöffner-Zählung. Die Anzählrunde in
+ * beef.js (Zeile 399) liest noch `drahtJetzt >= STUFE_PARTNER` und folgt dieser
+ * Regel erst in Task 5 – bis dahin gibt es zwei Fassungen: Respekt 100 /
+ * Vertrauen 0 ist Draht 50, also dort Partner, hier nicht.
  *
  * Vorher gab es drei Fassungen, von denen zwei sich widersprachen: Die Ansicht
  * zeigte das ⭐ bei `yes >= 3`, gezählt wurde aber nur `draht >= 50` – wer drei
@@ -397,7 +400,7 @@ function listFor(guildId, userId, { filter = 'alle', now = Date.now() } = {}) {
       // `stufe` bleibt bis Stück 6a Task 6 neben `art` stehen: ui.js liest es.
       stufe: drahtStufe(a.draht),
       art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
-        meine: k ? k.meine : 0, seine: k ? k.seine : 0,
+        meine: k.meine, seine: k.seine,
         trait: contact.trait, beefOffen: Boolean(beefOffen) }),
       passung: k.passung,
       chance: chanceFor({ guildId, userId, now, contact, ich, k, requestId: LIST_REQUEST,
@@ -510,11 +513,12 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
   const vor = achsenJetzt(row, now);
 
   const bodenNeu = clamp(0, data.BODEN_MAX, vor.boden + boden);
-  const respektNeu = clamp(-100, 100, vor.respekt + respekt);
+  const respektNeu = clamp(data.ACHSE_MIN, data.ACHSE_MAX, vor.respekt + respekt);
   const rohV = setzeVertrauen === null ? vor.vertrauen + vertrauen : setzeVertrauen;
   // Wer den Boden hebt, hebt das Vertrauen mit – es darf nie unter dem
   // eigenen Boden liegen.
-  const vertrauenNeu = clamp(-100, 100, boden > 0 ? Math.max(rohV, bodenNeu) : rohV);
+  const vertrauenNeu = clamp(data.ACHSE_MIN, data.ACHSE_MAX,
+    boden > 0 ? Math.max(rohV, bodenNeu) : rohV);
 
   db.saveContact(guildId, userId, contactId, {
     respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu,
@@ -538,8 +542,13 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
   };
 }
 
-/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
- *  Spaltung – Mittelwert unverändert, siehe Paritätstest. */
+/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Spaltet
+ *  `delta` gleichmäßig auf beide Achsen. Der Draht bewegt sich nur dann um
+ *  genau `delta`, wenn BEIDE Achsen gleich stehen und KEINE klemmt – das ist
+ *  die Voraussetzung des Paritätstests. Bei ungleichen Achsen (und die
+ *  schreibt `request` mit ACHSEN.echt jetzt) weicht er ab: Respekt 100 /
+ *  Vertrauen 40 (Draht 70) plus 12 ergibt 76 statt 82, weil der Respekt an der
+ *  Klemme hängt. Harmlos, weil moveDraht in Task 5 verschwindet. */
 function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
   const erg = move(guildId, userId, contactId,
     { respekt: delta, vertrauen: delta }, now, opts);
@@ -610,8 +619,8 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
     : (empfindlich && random() < VERSTIMMT_CHANCE ? 'verstimmt' : 'ignoriert');
   const paar = data.ACHSEN[schluessel];
 
-  const respektNeu = clamp(-100, 100, a.respekt + paar.respekt);
-  const vertrauenNeu = clamp(-100, 100, a.vertrauen + paar.vertrauen);
+  const respektNeu = clamp(data.ACHSE_MIN, data.ACHSE_MAX, a.respekt + paar.respekt);
+  const vertrauenNeu = clamp(data.ACHSE_MIN, data.ACHSE_MAX, a.vertrauen + paar.vertrauen);
   const drahtNeu = drahtVon(respektNeu, vertrauenNeu);
   const yesNeu = yes + (antwort === 'zusage' ? 1 : 0);
 
