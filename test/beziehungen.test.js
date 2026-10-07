@@ -31,6 +31,7 @@ const aufraeumen = () => {
 };
 
 (async () => {
+  aufraeumen();
 
   console.log('--- Spalten und abgeleiteter Draht ---');
   {
