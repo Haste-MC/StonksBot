@@ -633,8 +633,8 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
   - `contacts.move(guildId, userId, contactId, { respekt, vertrauen, boden, setzeVertrauen, merken }, now, { sperre }) -> { vorher, nachher, achsenVor, achsen }` — **ersetzt `moveDraht` vollständig**; `vorher`/`nachher` sind weiterhin Draht-**Zahlen**, damit `buttons.beefDraht` weiterläuft
   - `contacts.chanceOf({ …, respekt, vertrauen, … })` — `draht` ist **weg**
   - `contacts.stufeVon(random, { ratio, respekt })` — `draht` ist **weg**
-  - `contacts.detail(...)` liefert zusätzlich `respekt`, `vertrauen`, `boden`, `art`; `stufe` ist **weg**
-  - `contacts.request(...)` liefert zusätzlich `achsen`, `achsenVor`, `art`; `stufe` ist **weg**
+  - `contacts.detail(...)` liefert zusätzlich `respekt`, `vertrauen`, `boden`, `art` — `stufe` bleibt bis Task 6 daneben stehen
+  - `contacts.request(...)` liefert zusätzlich `achsen`, `achsenVor`, `art` — `stufe` ebenso
 
 > **Diese Aufgabe traegt alle Löschungen des Stücks.** Task 2 war rein additiv, damit die Suite nicht über zwei Aufgaben rot steht. Was hier verschwindet, und zwar jeweils in derselben Änderung, die seine Leser ersetzt:
 >
@@ -642,8 +642,8 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 > |---|---|
 > | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | `contacts.js:449-456` (Step 5, ersetzt durch `data.ACHSEN`) |
 > | `data.PARTNER_YES` | `contacts.js:224`, die alte `istPartner` (Step 6) |
-> | `data.STUFE_BEEF` | `contacts.js:96` in `drahtStufe` (siehe nächste Zeile) |
-> | `contacts.drahtStufe` | `listFor`, `detail` (Step 4) und `request` (Step 5) — ersetzt durch `artOf` |
+>
+> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen: `src/buttons.js:659` (`anfrageNote`) und `:798` (`beefDraht`) lesen `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
 > | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
 >
 > `data.DRAHT_DECAY_PRO_WOCHE` und `contacts.decay` bleiben: Sie sind das Referenzmodell des Paritätstests.
@@ -690,7 +690,11 @@ function istPartnerRow(row, now) {
 /** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
  *  Spaltung – Mittelwert unverändert, siehe Paritätstest. */
 function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
-  return move(guildId, userId, contactId, { respekt: delta, vertrauen: delta }, now, opts);
+  const erg = move(guildId, userId, contactId,
+    { respekt: delta, vertrauen: delta }, now, opts);
+  // `stufe` muss mitkommen: buttons.js:798 (beefDraht) liest es, und kein Test
+  // prüft diese Zeichenkette – ohne das Feld stünde dort still „undefined".
+  return { ...erg, stufe: drahtStufe(erg.nachher) };
 }
 ```
 
@@ -886,14 +890,14 @@ Der Wurf und der Schreibvorgang:
   }
 ```
 
-Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
+Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, das bisherige `stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))` (es bleibt bis Task 6, weil `buttons.anfrageNote` es liest), dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
 
 ```js
     art: artOf({ respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
       meine: k.meine, seine: k.seine, trait: contact.trait, beefOffen: false }),
 ```
 
-`stufe` fällt überall weg. `module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis Task 5 exportiert, `drahtJetzt` dauerhaft.
+`module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis Task 5 exportiert, `drahtJetzt` dauerhaft.
 
 - [ ] **Step 6: `istPartner` und `artOf` — die alte Fassung verschwindet in derselben Änderung**
 
@@ -1670,6 +1674,8 @@ const ARTEN_NAMEN = {
 ```
 
 `module.exports`: `DRAHT_STUFEN` heraus, `ARTEN_NAMEN` hinein. Beide Fundstellen in `src/buttons.js` mitziehen.
+
+**Diese Aufgabe trägt die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `anfrageNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
 
 - [ ] **Step 2: Der dreizeilige Kopf**
 
