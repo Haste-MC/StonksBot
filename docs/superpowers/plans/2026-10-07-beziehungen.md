@@ -89,7 +89,7 @@ In denselben `db.exec`-Block, in dem `contacts` und `contact_boosts` stehen, hin
 ```sql
   -- 6a: Was zwischen euch war. Eine gekappte Erzählung, KEINE Rechengrundlage:
   -- d_respekt/d_vertrauen stehen nur hier, damit die Ansicht "+18 Vertrauen"
-  -- schreiben kann. Die Achsen auf `contacts` sind die einzige Wahrheit –
+  -- schreiben kann. Die Achsen auf contacts sind die einzige Wahrheit –
   -- deshalb darf diese Liste gekappt werden, ohne dass eine Zahl driftet.
   CREATE TABLE IF NOT EXISTS contact_memory (
     guild_id    TEXT    NOT NULL,
@@ -191,6 +191,20 @@ In `clearContacts` (die Funktion, die `clearContactsOf` und `clearBoosts` fährt
 
 `module.exports` (Zeile 4685) um `addMemory, memoryOf, memoryCount` ergänzen.
 
+- [ ] **Step 4b: Die drei Aufrufer gleichmäßig spalten, damit der Zweig grün bleibt**
+
+Drei Stellen übergeben `saveContact` heute noch ein `draht:`, das die neue Fassung ignoriert — ohne diesen Schritt sind `test/contacts.test.js`, `test/beef.test.js` und `test/angebote.test.js` bis Task 3 rot, und der nächste Reviewer kann neue Brüche nicht von geerbten unterscheiden.
+
+Setze an allen drei Stellen **beide Achsen auf genau den bisherigen Draht-Wert**:
+
+- `src/contacts.js:383` (in `moveDraht`): `respekt: nachher, vertrauen: nachher, boden: row?.boden ?? 0`
+- `src/contacts.js:458` (in `request`): `respekt: neu, vertrauen: neu, boden: row?.boden ?? 0`
+- `test/angebote.test.js:249` (der `draht`-Helfer): beide Achsen auf `wert`
+
+Das ist kein Pflaster, sondern die **gleichmäßige Spaltung**: Bei `respekt === vertrauen === d` ergibt `Math.round((d + d) / 2)` genau `d`, ohne Rundung — verhaltensidentisch zum heutigen Einzelwert, und genau die Nullhypothese, die der Paritätstest in Task 2 festschreibt. Task 3 ersetzt die beiden `contacts.js`-Stellen durch die echten, ungleichen Paare aus `data.ACHSEN`.
+
+Über jede der beiden `contacts.js`-Stellen einen Kommentar, der sagt, dass das ein Zwischenzustand ist — ohne ihn sieht die gleichmäßige Spaltung später wie eine Absicht aus.
+
 - [ ] **Step 5: Den Test schreiben**
 
 Neue Datei `test/beziehungen.test.js`:
@@ -278,7 +292,7 @@ Die Wanderung kann der Test oben nicht prüfen, weil eine frische Datenbank die 
 ```bash
 rm -rf .testdata && mkdir -p .testdata && DATA_DIR=.testdata node -e "
 const { DatabaseSync } = require('node:sqlite');
-const d = new DatabaseSync('.testdata/bot.db');
+const d = new DatabaseSync('.testdata/shop.db');
 d.exec(\`CREATE TABLE contacts (guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
   contact_id TEXT NOT NULL, draht INTEGER NOT NULL DEFAULT 0,
   tries INTEGER NOT NULL DEFAULT 0, yes INTEGER NOT NULL DEFAULT 0,
