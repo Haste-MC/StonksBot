@@ -248,9 +248,14 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     return { G, U };
   };
 
-  /** Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). */
-  const draht = (G, U, contactId, wert, t = T0) => db.saveContact(G, U, contactId,
-    { respekt: wert, vertrauen: wert, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
+  /**
+   * Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). Mit
+   * `boden` steht der Kontakt von vornherein auf einem dauerhaften Boden – die
+   * Verlustwege müssen den unberührt lassen, und das ist nur messbar, wenn er
+   * vorher nicht ohnehin 0 ist (`0 === 0` wäre jede Zusicherung wahr).
+   */
+  const draht = (G, U, contactId, wert, t = T0, boden = 0) => db.saveContact(G, U, contactId,
+    { respekt: wert, vertrauen: wert, boden, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
 
   /** Die drei Achsen eines Kontakts, wie sie zur Zeit `t` stehen. */
   const achsen = (G, U, contactId, t = T0) =>
@@ -353,7 +358,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   console.log('--- Verfallen ---');
   {
     const { G, U } = await welt();
-    draht(G, U, LILPFAND.id, 60);
+    draht(G, U, LILPFAND.id, 60, T0, 10);
     const row = anfrage(G, U, 'tausch', LILPFAND.id);
     const spaet = T0 + 4 * TAG;
     const zeitVor = creator.budget(G, U, spaet).left;
@@ -371,8 +376,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     // 6a: Der Mittelwert ist blind für vertauschte Achsen (−4/−12 und −12/−4
     // geben beide −8) – darum die Achsen einzeln.
     const av = achsen(G, U, LILPFAND.id, spaet);
-    check('Verfallen: Respekt −4, Vertrauen −12, Boden unberührt',
-      av.respekt === 60 - 4 && av.vertrauen === 60 - 12 && av.boden === 0, JSON.stringify(av));
+    check('Verfallen: Respekt −4, Vertrauen −12, ein vorhandener Boden von 10 bleibt stehen',
+      av.respekt === 60 - 4 && av.vertrauen === 60 - 12 && av.boden === 10, JSON.stringify(av));
     const mv = gedaechtnis(G, U, LILPFAND.id, 'angebot_verfallen');
     check('und es kommt ins Gedächtnis, mit beiden Deltas einzeln',
       mv && mv.d_respekt === -4 && mv.d_vertrauen === -12 && mv.detail === 'Gegenseitige Erwähnung',
@@ -422,7 +427,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   }
   {
     const { G, U } = await welt();
-    draht(G, U, LILPFAND.id, 30);
+    draht(G, U, LILPFAND.id, 30, T0, 10);
     const row = anfrage(G, U, 'tausch', LILPFAND.id);
     const zeitVor = creator.budget(G, U, T0).left;
     const r = ang.ablehnen(G, U, row.id, T0, nie);
@@ -431,8 +436,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('Draht −5', db.getContact(G, U, LILPFAND.id).draht === 30 + data.DRAHT_AB,
       String(db.getContact(G, U, LILPFAND.id).draht));
     const ab = achsen(G, U, LILPFAND.id);
-    check('Absagen: Respekt −2, Vertrauen −8, Boden unberührt',
-      ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 0, JSON.stringify(ab));
+    check('Absagen: Respekt −2, Vertrauen −8, ein vorhandener Boden von 10 bleibt stehen',
+      ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 10, JSON.stringify(ab));
     check('eine saubere Absage ist keine Geschichte: kein Gedächtniseintrag',
       db.memoryOf(G, U, LILPFAND.id, 20).length === 0, JSON.stringify(db.memoryOf(G, U, LILPFAND.id, 20)));
     check('Absagen meldet die Stufe mit (die Meldung liest `stufe`; Quelle ist `contacts.move`)',
@@ -1206,7 +1211,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
      * Konto ein Stundenspeicher ohne Risiko.
      */
     const { G, U } = await welt();
-    draht(G, U, RAF.id, 60);
+    // Mit einem Boden von 10: der Spieler hat mit RAF schon etwas durchgezogen.
+    draht(G, U, RAF.id, 60, T0, 10);
     db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
     const pr = db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
       stundenSoll: data.TOUR_STUNDEN,
@@ -1237,10 +1243,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const r = await ang.arbeiten(G, U, pr.id, spaet, nie);
     // 6a: Vorher war der härteste Fehlgriff des Systems am Draht unsichtbar.
     const nachVerfallAchsen = achsen(G, U, RAF.id, spaet);
-    check('verfallenes Projekt kostet Vertrauen −20 und Respekt −6, der Boden bleibt',
+    check('verfallenes Projekt kostet Vertrauen −20 und Respekt −6, der Boden von 10 bleibt',
       nachVerfallAchsen.vertrauen - vorVerfall.vertrauen === -20
       && nachVerfallAchsen.respekt - vorVerfall.respekt === -6
-      && nachVerfallAchsen.boden === vorVerfall.boden,
+      && vorVerfall.boden === 10 && nachVerfallAchsen.boden === 10,
       `${vorVerfall.vertrauen} → ${nachVerfallAchsen.vertrauen}, Respekt ${vorVerfall.respekt} → ${nachVerfallAchsen.respekt}`);
     const mp = gedaechtnis(G, U, RAF.id, 'projekt_verfallen');
     check('das Verrotten kommt ins Gedächtnis, mit beiden Deltas einzeln',
