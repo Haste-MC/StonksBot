@@ -25,10 +25,15 @@ const U2 = 'b6a-u2';
 const U3 = 'b6a-u3';
 const U4 = 'b6a-u4';
 const U5 = 'b6a-u5';
+const U6 = 'b6a-u6';   // Anfragen: braucht einen Künstler und ein Zeitbudget
 
 /** Alles aufräumen, was diese Datei anlegt – vorher UND nachher, nie ein Leerstand vorausgesetzt. */
 const aufraeumen = () => {
-  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4], [G, U5]]) db.clearContacts(g, u);
+  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4], [G, U5], [G, U6]]) db.clearContacts(g, u);
+  // `request` bucht Zeit und liest den Künstler – beides bliebe sonst für den
+  // zweiten Lauf gegen dieselbe Datenbank stehen.
+  db.clearArtist(G, U6);
+  db.clearCreator(G, U6);
 };
 
 (async () => {
@@ -714,6 +719,141 @@ const aufraeumen = () => {
     check('das Lesen hat die Zeile nicht angefasst (§4)',
       db.getContact(G, U5, 'ninachuba').respekt === 50
       && db.getContact(G, U5, 'ninachuba').vertrauen === -50);
+  }
+
+
+  // Alle Zeitstempel oben setzen `last_move` auf dasselbe T, zu dem auch
+  // bewegt wird – es gibt dort nirgends eine Pause VOR einem Schreibvorgang.
+  // Wer in `move` oder `request` die rohen Spaltenwerte liest statt der faul
+  // abgekühlten, bliebe darum unbemerkt: §4 verspricht, dass erst die nächste
+  // Bewegung die abgekühlten Werte fortschreibt. Hier steht die Pause davor.
+  console.log('--- Bewegen nach einer Pause (§4: erst der Schreibvorgang schreibt fort) ---');
+  {
+    const contacts = require('../src/contacts');
+    const music = require('../src/music');
+    const unb = require('../src/unb');
+    unb.getBalance = async () => ({ cash: 0, bank: 0, total: 0 });
+    unb.changeCash = async () => ({ cash: 0, bank: 0, total: 0 });
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+    const PAUSE = T + 70 * DAY;     // zehn Wochen: Respekt −10, Vertrauen −30
+
+    /** Gesetzter Zufall: erst die Chance, dann die Stufe, dann der Satz. */
+    const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+
+    // Ein Künstler mit Hörern, sonst weist `request` mit „seite" ab.
+    music.setup(G, U6, 'hiphop', music.PERSONAS[0].id, T);
+    db.saveArtist(G, U6, { ...db.getArtist(G, U6, T), listeners: 10_000 });
+
+    // --- move ---
+    db.saveContact(G, U6, 'drake', { respekt: 50, vertrauen: 50, boden: 0,
+      tries: 0, yes: 2, last_try: 0, last_move: T, ignored_at: 0 });
+    const vorher = contacts.achsenJetzt(db.getContact(G, U6, 'drake'), PAUSE);
+    check('Ausgangspunkt: zehn Wochen kühlen 50 / 50 auf 40 / 20, Draht 30',
+      vorher.respekt === 40 && vorher.vertrauen === 20 && vorher.draht === 30, JSON.stringify(vorher));
+
+    const mp = contacts.move(G, U6, 'drake', { respekt: 12, vertrauen: 12 }, PAUSE);
+    const zp = db.getContact(G, U6, 'drake');
+    check('move nach der Pause schreibt 52 / 32 in die Datenbank, nicht 62 / 62',
+      zp.respekt === 52 && zp.vertrauen === 32, `${zp.respekt}/${zp.vertrauen}`);
+    check('move nach der Pause: der gespeicherte Draht ist 42, nicht 62',
+      zp.draht === 42, String(zp.draht));
+    check('move nach der Pause meldet die abgekühlten Achsen von vorher (40 / 20)',
+      mp.achsenVor.respekt === 40 && mp.achsenVor.vertrauen === 20
+      && mp.vorher === 30 && mp.nachher === 42, JSON.stringify(mp));
+    check('move nach der Pause setzt last_move auf jetzt', zp.last_move === PAUSE, String(zp.last_move));
+    check('move lässt den Zusagen-Zähler stehen (yes bleibt 2)', zp.yes === 2, String(zp.yes));
+
+    // --- request ---
+    db.saveContact(G, U6, 'ninachuba', { respekt: 50, vertrauen: 50, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: T, ignored_at: 0 });
+    const rp = await contacts.request(G, U6, 'ninachuba', 'shoutout', PAUSE, folge(0.001, 0.999, 0.5));
+    const zr = db.getContact(G, U6, 'ninachuba');
+    check('request nach der Pause: eine Zusage', rp.ok && rp.antwort === 'zusage',
+      JSON.stringify({ ok: rp.ok, a: rp.antwort, reason: rp.reason }));
+    check('request nach der Pause schreibt 52 / 32 in die Datenbank, nicht 62 / 62',
+      zr.respekt === 52 && zr.vertrauen === 32, `${zr.respekt}/${zr.vertrauen}`);
+    check('request nach der Pause: der gespeicherte Draht ist 42, nicht 62',
+      zr.draht === 42, String(zr.draht));
+    check('request nach der Pause meldet die abgekühlten Achsen von vorher (40 / 20)',
+      rp.achsenVor.respekt === 40 && rp.achsenVor.vertrauen === 20
+      && rp.drahtVor === 30 && rp.draht === 42, JSON.stringify({ v: rp.achsenVor, d: rp.draht }));
+  }
+
+  // Der Boden ist die eine DAUERHAFTE Zusicherung des Stücks: Ein Album zu
+  // zweit ist nach einem halben Jahr Funkstille nicht nichts. Eine einzige
+  // Anfrage darf ihn nicht löschen – alle Fälle oben liefen auf boden 0.
+  console.log('--- Der Boden überlebt Bewegung und Anfrage ---');
+  {
+    const contacts = require('../src/contacts');
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+    const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+
+    // request mit Boden 20
+    const tB = T + 10 * DAY;
+    db.saveContact(G, U6, 'lilpfand', { respekt: 30, vertrauen: 25, boden: 20,
+      tries: 0, yes: 0, last_try: 0, last_move: tB, ignored_at: 0 });
+    const rb = await contacts.request(G, U6, 'lilpfand', 'shoutout', tB, folge(0.001, 0.999, 0.5));
+    const zb = db.getContact(G, U6, 'lilpfand');
+    check('request lässt den Boden stehen (20 bleibt 20)',
+      rb.ok && zb.boden === 20 && rb.achsen.boden === 20,
+      JSON.stringify({ ok: rb.ok, reason: rb.reason, boden: zb.boden, achsen: rb.achsen }));
+    // Die Folge, an der es weh täte: Nach einem Jahr Funkstille hält der Boden
+    // das Vertrauen noch bei 20; ohne ihn stünde es auf 0.
+    const jahr = contacts.achsenJetzt(zb, tB + 365 * DAY);
+    check('ein Jahr Funkstille nach der Anfrage: Vertrauen steht auf dem Boden (20), nicht 0',
+      jahr.vertrauen === 20 && jahr.boden === 20, JSON.stringify(jahr));
+
+    // move: yes, Boden-Untergrenze, Boden hebt das Vertrauen um die ERHÖHTE Höhe.
+    db.saveContact(G, U6, 'anitta', { respekt: 10, vertrauen: 12, boden: 10,
+      tries: 0, yes: 4, last_try: 0, last_move: T, ignored_at: 0 });
+    const m1 = contacts.move(G, U6, 'anitta', { boden: 5 }, T);
+    check('Boden +5 auf 10 ergibt 15 und hebt das Vertrauen von 12 auf 15 (nicht bei 12 stehen)',
+      m1.achsen.boden === 15 && m1.achsen.vertrauen === 15
+      && db.getContact(G, U6, 'anitta').vertrauen === 15, JSON.stringify(m1.achsen));
+    check('move lässt yes stehen (4 bleibt 4)', db.getContact(G, U6, 'anitta').yes === 4,
+      String(db.getContact(G, U6, 'anitta').yes));
+    const m2 = contacts.move(G, U6, 'anitta', { boden: -50 }, T);
+    check('der Boden fällt nie unter 0 (15 − 50 ergibt 0, nicht −35)',
+      m2.achsen.boden === 0 && db.getContact(G, U6, 'anitta').boden === 0,
+      JSON.stringify(m2.achsen));
+    check('ein gesenkter Boden senkt das Vertrauen nicht mit', m2.achsen.vertrauen === 15,
+      JSON.stringify(m2.achsen));
+  }
+
+  console.log('--- Partner: die Regel an den Aufrufern, partnerNeu nur beim Übertritt ---');
+  {
+    const contacts = require('../src/contacts');
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+    const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+
+    // Die Partner-Regel steht nur in istPartner. `artOf` darf sie nicht neu
+    // schreiben: Draht 50 allein (Respekt 100 / Vertrauen 0) ist kein Partner.
+    check('artOf: Respekt 100 / Vertrauen 0 ist „bekannt", nicht „partner"',
+      contacts.artOf({ respekt: 100, vertrauen: 0 }) === 'bekannt',
+      contacts.artOf({ respekt: 100, vertrauen: 0 }));
+    check('artOf: 50 / 50 ist „partner" (Gegenprobe)',
+      contacts.artOf({ respekt: 50, vertrauen: 50 }) === 'partner');
+
+    // Wer schon Partner ist, wird es nicht „neu".
+    const t1 = T + 20 * DAY;
+    db.saveContact(G, U6, 'ezhel', { respekt: 60, vertrauen: 60, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: t1, ignored_at: 0 });
+    const alt = await contacts.request(G, U6, 'ezhel', 'shoutout', t1, folge(0.001, 0.999, 0.5));
+    check('ein bestehender Partner bleibt Partner, wird es aber nicht neu',
+      alt.ok && alt.partner === true && alt.partnerNeu === false,
+      JSON.stringify({ ok: alt.ok, reason: alt.reason, p: alt.partner, n: alt.partnerNeu }));
+
+    // Gegenprobe: der Übertritt meldet es.
+    const t2 = T + 30 * DAY;
+    db.saveContact(G, U6, 'rammstein', { respekt: 45, vertrauen: 45, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: t2, ignored_at: 0 });
+    const neu = await contacts.request(G, U6, 'rammstein', 'shoutout', t2, folge(0.001, 0.999, 0.5));
+    check('der Übertritt über beide Schwellen meldet partnerNeu',
+      neu.ok && neu.partner === true && neu.partnerNeu === true,
+      JSON.stringify({ ok: neu.ok, reason: neu.reason, a: neu.antwort, p: neu.partner, n: neu.partnerNeu }));
   }
 
 
