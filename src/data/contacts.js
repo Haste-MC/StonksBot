@@ -198,11 +198,19 @@ const MEMORY_ZEIGEN = 3;
  * Zusammenfassung aus `tries − yes`.
  */
 const MEMORY_TEXTE = {
-  zusage:            'Zusage für {detail}',
-  verstimmt:         'Du hast {detail} zu oft gefragt',
+  // Die zwei Anfrage-Vorlagen setzen `{detail}` in Anführung, weil es dort der
+  // VOLLE Satz der Anfrageart ist (`detail: r.name` in `contacts.request`):
+  // „Du hast Dich erwähnen zu oft gefragt" las sich als Aussage über den
+  // Spieler, nicht über die Bitte. Mit Anführung trägt der ganze Satz:
+  // „Zu oft um „Gemeinsam auf die Bühne" gebeten".
+  zusage:            'Zusage für „{detail}"',
+  verstimmt:         'Zu oft um „{detail}" gebeten',
   angebot_an:        '{detail} angenommen',
   angebot_verfallen: '{detail} verfallen lassen',
-  projekt_fertig:    '{detail} zu zweit fertig gemacht',
+  // Kein „zu zweit" in der Vorlage: Projekte gibt es nur für `kollabo` und
+  // `tour`, und `tour` heißt „Tour zu zweit" – das ergab „Tour zu zweit zu
+  // zweit fertig gemacht". Dass es zu zweit war, sagt der Kontakt daneben.
+  projekt_fertig:    '{detail} durchgezogen',
   projekt_verfallen: '{detail} verrotten lassen',
   beef_start:        'Beef angefangen',
   blamage:           'Dein Disstrack ging nach hinten los',

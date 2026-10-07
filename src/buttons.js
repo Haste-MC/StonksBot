@@ -658,7 +658,12 @@ function kontaktNote(res, now = Date.now()) {
       + `×${res.boost.factor.toFixed(1).replace('.', ',')}, noch ${restZeit(res.boost.restMs)}`);
   }
 
-  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen));
+  // Mit Namen, obwohl die Meldung ihn in der ersten Zeile schon nennt: Über
+  // dieser Zeile kann eine ANDERE benannte stehen – `beef.settle` rechnet einen
+  // fälligen Konter eines anderen Kontakts ab, und `mitBeef` setzt dessen Zeile
+  // davor. Namenlos wäre das die halbe Fassung des Falls, den der Name löst.
+  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen,
+    res.contact?.name ?? null));
   if (res.partnerNeu) zeilen.push('⭐ Ihr seid ab jetzt feste Partner.');
   zeilen.push(`⏳ Wieder erreichbar in ${frist(res.gesperrtBis - now)} `
     + `· ⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
@@ -808,7 +813,12 @@ function settleBeef(guildId, userId, now = Date.now()) {
  * Zeile ihn hier ohne zwölf durchgereichte Argumente nennen kann.
  */
 function beefDraht(d) {
-  if (!d) return null;
+  // Die Achsen mit abgefragt, nicht nur `d`: Die gelöschte lokale
+  // `achsenZeile` degradierte bei einem Ergebnis ohne Achsen zu `null`,
+  // `ui.achsenZeile` würfe dort einen TypeError und riss die ganze Meldung ab.
+  // Produktiv kommt jedes Objekt aus `contacts.move` und trägt sie – aber eine
+  // Attrappe oder ein künftiger Rückgabeweg muss die Meldung nicht sprengen.
+  if (!d?.achsen || !d?.achsenVor) return null;
   return achsenZeile(d.nachher, d.nachher - d.vorher, d.achsenVor, d.achsen,
     d.contact?.name ?? null);
 }
@@ -915,9 +925,6 @@ function friedenNote(res, now = Date.now()) {
  * Genau dieser Fehler ist in 5b zweimal passiert.
  */
 
-/** Ein Draht-Ausschlag im Text: „−8", „+8" – mit echtem Minus, nicht Bindestrich. */
-const drahtDelta = (n) => (n < 0 ? `−${Math.abs(n)}` : `+${n}`);
-
 /**
  * Was ein durchgezogenes Projekt an der Beziehung gebucht hat: die Achsen, der
  * Draht und – das Dauerhafte – der Boden. Der Satz zum Boden nennt seine
@@ -939,15 +946,19 @@ function durchgezogenNote(d) {
 }
 
 function angebotNote(ereignisse) {
-  const adata = require('./data/angebote');
   const zeilen = [];
   for (const e of ereignisse ?? []) {
     const name = e.contact?.name ?? 'Jemand';
     if (e.art === 'neu') {
       zeilen.push(`📬 **${name}** meldet sich: _${e.text}_`);
     } else if (e.art === 'verfallen') {
-      zeilen.push(`⌛ Die Anfrage von **${name}** ist verstrichen. `
-        + `Draht **${drahtDelta(adata.DRAHT_VERFALL)}**.`);
+      zeilen.push(`⌛ Die Anfrage von **${name}** ist verstrichen.`);
+      // Die GEBUCHTE Bewegung, nicht `DRAHT_VERFALL`: An der Klemme widersprach
+      // die Konstante der Zeile darunter („Draht −8" über einem Draht, der sich
+      // um 0 bewegt hat). Das Ereignis trägt in `angebote.settle` ein volles
+      // `draht`-Objekt – es war die letzte Stelle der Familie, an der der
+      // Spieler eine Draht-Zahl aus der alten Welt sah und die zwei Achsen nie.
+      if (e.draht) zeilen.push(beefDraht(e.draht));
     } else if (e.art === 'projekt_verfallen') {
       // Die investierten Stunden sind weg (§ „ein Projekt zwingt zu nichts") –
       // das ist der Preis, und er gehört gesagt, nicht verschwiegen.
@@ -1132,11 +1143,17 @@ function annahmeNote(res, symbol, now = Date.now()) {
   return zeilen.filter(Boolean).join('\n');
 }
 
-/** Eine Absage: kostet nur Draht – weniger als Liegenlassen. */
+/**
+ * Eine Absage: kostet nur Draht – weniger als Liegenlassen.
+ *
+ * Die Zahl stand hier als `DRAHT_AB`, also als KONSTANTE, über einer
+ * Achsenzeile mit der echten Buchung. An der Klemme widersprachen sich die
+ * zwei Zeilen (behauptet −5, gebucht −4 oder ±0). Eine Wahrheit je Meldung:
+ * Die Achsenzeile sagt dasselbe wahrheitsgemäß und mehr.
+ */
 function absageNote(res, now = Date.now()) {
   if (!res.ok) return angebotProblem(res, now);
-  const adata = require('./data/angebote');
-  const zeilen = [`🚪 Du hast abgesagt. Draht **${drahtDelta(adata.DRAHT_AB)}**.`];
+  const zeilen = ['🚪 Du hast abgesagt.'];
   if (res.text) zeilen.push(`_${res.text}_`);
   zeilen.push(beefDraht(res.draht));
   return zeilen.filter(Boolean).join('\n');

@@ -2776,6 +2776,21 @@ const ARTEN_NAMEN = {
   fremd: '· fremd',
 };
 
+/**
+ * Derselbe Artname ohne sein Zeichen – nur für die LISTE.
+ *
+ * Dort stehen vor dem Namen schon das Emoji des Kontakts und seine Flagge;
+ * ein drittes Zeichen in derselben Zeile ist Lärm. In der Detailansicht, wo
+ * die Art eine eigene Zeile trägt, bleibt es stehen.
+ *
+ * Kein `??`-Rückfall, hier und an den zwei Ansichtsstellen: Mit den richtigen
+ * Schlüsseln ist er unerreichbar, und bei einem Tippfehler verwandelte er den
+ * Bruch in eine stille Lüge – ein Mentor stünde als „fremd" da, und keine
+ * `undefined`-Wache griffe. Die Tabellenprobe in test/fluxer-render.test.js
+ * hält die zehn Schlüssel gegen `contacts.artOf`.
+ */
+const artName = (art) => ARTEN_NAMEN[art].replace(/^\S+\s+/, '');
+
 /** Kurze Namen der vier Anfragearten – die vollen passen auf keinen Knopf. */
 const ANFRAGE_KURZ = {
   reaktion: 'Reaktion', shoutout: 'Shoutout', feature: 'Feature', konzert: 'Konzert',
@@ -2798,11 +2813,51 @@ const SCHUB_ZIEL_DEIN = {
 /** Ein Faktor mit zwei Nachkommastellen: „1,00", „0,60", „0,15". */
 const zweistellig = (n) => Number(n).toFixed(2).replace('.', ',');
 
-/** Der Draht als Balken: fünf Felder von 0 bis 100, negativ bleibt leer. */
-function drahtBar(draht) {
-  const n = Math.max(0, Math.min(5, Math.ceil(draht / 20)));
-  return `${'▰'.repeat(n)}${'▱'.repeat(5 - n)}`;
+/**
+ * Der Draht als Balken: fünf Felder je 20 Punkte – und zwar in BEIDE
+ * Richtungen.
+ *
+ * Vorher klemmte die negative Hälfte auf `Math.max(0, …)`: Respekt −100 und
+ * Respekt 0 sahen identisch aus (`▱▱▱▱▱`). Beim EINEN Draht-Balken war das
+ * hinnehmbar; seit der Kopf der Kontaktansicht ZWEI Achsenbalken zeigt, deren
+ * ganzer Zweck die Unterscheidung ist, verlor die halbe Skala ihre Anzeige.
+ *
+ * Die negative Seite füllt darum mit einem eigenen Zeichen, von links wie die
+ * positive. Die positive Seite ist Zeichen für Zeichen unverändert (0 bleibt
+ * `▱▱▱▱▱`, 48 bleibt `▰▰▰▱▱`), damit die bestehenden Aufrufer – die Hitze in
+ * `beefZeile` und in `anstachelnNote`, beide nie negativ – gleich bleiben.
+ */
+const BAR_VOLL = '▰';
+const BAR_LEER = '▱';
+const BAR_MINUS = '▬';
+
+function drahtBar(wert) {
+  const n = Math.min(5, Math.ceil(Math.abs(wert) / 20));
+  const voll = wert < 0 ? BAR_MINUS : BAR_VOLL;
+  return `${voll.repeat(n)}${BAR_LEER.repeat(5 - n)}`;
 }
+
+/**
+ * Eine Zahl mit Vorzeichen: „+8", „−8", „±0".
+ *
+ * Typografisches Minus (U+2212), nicht der ASCII-Bindestrich einer rohen
+ * JS-Zahl – und `±0` ist die Hausschreibweise (so schreibt auch das
+ * Messskript). Ein Ausschlag von 0 steht ausdrücklich da: Eine Meldung
+ * berichtet eine BUCHUNG, und „diese Achse hat sich nicht bewegt" ist Teil
+ * davon. (Die Gedächtniszeile macht es umgekehrt und lässt eine Null ganz
+ * weg – sie erzählt eine GESCHICHTE, und dort ist nur das Bemerkenswerte
+ * eine Zeile wert. Der Unterschied ist Absicht, kein Versehen.)
+ */
+const vzZahl = (n) => (n === 0 ? '±0' : `${n > 0 ? '+' : '\u2212'}${Math.abs(n)}`);
+
+/**
+ * Ein STAND ohne Vorzeichen, aber mit demselben Minus: „48", „−25".
+ *
+ * `${wert}` roh schrieb den ASCII-Bindestrich – und zwar in derselben Zeile
+ * und in derselben Beschreibung, in der daneben schon U+2212 stand. Jede
+ * Stelle, die eine Achse oder einen Draht als Zahl zeigt, geht hier durch.
+ */
+const zahl = (n) => (n < 0 ? `\u2212${Math.abs(n)}` : `${n}`);
 
 /**
  * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
@@ -2823,18 +2878,28 @@ function drahtBar(draht) {
  * Information, sondern Lärm.
  */
 function achsenZeile(draht, delta, achsenVor, achsen, name = null) {
-  // Typografisches Minus, nicht der ASCII-Bindestrich einer JS-Zahl: Der Rest
-  // der Meldungen schreibt „−13", `beefDraht` schrieb bisher „-13" in derselben
-  // Zeile. Ein bestehender Test in test/fluxer-render.test.js nagelt den
-  // Bindestrich fest und wird dabei mitgezogen.
-  const vz = (n) => `${n >= 0 ? '+' : '\u2212'}${Math.abs(n)}`;
-  // Der STAND trägt kein Vorzeichen, aber dasselbe Minus: `**${draht}**` roh
-  // schrieb „**-10** (−10)" – beide Zeichen in EINER Zeile, einmal als
-  // JS-Zahl und einmal als Satzzeichen.
-  const zahl = (n) => (n < 0 ? `\u2212${Math.abs(n)}` : `${n}`);
-  return `🤝 ${name ? `**${name}** · ` : ''}Draht ${drahtBar(draht)} **${zahl(draht)}** (${vz(delta)})`
-    + ` · Respekt ${vz(achsen.respekt - achsenVor.respekt)}`
-    + ` · Vertrauen ${vz(achsen.vertrauen - achsenVor.vertrauen)}`;
+  return `🤝 ${name ? `**${name}** · ` : ''}Draht ${drahtBar(draht)} `
+    + `**${zahl(draht)}** (${vzZahl(delta)})`
+    + ` · Respekt ${vzZahl(achsen.respekt - achsenVor.respekt)}`
+    + ` · Vertrauen ${vzZahl(achsen.vertrauen - achsenVor.vertrauen)}`;
+}
+
+/**
+ * Das ALTER eines Ereignisses, grob: „2 Tagen", „5 Stunden", „20 Minuten".
+ *
+ * `frist` ist für RESTZEIT gebaut und rundet Tage mit `Math.ceil` auf – richtig
+ * für „frei in 3 Tagen", falsch für ein Alter: Ein Ereignis von zwei Tagen und
+ * einer Sekunde stand als „vor 3 Tagen" da. Ab einem Tag wird darum
+ * abgeschnitten; darunter sind die Stunden- und Minuten-Zweige von `frist`
+ * richtig und werden nicht gedoppelt. `frist` selbst bleibt unangetastet, es
+ * hat sieben Aufrufer mit Restzeit-Bedeutung.
+ */
+function alter(ms) {
+  if (ms >= 24 * 3600e3) {
+    const tage = Math.floor(ms / (24 * 3600e3));
+    return `${tage} ${tage === 1 ? 'Tag' : 'Tagen'}`;
+  }
+  return frist(ms);
 }
 
 /** Restzeit einer Sperre, grob: „3 Tagen", „5 Stunden", „20 Minuten". */
@@ -3056,7 +3121,7 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       : z.gesperrtBis > now ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
-      + `Draht ${drahtBar(z.draht)} ${z.draht} (${ARTEN_NAMEN[z.art] ?? ARTEN_NAMEN.fremd}) · `
+      + `Draht ${drahtBar(z.draht)} ${zahl(z.draht)} (${artName(z.art)}) · `
       // Die Chance der Liste ist die EINE Anfrageart, mit der contacts.listFor
       // rechnet (`LIST_REQUEST`, die neutrale Erwähnung). Ohne den Namen stünde
       // hier eine Zahl, die einen Klick später in keinem der vier Knöpfe
@@ -3126,31 +3191,49 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
  * Die letzte Zeile deckt „was du nur gewollt hast" ab: Sie kommt aus
  * `tries − yes` und braucht keine Gedächtniszeilen – zwanzig Zeilen
  * „ignoriert" machten die Liste wertlos.
+ *
+ * Ein Ausschlag von 0 fällt hier ganz weg, anders als in `achsenZeile`, die
+ * `±0` schreibt: Diese Zeilen erzählen eine GESCHICHTE, und nur das
+ * Bemerkenswerte ist eine Erwähnung wert. Eine Meldung dagegen berichtet eine
+ * BUCHUNG, und dort gehört auch die unbewegte Achse dazu. Absicht, kein
+ * Versehen.
  */
 function gedaechtnisBlock(guildId, userId, contactId, tries, yes, now) {
   const cdata = require('./data/contacts');
   const zeilen = db.memoryOf(guildId, userId, contactId, cdata.MEMORY_ZEIGEN);
-  const vergeblich = Math.max(0, tries - yes);
-  if (!zeilen.length && !vergeblich) return null;
+  /*
+   * „Versuche ohne Zusage", NICHT „Mal kam nichts zurück".
+   *
+   * `tries − yes` bedeutet nicht, dass nichts zurückkam: `yes` steigt nur bei
+   * einer ZUSAGE, `tries` dagegen (a) bei jeder Anfrage – auch bei `echt` und
+   * `fluechtig`, wo sehr wohl etwas zurückkam – und (b) in `contacts.move` bei
+   * jedem `{ sperre: true }`, also auch bei `beef.anstacheln` und
+   * `beef.frieden`, die überhaupt keine Anfragen sind. Der alte Satz zählte
+   * damit Ereignisse, die zwei Zeilen darüber namentlich dastehen, als „nichts
+   * zurückgekommen". Der neue ist per Konstruktion wahr und nennt dieselbe
+   * Zahl, die der Kopf schon „Versuche" nennt. Nicht wieder verschärfen.
+   */
+  const ohneZusage = Math.max(0, tries - yes);
+  if (!zeilen.length && !ohneZusage) return null;
 
-  // Dasselbe typografische Minus wie in `achsenZeile`: Hier stehen positive und
-  // negative Ausschläge in EINER Zeile („+10 Respekt, −36 Vertrauen"), und eine
-  // rohe JS-Zahl schriebe den Bindestrich daneben.
-  const vz = (n) => `${n > 0 ? '+' : '\u2212'}${Math.abs(n)}`;
-
-  const out = ['', '📖 **Was zwischen euch war**'];
+  const out = [''];
+  // Die Überschrift nur, wenn auch Zeilen darunter stehen – sonst stand sie
+  // leer da und der Schwanz war ihr einziger Inhalt.
+  if (zeilen.length) out.push('📖 **Was zwischen euch war**');
   for (const m of zeilen) {
     const text = (cdata.MEMORY_TEXTE[m.art] ?? m.art).replace('{detail}', m.detail);
     const d = [
-      m.d_respekt ? `${vz(m.d_respekt)} Respekt` : null,
-      m.d_vertrauen ? `${vz(m.d_vertrauen)} Vertrauen` : null,
+      m.d_respekt ? `${vzZahl(m.d_respekt)} Respekt` : null,
+      m.d_vertrauen ? `${vzZahl(m.d_vertrauen)} Vertrauen` : null,
     ].filter(Boolean).join(', ');
-    out.push(`• vor ${frist(now - m.at)} · ${text}${d ? ` _(${d})_` : ''}`);
+    // `alter` und nicht `frist`: Letzteres rundet Tage auf (Restzeit-Bedeutung)
+    // und meldete ein zwei Tage altes Ereignis als „vor 3 Tagen".
+    out.push(`• vor ${alter(now - m.at)} · ${text}${d ? ` _(${d})_` : ''}`);
   }
   const gesamt = db.memoryCount(guildId, userId, contactId);
   const schwanz = [
     gesamt > zeilen.length ? `… und ${gesamt - zeilen.length} weitere` : null,
-    vergeblich ? `${vergeblich} Mal kam nichts zurück` : null,
+    ohneZusage ? `${ohneZusage} ${ohneZusage === 1 ? 'Versuch' : 'Versuche'} ohne Zusage` : null,
   ].filter(Boolean);
   if (schwanz.length) out.push(`_${schwanz.join(' · ')}_`);
   return out;
@@ -3194,13 +3277,18 @@ async function buildKontaktView({ guildId, userId, contactId }) {
     '',
     `🌍 ${land?.flag ?? '🌍'} ${c.language} · ${kontaktSparte(c, seite)} · `
       + `Reichweite ${short(d.seineReichweite)}`,
-    `${ARTEN_NAMEN[d.art] ?? ARTEN_NAMEN.fremd}`
+    // `art` ist schon „🤝 fester Partner", wenn beide Achsen hoch stehen – der
+    // Stern daneben wäre dann dasselbe zweimal.
+    `${ARTEN_NAMEN[d.art]}`
       + (d.partner && d.art !== 'partner' ? ' · ⭐ fester Partner' : ''),
-    `   Draht ${drahtBar(d.draht)} ${d.draht} · `
+    // `zahl` und nicht `${d.draht}`: Eine rohe JS-Zahl schriebe den
+    // ASCII-Bindestrich, und drei Zeilen weiter unten steht im Gedächtnisblock
+    // U+2212 in derselben Beschreibung.
+    `   Draht ${drahtBar(d.draht)} ${zahl(d.draht)} · `
       + `${d.tries} ${d.tries === 1 ? 'Versuch' : 'Versuche'}, `
       + `${d.yes} ${d.yes === 1 ? 'Zusage' : 'Zusagen'}`,
-    `   Respekt ${drahtBar(d.respekt)} ${d.respekt} · `
-      + `Vertrauen ${drahtBar(d.vertrauen)} ${d.vertrauen}`
+    `   Respekt ${drahtBar(d.respekt)} ${zahl(d.respekt)} · `
+      + `Vertrauen ${drahtBar(d.vertrauen)} ${zahl(d.vertrauen)}`
       + (d.boden > 0 ? ` _(Boden ${d.boden})_` : ''),
     `🎯 Passung ${pct(d.passung)} _(Sprache ×${zweistellig(d.sprachfaktor)} · `
       + `${seite === 'creator' ? 'Plattform' : 'Genre'} ×${zweistellig(d.genrefaktor)})_`,
@@ -3217,9 +3305,6 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   }
   if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
 
-  const erinnerung = gedaechtnisBlock(guildId, userId, contactId, d.tries, d.yes, now);
-  if (erinnerung) kopf.push(...erinnerung);
-
   /*
    * 5b: Der Beef steht direkt über den Anfragen – er ist der Grund, warum alle
    * vier gleich darunter gesperrt sind.
@@ -3235,6 +3320,12 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   const nachbeben = row && row.status !== 'offen' && row.bonus_until > now ? row : null;
   if (b) kopf.push(beefZeile(b, now));
   else if (nachbeben) kopf.push(beefEndeZeile(nachbeben, now));
+
+  // Das Gedächtnis zuletzt, NACH der Beef-Zeile: Der Block beginnt mit einer
+  // Leerzeile, und davor eingehängt klebte die Beef-Zeile ohne Abstand an
+  // seinem kursiven Schwanz.
+  const erinnerung = gedaechtnisBlock(guildId, userId, contactId, d.tries, d.yes, now);
+  if (erinnerung) kopf.push(...erinnerung);
 
   const grundText = (r) => ({
     seite: '🔒 passende Karriere fehlt',
@@ -5787,7 +5878,8 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, achsenZeile, frist, restZeit, ARTEN_NAMEN, SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
+  drahtBar, achsenZeile, frist, alter, restZeit, ARTEN_NAMEN, artName,
+  SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };
