@@ -311,6 +311,18 @@ const U2 = 'u2';
     }
     check('Parität über 400 gewürfelte Folgen', abweichungen === 0,
       `${abweichungen} Abweichungen`);
+
+    // Die Brücke zu den echten Zahlen: Die Ketten oben rechnen mit den alten Deltas
+    // auf beiden Achsen. Dass die ECHTEN Achsenwerte im Mittel dasselbe sind, sagt erst das hier.
+    for (const art of Object.keys(ALT)) {
+      const { respekt, vertrauen } = cdata.ACHSEN[art];
+      check(`ACHSEN.${art}: Mittel ist das alte Delta ${ALT[art]}`,
+        (respekt + vertrauen) / 2 === ALT[art], `${respekt}/${vertrauen}`);
+    }
+    check('Abkühlraten: Mittel aus Respekt und Vertrauen ist die alte Rate',
+      (cdata.RESPEKT_DECAY_PRO_WOCHE + cdata.VERTRAUEN_DECAY_PRO_WOCHE) / 2
+        === cdata.DRAHT_DECAY_PRO_WOCHE,
+      `${cdata.RESPEKT_DECAY_PRO_WOCHE}/${cdata.VERTRAUEN_DECAY_PRO_WOCHE}`);
   }
 
   console.log('--- Abkühlen mit Boden ---');
@@ -325,6 +337,23 @@ const U2 = 'u2';
     check('auf dem Boden bleibt es liegen', f(30, 3, 30) === 30, String(f(30, 3, 30)));
     check('der Boden zieht NICHT nach oben', f(0, 3, 30) === 0, String(f(0, 3, 30)));
     check('von unten ist der Boden egal', f(-50, 3, 30) === -47, String(f(-50, 3, 30)));
+    // Unter dem Boden (aber nicht negativ) passiert nichts; Negatives schießt nicht über 0.
+    check('zwischen 0 und Boden bleibt es liegen', f(10, 3, 30) === 10, String(f(10, 3, 30)));
+    check('kein Überschießen nach oben, auch mit Boden', f(-2, 3, 30) === 0, String(f(-2, 3, 30)));
+    check('von unten gegen 0, auch mit Boden', f(-5, 3, 30) === -2, String(f(-5, 3, 30)));
+    check('Boden 0 ist der Standard', f(5, 3) === 2 && f(-5, 3) === -2, `${f(5, 3)} / ${f(-5, 3)}`);
+  }
+
+  console.log('--- Draht als Mittelwert ---');
+  {
+    const v = require('../src/contacts').drahtVon;
+    check('gerade Summe: genau der Mittelwert', v(40, 20) === 30, String(v(40, 20)));
+    check('ungerade Summe rundet bei .5 nach oben', v(41, 20) === 31, String(v(41, 20)));
+    check('negativ: -30,5 wird -30 (Math.round)', v(-41, -20) === -30, String(v(-41, -20)));
+    check('Achsen gegeneinander: 50 und -50 ergeben 0', v(50, -50) === 0, String(v(50, -50)));
+    check('beide Achsen tragen gleich viel', v(80, 0) === 40 && v(0, 80) === 40,
+      `${v(80, 0)} / ${v(0, 80)}`);
+    check('Grenzen: ±100 bleiben ±100', v(100, 100) === 100 && v(-100, -100) === -100);
   }
 
   console.log('--- Respekt-Gewicht ---');
@@ -337,6 +366,14 @@ const U2 = 'u2';
     check('1000×: 0,45', near(g(10_000, 10_000_000), 0.45), String(g(10_000, 10_000_000)));
     check('er ist kleiner: 0,12 (geklemmt)', near(g(100_000, 10_000), 0.12), String(g(100_000, 10_000)));
     check('weit über 1000× bleibt 0,45', near(g(100, 1_000_000_000), 0.45), String(g(100, 1_000_000_000)));
+    // Wer kleiner als 100 ist, zählt als 100 – und wer gar keine Reichweite hat, auch.
+    check('meine unter 100 zählt als 100 (10×: 0,23)', near(g(10, 1_000), 0.23), String(g(10, 1_000)));
+    check('meine fehlt: zählt als 100', near(g(undefined, 1_000), 0.23) && near(g(0, 1_000), 0.23),
+      `${g(undefined, 1_000)} / ${g(0, 1_000)}`);
+    check('seine unter 1 zählt als 1 (kein NaN, kein Minus)',
+      near(g(100_000, 0), 0.12) && near(g(100_000, -5), 0.12), `${g(100_000, 0)} / ${g(100_000, -5)}`);
+    check('die Zwischenstufe steht in der Mitte: 3,16× ist ein halbes Dekadenpaar',
+      near(g(100_000, 316_228), 0.12 + 0.33 * 0.5 / 3, 1e-4), String(g(100_000, 316_228)));
     // Die Grenze, an der das neue Gewicht die alten 0,25 übersteigt.
     check('Faktor 15,2 ist die Grenze',
       g(100_000, 1_520_000) > 0.25 && g(100_000, 1_500_000) < 0.2501,
