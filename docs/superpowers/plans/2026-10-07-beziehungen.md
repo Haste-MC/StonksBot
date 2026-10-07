@@ -1302,6 +1302,14 @@ Die anderen drei `REQUESTS` bekommen `minVertrauen: null`. `KONZERT_VERTRAUEN` e
 
 > **Reihenfolge, damit kein Loch entsteht:** Task 3 hat die Prüfung `r.minVertrauen != null` schon gebaut und liest bis hierhin `undefined`, also nichts. `konzert` behielt dort `minDraht: 20` und war durchgehend bewacht. Erst dieser Schritt hängt es um — kein Zeitfenster, in dem das Tor offen steht.
 
+> **Diese Aufgabe macht den Zweig lebendig und muss ihn darum vollständig bedienen — Tests UND beide Leser.** Task 3 hat `r.minVertrauen` gebaut, aber kein Eintrag trug das Feld, also war er die einzige unbewachte Verzweigung des Stücks. Fehlt hier etwas, entsteht für zwei Aufgaben ein **spielbarer, stiller** Fehler:
+>
+> 1. **Zusicherungen:** `konzert` wird bei Vertrauen 19 mit `grund: 'vertrauen'` abgewiesen und geht bei 20 durch; dasselbe für `kollabo`/`tour`/`label` bei 49 gegen 50.
+> 2. **`src/ui.js`, `grundText`** braucht den Schlüssel `vertrauen: '🔒 Vertrauen ' + r.minVertrauen + ' nötig'`. Ohne ihn fällt die Zeile auf `?? Chance **${pct(r.chance)}**` zurück — **ein gesperrter Knopf bewirbt dann eine Chance, die niemand bekommen kann.**
+> 3. **`src/buttons.js`, `kontaktNote`** behandelt bei Zeile 624 nur `res.reason === 'draht'`. Ohne einen `'vertrauen'`-Zweig endet ein abgewiesener Klick bei „❌ Das ging nicht." und sagt dem Spieler nicht, was fehlt.
+>
+> Dieselbe stille Falle wie das `undefined` beim Stufennamen, nur in anderer Form: Der Spieler sieht etwas Falsches, und kein Test blinkt. (Diese zwei Leser standen vorher in Task 6 — zwei Aufgaben zu spät.)
+
 `module.exports` in `data/angebote.js`: `DRAHT_AN, DRAHT_AB, DRAHT_VERFALL` heraus; `ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH, BODEN_AN, BODEN_FERTIG` hinein.
 
 - [ ] **Step 2: `artenFuer` nimmt beide Achsen**
@@ -1784,13 +1792,9 @@ In `buildKontaktView` hinter dem Kopf einhängen:
   if (erinnerung) kopf.push(...erinnerung);
 ```
 
-- [ ] **Step 4: Der neue Ablehnungsgrund**
+- [ ] **Step 4: Der Ablehnungsgrund steht schon**
 
-In `grundText` (Zeile 3148) ergänzen — `r.minVertrauen` statt `r.minDraht`:
-
-```js
-    vertrauen: `🔒 Vertrauen ${r.minVertrauen} nötig`,
-```
+`grundText` in `src/ui.js` und der `'vertrauen'`-Zweig in `buttons.kontaktNote` sind in **Task 4** entstanden, zusammen mit dem Tor, das sie bedient. Prüfe hier nur mit `grep -n "vertrauen" src/ui.js src/buttons.js`, dass beide noch da sind und zur neuen Ansicht passen — anzulegen ist nichts.
 
 - [ ] **Step 5: Die Meldungen in `src/buttons.js`**
 
