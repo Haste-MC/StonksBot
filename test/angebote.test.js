@@ -391,6 +391,52 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       JSON.stringify(nochmal));
   }
 
+  console.log('--- Die Grenze des Bodens ---');
+  {
+    /**
+     * DER BODEN IST EINE UNTERGRENZE GEGEN DAS ABKÜHLEN – NICHT GEGEN EIGENE
+     * FEHLER. Das ist beschlossen (Task 3: „der Boden bremst den Fall, er heilt
+     * keinen Beef") und muss so bleiben: Wäre er eine harte Untergrenze, finge
+     * er auch einen Disstrack auf, und der schlüge bei einem Partner mit Boden
+     * nicht mehr durch. Diese Zusicherung steht hier, damit sie niemand später
+     * als Fehler „repariert".
+     *
+     * Der Ablauf, wie ihn der Review gemessen hat: Kollabo durchgezogen (Boden
+     * 10), ein halbes Jahr Funkstille (Vertrauen liegt auf dem Boden), dann
+     * EINE liegengelassene Anfrage – sie schiebt das Vertrauen darunter.
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    contacts.move(G, U, RAF.id, { ...data.ACHSEN_FERTIG, boden: data.BODEN_FERTIG }, T0);
+    const still = T0 + 26 * 7 * TAG;
+    const aufBoden = achsen(G, U, RAF.id, still);
+    check('Funkstille: das Vertrauen kühlt bis auf den Boden, nicht darunter',
+      aufBoden.boden === data.BODEN_FERTIG && aufBoden.vertrauen === data.BODEN_FERTIG,
+      JSON.stringify(aufBoden));
+
+    // Erstellt vor vier Tagen, Frist drei Tage: zum Zeitpunkt `still` verstrichen.
+    anfrage(G, U, 'tausch', RAF.id, still - 4 * TAG);
+    ang.settle(G, U, still, nie);
+    const drunter = achsen(G, U, RAF.id, still);
+    check('eine verfallene Anfrage schiebt das Vertrauen UNTER den Boden (−2 bei Boden 10)',
+      drunter.vertrauen === data.BODEN_FERTIG + data.ACHSEN_VERFALL.vertrauen
+      && drunter.vertrauen < drunter.boden && drunter.boden === data.BODEN_FERTIG,
+      JSON.stringify(drunter));
+
+    // Es erholt sich nur bis 0 – der Boden zieht es nicht wieder hoch.
+    const jahr = achsen(G, U, RAF.id, still + 52 * 7 * TAG);
+    check('es erholt sich nur bis 0, nicht bis zum Boden',
+      jahr.vertrauen === 0 && jahr.boden === data.BODEN_FERTIG, JSON.stringify(jahr));
+
+    // Erst eine POSITIVE Bewegung, die den Boden hebt, holt es wieder hinauf.
+    const spaeter = still + 52 * 7 * TAG;
+    contacts.move(G, U, RAF.id, { ...data.ACHSEN_AN, boden: data.BODEN_AN }, spaeter);
+    const wieder = achsen(G, U, RAF.id, spaeter);
+    check('erst eine Annahme (positiv, hebt den Boden) hebt es wieder auf den Boden',
+      wieder.boden === data.BODEN_FERTIG + data.BODEN_AN
+      && wieder.vertrauen >= wieder.boden, JSON.stringify(wieder));
+  }
+
   console.log('--- Annehmen und Ablehnen ---');
   {
     const { G, U } = await welt();

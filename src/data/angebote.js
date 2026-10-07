@@ -89,9 +89,10 @@ const ACHSEN_VERFALL = { respekt: -4, vertrauen: -12 }; // Mittel  −8
  * zweit null Punkte Draht, und ein verrottetes Projekt ebenfalls null. Das
  * Durchziehen und das Vermasseln waren für die Beziehung unsichtbar.
  *
- * Ein bezahltes Album verrotten zu lassen ist der härteste Vertrauensverlust
- * im Spiel – härter als eine verfallene Anfrage, weil die Stunden schon
- * investiert waren.
+ * Ein bezahltes Projekt verrotten zu lassen ist der härteste Vertrauensverlust
+ * UNTER DEN GEGENANFRAGEN – härter als eine verfallene Anfrage, weil die
+ * Stunden schon investiert waren. Der härteste im Spiel ist es nicht: Ein
+ * Disstrack (Stück 6a, nächste Aufgabe) kostet deutlich mehr.
  */
 const ACHSEN_FERTIG = { respekt: 6, vertrauen: 18 };    // Mittel +12 (vorher 0)
 const ACHSEN_PFUSCH = { respekt: -6, vertrauen: -20 };  // Mittel −13 (vorher 0)
@@ -102,6 +103,16 @@ const ACHSEN_PFUSCH = { respekt: -6, vertrauen: -20 };  // Mittel −13 (vorher 
  * `tausch`, `gastpart`, `vorgruppe` und `label` sind mit der Annahme erledigt
  * und buchen BODEN_AN sofort. `kollabo` und `tour` erzeugen ein Projekt und
  * buchen erst beim Abschluss, dann über BODEN_FERTIG – nicht beides.
+ *
+ * DIE GRENZE DES BODENS: Er ist eine Untergrenze gegen das ABKÜHLEN, nicht
+ * gegen eigene Fehler. Funkstille lässt das Vertrauen höchstens bis auf den
+ * Boden fallen (`contacts.decayAchse`); eine verfallene Anfrage oder ein
+ * verrottetes Projekt schiebt es dagegen auch DARUNTER. Von dort erholt es sich
+ * nur bis 0 – der Boden zieht es nicht zurück –, und erst eine POSITIVE
+ * Bewegung, die den Boden hebt, bringt es wieder auf ihn. So ist es gewollt:
+ * Als harte Untergrenze finge der Boden auch einen Disstrack auf. Festgenagelt
+ * in test/angebote.test.js („Die Grenze des Bodens") – wer das „repariert",
+ * nimmt dem Beef die Wirkung bei jedem Partner mit Boden.
  */
 const BODEN_AN = 3;
 const BODEN_FERTIG = 10;
