@@ -247,7 +247,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
 
   /** Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). */
   const draht = (G, U, contactId, wert, t = T0) => db.saveContact(G, U, contactId,
-    { draht: wert, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
+    { respekt: wert, vertrauen: wert, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
 
   /** Eine Anfrage, die genau jetzt eingegangen ist. */
   const anfrage = (G, U, art, contactId, t = T0) => db.insertAngebot({

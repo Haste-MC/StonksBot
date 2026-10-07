@@ -380,8 +380,11 @@ function moveDraht(guildId, userId, contactId, delta, now = Date.now(), { sperre
   const row = zeilen.find((z) => z.contact_id === contactId) ?? null;
   const vorher = drahtJetzt(row, now);
   const nachher = Math.max(-100, Math.min(100, vorher + delta));
+  // Zwischenzustand: gleichmäßige Spaltung (beide Achsen = der alte Draht,
+  // Mittelwert unverändert). Wird in Stück 6a Task 3 durch die echten Paare
+  // aus data.ACHSEN ersetzt.
   db.saveContact(guildId, userId, contactId, {
-    draht: nachher,
+    respekt: nachher, vertrauen: nachher, boden: row?.boden ?? 0,
     tries: (row?.tries ?? 0) + (sperre ? 1 : 0),
     yes: row?.yes ?? 0,
     last_try: sperre ? now : (row?.last_try ?? 0),
@@ -455,8 +458,11 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
   const neu = clamp(-100, 100, draht + delta);
   const yesNeu = yes + (antwort === 'zusage' ? 1 : 0);
 
+  // Zwischenzustand: gleichmäßige Spaltung (beide Achsen = der alte Draht,
+  // Mittelwert unverändert). Wird in Stück 6a Task 3 durch die echten Paare
+  // aus data.ACHSEN ersetzt.
   db.saveContact(guildId, userId, contact.id, {
-    draht: neu,
+    respekt: neu, vertrauen: neu, boden: row?.boden ?? 0,
     tries: tries + 1,
     yes: yesNeu,
     last_try: now,
