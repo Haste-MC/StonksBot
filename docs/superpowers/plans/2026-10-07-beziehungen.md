@@ -1558,10 +1558,21 @@ const ACHSEN_ANGEZAEHLT = { respekt: -4, vertrauen: -16 };   // Mittel −10 (wi
 | `KONTER` | −10 | −10 | gleich |
 | `ANGEZAEHLT` | −10 | −10 | gleich |
 
-Drei der fünf verschieben sich **absichtlich** — eine Ableitung wäre hier also eine Lüge. Zwei Zusicherungen lesen die alten Konstanten und müssen auf die neuen Zahlen nachgezogen werden, **nicht** gelöscht:
+Drei der fünf verschieben sich **absichtlich** — eine Ableitung wäre hier also eine Lüge.
 
-- `test/beef.test.js:256` „Einstieg kostet Draht −15" → der Einstieg kostet jetzt **−12** (`ACHSEN_ANSTACHELN` ist 0/−24).
-- `test/beef.test.js:914` „Draht −10" → unverändert **−10** (`ACHSEN_ANGEZAEHLT` ist −4/−16), nur die Konstante im Test wechselt.
+**Fünf** Zusicherungen in `test/beef.test.js` lesen die alten Konstanten und müssen nachgezogen werden, **keine** davon gelöscht:
+
+| Zeile | liest | Mittel neu | alt |
+|---|---|---|---|
+| `:238` | `DRAHT_BLAMAGE` | **−7** | −5 |
+| `:256` „Einstieg kostet Draht −15" | `DRAHT_ANSTACHELN` | **−12** | −15 |
+| `:295` | `DRAHT_KONTER` | −10 | −10 |
+| `:728` | `DRAHT_DISS` | **−13** | −20 |
+| `:914` „Draht −10" | `DRAHT_ANGEZAEHLT` | −10 | −10 |
+
+**Rechne jede Erwartung aus dem tatsächlichen Ausgangszustand ihres Falls neu**, nicht aus der Tabelle: Manche dieser Zusicherungen prüfen einen Draht, der schon eine vorangehende Bewegung enthält (ein Diss folgt auf ein Anstacheln). Die Tabelle nennt den Beitrag **eines** Ereignisses, nicht den Endstand. Und zieh die zwei Beschriftungen mit, die eine Zahl im Namen tragen („−15" wird „−12").
+
+Leite die neuen Werte im Test aus den `ACHSEN_*`-Paaren ab (`(respekt + vertrauen) / 2`), statt sie hart zu kodieren — dann wandert die Zusicherung mit, wenn ein Paar später balanciert wird.
 
 `FRIEDEN_PLUS` (30) und `FRIEDEN_DECKEL` (−10) bleiben unverändert — sie wirken jetzt auf Vertrauen. Den Kommentar dort nachziehen:
 
