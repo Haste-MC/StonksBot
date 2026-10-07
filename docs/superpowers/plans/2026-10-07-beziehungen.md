@@ -353,8 +353,6 @@ git commit -m "beziehungen: zwei achsen, die wanderung und die gedaechtnistabell
   - `contacts.drahtVon(respekt, vertrauen) -> number`
   - `contacts.decayAchse(wert, punkte, boden = 0) -> number`
   - `contacts.respektGewicht(meine, seine) -> number`
-  - `contacts.istPartner(respekt, vertrauen) -> boolean`
-  - `contacts.artOf({ respekt, vertrauen, boden, meine, seine, trait, beefOffen }) -> string` — eine von `beef rivale verstimmt mentor schuetzling partner band geschaeftlich bekannt fremd`
   - `contacts.decay(draht, tage)` bleibt **unverändert** erhalten und ist das Referenzmodell des Paritätstests
   - `data.ACHSEN`, `data.RESPEKT_DECAY_PRO_WOCHE`, `data.VERTRAUEN_DECAY_PRO_WOCHE`, `data.BODEN_MAX`, `data.RESPEKT_W_MIN`, `data.RESPEKT_W_SPAN`, `data.RESPEKT_W_DEKADEN`, `data.VERTRAUEN_MALUS`, `data.PARTNER_RESPEKT`, `data.PARTNER_VERTRAUEN`, `data.ART_*`, `data.MEMORY_MAX`, `data.MEMORY_ZEIGEN`, `data.MEMORY_TEXTE`
 
@@ -642,7 +640,7 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 - Test: `test/beziehungen.test.js`, `test/contacts.test.js`
 
 **Interfaces:**
-- Consumes: aus Task 1 `db.saveContact`, `db.addMemory`; aus Task 2 `drahtVon`, `decayAchse`, `respektGewicht`, `istPartner`, `artOf`, `data.ACHSEN`, `data.MEMORY_MAX`, `data.VERTRAUEN_MALUS`.
+- Consumes: aus Task 1 `db.saveContact`, `db.addMemory`; aus Task 2 `drahtVon`, `decayAchse`, `respektGewicht`, `data.ACHSEN`, `data.MEMORY_MAX`, `data.VERTRAUEN_MALUS`.
 - Produces:
   - `contacts.achsenJetzt(row, now) -> { respekt, vertrauen, boden, draht }` — faul gerechnet, schreibt nie (§4)
   - `contacts.drahtJetzt(row, now) -> number` — bleibt als dünne Hülle (`angebote.js`, `beef.js` und die Messung rufen sie)
@@ -1167,7 +1165,18 @@ An `test/beziehungen.test.js` anfügen:
   }
 ```
 
-- [ ] **Step 9: `test/contacts.test.js` nachziehen**
+- [ ] **Step 9: Die Kette durch die ECHTE Schreibmechanik führen**
+
+Der Paritätstest aus Task 2 baut die Wochenzählung (`Math.floor(tage / 7) * rate`) und die ±100-Klemme im **Test** nach. Damit deckt er die Produktivlogik nicht: Ein falsch verdrahtetes `move` oder `achsenJetzt` fiele dort nicht auf.
+
+Ergänze in `test/beziehungen.test.js` eine Zusicherung, die dieselbe Ereignisfolge durch `contacts.move` und `contacts.achsenJetzt` schickt — mit echten Zeitstempeln, über eine echte Zeile in der Datenbank — und mit dem von Hand gerechneten Ergebnis vergleicht. Zwei Fälle genügen, beide mit den **echten** Paaren aus `data.ACHSEN`:
+
+- **Zwanzig echte Antworten** (`ACHSEN.echt`, je `respekt +9 / vertrauen +3`), alle am selben Tag: Respekt sättigt bei 100, Vertrauen steht bei 60, der Draht ist **80**. Die alte Kette ergab hier 100 — die Abweichung ist das Design und wird hier festgehalten, nicht versteckt.
+- **Respekt 50, Vertrauen −50** (Draht 0), dann vier Wochen nichts: Respekt 46, Vertrauen −38, Draht **4**. Nach zehn Wochen: Respekt 40, Vertrauen −20, Draht **10**. Die alte Kette blieb beide Male bei 0, weil ein Draht von 0 nicht abkühlt.
+
+Diese zwei Zusicherungen sind die einzigen, die die Wochenzählung und die Klemme der **Produktivlogik** prüfen.
+
+- [ ] **Step 10: `test/contacts.test.js` nachziehen**
 
 Die Fälle, die `contacts.drahtStufe` aufrufen, auf `contacts.artOf` umstellen. Die alten Erwartungen übersetzen:
 
@@ -1183,7 +1192,7 @@ Fälle, die `contacts.chanceOf({ …, draht: N })` aufrufen, auf `respekt: N, ve
 
 Fälle mit `contacts.stufeVon(r, { ratio, draht })` auf `{ ratio, respekt }` umstellen.
 
-- [ ] **Step 10: Beide Tests laufen lassen**
+- [ ] **Step 11: Beide Tests laufen lassen**
 
 ```bash
 rm -rf .testdata && DATA_DIR=.testdata node test/beziehungen.test.js
@@ -1192,7 +1201,7 @@ rm -rf .testdata && DATA_DIR=.testdata node test/contacts.test.js
 
 Erwartet: beide `0 fehlgeschlagen`.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add src/contacts.js test/contacts.test.js test/beziehungen.test.js

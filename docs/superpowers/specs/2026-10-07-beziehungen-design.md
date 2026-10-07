@@ -474,9 +474,26 @@ abgeleitete Draht **exakt** dem entsprechen, was die heutige Kette aus `decay`
 und den heutigen Deltas liefert. Die alte Funktion `decay(draht, tage)` bleibt
 dafür erhalten und ist das Referenzmodell im Test.
 
-Das ist die Nullhypothese: Es beweist, dass die Mechanik selbst nichts
-verschiebt und jede gemessene Änderung aus den **ungleichen** Spaltungen, dem
-Respekt-Gewicht und den Toren kommt — nicht aus einem Buchhaltungsfehler.
+Was dieser Test beweist und was nicht — der Unterschied ist wichtig, weil der
+Name mehr verspricht, als die Sache hält:
+
+- **Er beweist:** Die Buchführung ist neutral. `decayAchse` mit Boden 0
+  verhält sich wie `decay`, und `drahtVon(d, d)` ist `d`. Eine gemessene
+  Änderung kommt also nicht aus einem Rechenfehler in der Umstellung.
+- **Er beweist NICHT, dass das Spiel sich gleich verhält.** Mit den echten,
+  ungleichen Paaren laufen die Ketten auseinander, und das ist Absicht.
+  Gerechnet: Zwanzig echte Antworten ergaben früher Draht **100** (20 × +6,
+  geklemmt); jetzt sättigt Respekt bei 100, während Vertrauen auf 60 steht,
+  und der Draht bleibt bei **80**. Ebenso driftet eine Beziehung mit Respekt
+  50 und Vertrauen −50 — heute Draht 0 — beim Abkühlen auf +1 nach einer
+  Woche und +10 nach zehn, weil Vertrauen dreimal schneller gegen die Null
+  läuft als Respekt.
+
+Beides gehört **als eigene Zusicherung** in den Test, mit genau diesen Zahlen.
+Sonst liest ein späterer Leser „Parität bestanden" und hält die gelieferten
+Zahlen für neutral. Die Entartung des Paritätstests — beide Achsen tragen in
+jedem Schritt dasselbe, die Rundung wird nie berührt — muss im Kommentar
+dort stehen, wo der Test steht.
 
 ### 8.2 Weitere Zusicherungen
 
