@@ -897,8 +897,9 @@ const aufraeumen = () => {
     check('ACHSEN_AB mittelt auf die alten −5', mittel(adata.ACHSEN_AB) === -5);
     check('ACHSEN_VERFALL mittelt auf die alten −8', mittel(adata.ACHSEN_VERFALL) === -8);
     check('ACHSEN_FERTIG ist neu und positiv', mittel(adata.ACHSEN_FERTIG) === 12);
-    check('ACHSEN_PFUSCH ist neu und der härteste Verlust',
+    check('ACHSEN_PFUSCH ist neu und der härteste Verlust unter den Gegenanfragen',
       adata.ACHSEN_PFUSCH.vertrauen < adata.ACHSEN_VERFALL.vertrauen
+      && adata.ACHSEN_PFUSCH.vertrauen < adata.ACHSEN_AB.vertrauen
       && adata.ACHSEN_PFUSCH.vertrauen === -20);
     check('Verfallen kostet mehr Vertrauen als Absagen',
       adata.ACHSEN_VERFALL.vertrauen < adata.ACHSEN_AB.vertrauen);

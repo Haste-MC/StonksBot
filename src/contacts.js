@@ -173,7 +173,10 @@ const istPartner = (respekt, vertrauen) =>
  *   • `mentor`/`schuetzling` über `partner`, weil sie das Spezifischere sind.
  *     `istPartner` ist davon unabhängig – die Ansicht zeigt beides.
  *   • `band` unter den warmen Arten, damit sie das bedeutet, was sie sagt:
- *     Ihr habt ein Album zusammen, und seither ist es abgekühlt.
+ *     Ihr habt etwas zusammen durchgezogen, und seither ist es abgekühlt.
+ *     Zwei Wege führen dorthin: ein großes Format (Kollabo oder Tour, Boden
+ *     +10) oder mehrere kleine (vier angenommene Gegenanfragen, je +3, ergeben
+ *     12 – ohne ein einziges Album).
  *
  * `beefOffen` wird hereingereicht, nicht gelesen – der Aufrufer hat den Beef
  * sowieso in der Hand (`contacts.detail` fragt ihn heute schon).

@@ -3147,7 +3147,7 @@ async function buildKontaktView({ guildId, userId, contactId }) {
     draht: `🔒 Draht ${r.minDraht} nötig`,
     // 6a: Ohne diesen Schlüssel bewürbe ein gesperrter Knopf eine Chance, die
     // gerade niemand bekommen kann (derselbe Rückfall wie bei `beef`).
-    vertrauen: '🔒 Vertrauen ' + r.minVertrauen + ' nötig',
+    vertrauen: `🔒 Vertrauen ${r.minVertrauen} nötig`,
     gesperrt: '🔒 gesperrt',
     // 5b: Ohne diesen Eintrag stünde auf einem gesperrten Knopf weiter eine
     // Chance, die gerade niemand bekommen kann.
