@@ -646,7 +646,7 @@ function nutzenOf(requestId, staerke, seine, meine, seite) {
  * Wie die zweite Würfelrunde (`contacts.stufeVon`) im Mittel ausfällt.
  *
  * Die Stufe ist nicht frei wählbar: Wer antwortet, antwortet meistens flüchtig.
- * Wie oft es eine Zusage wird, hängt am Größenverhältnis und am Draht – und
+ * Wie oft es eine Zusage wird, hängt am Größenverhältnis und am Respekt – und
  * genau daran hing der Denkfehler der ersten Fassung dieser Messung, die für
  * JEDEN Kandidaten mit der Stärke einer Zusage gerechnet hat. Das überschätzt
  * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe um rund das
@@ -657,13 +657,19 @@ function nutzenOf(requestId, staerke, seine, meine, seite) {
  * hier ein zweites Mal. Dass beide übereinstimmen, wird nicht geglaubt,
  * sondern geprüft: `node scripts/messung-geldquellen.js stufenprobe` würfelt
  * `stufeVon` selbst millionenfach und vergleicht.
+ *
+ * Gewogen wird der RESPEKT, nicht der Draht (das war bis Task 5 ein stiller
+ * Unterschied zur Produktion), und gedämpft mit dem Vertrauen – dieselbe
+ * Rechnung wie `contacts.respektWirkt`, hier bewusst ausgeschrieben: Ein
+ * Nachbau, der die geprüfte Funktion aufruft, prüft nichts mehr.
  */
-function stufenVerteilung({ ratio, draht = 0 }) {
+function stufenVerteilung({ ratio, respekt = 0, vertrauen = 0 }) {
   const naehe = Math.min(1, ratio);
+  const wirkt = Math.max(0, respekt) * (1 + Math.min(0, vertrauen / 100));
   const gewichte = {
     fluechtig: 6 * (ratio < 0.05 ? 2 : 1),
     echt: 3,
-    zusage: 1 * (1 + 2 * naehe) * (1 + draht / 100),
+    zusage: 1 * (1 + 2 * naehe) * (1 + wirkt / 100),
   };
   const summe = gewichte.fluechtig + gewichte.echt + gewichte.zusage;
   return {
@@ -699,7 +705,7 @@ const seite2seine = (seite, contact) => (seite === 'creator' ? contact.reachCrea
  * dieser Messung hat für jeden Kandidaten mit der Stärke einer ZUSAGE
  * gerechnet – das ist eine Wette, die es so nicht gibt, und sie überschätzt
  * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe systematisch (bei
- * einem Verhältnis von 0,005 und Draht 15 ist der erwartete Stufenfaktor
+ * einem Verhältnis von 0,005 und Respekt 15 ist der erwartete Stufenfaktor
  * 0,350, auf Augenhöhe 0,500). Gemittelt wird über `nutzenOf` selbst, nicht
  * über die Stärke, damit die Decken der Schübe richtig greifen.
  *
@@ -722,7 +728,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
   };
 
   /** Stärke und erwarteter Nutzen dieser Anfrage – auf der Seite, über die sie liefe. */
-  const bewerte = (contact, requestId, draht = 0) => {
+  const bewerte = (contact, requestId, respekt = 0, vertrauen = 0) => {
     const seite = contacts.seiteFuer(contact, ich, requestId);
     if (!seite) return null;
     const meine = Math.max(100, (seite === 'creator' ? ich.total : ich.listeners) || 0);
@@ -740,12 +746,12 @@ function kontakttag(G, U, now, rand, vorrang = null) {
       seineReichweite: seine, meineReichweite: meine, passung: p.passung, stufe: 'zusage' });
     // Genau das Verhältnis, mit dem `contacts.request` gleich `stufeVon` ruft.
     const ratio = meine / Math.max(1, seine);
-    const verteilung = stufenVerteilung({ ratio, draht });
+    const verteilung = stufenVerteilung({ ratio, respekt, vertrauen });
     const nutzen = Object.entries(verteilung).reduce((s, [stufe, w]) =>
       s + w * nutzenOf(requestId, staerke * contacts.STUFEN_FAKTOR[stufe], seine, meine, seite), 0);
     return {
       seite, staerke, nutzen,
-      stufenFaktor: erwarteterStufenFaktor({ ratio, draht }),
+      stufenFaktor: erwarteterStufenFaktor({ ratio, respekt, vertrauen }),
     };
   };
 
@@ -753,7 +759,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
   const liste = contacts.listFor(G, U, { now })
     .filter((z) => z.gesperrtBis <= now)
     .map((z) => {
-      const b = bewerte(z.contact, 'shoutout', z.draht);
+      const b = bewerte(z.contact, 'shoutout', z.respekt, z.vertrauen);
       // Beim Partner-Vorrang zählt die Musikseite auch schon in der
       // Vorauswahl: Sonst verdrängen die acht größten Creator des Katalogs
       // jeden Musiker, und die Auswahl unten fände nichts mehr vor.
@@ -804,7 +810,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
     if (!d) continue;
     for (const r of d.requests) {
       if (!r.moeglich) continue;
-      const b = bewerte(z.contact, r.id, d.draht);
+      const b = bewerte(z.contact, r.id, d.respekt, d.vertrauen);
       if (!b) continue;
       if (nurMusik && b.seite !== 'musik') continue;
       const score = r.chance * b.nutzen;
@@ -817,7 +823,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
         : (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score));
       if (besser) {
         wahl = { score, konzert, contactId: z.contact.id, requestId: r.id, seite: b.seite,
-          chance: r.chance, draht: d.draht };
+          chance: r.chance, draht: d.draht, respekt: d.respekt, vertrauen: d.vertrauen };
       }
     }
   }
@@ -830,7 +836,8 @@ function kontakttag(G, U, now, rand, vorrang = null) {
    * gegen data/contacts.js nachgerechnet).
    */
   if (TRACE === 'kontakte') {
-    const b = bewerte(contactsData.byId(wahl.contactId), wahl.requestId, wahl.draht) ?? {};
+    const b = bewerte(contactsData.byId(wahl.contactId), wahl.requestId,
+      wahl.respekt, wahl.vertrauen) ?? {};
     console.error(JSON.stringify({
       datum: new Date(now).toISOString().slice(0, 10),
       kontakt: wahl.contactId, anfrage: wahl.requestId, seite: wahl.seite,
@@ -2003,12 +2010,16 @@ function kontaktZeilen(z, tage, laeufe) {
  */
 function stufenprobe(wuerfe = 1_000_000) {
   const faelle = [
-    { name: 'Taylor Swift (Verhältnis 0,0047, Draht 15)', ratio: 562552 / 120_000_000, draht: 15 },
-    { name: 'Kontakt auf Augenhöhe (Verhältnis 1, Draht 0)', ratio: 1, draht: 0 },
-    { name: 'knapp unter der 0,05-Schwelle', ratio: 0.049, draht: 0 },
-    { name: 'knapp über der 0,05-Schwelle', ratio: 0.051, draht: 0 },
-    { name: 'kleinerer Kontakt (0,2), Draht 30', ratio: 0.2, draht: 30 },
-    { name: 'Weltstar ohne Draht', ratio: 0.001, draht: 0 },
+    { name: 'Taylor Swift (Verhältnis 0,0047, Respekt 15)', ratio: 562552 / 120_000_000, respekt: 15 },
+    { name: 'Kontakt auf Augenhöhe (Verhältnis 1, Respekt 0)', ratio: 1, respekt: 0 },
+    { name: 'knapp unter der 0,05-Schwelle', ratio: 0.049, respekt: 0 },
+    { name: 'knapp über der 0,05-Schwelle', ratio: 0.051, respekt: 0 },
+    { name: 'kleinerer Kontakt (0,2), Respekt 30', ratio: 0.2, respekt: 30 },
+    { name: 'Weltstar ohne Respekt', ratio: 0.001, respekt: 0 },
+    // Der Dämpfer: derselbe Respekt, einmal mit halbem und einmal ohne
+    // Vertrauen. Ohne ihn liefen Nachbau und Produktion hier auseinander.
+    { name: 'Rivale (Respekt 68, Vertrauen −50)', ratio: 0.2, respekt: 68, vertrauen: -50 },
+    { name: 'Dauer-Beefer (Respekt 68, Vertrauen −100)', ratio: 0.2, respekt: 68, vertrauen: -100 },
   ];
   const out = [];
   let allesGut = true;
@@ -2017,13 +2028,15 @@ function stufenprobe(wuerfe = 1_000_000) {
     let summe = 0;
     const zahl = { fluechtig: 0, echt: 0, zusage: 0 };
     for (let i = 0; i < wuerfe; i++) {
-      const s = contacts.stufeVon(r, { ratio: fall.ratio, draht: fall.draht });
+      const s = contacts.stufeVon(r,
+        { ratio: fall.ratio, respekt: fall.respekt, vertrauen: fall.vertrauen ?? 0 });
       zahl[s]++;
       summe += contacts.STUFEN_FAKTOR[s];
     }
     const gewuerfelt = summe / wuerfe;
-    const gerechnet = erwarteterStufenFaktor({ ratio: fall.ratio, draht: fall.draht });
-    const p = stufenVerteilung({ ratio: fall.ratio, draht: fall.draht });
+    const arg = { ratio: fall.ratio, respekt: fall.respekt, vertrauen: fall.vertrauen ?? 0 };
+    const gerechnet = erwarteterStufenFaktor(arg);
+    const p = stufenVerteilung(arg);
     const ok = Math.abs(gewuerfelt - gerechnet) < 0.002;
     if (!ok) allesGut = false;
     out.push(`  ${fall.name.padEnd(46)} gerechnet ${gerechnet.toFixed(5)} · gewürfelt ${gewuerfelt.toFixed(5)} ` +
