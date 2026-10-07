@@ -1874,7 +1874,25 @@ In `buildKontaktView` hinter dem Kopf einhängen:
 
 - [ ] **Step 5: Die Meldungen in `src/buttons.js`**
 
-Beide Meldungen zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Achsen-Deltas. Sie bekommen **einen** Erzeuger in `src/ui.js`, direkt hinter `drahtBar` — sonst steht derselbe dreiteilige String zweimal im Code und läuft beim nächsten Mal auseinander:
+**Hier liegt der größte Hebel der Aufgabe.** `buttons.beefDraht` hat inzwischen **zehn** Aufrufstellen in neun Funktionen — gemessen mit `grep -n "beefDraht(" src/buttons.js`:
+
+| Funktion | Ereignis |
+|---|---|
+| `releaseNote` | Angezählt |
+| `beefNote` | Konter |
+| `anstachelnNote` (zweimal) | Einstieg, Blamage |
+| `dissNote` | Disstrack |
+| `friedenNote` | Versöhnung |
+| `durchgezogenNote` | Projekt abgeschlossen |
+| `angebotNote` | Projekt verfallen |
+| `annahmeNote` | Gegenanfrage angenommen |
+| `absageNote` | Gegenanfrage abgesagt |
+
+Alle zehn bekommen ihr Objekt aus `contacts.move` und tragen damit `achsenVor` und `achsen`. **Du änderst darum keine zehn Stellen, sondern eine:** `beefDraht` wird zur dünnen Hülle über `achsenZeile`, und alle zehn Meldungen zeigen von da an die zwei Achsen-Deltas. Erst damit erfährt der Spieler, dass ein gelandeter Disstrack den **Respekt hebt**, während er das Vertrauen zerstört — die Aussage, für die dieses ganze Stück gebaut ist.
+
+Die **elfte** Stelle ist die Ausnahme: `kontaktNote` baut die Zeile heute inline zusammen, statt `beefDraht` zu rufen. Sie wird einzeln umgestellt.
+
+Beide Erzeuger zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Achsen-Deltas. Sie bekommen **einen** Erzeuger in `src/ui.js`, direkt hinter `drahtBar` — sonst steht derselbe dreiteilige String zweimal im Code und läuft beim nächsten Mal auseinander:
 
 ```js
 /**
