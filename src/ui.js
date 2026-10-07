@@ -2690,7 +2690,10 @@ async function buildMusicDealView({ guildId, userId }) {
         // einzige – ein Partner führt einen bei SEINEM Label ein, in jedem Land
         // und mit oder ohne Gesicht. Für einen deutschen Rapper stand hier
         // vorher „geht nicht", obwohl es geht; und für beide Märkte gilt es.
-        '📝 Ein fester Partner kann dich außerdem bei seinem Label einführen – ab '
+        // „beim eigenen Label" – Subjekt des Satzes ist der Partner, also ist
+        // das Label seins, ohne ein Pronomen über eine Person, deren
+        // Geschlecht der Katalog nicht kennt.
+        '📝 Ein fester Partner kann dich außerdem beim eigenen Label einführen – ab '
         + `**${music.LABEL.minListeners.toLocaleString('de-DE')}** Hörern, in jedem Land. `
         + 'Solche Einführungen stehen unter 📬 **Angebote**.',
       ].join('\n\n'));
@@ -2959,7 +2962,10 @@ function beefZeile(b, now = Date.now()) {
   const hitze = Math.round(b.hitze);
   let rest;
   if (b.konter_at > 0) {
-    rest = `sein Konter kommt in ${restZeit(Math.max(0, b.konter_at - now))}`;
+    // „der Konter", nicht „sein Konter": Die Zeile steht bei jedem der 89
+    // Kontakte, und der Katalog hat kein Geschlechtsfeld. Welcher Konter
+    // gemeint ist, ist ohnehin eindeutig – es gibt nur einen offenen.
+    rest = `der Konter kommt in ${restZeit(Math.max(0, b.konter_at - now))}`;
   } else {
     const tage = Math.max(1, Math.round(hitze / bdata.HITZE_COOL_PRO_TAG));
     rest = `kühlt ab, noch ${tage} ${tage === 1 ? 'Tag' : 'Tage'}`;
@@ -3319,7 +3325,10 @@ async function buildKontaktView({ guildId, userId, contactId }) {
     kopf.push('❌ Dafür fehlt dir die passende Karriere.');
   }
   if (d.tuerOeffner > 0) {
-    kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in seinem Umfeld.`);
+    // „in diesem Umfeld": Die Zeile steht in derselben Beschreibung wie der
+    // dreizeilige Kopf darüber und gilt für jeden Kontakt – ein „seinem" wäre
+    // der einzige gegenderte Satz der ganzen Ansicht.
+    kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in diesem Umfeld.`);
   }
   if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
 

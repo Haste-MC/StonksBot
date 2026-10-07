@@ -784,10 +784,13 @@ function beefNote(events) {
       // Konstante abdriftet (siehe deren Änderung von 7 auf 1 im Balancing).
       const tage = bdata.BONUS_TAGE;
       const dauer = tage === 1 ? 'einen Tag' : `${tage} Tage`;
+      // „gegen dich" statt „für ihn": Das Gegenstück zu „für dich" eine Zeile
+      // höher, ohne Pronomen – der Katalog hat kein Geschlechtsfeld, und der
+      // Satz gilt für jeden Kontakt. Der Stich bleibt derselbe.
       const schluss = e.status === 'sieg'
         ? `${stand} für dich. Die Straße redet – ${dauer} lang.`
         : e.status === 'niederlage'
-          ? `${stand} für ihn. Das sitzt ${dauer}.`
+          ? `${stand} gegen dich. Das sitzt ${dauer}.`
           : `${stand}. Keiner hat gewonnen.`;
       zeilen.push(`🔥 Der Beef mit **${demName}** ist durch: ${schluss}`);
       if (e.text) zeilen.push(`_${e.text}_`);
@@ -847,14 +850,18 @@ function beefDraht(d) {
  */
 function beefProblem(res, now = Date.now()) {
   const bdata = require('./data/beef');
-  if (res.reason === 'laeuft_schon') return '🔥 Mit ihm läuft schon einer.';
+  // Ohne Pronomen, und ohne an Kürze zu verlieren: Beide Sätze stehen immer
+  // bei EINEM Kontakt, dessen Namen der Spieler gerade angeklickt hat – wer
+  // gemeint ist, sagt der Zusammenhang, nicht ein „ihm", das für über die
+  // Hälfte des Katalogs falsch ist.
+  if (res.reason === 'laeuft_schon') return '🔥 Da läuft schon einer.';
   if (res.reason === 'zu_viele') return '🔥 Zwei Beefs sind genug.';
   if (res.reason === 'zu_heiss') {
     return `🔥 Dafür ist es noch zu heiß (Hitze ${Math.round(res.hitze)}, `
       + `nötig unter ${bdata.HITZE_FRIEDEN_MAX}).`;
   }
   if (res.reason === 'zu_frisch') {
-    return '🔥 Die Straße redet noch über die letzte Runde mit ihm – '
+    return '🔥 Die Straße redet noch über die letzte Runde – '
       + `wieder möglich in ${frist(Math.max(0, res.bis - now))}.`;
   }
   if (res.reason === 'gesperrt') return `⏳ Melde dich in ${frist(res.remainingMs)} wieder.`;

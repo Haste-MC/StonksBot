@@ -1416,6 +1416,10 @@ function view(buttons) {
     db.saveArtist(QG6, QU6, { ...db.getArtist(QG6, QU6, jetzt), listeners: 10_000 });
     db.saveContact(QG6, QU6, klein.id, { respekt: 80, vertrauen: 80, boden: 0,
       tries: 3, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
+    // Ein ZWEITER fester Partner im selben Land – damit trägt der Kontakt oben
+    // einen Türöffner, und dessen Zeile steht in derselben Beschreibung.
+    db.saveContact(QG6, QU6, 'rammstein', { respekt: 80, vertrauen: 80, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
     const qBeschr = (await ui.buildKontaktView({
       guildId: QG6, userId: QU6, contactId: klein.id })).embeds[0].toJSON().description;
     check('bei der Art „fester Partner" steht der Stern NICHT zweimal',
@@ -1426,6 +1430,31 @@ function view(buttons) {
     check('ohne Gedächtniszeilen steht der Schwanz allein, ohne leere Überschrift',
       qBeschr.endsWith('\n\n_3 Versuche ohne Zusage_')
       && !qBeschr.includes('Was zwischen euch war'), qBeschr);
+    /*
+     * Die Türöffner-Zeile stand als „in SEINEM Umfeld" da – der einzige
+     * gegenderte Satz dieser Ansicht, in derselben Beschreibung wie der neue
+     * dreizeilige Kopf. Sie gilt für jeden der 89 Kontakte, und der Katalog hat
+     * kein Geschlechtsfeld. Die alte Fassung wird ausdrücklich abgelehnt.
+     */
+    check('die Türöffner-Zeile nennt das Umfeld ohne Pronomen',
+      qBeschr.includes('🚪 Türöffner: **+8 %** über deine Drähte in diesem Umfeld.')
+      && !qBeschr.includes('seinem Umfeld'), qBeschr);
+    // Und die ganze Beschreibung trägt kein Pronomen über den Kontakt mehr.
+    check('die Kontaktansicht nennt nirgends ein Pronomen über den Kontakt',
+      !/\b(er|ihn|ihm|seine?[rmsn]?)\b/.test(qBeschr.replace(/_[^_]*_/g, '')), qBeschr);
+    /*
+     * Die Label-Zeile der Vertragsansicht: „bei SEINEM Label" → „beim eigenen
+     * Label". Subjekt des Satzes ist der Partner, also ist das Label seins –
+     * ohne Pronomen über eine Person, deren Geschlecht der Katalog nicht kennt.
+     * Dieser Zweig (`!s.offer`) war bisher von keinem Test berührt.
+     */
+    const vertraege = (await ui.buildMusicDealView({ guildId: QG6, userId: QU6 }))
+      .embeds[0].toJSON();
+    check('die Label-Zeile der Vertragsansicht nennt das Label ohne Pronomen',
+      vertraege.title === '📜 Verträge'
+      && vertraege.description.includes('📝 Ein fester Partner kann dich außerdem beim '
+        + 'eigenen Label einführen – ab ')
+      && !vertraege.description.includes('seinem Label'), vertraege.description);
 
     /*
      * ---------------------------------------------------------------------
@@ -1855,8 +1884,12 @@ function view(buttons) {
 
     const mit = await ui.buildKontaktView({ guildId: VG, userId: VU, contactId: gross.id });
     const mEmbed = mit.embeds[0].toJSON();
-    check('die Beef-Zeile nennt Hitze, Balken, Runden und den Konter',
-      mEmbed.description.includes('🔥 **Beef** · Hitze 62 ▰▰▰▰▱ · Runden 2:1 · sein Konter kommt in 14 h'),
+    // „der Konter", nicht „sein Konter": Die Zeile steht bei jedem der 89
+    // Kontakte, und der Katalog hat kein Geschlechtsfeld. Die alte Fassung
+    // wird ausdrücklich abgelehnt, damit sie nicht zurückwandert.
+    check('die Beef-Zeile nennt Hitze, Balken, Runden und den Konter – ohne Pronomen',
+      mEmbed.description.includes('🔥 **Beef** · Hitze 62 ▰▰▰▰▱ · Runden 2:1 · der Konter kommt in 14 h')
+      && !mEmbed.description.includes('sein Konter'),
       mEmbed.description.split('\n').filter((z) => z.includes('Beef')).join(' / '));
     const mRow = mit.components[0].toJSON().components;
     check('die vier Kooperationsknöpfe sind deaktiviert',
@@ -2133,9 +2166,16 @@ function view(buttons) {
     check('Abrechnung: Sieg nennt den Stand und die Dauer aus BONUS_TAGE',
       aNote.includes(`🔥 Der Beef mit **${gross.name}** ist durch: **2:1** für dich. Die Straße redet – ${dauer} lang.`),
       aNote);
-    check('Abrechnung: Niederlage sitzt dieselbe Dauer aus BONUS_TAGE',
-      aNote.includes(`🔥 Der Beef mit **${klein.name}** ist durch: **1:2** für ihn. Das sitzt ${dauer}.`),
-      aNote);
+    /*
+     * „gegen dich" statt „für ihn" – das Gegenstück zu „für dich" in der
+     * Zusicherung darüber, und ohne Pronomen über einen Kontakt, dessen
+     * Geschlecht der Katalog nicht kennt. Die alte Fassung wird ausdrücklich
+     * abgelehnt; die Dauer kommt weiter aus BONUS_TAGE, nicht aus Prosa.
+     */
+    check('Abrechnung: Niederlage sitzt dieselbe Dauer aus BONUS_TAGE, ohne Pronomen',
+      aNote.includes(`🔥 Der Beef mit **${klein.name}** ist durch: **1:2** gegen dich. `
+        + `Das sitzt ${dauer}.`)
+      && !aNote.includes('für ihn'), aNote);
     check('Abrechnung: unentschieden hat keinen Gewinner',
       aNote.includes('ist durch: **1:1**. Keiner hat gewonnen.'), aNote);
 
@@ -2214,8 +2254,12 @@ function view(buttons) {
       && !fLeer.split('\n').some((z) => z.trim() === ''), JSON.stringify(fLeer));
 
     // --- Die Fehlerfälle mit dem Wortlaut der Spec ------------------------
-    check('laeuft_schon', beefProblem({ reason: 'laeuft_schon' }, jetzt)
-      === '🔥 Mit ihm läuft schon einer.');
+    // Beide Sätze stehen immer bei EINEM Kontakt, dessen Namen der Spieler
+    // gerade angeklickt hat: Wer gemeint ist, sagt der Zusammenhang. Die alten
+    // Fassungen („Mit ihm läuft schon einer.", „… letzte Runde mit ihm") werden
+    // ausdrücklich abgelehnt.
+    check('laeuft_schon – kurz und ohne Pronomen',
+      beefProblem({ reason: 'laeuft_schon' }, jetzt) === '🔥 Da läuft schon einer.');
     check('zu_viele', beefProblem({ reason: 'zu_viele' }, jetzt)
       === '🔥 Zwei Beefs sind genug.');
     check('zu_heiss nennt Hitze und Grenze',
@@ -2227,10 +2271,24 @@ function view(buttons) {
     check('gesperrt wie in 5a',
       beefProblem({ reason: 'gesperrt', remainingMs: 3 * 86_400_000 }, jetzt)
         === '⏳ Melde dich in 3 Tagen wieder.');
-    check('zu_frisch nennt die Restzeit des Bonusfensters',
+    check('zu_frisch nennt die Restzeit des Bonusfensters, ohne Pronomen',
       beefProblem({ reason: 'zu_frisch', bis: jetzt + 3 * 86_400_000 }, jetzt)
-        .includes('wieder möglich in 3 Tagen'),
+        === '🔥 Die Straße redet noch über die letzte Runde – wieder möglich in 3 Tagen.',
       beefProblem({ reason: 'zu_frisch', bis: jetzt + 3 * 86_400_000 }, jetzt));
+    /*
+     * Die Gesamtprobe über die Beef-Fehlerfälle: KEINER nennt ein Pronomen
+     * über den Kontakt. Eine neue Absage mit „ihm"/„er" fällt hier auf, auch
+     * wenn niemand an diese vier Zusicherungen denkt.
+     */
+    const absagen = ['laeuft_schon', 'zu_viele', 'kein_beef', 'seite']
+      .map((reason) => beefProblem({ reason }, jetzt))
+      .concat(beefProblem({ reason: 'zu_heiss', hitze: 62 }, jetzt),
+        beefProblem({ reason: 'zu_frisch', bis: jetzt + 3 * 86_400_000 }, jetzt),
+        beefProblem({ reason: 'gesperrt', remainingMs: 3 * 86_400_000 }, jetzt));
+    check('keine der sieben Beef-Absagen nennt ein Pronomen über den Kontakt',
+      absagen.every((t) => !/\b(er|ihn|ihm|sie|ihr|seine?[rmsn]?|ihre?[rmsn]?)\b/.test(t)),
+      JSON.stringify(absagen.filter((t) =>
+        /\b(er|ihn|ihm|sie|ihr|seine?[rmsn]?|ihre?[rmsn]?)\b/.test(t))));
     check('eine Absage der Veröffentlichung kommt unverändert von releaseProblem',
       beefProblem({ reason: 'no_songs', need: 1, have: 0, release: { name: 'Disstrack' } }, jetzt)
         .includes('braucht **1** Titel'),
