@@ -22,6 +22,7 @@
 - **Eine Partner-Regel:** `respekt >= 50 && vertrauen >= 50`, gültig für ⭐, Antwortchance, Türöffner und `beef.js`. Kein zweiter Weg.
 - **Alle Zahlenkonstanten stehen in `src/data/*.js`**, nie im Rechencode. Beef-Werte in `data/beef.js`, Angebots-Werte in `data/angebote.js`, alles übrige in `data/contacts.js`.
 - **Sprache:** Benutzertexte deutsch, geschlechtsneutral, wo die Person unbekannt ist. Dezimaltrennzeichen Komma in jedem Text, den ein Spieler liest.
+- **Zeilennummern in diesem Plan sind Wegweiser, keine Adressen.** Sie stammen vom Tag, an dem der Plan geschrieben wurde, und verschieben sich mit jeder vorangehenden Aufgabe — Task 2 hat allein in `src/contacts.js` 26 Zeilen eingefügt. **Verbindlich ist immer der Name** der Funktion, der Konstante oder des Textbausteins; such ihn mit `grep -n`, statt einer Nummer zu folgen. Steht an der genannten Nummer etwas anderes als beschrieben, ist die Nummer veraltet und nicht der Code falsch.
 
 ## Dateien
 
@@ -467,7 +468,7 @@ const MEMORY_TEXTE = {
 };
 ```
 
-> **Diese Aufgabe ist rein additiv und löscht NICHTS.** Die fünf alten `DRAHT_*`-Konstanten, `STUFE_BEEF`, `PARTNER_YES` und `drahtStufe` bleiben vollständig stehen und exportiert, obwohl sie am Ende verschwinden sollen. Grund, nachgemessen: `src/contacts.js:449-456` liest die fünf Deltas, `:224` liest `PARTNER_YES`, `:96` liest `STUFE_BEEF`, und `listFor`/`detail`/`request` rufen `drahtStufe`. Löschte diese Aufgabe sie, setzte `request` `delta = undefined` und schriebe `NaN` in den Draht — die Suite wäre bis Task 3 rot, und der nächste Reviewer könnte neue Brüche nicht von geerbten unterscheiden. **Task 3 löscht sie, in derselben Änderung, die ihre Leser ersetzt.**
+> **Diese Aufgabe ist rein additiv und löscht NICHTS.** Die fünf alten `DRAHT_*`-Konstanten, `STUFE_BEEF`, `PARTNER_YES` und `drahtStufe` bleiben vollständig stehen und exportiert, obwohl sie am Ende verschwinden sollen. Grund, nachgemessen: die `delta`-Zuweisung in `request` liest die fünf Deltas, die alte `istPartner` liest `PARTNER_YES`, `drahtStufe` liest `STUFE_BEEF`, und `listFor`/`detail`/`request` rufen `drahtStufe`. Löschte diese Aufgabe sie, setzte `request` `delta = undefined` und schriebe `NaN` in den Draht — die Suite wäre bis Task 3 rot, und der nächste Reviewer könnte neue Brüche nicht von geerbten unterscheiden. **Task 3 löscht sie, in derselben Änderung, die ihre Leser ersetzt.**
 
 `module.exports` wird nur **ergänzt**: `ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX, RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS, PARTNER_RESPEKT, PARTNER_VERTRAUEN, ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT, ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN, ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE`. Nichts kommt heraus.
 
@@ -501,7 +502,7 @@ function respektGewicht(meine, seine) {
 
 `module.exports` wird nur **ergänzt**: `drahtVon, decayAchse, respektGewicht` hinein. `drahtStufe` und `decay` bleiben exportiert.
 
-> **Warum `istPartner` und `artOf` hier NICHT stehen:** `src/contacts.js:223` trägt heute eine `function istPartner(row, draht)` mit fünf Aufrufern (Zeilen 282, 308, 422, 505, 506). Ein zusätzliches `const istPartner` im selben Gültigkeitsbereich ist ein `SyntaxError: Identifier 'istPartner' has already been declared` — die Datei ließe sich nicht einmal laden. Beide Funktionen kommen deshalb in Task 3, wo die alte Fassung und ihre fünf Aufrufer in derselben Änderung verschwinden.
+> **Warum `istPartner` und `artOf` hier NICHT stehen:** `src/contacts.js` trägt heute eine `function istPartner(row, draht)` mit fünf Aufrufern (in `listFor`, `detail`, `request` und zweimal in dessen Rückgabe). Ein zusätzliches `const istPartner` im selben Gültigkeitsbereich ist ein `SyntaxError: Identifier 'istPartner' has already been declared` — die Datei ließe sich nicht einmal laden. Beide Funktionen kommen deshalb in Task 3, wo die alte Fassung und ihre fünf Aufrufer in derselben Änderung verschwinden.
 
 - [ ] **Step 3: Den Paritätstest schreiben**
 
@@ -636,7 +637,7 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 ## Task 3: `src/contacts.js` vollständig auf die Achsen
 
 **Files:**
-- Modify: `src/contacts.js` (`chanceOf` 46–66, `stufeVon` 69–83, `drahtJetzt` 207, `istPartner` 223, `tuerOeffnerFor` 232, `chanceFor` 245, `listFor` 273, `detail` 300, `moveDraht` 395, `request` 425)
+- Modify: `src/contacts.js` (`chanceOf` ab Zeile 45, `stufeVon` ab Zeile 63, `drahtJetzt` Zeile 233, `istPartner` Zeile 248, `tuerOeffnerFor` Zeile 257, `chanceFor` Zeile 271, `listFor` Zeile 294, `detail` Zeile 325, `moveDraht` Zeile 403, `request` Zeile 429)
 - Modify: `test/contacts.test.js` (die `drahtStufe`-Fälle)
 - Test: `test/beziehungen.test.js`, `test/contacts.test.js`
 
@@ -656,8 +657,8 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 >
 > | zu löschen | Leser, die hier ersetzt werden |
 > |---|---|
-> | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | `contacts.js:449-456` (Step 5, ersetzt durch `data.ACHSEN`) |
-> | `data.PARTNER_YES` | `contacts.js:224`, die alte `istPartner` (Step 6) |
+> | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | die `delta`-Zuweisung in `request` (Step 5, ersetzt durch `data.ACHSEN`) |
+> | `data.PARTNER_YES` | die alte `istPartner` (Step 6) |
 >
 > **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen: `src/buttons.js:659` (`anfrageNote`) und `:798` (`beefDraht`) lesen `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
 > | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
@@ -668,7 +669,7 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 
 - [ ] **Step 1: `achsenJetzt` und `drahtJetzt`**
 
-`drahtJetzt` (Zeile 207) **ersetzen**:
+`drahtJetzt` (Zeile 233) **ersetzen**:
 
 ```js
 /**
@@ -700,7 +701,7 @@ function istPartnerRow(row, now) {
 
 - [ ] **Step 2: `move` statt `moveDraht`**
 
-`moveDraht` (Zeile 395) **bleibt vorerst stehen** — `src/beef.js` und `src/angebote.js` rufen es an neun Stellen, und die kommen erst in Task 4 und 5 dran. `move` wird **daneben** gebaut, und `moveDraht` ruft es intern, damit es nur eine Schreibmechanik gibt:
+`moveDraht` (Zeile 403) **bleibt vorerst stehen** — `src/beef.js` und `src/angebote.js` rufen es an neun Stellen, und die kommen erst in Task 4 und 5 dran. `move` wird **daneben** gebaut, und `moveDraht` ruft es intern, damit es nur eine Schreibmechanik gibt:
 
 ```js
 /** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
@@ -769,7 +770,7 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
 
 - [ ] **Step 3: Die Antwortchance und die Verbindlichkeit**
 
-`chanceOf` (Zeile 46) — `draht` durch `respekt`/`vertrauen` ersetzen:
+`chanceOf` (Zeile 45) — `draht` durch `respekt`/`vertrauen` ersetzen:
 
 ```js
 /** Antwortchance (Wurf 1) – alle Summanden aus der Spec. */
@@ -797,7 +798,7 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
 }
 ```
 
-`stufeVon` (Zeile 69) — nur das Gewicht der Zusage hängt um:
+`stufeVon` (Zeile 63) — nur das Gewicht der Zusage hängt um:
 
 ```js
 /**
@@ -827,11 +828,11 @@ function stufeVon(random, { ratio, respekt = 0 }) {
 
 - [ ] **Step 4: Die vier Aufrufer durchziehen**
 
-`tuerOeffnerFor` (Zeile 232): `if (nah && drahtJetzt(row, now) >= data.STUFE_PARTNER) anzahl++;` wird zu `if (nah && istPartnerRow(row, now)) anzahl++;`.
+`tuerOeffnerFor` (Zeile 257): `if (nah && drahtJetzt(row, now) >= data.STUFE_PARTNER) anzahl++;` wird zu `if (nah && istPartnerRow(row, now)) anzahl++;`.
 
-`chanceFor` (Zeile 245): Parameter `draht` wird zu `respekt, vertrauen` und beide werden an `chanceOf` durchgereicht.
+`chanceFor` (Zeile 271): Parameter `draht` wird zu `respekt, vertrauen` und beide werden an `chanceOf` durchgereicht.
 
-`listFor` (Zeile 273) und `detail` (Zeile 300): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und statt `stufe: drahtStufe(draht)` ein
+`listFor` (Zeile 294) und `detail` (Zeile 325): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und statt `stufe: drahtStufe(draht)` ein
 
 ```js
       art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
@@ -860,7 +861,7 @@ Die Draht-Tore bleiben am Draht: `r.minDraht !== null && a.draht < r.minDraht`. 
 
 - [ ] **Step 5: `request` auf die Achsen**
 
-In `request` (Zeile 425): `const draht = drahtJetzt(row, now)` wird zu `const a = achsenJetzt(row, now)`; `partner` aus `istPartner(a.respekt, a.vertrauen)`. Die Draht-Prüfung bleibt (`r.minDraht`), die Vertrauens-Prüfung kommt dazu:
+In `request` (Zeile 429): `const draht = drahtJetzt(row, now)` wird zu `const a = achsenJetzt(row, now)`; `partner` aus `istPartner(a.respekt, a.vertrauen)`. Die Draht-Prüfung bleibt (`r.minDraht`), die Vertrauens-Prüfung kommt dazu:
 
 ```js
   if (r.minDraht != null && a.draht < r.minDraht) {
@@ -917,7 +918,7 @@ Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`,
 
 - [ ] **Step 6: `istPartner` und `artOf` — die alte Fassung verschwindet in derselben Änderung**
 
-Die bestehende `function istPartner(row, draht)` (Zeile 223) **löschen** und in der reinen Hälfte, hinter `respektGewicht`, einsetzen:
+Die bestehende `function istPartner(row, draht)` (Zeile 248) **löschen** und in der reinen Hälfte, hinter `respektGewicht`, einsetzen:
 
 ```js
 /**
@@ -970,7 +971,7 @@ function artOf({ respekt, vertrauen, boden = 0, meine = 0, seine = 0,
 }
 ```
 
-Die fünf Aufrufer (Zeilen 282, 308, 422, 505, 506) rufen danach `istPartner(a.respekt, a.vertrauen)` beziehungsweise `istPartner(respektNeu, vertrauenNeu)` — sie werden in Step 4 und Step 5 ohnehin angefasst. `module.exports`: `istPartner, artOf` hinein.
+Die fünf Aufrufer (in `listFor`, `detail`, `request` und zweimal in dessen Rückgabe) rufen danach `istPartner(a.respekt, a.vertrauen)` beziehungsweise `istPartner(respektNeu, vertrauenNeu)` — sie werden in Step 4 und Step 5 ohnehin angefasst. `module.exports`: `istPartner, artOf` hinein.
 
 - [ ] **Step 7: `istPartner` und `artOf` testen**
 
