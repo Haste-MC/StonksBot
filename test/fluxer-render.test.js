@@ -2037,7 +2037,7 @@ function view(buttons) {
     db.insertProjekt({ guildId: PG, userId: PU, art: 'kollabo', contactId: OXMO.id,
       stundenSoll: adata.KOLLABO_STUNDEN, stundenIst: 6, frist: jetzt - 1000 });
     const pvNote = angebotNote(ang.settle(PG, PU, jetzt, nie));
-    check('Meldung bei verrottetem Projekt: Stunden weg UND Vertrauen −20, Respekt −6',
+    check('Meldung bei verrottetem Projekt: Stunden weg, Vertrauen −20, Respekt −6 UND die Drahtzeile',
       pvNote.includes('investierten Stunden sind weg.')
       && pvNote.includes(`Vertrauen **−${Math.abs(adata.ACHSEN_PFUSCH.vertrauen)}**, `
         + `Respekt **−${Math.abs(adata.ACHSEN_PFUSCH.respekt)}**.`)
@@ -2209,6 +2209,11 @@ function view(buttons) {
       && arbeitNote(geArbeitet, '€', jetzt).includes('**2 von 18** Stunden'),
       arbeitNote(geArbeitet, '€', jetzt));
 
+    // Der Kontakt hat schon einen Boden (eine angenommene kleine Gegenanfrage):
+    // Bei Boden 0 wären Absolutwert und Ausschlag beide 10, und die Zusicherung
+    // könnte `boden` und `dBoden` nicht unterscheiden.
+    db.saveContact(HG, HU, OXMO.id, { respekt: 20, vertrauen: 20, boden: adata.BODEN_AN,
+      tries: 0, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
     db.saveProjekt(HG, hp.id, { stundenIst: adata.KOLLABO_STUNDEN - 2 });
     const fertig = await ang.arbeiten(HG, HU, hp.id, jetzt, nie);
     check('das volle Konto veröffentlicht das gemeinsame Album',
@@ -2222,10 +2227,11 @@ function view(buttons) {
       fertigNote);
     // 6a, Review-Befund 2: „Das Durchziehen zählt" muss in der Meldung stehen –
     // beide Achsen einzeln und der Boden, denn der ist das Dauerhafte.
-    check('die Abschlussmeldung nennt Vertrauen +18, Respekt +6 und den Boden 10',
+    check('die Abschlussmeldung nennt Vertrauen +18, Respekt +6, den Draht und den Boden 13 (+10)',
       fertigNote.includes(`🤝 Vertrauen **+${adata.ACHSEN_FERTIG.vertrauen}**, `
         + `Respekt **+${adata.ACHSEN_FERTIG.respekt}**.`)
-      && fertigNote.includes(`🛡️ Boden **${adata.BODEN_FERTIG}** (+${adata.BODEN_FERTIG})`)
+      && fertigNote.includes(`🛡️ Boden **${adata.BODEN_AN + adata.BODEN_FERTIG}** `
+        + `(+${adata.BODEN_FERTIG})`)
       && fertigNote.includes('🤝 Draht '), fertigNote);
     check('die Stundenzahl im Arbeitstext kommt aus der Konstante, nicht aus Prosa',
       arbeitNote(geArbeitet, '€', jetzt)
@@ -2290,6 +2296,11 @@ function view(buttons) {
     const tp = db.insertProjekt({
       guildId: TG, userId: TU, art: 'tour', contactId: OXMO.id,
       stundenSoll: adata.TOUR_STUNDEN, frist: jetzt + 11 * TAG });
+    // Der Kontakt hat schon einen Boden (eine angenommene kleine Gegenanfrage):
+    // Bei Boden 0 wären Absolutwert und Ausschlag beide 10, und die Zusicherung
+    // könnte `boden` und `dBoden` nicht unterscheiden.
+    db.saveContact(TG, TU, OXMO.id, { respekt: 20, vertrauen: 20, boden: adata.BODEN_AN,
+      tries: 0, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
     db.saveProjekt(TG, tp.id, { stundenIst: adata.TOUR_STUNDEN - 2 });
     setzeBeef(TG, TU, RAMM.id, { hitze: 70, konter_at: jetzt - 1000 });
     const tFertig = await ang.arbeiten(TG, TU, tp.id, jetzt, nie);
@@ -2300,10 +2311,12 @@ function view(buttons) {
       && tNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
       JSON.stringify({ ok: tFertig.ok, reason: tFertig.reason,
         vorher: tFertig.abende?.[0]?.beefVorher?.length }) + ' | ' + tNote.split('\n')[0]);
-    check('auch die Tour-Meldung nennt Vertrauen +18, Respekt +6 und den Boden 10',
+    check('auch die Tour-Meldung nennt Vertrauen +18, Respekt +6, den Draht und den Boden 13 (+10)',
       tNote.includes(`🤝 Vertrauen **+${adata.ACHSEN_FERTIG.vertrauen}**, `
         + `Respekt **+${adata.ACHSEN_FERTIG.respekt}**.`)
-      && tNote.includes(`🛡️ Boden **${adata.BODEN_FERTIG}** (+${adata.BODEN_FERTIG})`),
+      && tNote.includes(`🛡️ Boden **${adata.BODEN_AN + adata.BODEN_FERTIG}** `
+        + `(+${adata.BODEN_FERTIG})`)
+      && tNote.includes('🤝 Draht '),
       tNote);
     check('und `abschliessen` summiert den Agenturanteil der Abende selbst',
       tFertig.cut === tFertig.abende.reduce((sum, a) => sum + (a.cut ?? 0), 0),
