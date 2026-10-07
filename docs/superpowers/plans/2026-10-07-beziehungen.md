@@ -658,7 +658,7 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 > | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | die `delta`-Zuweisung in `request` (Step 5, ersetzt durch `data.ACHSEN`) |
 > | `data.PARTNER_YES` | die alte `istPartner` (Step 6) |
 >
-> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen: `src/buttons.js:659` (`anfrageNote`) und `:798` (`beefDraht`) lesen `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
+> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen hängen **vier** Zeichenketten daran, nicht zwei: `src/ui.js:3013` (aus `listFor`), `src/ui.js:3110` (aus `detail`), `src/buttons.js:659` (`anfrageNote`, aus `request`) und `src/buttons.js:798` (`beefDraht`, aus `moveDraht`) lesen alle `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
 > | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
 >
 > `data.DRAHT_DECAY_PRO_WOCHE` und `contacts.decay` bleiben: Sie sind das Referenzmodell des Paritätstests.
@@ -830,7 +830,7 @@ function stufeVon(random, { ratio, respekt = 0 }) {
 
 `chanceFor` (Zeile 271): Parameter `draht` wird zu `respekt, vertrauen` und beide werden an `chanceOf` durchgereicht.
 
-`listFor` (Zeile 294) und `detail` (Zeile 325): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und statt `stufe: drahtStufe(draht)` ein
+`listFor` (Zeile 294) und `detail` (Zeile 325): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und — **zusätzlich** zu `stufe: drahtStufe(a.draht)`, das wie in der Löschungstabelle oben stehen bleibt — ein
 
 ```js
       art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
