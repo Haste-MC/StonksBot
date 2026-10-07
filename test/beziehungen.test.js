@@ -1084,10 +1084,11 @@ const aufraeumen = () => {
     // Der Mittelwert ist blind für vertauschte Achsen (Konter −6/−14 und −14/−6
     // ergeben beide −10), und test/beef.test.js liest die Paare aus denselben
     // Konstanten, die es prüft – darum stehen sie hier Achse für Achse als Literal.
-    check('die Beef-Paare stehen Achse für Achse fest (nicht nur im Mittel)',
+    check('die sechs Beef-Paare stehen Achse für Achse fest (nicht nur im Mittel)',
       JSON.stringify(bdata.ACHSEN_ANSTACHELN) === '{"respekt":0,"vertrauen":-24}'
       && JSON.stringify(bdata.ACHSEN_BLAMAGE) === '{"respekt":-10,"vertrauen":-4}'
       && JSON.stringify(bdata.ACHSEN_DISS) === '{"respekt":10,"vertrauen":-36}'
+      && JSON.stringify(bdata.ACHSEN_HAEME) === '{"respekt":-8,"vertrauen":-20}'
       && JSON.stringify(bdata.ACHSEN_KONTER) === '{"respekt":-6,"vertrauen":-14}'
       && JSON.stringify(bdata.ACHSEN_ANGEZAEHLT) === '{"respekt":-4,"vertrauen":-16}');
     check('die fünf DRAHT_* des Beefs gibt es nicht mehr',
