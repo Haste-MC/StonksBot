@@ -1578,6 +1578,13 @@ function view(buttons) {
     check('Meldung: normale Veröffentlichung plus Gegner, Aufmerksamkeit, Runden',
       dNote.includes('**Disstrack** ist draußen.') && dNote.includes('haben reingehört')
       && /🔥 Gegen \*\*Rammstein\*\* · Aufmerksamkeit ×\d+,\d · Runden 1:0/.test(dNote), dNote);
+    // Die Buchung des Disstracks (Respekt +10, Vertrauen −36) gehört in die Meldung.
+    // Heute zeigt `beefDraht` nur Ausschlag und Stufe; die Ansichts-Aufgabe hebt es
+    // auf beide Achsen. Geprüft wird die GERENDERTE Zeichenkette: Frisch 0/0 ergibt
+    // round((10 − 36) / 2) = −13, Stufe neutral.
+    check('Meldung beim Disstrack nennt, was gebucht wurde: Draht −13, neutral',
+      dNote.includes('**-13** (-13, neutral)') && !dNote.includes('undefined')
+      && !dNote.includes('null'), dNote);
 
     const [HG, HU] = await neu();
     setzeBeef(HG, HU, klein.id, { hitze: 62 });
@@ -1588,6 +1595,8 @@ function view(buttons) {
       dissNote(haeme, jetzt).includes(
         `😬 Das ging nach hinten los: ${klein.name} ist eine Nummer zu klein für dich.`),
       dissNote(haeme, jetzt));
+    check('…und auch die Häme meldet die Buchung (der Diss bucht in beiden Zweigen)',
+      dissNote(haeme, jetzt).includes('**-13** (-13, neutral)'), dissNote(haeme, jetzt));
 
     // --- Meldung: Gegenschlag (aus settle) --------------------------------
     const [KG5, KU5] = await neu();
@@ -1601,6 +1610,24 @@ function view(buttons) {
       kNote.includes(`🔥 **${gross.name}** hat zurückgeschlagen.`)
       && kNote.includes(konterEv[0].text)
       && /📉 Hype −\d+ %, [\d.]+ Hörer weg\./.test(kNote), kNote);
+    // Konter: Respekt −6, Vertrauen −14, frisch 0/0 -> Draht −10, neutral.
+    check('Meldung beim Gegenschlag nennt die Buchung: Draht −10, neutral',
+      kNote.includes('**-10** (-10, neutral)') && !kNote.includes('undefined'), kNote);
+
+    // --- Meldung: Angezählt (steckt in der Veröffentlichungsmeldung) -------
+    const [ANG, ANU] = await neu();
+    const angez = beef.anzaehlen(ANG, ANU, jetzt, wuerfel(0.01, 0, 0));
+    check('der Wurf ergibt ein Anzählen', angez !== null && angez.contact && angez.draht,
+      JSON.stringify(angez));
+    const anNote = rNote5b({
+      release: { emoji: '💿', name: 'Single' },
+      audience: 12_000, listeners: 11_000, listenersBefore: 10_000,
+      angezaehlt: angez,
+    });
+    // Respekt −4, Vertrauen −16, frisch 0/0 -> Draht −10, neutral.
+    check('Meldung beim Angezähltwerden nennt die Buchung: Draht −10, neutral',
+      anNote.includes(`🔥 **${angez.contact.name}** zählt dich an.`)
+      && anNote.includes('**-10** (-10, neutral)') && !anNote.includes('undefined'), anNote);
 
     // --- Meldung: Abrechnung in allen drei Ausgängen -----------------------
     // Drei Fronten, eine Abrechnung: die Hitze ist bei allen längst durch.
@@ -1640,11 +1667,17 @@ function view(buttons) {
     const friede = beef.frieden(FG, FU, klein.id, jetzt, wuerfel(0));
     check('Frieden geht unter Hitze 30', friede.ok === true,
       JSON.stringify({ ok: friede.ok, reason: friede.reason }));
+    // Die Drahtzeile tritt an die Stelle der alten „Draht **N**."-Angabe: Draht
+    // −40 -> −25 (+15), Stufe verstimmt (−25 liegt unter −20). Die Zahl steht
+    // genau einmal da.
+    const fNote = friedenNote(friede, jetzt);
     check('Meldung bei Frieden: das Vertrauen springt nicht ins Plus, der Draht liegt bei −25',
       friede.draht.achsen.vertrauen === bdata.FRIEDEN_DECKEL
-      && friedenNote(friede, jetzt).includes(
-        '🕊️ Ihr habt Frieden geschlossen. Draht **-25**.'),
-      friedenNote(friede, jetzt));
+      && fNote.includes('🕊️ Ihr habt Frieden geschlossen.\n🤝 Draht ')
+      && fNote.includes('**-25** (+15, verstimmt)')
+      && fNote.split('-25').length === 2   // die Zahl steht genau einmal da
+      && !fNote.includes('Draht **') && !fNote.includes('undefined'),
+      fNote);
 
     // --- Die Fehlerfälle mit dem Wortlaut der Spec ------------------------
     check('laeuft_schon', beefProblem({ reason: 'laeuft_schon' }, jetzt)

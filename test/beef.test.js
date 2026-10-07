@@ -237,6 +237,10 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       creator.budget(G, U, t0).left === zeitVor - data.BEEF_TIME,
       `${creator.budget(G, U, t0).left} statt ${zeitVor - 2}`);
     check('Blamage schreibt keinen Beef', db.beefRow(G, U, riese.id) === null);
+    // Die Gedächtnisart je Ereignis: eine Verwechslung (diss schreibt konter)
+    // erzählte dem Spieler in „Was zwischen euch war" eine erfundene Geschichte.
+    check('Blamage merkt sich die Art „blamage"',
+      JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)) === '["blamage"]', JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)));
     // Die Achsen EINZELN: Der Draht ist ein Mittelwert und gegen vertauschte
     // Achsen blind (−10/−4 und −4/−10 ergeben beide −7).
     check('Blamage kostet Respekt −10 und Vertrauen −4 (Draht −7) und sperrt drei Tage',
@@ -269,6 +273,8 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && db.getContact(G, U, klein.id).vertrauen === data.ACHSEN_ANSTACHELN.vertrauen,
       JSON.stringify(e1.draht));
     check('Zwei offene Beefs', e2.ok && beef.offeneBeefs(G, U, t0).length === 2);
+    check('Einstieg merkt sich die Art „beef_start"',
+      JSON.stringify(db.memoryOf(G, U, klein.id, 5).map((m) => m.art)) === '["beef_start"]', JSON.stringify(db.memoryOf(G, U, klein.id, 5).map((m) => m.art)));
     check('offenerBeef liefert die Zeile mit faul gerechneter Hitze',
       nah(beef.offenerBeef(G, U, klein.id, t0 + 2 * 86_400_000).hitze, 13));
 
@@ -312,6 +318,9 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && ev[0].draht.achsen.respekt === data.ACHSEN_KONTER.respekt
       && ev[0].draht.achsen.vertrauen === data.ACHSEN_KONTER.vertrauen,
       JSON.stringify(db.getContact(G, U, riese.id)));
+    check('Der Gegenschlag merkt sich die Art „konter"',
+      JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)) === '["konter"]',
+      JSON.stringify(db.memoryOf(G, U, riese.id, 5)));
     check('Der Gegenschlag sperrt den Kontakt nicht',
       db.getContact(G, U, riese.id).last_try === 0 && db.getContact(G, U, riese.id).tries === 0);
 
@@ -400,6 +409,9 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && db.getContact(G, U, klein.id).vertrauen === -30
       && db.getContact(G, U, klein.id).respekt === -60,
       JSON.stringify(f1.reason ?? f1.draht));
+    check('Frieden merkt sich als neueste Art „frieden"',
+      db.memoryOf(G, U, klein.id, 1)[0]?.art === 'frieden',
+      JSON.stringify(db.memoryOf(G, U, klein.id, 3)));
     check('Frieden beendet den Beef und löscht den Bonus',
       db.beefRow(G, U, klein.id).status === 'frieden'
       && db.beefRow(G, U, klein.id).bonus_until === 0
@@ -786,6 +798,11 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && r.beef.draht.achsen.vertrauen === data.ACHSEN_DISS.vertrauen
       && db.getContact(G, U, riese.id).last_try === 0,
       JSON.stringify(db.getContact(G, U, riese.id)));
+    check('Der Disstrack merkt sich die Art „diss" mit Respekt +10 und Vertrauen −36',
+      JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)) === '["diss"]'
+      && db.memoryOf(G, U, riese.id, 1)[0].d_respekt === 10
+      && db.memoryOf(G, U, riese.id, 1)[0].d_vertrauen === -36,
+      JSON.stringify(db.memoryOf(G, U, riese.id, 5)));
     check('Er kostet einen Titel und die Veröffentlichungszeit',
       db.getArtist(G, U, t0).songs === 2 && creator.budget(G, U, t0).used === music.release('diss').time,
       JSON.stringify({ s: db.getArtist(G, U, t0).songs, z: creator.budget(G, U, t0).used }));
@@ -976,6 +993,9 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
         && r.draht.achsen.respekt === data.ACHSEN_ANGEZAEHLT.respekt
         && r.draht.achsen.vertrauen === data.ACHSEN_ANGEZAEHLT.vertrauen,
         JSON.stringify(db.getContact(G, U, erste.id)));
+      check('Angezählt merkt sich die Art „angezaehlt"',
+        JSON.stringify(db.memoryOf(G, U, erste.id, 5).map((m) => m.art)) === '["angezaehlt"]',
+        JSON.stringify(db.memoryOf(G, U, erste.id, 5)));
       check('Er sagt dazu etwas im Ton seines Charakters',
         typeof r.text === 'string' && r.text.includes(erste.name), r.text);
     }

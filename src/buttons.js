@@ -724,6 +724,9 @@ function releaseNote(res) {
   if (res.angezaehlt?.contact) {
     note += `\n🔥 **${res.angezaehlt.contact.name}** zählt dich an.`;
     if (res.angezaehlt.text) note += `\n_${res.angezaehlt.text}_`;
+    // Was das Anzählen gebucht hat: ein stummer Knopfdruck verschluckt es sonst.
+    const anDraht = beefDraht(res.angezaehlt.draht);
+    if (anDraht) note += `\n${anDraht}`;
   }
   note += incidentNote(res.incident);
   note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
@@ -754,6 +757,7 @@ function beefNote(events) {
       if (e.text) zeilen.push(`_${e.text}_`);
       zeilen.push(`📉 Hype −${Math.round(bdata.KONTER_HYPE * e.wucht * 100)} %, `
         + `${(e.treffer?.verloren ?? 0).toLocaleString('de-DE')} Hörer weg.`);
+      zeilen.push(beefDraht(e.draht));
     } else if (e.art === 'ende') {
       const stand = `**${e.rundenIch}:${e.rundenEr}**`;
       // Die Dauer kommt aus BONUS_TAGE, damit der Text nicht wieder von der
@@ -865,13 +869,15 @@ function dissNote(res, now = Date.now()) {
       + `×${b.aufmerksamkeit.toFixed(1).replace('.', ',')} · `
       + `Runden ${b.rundenIch}:${b.rundenEr}`;
   }
-  return note;
+  // Der Diss bucht in beiden Zweigen – auch die Häme kostet den Draht.
+  return `${note}\n${beefDraht(b.draht)}`;
 }
 
 /** Frieden: der Draht springt dabei nie ins Plus (FRIEDEN_DECKEL). */
 function friedenNote(res, now = Date.now()) {
   if (!res.ok) return beefProblem(res, now);
-  const zeilen = [`🕊️ Ihr habt Frieden geschlossen. Draht **${res.draht.nachher}**.`];
+  // Die Drahtzeile tritt an die Stelle der alten „Draht **N**"-Angabe.
+  const zeilen = ['🕊️ Ihr habt Frieden geschlossen.', beefDraht(res.draht)];
   if (res.text) zeilen.push(`_${res.text}_`);
   zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
   return zeilen.join('\n');
