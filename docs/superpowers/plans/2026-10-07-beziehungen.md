@@ -40,7 +40,8 @@
 | `scripts/messung-geldquellen.js` | die zwei Nachbauten nachziehen, Messung fahren | 7 |
 | `test/beziehungen.test.js` | **neu** — Arithmetik, Paritätstest, Arten, Partner-Regel, Gedächtnis | 1–5 |
 | `test/contacts.test.js` | `drahtStufe`-Fälle auf `artOf` umstellen | 3 |
-| `test/beef.test.js`, `test/angebote.test.js`, `test/fluxer-render.test.js` | `moveDraht` → `move` nachziehen | 4, 5, 6 |
+| `test/beef.test.js`, `test/angebote.test.js` | Achsen-Erwartungen nachziehen | 4, 5 |
+| `test/fluxer-render.test.js` | die sechs `moveDraht`-Aufbauhelfer, dann `moveDraht` löschen | 6 |
 | `ARCHITEKTUR.md`, `src/data/patchnotes.js` | §15-Eintrag, Patchnote | 7 |
 
 ---
@@ -1761,7 +1762,20 @@ const ARTEN_NAMEN = {
 
 `module.exports`: `DRAHT_STUFEN` heraus, `ARTEN_NAMEN` hinein. Beide Fundstellen in `src/buttons.js` mitziehen.
 
-**Diese Aufgabe trägt die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `anfrageNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
+**Diese Aufgabe löscht außerdem `contacts.moveDraht`** — und sie ist die erste, die es darf. Nach Task 4 und 5 ruft kein Produktivcode es mehr, aber **sechs Teststellen** benutzen es noch als Aufbauhelfer („setze den Draht auf diesen Wert"):
+
+| Stelle | |
+|---|---|
+| `test/beef.test.js:373` | `moveDraht(G, U, klein.id, -60, t0)` |
+| `test/beef.test.js:382` | `-20` |
+| `test/beef.test.js:408` | `+75` |
+| `test/beef.test.js:423` | `-40` |
+| `test/beef.test.js:920` | `cdata.STUFE_PARTNER` |
+| `test/fluxer-render.test.js:1626` | `-40` |
+
+Alle sechs auf `contacts.move(…, { respekt: d, vertrauen: d }, …)` umstellen — die gleichmäßige Spaltung, deren Mittelwert genau der alte Draht ist. Erst danach `moveDraht` löschen und mit `grep -rn "moveDraht" src/ test/ scripts/` gegenprüfen, dass nur noch die zwei erklärenden Kommentare in `src/beef.js:133` und `src/angebote.js:113` übrig sind — **die beiden Kommentartexte mitziehen**, sie nennen `moveDraht` als „eine Stelle, ein Abklingen, eine Sperre", und das ist ab dann `move`.
+
+**Diese Aufgabe trägt zudem die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `anfrageNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
 
 - [ ] **Step 2: Der dreizeilige Kopf**
 
