@@ -375,6 +375,17 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
       rs.drahtVor === 50 && rs.achsenVor.respekt === 100 && rs.achsenVor.vertrauen === 0,
       JSON.stringify({ d: rs.drahtVor, a: rs.achsenVor }));
 
+    // Derselbe Weg durch contacts.request, aber mit dem Wurf 0,73 – der liegt
+    // NUR ungedämpft in der Spanne von „echt" (0,70583); mit dem Dämpfer
+    // beginnt sie erst bei 0,74997. Fängt beides: einen stufeVon ohne Dämpfer
+    // UND ein request, das das Vertrauen nicht mehr mitreicht.
+    const tD = tS + 5 * 24 * H;
+    db.saveContact(G, U, 'rammstein', { respekt: 100, vertrauen: -100, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: tD, ignored_at: 0 });
+    const rd = await contacts.request(G, U, 'rammstein', 'shoutout', tD, folge(0.001, 0.73, 0.5));
+    check('request reicht das Vertrauen an stufeVon: bei V −100 fällt 0,73 auf flüchtig',
+      rd.ok && rd.antwort === 'fluechtig', JSON.stringify({ ok: rd.ok, a: rd.antwort }));
+
     // Der Boden erzählt die alte Band – auch ohne warme Achsen.
     db.saveContact(G, U, 'igorlevit', { respekt: 0, vertrauen: 0, boden: 10,
       tries: 0, yes: 0, last_try: 0, last_move: tP, ignored_at: 0 });
