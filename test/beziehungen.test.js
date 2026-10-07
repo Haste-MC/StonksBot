@@ -956,6 +956,81 @@ const aufraeumen = () => {
 
 
 
+  console.log('--- Beef: Respekt rauf, Vertrauen runter ---');
+  {
+    const bdata = require('../src/data/beef');
+    const mittel = (p) => (p.respekt + p.vertrauen) / 2;
+
+    // Der Kern des ganzen Stücks: Der gelandete Diss hebt den Respekt.
+    check('der gelandete Disstrack HEBT den Respekt',
+      bdata.ACHSEN_DISS.respekt > 0, String(bdata.ACHSEN_DISS.respekt));
+    check('…und zerstört das Vertrauen',
+      bdata.ACHSEN_DISS.vertrauen === -36, String(bdata.ACHSEN_DISS.vertrauen));
+    check('Anstacheln bringt keinen Respekt',
+      bdata.ACHSEN_ANSTACHELN.respekt === 0);
+    check('die Blamage kostet Respekt, nicht Vertrauen',
+      bdata.ACHSEN_BLAMAGE.respekt < bdata.ACHSEN_BLAMAGE.vertrauen,
+      JSON.stringify(bdata.ACHSEN_BLAMAGE));
+    // Der Mittelwert ist blind für vertauschte Achsen (Konter −6/−14 und −14/−6
+    // ergeben beide −10), und test/beef.test.js liest die Paare aus denselben
+    // Konstanten, die es prüft – darum stehen sie hier Achse für Achse als Literal.
+    check('die Beef-Paare stehen Achse für Achse fest (nicht nur im Mittel)',
+      JSON.stringify(bdata.ACHSEN_ANSTACHELN) === '{"respekt":0,"vertrauen":-24}'
+      && JSON.stringify(bdata.ACHSEN_BLAMAGE) === '{"respekt":-10,"vertrauen":-4}'
+      && JSON.stringify(bdata.ACHSEN_DISS) === '{"respekt":10,"vertrauen":-36}'
+      && JSON.stringify(bdata.ACHSEN_KONTER) === '{"respekt":-6,"vertrauen":-14}'
+      && JSON.stringify(bdata.ACHSEN_ANGEZAEHLT) === '{"respekt":-4,"vertrauen":-16}');
+    check('die fünf DRAHT_* des Beefs gibt es nicht mehr',
+      ['DRAHT_ANSTACHELN', 'DRAHT_BLAMAGE', 'DRAHT_DISS', 'DRAHT_KONTER', 'DRAHT_ANGEZAEHLT']
+        .every((k) => !(k in bdata)));
+    check('Konter mittelt auf die alten −10', mittel(bdata.ACHSEN_KONTER) === -10);
+    check('Angezählt mittelt auf die alten −10', mittel(bdata.ACHSEN_ANGEZAEHLT) === -10);
+
+    // Ein ganzer Beef-Durchlauf: Respekt netto leicht hoch, Vertrauen am Boden,
+    // der Draht trotzdem klar im Minus – und damit jedes Tor zu.
+    const contacts = require('../src/contacts');
+    const rNetto = bdata.ACHSEN_ANSTACHELN.respekt + bdata.ACHSEN_DISS.respekt
+      + bdata.ACHSEN_KONTER.respekt;
+    const vNetto = bdata.ACHSEN_ANSTACHELN.vertrauen + bdata.ACHSEN_DISS.vertrauen
+      + bdata.ACHSEN_KONTER.vertrauen;
+    check('nach einem Beef: Respekt netto nicht gesunken', rNetto >= 0, String(rNetto));
+    check('nach einem Beef: Vertrauen tief im Minus', vNetto <= -70, String(vNetto));
+    check('nach einem Beef sind alle großen Formate zu',
+      vNetto < 50 && contacts.drahtVon(rNetto, vNetto) < 20,
+      `R ${rNetto}, V ${vNetto}, Draht ${contacts.drahtVon(rNetto, vNetto)}`);
+    // Rivale heißt: er nimmt dich ernst (Respekt ab ART_RIVALE_RESPEKT) und
+    // traut dir nicht (Vertrauen höchstens ART_RIVALE_VERTRAUEN). Ein Beef allein
+    // liefert dafür nur +4 Respekt netto – Rivale wird also, wer dich vorher schon
+    // ernst genommen hat. Aus dem Nichts (0/0) wird er „verstimmt", und das ist
+    // gewollt so gemessen, nicht schöngerechnet.
+    const cdata = require('../src/data/contacts');
+    const nachBeef = (start) => contacts.artOf({
+      respekt: start.respekt + rNetto, vertrauen: start.vertrauen + vNetto,
+      meine: 100_000, seine: 100_000 });
+    check('wer dich schon ernst nahm (30/20), ist nach einem Beef ein Rivale',
+      nachBeef({ respekt: 30, vertrauen: 20 }) === 'rivale',
+      nachBeef({ respekt: 30, vertrauen: 20 }));
+    check('Schwelle: ab Respekt 26 vor dem Beef (+4 netto = 30) wird er Rivale, bei 25 nicht',
+      cdata.ART_RIVALE_RESPEKT - rNetto === 26
+      && nachBeef({ respekt: 26, vertrauen: 0 }) === 'rivale'
+      && nachBeef({ respekt: 25, vertrauen: 0 }) === 'verstimmt',
+      `${nachBeef({ respekt: 26, vertrauen: 0 })} / ${nachBeef({ respekt: 25, vertrauen: 0 })}`);
+    check('aus dem Nichts (0/0) wird er durch einen Beef „verstimmt", noch kein Rivale',
+      nachBeef({ respekt: 0, vertrauen: 0 }) === 'verstimmt',
+      nachBeef({ respekt: 0, vertrauen: 0 }));
+
+    // Der Frieden hebt Vertrauen bis zum Deckel und rührt den Respekt nicht an.
+    // Geprüft wird die PRODUKTIONSFUNKTION, nicht eine Kopie ihrer Formel.
+    const beef = require('../src/beef');
+    check('der Frieden hebt −70 auf den Deckel −10', beef.friedenZiel(-70) === -40,
+      String(beef.friedenZiel(-70)));
+    check('…und −20 nur bis −10', beef.friedenZiel(-20) === -10,
+      String(beef.friedenZiel(-20)));
+    check('…und zieht einen hohen Wert nicht herunter', beef.friedenZiel(20) === 20,
+      String(beef.friedenZiel(20)));
+  }
+
+
   aufraeumen();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

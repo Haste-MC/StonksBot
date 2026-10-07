@@ -15,6 +15,9 @@ const check = (label, ok, extra = '') => {
   else { fail++; console.log(`  ❌ ${label} ${extra}`); }
 };
 const nah = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
+// Der Draht eines Ereignisses ist der Mittelwert seines Achsenpaars. Abgeleitet
+// statt hart kodiert: Wird ein Paar später balanciert, wandert die Zusicherung mit.
+const mittel = (p) => (p.respekt + p.vertrauen) / 2;
 
 console.log('--- Einstieg ---');
 // Einstieg, ohne Charakterzug (trait 'launisch' hat +0,15 – darum 'unbekannt'
@@ -234,9 +237,14 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       creator.budget(G, U, t0).left === zeitVor - data.BEEF_TIME,
       `${creator.budget(G, U, t0).left} statt ${zeitVor - 2}`);
     check('Blamage schreibt keinen Beef', db.beefRow(G, U, riese.id) === null);
-    check('Blamage kostet Draht −5 und sperrt drei Tage',
-      db.getContact(G, U, riese.id).draht === data.DRAHT_BLAMAGE
-      && db.getContact(G, U, riese.id).last_try === t0);
+    // Die Achsen EINZELN: Der Draht ist ein Mittelwert und gegen vertauschte
+    // Achsen blind (−10/−4 und −4/−10 ergeben beide −7).
+    check('Blamage kostet Respekt −10 und Vertrauen −4 (Draht −7) und sperrt drei Tage',
+      db.getContact(G, U, riese.id).respekt === data.ACHSEN_BLAMAGE.respekt
+      && db.getContact(G, U, riese.id).vertrauen === data.ACHSEN_BLAMAGE.vertrauen
+      && db.getContact(G, U, riese.id).draht === mittel(data.ACHSEN_BLAMAGE)
+      && db.getContact(G, U, riese.id).last_try === t0,
+      JSON.stringify(db.getContact(G, U, riese.id)));
     check('Blamage kostet einmalig ein Zwanzigstel Hype',
       nah(db.getArtist(G, U, t0).hype, 0.95), String(db.getArtist(G, U, t0).hype));
     check('Blamage erzählt eine Zeile', typeof r.text === 'string' && r.text.includes(riese.name));
@@ -253,7 +261,13 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       e1.ok && e1.ein && db.beefRow(G, U, klein.id).hitze === data.HITZE_ANSTACHELN
       && db.beefRow(G, U, klein.id).runden_ich === 0 && db.beefRow(G, U, klein.id).runden_er === 0,
       JSON.stringify(e1.reason ?? db.beefRow(G, U, klein.id)));
-    check('Einstieg kostet Draht −15', e1.draht.nachher === data.DRAHT_ANSTACHELN);
+    check('Einstieg kostet Vertrauen −24, keinen Respekt (Draht −12)',
+      e1.draht.nachher === mittel(data.ACHSEN_ANSTACHELN)
+      && e1.draht.achsen.respekt === data.ACHSEN_ANSTACHELN.respekt
+      && e1.draht.achsen.vertrauen === data.ACHSEN_ANSTACHELN.vertrauen
+      && db.getContact(G, U, klein.id).respekt === data.ACHSEN_ANSTACHELN.respekt
+      && db.getContact(G, U, klein.id).vertrauen === data.ACHSEN_ANSTACHELN.vertrauen,
+      JSON.stringify(e1.draht));
     check('Zwei offene Beefs', e2.ok && beef.offeneBeefs(G, U, t0).length === 2);
     check('offenerBeef liefert die Zeile mit faul gerechneter Hitze',
       nah(beef.offenerBeef(G, U, klein.id, t0 + 2 * 86_400_000).hitze, 13));
@@ -290,9 +304,14 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       nah(ev[0].wucht, 1) && ev[0].runde === 'er' && row.runden_er === 1 && row.runden_ich === 0);
     check('Konter: Hype × 0,75 und 10 % der Hörer weg',
       nah(a.hype, 0.75) && a.listeners === 9000, JSON.stringify({ h: a.hype, l: a.listeners }));
-    check('Konter: Hitze +30, Draht −10, konter_at zurückgesetzt',
+    check('Konter: Hitze +30, Respekt −6 und Vertrauen −14 (Draht −10), konter_at zurückgesetzt',
       nah(row.hitze, 85) && row.konter_at === 0
-      && db.getContact(G, U, riese.id).draht === data.DRAHT_KONTER);
+      && db.getContact(G, U, riese.id).respekt === data.ACHSEN_KONTER.respekt
+      && db.getContact(G, U, riese.id).vertrauen === data.ACHSEN_KONTER.vertrauen
+      && db.getContact(G, U, riese.id).draht === mittel(data.ACHSEN_KONTER)
+      && ev[0].draht.achsen.respekt === data.ACHSEN_KONTER.respekt
+      && ev[0].draht.achsen.vertrauen === data.ACHSEN_KONTER.vertrauen,
+      JSON.stringify(db.getContact(G, U, riese.id)));
     check('Der Gegenschlag sperrt den Kontakt nicht',
       db.getContact(G, U, riese.id).last_try === 0 && db.getContact(G, U, riese.id).tries === 0);
 
@@ -373,7 +392,14 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     contacts.moveDraht(G, U, klein.id, -60, t0);
     beefZeile(klein.id, 0);
     const f1 = beef.frieden(G, U, klein.id, t0);
-    check('Draht −60 + 30 = −30', f1.ok && f1.draht.nachher === -30, JSON.stringify(f1.reason ?? f1.draht));
+    // Das Vertrauen steigt (−60 + 30 = −30), der Respekt bleibt bei −60:
+    // Draht round((−60 − 30) / 2) = −45. Die Werte sind hier von Hand gerechnet.
+    check('Frieden: Vertrauen −60 + 30 = −30, Respekt bleibt −60 (Draht −45)',
+      f1.ok && f1.draht.nachher === -45
+      && f1.draht.achsen.vertrauen === -30 && f1.draht.achsen.respekt === -60
+      && db.getContact(G, U, klein.id).vertrauen === -30
+      && db.getContact(G, U, klein.id).respekt === -60,
+      JSON.stringify(f1.reason ?? f1.draht));
     check('Frieden beendet den Beef und löscht den Bonus',
       db.beefRow(G, U, klein.id).status === 'frieden'
       && db.beefRow(G, U, klein.id).bonus_until === 0
@@ -382,7 +408,11 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     contacts.moveDraht(G, U, klein2.id, -20, t0);
     beefZeile(klein2.id, 0);
     const f2 = beef.frieden(G, U, klein2.id, t0);
-    check('Draht −20 + 30 wird auf −10 gedeckelt', f2.ok && f2.draht.nachher === data.FRIEDEN_DECKEL,
+    check('Vertrauen −20 + 30 wird auf −10 gedeckelt, der Respekt bleibt −20 (Draht −15)',
+      f2.ok && f2.draht.achsen.vertrauen === data.FRIEDEN_DECKEL
+      && f2.draht.achsen.respekt === -20 && f2.draht.nachher === -15
+      && db.getContact(G, U, klein2.id).vertrauen === data.FRIEDEN_DECKEL
+      && db.getContact(G, U, klein2.id).respekt === -20,
       JSON.stringify(f2.reason ?? f2.draht));
 
     beefZeile(klein3.id, 55);
@@ -414,6 +444,25 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
         JSON.stringify(f4.reason ?? f4.draht));
     }
 
+    // Ungleiche Achsen: Der Frieden liest das VERTRAUEN, nicht den Draht und nicht
+    // den Respekt. Die Fälle oben starten alle bei gleichen Achsen (moveDraht
+    // spaltet gleichmäßig) und könnten die zwei verwechseln. Hier: Respekt 40,
+    // Vertrauen −70 → Vertrauen −70 + 30 = −40, Respekt bleibt 40, Draht 0.
+    {
+      const A = await musiker('b6d', 10_000);
+      db.saveContact(G, A, klein.id, { respekt: 40, vertrauen: -70, boden: 0,
+        tries: 0, yes: 0, last_try: 0, last_move: t0, ignored_at: 0 });
+      db.saveBeef(G, A, klein.id, { hitze: 0, runden_ich: 0, runden_er: 0, last_hit: t0,
+        last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
+      const f5 = beef.frieden(G, A, klein.id, t0);
+      check('Frieden bei Respekt 40 / Vertrauen −70: Vertrauen −40, Respekt bleibt 40, Draht 0',
+        f5.ok && f5.draht.achsen.vertrauen === -40 && f5.draht.achsen.respekt === 40
+        && f5.draht.nachher === 0
+        && db.getContact(G, A, klein.id).vertrauen === -40
+        && db.getContact(G, A, klein.id).respekt === 40,
+        JSON.stringify(f5.reason ?? f5.draht));
+    }
+
     // §6: Ein 🕊️ aus einer alten Nachricht. Die abgerechnete Zeile hat Hitze 0
     // und Bonus 0, käme also durch die Hitze-Prüfung – und würde ohne Wache den
     // Abend kosten, die Zeile neu schreiben und die Drei-Tage-Sperre neu
@@ -428,7 +477,9 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       const zeileNach1 = db.contactsOf(G, S).find((z) => z.contact_id === klein2.id);
       const k2 = beef.frieden(G, S, klein2.id, t0);
       const zeileNach2 = db.contactsOf(G, S).find((z) => z.contact_id === klein2.id);
-      check('Der erste Klick schließt Frieden', k1.ok && k1.draht.nachher === -10,
+      check('Der erste Klick schließt Frieden: Vertrauen −40 auf −10, Respekt bleibt −40 (Draht −25)',
+        k1.ok && k1.draht.nachher === -25
+        && k1.draht.achsen.vertrauen === -10 && k1.draht.achsen.respekt === -40,
         JSON.stringify(k1.reason ?? k1.draht));
       check('Der zweite Klick wird höflich abgelehnt',
         k2.ok === false && k2.reason === 'kein_beef', JSON.stringify(k2.reason));
@@ -724,8 +775,15 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     check('Sein Gegenschlag steht ein bis drei Tage voraus',
       row.konter_at >= t0 + TAG && row.konter_at <= t0 + 3 * TAG,
       String((row.konter_at - t0) / TAG));
-    check('Draht −20, ohne Sperre',
-      db.getContact(G, U, riese.id).draht === data.DRAHT_DISS
+    // Der Kern des Stücks: Der Diss nimmt ihn ERNSTER (+10) und kostet das Vertrauen (−36).
+    // Ausgangszustand: frischer Kontakt (0/0) – der Beef ist direkt gespeichert,
+    // kein Anstacheln davor. Draht also round((10 − 36) / 2) = −13.
+    check('Respekt +10, Vertrauen −36 (Draht −13), ohne Sperre',
+      db.getContact(G, U, riese.id).respekt === data.ACHSEN_DISS.respekt
+      && db.getContact(G, U, riese.id).vertrauen === data.ACHSEN_DISS.vertrauen
+      && db.getContact(G, U, riese.id).draht === mittel(data.ACHSEN_DISS)
+      && r.beef.draht.achsen.respekt === data.ACHSEN_DISS.respekt
+      && r.beef.draht.achsen.vertrauen === data.ACHSEN_DISS.vertrauen
       && db.getContact(G, U, riese.id).last_try === 0,
       JSON.stringify(db.getContact(G, U, riese.id)));
     check('Er kostet einen Titel und die Veröffentlichungszeit',
@@ -911,7 +969,13 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
         row.hitze === data.HITZE_ANGEZAEHLT && row.runden_ich === 0 && row.runden_er === 1
         && row.status === 'offen' && row.konter_at === 0 && row.angefangen === t0,
         JSON.stringify(row));
-      check('Draht −10', db.getContact(G, U, erste.id).draht === data.DRAHT_ANGEZAEHLT);
+      check('Respekt −4 und Vertrauen −16 (Draht −10)',
+        db.getContact(G, U, erste.id).respekt === data.ACHSEN_ANGEZAEHLT.respekt
+        && db.getContact(G, U, erste.id).vertrauen === data.ACHSEN_ANGEZAEHLT.vertrauen
+        && db.getContact(G, U, erste.id).draht === mittel(data.ACHSEN_ANGEZAEHLT)
+        && r.draht.achsen.respekt === data.ACHSEN_ANGEZAEHLT.respekt
+        && r.draht.achsen.vertrauen === data.ACHSEN_ANGEZAEHLT.vertrauen,
+        JSON.stringify(db.getContact(G, U, erste.id)));
       check('Er sagt dazu etwas im Ton seines Charakters',
         typeof r.text === 'string' && r.text.includes(erste.name), r.text);
     }
@@ -922,6 +986,20 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
       check('Partner und laufende Beefs fallen aus der Auswahl',
         r && r.contact.id === musikKontakte[2].id, JSON.stringify(r?.contact?.id));
+    }
+    {
+      // Die Partner-Regel steht nur in `istPartner` (beide Achsen ab 50), nicht
+      // als Draht ab 50: Respekt 100 / Vertrauen 0 hat Draht 50 und ist trotzdem
+      // kein Partner – er zählt an.
+      const U = await musiker('bU2', 10_000);
+      db.saveContact(G, U, musikKontakte[0].id, { respekt: 100, vertrauen: 0, boden: 0,
+        tries: 0, yes: 0, last_try: 0, last_move: t0, ignored_at: 0 });
+      check('Voraussetzung: Draht 50, aber kein Partner',
+        db.getContact(G, U, musikKontakte[0].id).draht === 50
+        && !contacts.istPartnerRow(db.getContact(G, U, musikKontakte[0].id), t0));
+      const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
+      check('Wer nur im Mittel 50 hat, ist kein Partner und kann anzählen',
+        r && r.contact.id === musikKontakte[0].id, JSON.stringify(r?.contact?.id));
     }
     {
       // Ein gerade gewonnener Beef mit laufendem Bonusfenster: Zählte er von

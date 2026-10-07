@@ -130,7 +130,7 @@ function textFor(trait, lage, name, random = Math.random) {
  *   • Die Abkühlung wird beim Lesen ausgerechnet, nie geschrieben (§4). Erst
  *     wenn ohnehin etwas geschrieben wird, wandert der abgekühlte Wert mit.
  *   • Der Draht wird hier NIE selbst geschrieben. Das macht ausschließlich
- *     `contacts.moveDraht` – eine Stelle, ein Abklingen, eine Sperre.
+ *     `contacts.move` – eine Stelle, ein Abklingen, eine Sperre.
  */
 
 const DAY_MS = 86_400_000;
@@ -243,13 +243,15 @@ function anstacheln(guildId, userId, contactId, now = Date.now(), random = Math.
       last_hit: now, last_cool: now, konter_at: 0, angefangen: now,
       status: 'offen', bonus_until: 0,
     });
-    draht = contacts.moveDraht(guildId, userId, contactId,
-      data.DRAHT_ANSTACHELN, now, { sperre: true });
+    draht = contacts.move(guildId, userId, contactId, {
+      ...data.ACHSEN_ANSTACHELN, merken: { art: 'beef_start', detail: '' },
+    }, now, { sperre: true });
   } else {
     // Blamage: er steigt nicht ein, die Zeile steht allein da. Draht runter,
     // einmalig ein Zwanzigstel Hype – der Rest bleibt, wie er war.
-    draht = contacts.moveDraht(guildId, userId, contactId,
-      data.DRAHT_BLAMAGE, now, { sperre: true });
+    draht = contacts.move(guildId, userId, contactId, {
+      ...data.ACHSEN_BLAMAGE, merken: { art: 'blamage', detail: '' },
+    }, now, { sperre: true });
     treffer = require('./music').applyBeefTreffer(guildId, userId,
       { hype: data.BLAMAGE_HYPE, hoererAnteil: 0 }, now);
   }
@@ -329,7 +331,9 @@ function diss(guildId, userId, contactId, now = Date.now(), random = Math.random
     ...b, hitze, runden_ich: rundenIch, runden_er: rundenEr,
     last_hit: now, last_cool: now, konter_at: konterAt,
   });
-  const draht = contacts.moveDraht(guildId, userId, contactId, data.DRAHT_DISS, now);
+  const draht = contacts.move(guildId, userId, contactId, {
+    ...data.ACHSEN_DISS, merken: { art: 'diss', detail: '' },
+  }, now);
 
   return {
     ok: true, ...res, vorher,
@@ -396,7 +400,9 @@ function anzaehlen(guildId, userId, now = Date.now(), random = Math.random) {
   for (const c of cdata.CONTACTS) {
     if (!c.reach || laeuft.has(c.id) || frisch.has(c.id)) continue;
     const z = zeilen.find((x) => x.contact_id === c.id) ?? null;
-    if (contacts.drahtJetzt(z, now) >= cdata.STUFE_PARTNER) continue;
+    // Wer fester Partner ist, zählt dich nicht an – dieselbe Regel, die das ⭐
+    // und den Türöffner trägt. Vorher stand hier eine dritte Fassung.
+    if (contacts.istPartnerRow(z, now)) continue;
     const g = anzaehlGewicht({
       trait: c.trait, meine, seine: c.reach,
       gleichesGenre: c.genre === row.genre,
@@ -418,7 +424,9 @@ function anzaehlen(guildId, userId, now = Date.now(), random = Math.random) {
     last_hit: now, last_cool: now, konter_at: 0,
     angefangen: now, status: 'offen', bonus_until: 0,
   });
-  const draht = contacts.moveDraht(guildId, userId, c.id, data.DRAHT_ANGEZAEHLT, now);
+  const draht = contacts.move(guildId, userId, c.id, {
+    ...data.ACHSEN_ANGEZAEHLT, merken: { art: 'angezaehlt', detail: '' },
+  }, now);
   return { contact: c, draht, text: textFor(c.trait, 'einstieg', c.name, random) };
 }
 
@@ -466,7 +474,9 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
         const runde = rundeNachKonter(wucht);
         if (runde === 'er') rundenEr += 1; else rundenIch += 1;
         hitze = clamp(0, data.HITZE_MAX, hitze + data.HITZE_KONTER);
-        const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_KONTER, now);
+        const draht = contacts.move(guildId, userId, row.contact_id, {
+          ...data.ACHSEN_KONTER, merken: { art: 'konter', detail: '' },
+        }, now);
         lastHit = now;
         ereignisse.push({
           contactId: row.contact_id, art: 'konter', contact: gegner,
@@ -536,6 +546,12 @@ function szeneMalus(guildId, userId, contact, now = Date.now()) {
   return -max;
 }
 
+/** Wohin die Versöhnung das Vertrauen hebt – gedeckelt, nie nach unten. */
+function friedenZiel(vertrauen) {
+  return Math.max(vertrauen,
+    Math.min(data.FRIEDEN_DECKEL, vertrauen + data.FRIEDEN_PLUS));
+}
+
 /**
  * Frieden anbieten.
  *
@@ -544,9 +560,9 @@ function szeneMalus(guildId, userId, contact, now = Date.now()) {
  * die Zeile abgerechnet UND das Fenster durch, gibt es nichts mehr zu
  * befrieden (§6).
  *
- * Der Draht steigt dabei nie ins Plus (FRIEDEN_DECKEL) – Beef anfangen und
- * sofort Frieden schließen ist keine Abkürzung zum Partner – und er fällt
- * dabei nie: Der Deckel bremst, er zieht nicht.
+ * Das Vertrauen steigt dabei nie ins Plus (FRIEDEN_DECKEL) – Beef anfangen und
+ * sofort Frieden schließen ist keine Abkürzung zum Partner – und es fällt
+ * dabei nie: Der Deckel bremst, er zieht nicht. Der Respekt bleibt, wie er ist.
  */
 function frieden(guildId, userId, contactId, now = Date.now(), random = Math.random) {
   const contacts = require('./contacts');
@@ -565,7 +581,7 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
   // Eine abgerechnete Zeile ohne laufendes Nachbeben ist nichts mehr, das man
   // befrieden könnte: Hitze 0, Bonus 0. Sie käme sonst durch die Hitze-Prüfung
   // hindurch, würde den Abend kosten, sich selbst neu schreiben und über
-  // `moveDraht` bei Delta 0 nur die Drei-Tage-Sperre neu spannen. Der Knopf
+  // `move` bei Delta 0 nur die Drei-Tage-Sperre neu spannen. Der Knopf
   // dazu wird in keiner frisch gebauten Ansicht mehr angeboten – erreichbar ist
   // das nur aus einer alten Nachricht, also genau der Fall aus §6: höflich
   // ablehnen, VOR der Zeitbuchung, und nichts tun.
@@ -590,12 +606,18 @@ function frieden(guildId, userId, contactId, now = Date.now(), random = Math.ran
     status: 'frieden', bonus_until: 0,
   });
   // Der Deckel ist eine Bremse nach oben, kein Zug nach unten: Wer trotz Beef
-  // noch über FRIEDEN_DECKEL steht (anstacheln hat keine Draht-Voraussetzung,
-  // ein Partner kann also angestachelt werden), behält seinen Draht. Sonst
+  // noch über FRIEDEN_DECKEL steht (anstacheln hat keine Voraussetzung, ein
+  // Partner kann also angestachelt werden), behält sein Vertrauen. Sonst
   // würde die freundlichste Schaltfläche des Spiels bis zu 110 Punkte
   // verbrennen, die bloßes Auskühlen gar nichts gekostet hätte.
-  const ziel = Math.max(d.draht, Math.min(data.FRIEDEN_DECKEL, d.draht + data.FRIEDEN_PLUS));
-  const draht = contacts.moveDraht(guildId, userId, contactId, ziel - d.draht, now, { sperre: true });
+  //
+  // Respekt bleibt unberührt: Was du getroffen hast, respektiert er weiter.
+  const vorherAchsen = contacts.achsenJetzt(
+    db.getContact(guildId, userId, contactId), now);
+  const draht = contacts.move(guildId, userId, contactId, {
+    setzeVertrauen: friedenZiel(vorherAchsen.vertrauen),
+    merken: { art: 'frieden', detail: '' },
+  }, now, { sperre: true });
 
   return {
     ok: true, contact: d.contact, status: 'frieden', hitze, draht, zeit, vorher,
@@ -608,5 +630,5 @@ module.exports = {
   hitzeJetzt, rundeNachDiss, rundeNachKonter, ausgangOf, bonusFaktor,
   anzaehlGewicht, textFor,
   offenerBeef, offeneBeefs, musikLage, anstacheln, diss, zielFor, anzaehlen,
-  settle, bonusOf, szeneMalus, frieden,
+  settle, bonusOf, szeneMalus, frieden, friedenZiel,
 };

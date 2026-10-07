@@ -1544,7 +1544,14 @@ function view(buttons) {
     check('Meldung bei Einstieg: Name, Ton des Kontakts, Hitze, Draht',
       einNote.includes(`🔥 **${klein.name}** steigt ein.`) && einNote.includes(ein.text)
       && einNote.includes(`🔥 Hitze ${bdata.HITZE_ANSTACHELN}`)
-      && einNote.includes('🤝 Draht ▱▱▱▱▱ **-15** (-15,'), einNote);
+      && einNote.includes('🤝 Draht ▱▱▱▱▱ **-12** (-12,'), einNote);
+    // Die Stufenzeile selbst. `buttons.beefDraht` liest `stufe` aus dem Ergebnis
+    // von `contacts.move`; fehlte es dort, stünde hier still „(-12, undefined)",
+    // und keine der Zusicherungen darüber bemerkte es. Der Stufenname steht als
+    // Literal da (Draht −12 liegt zwischen −20 und 20: neutral), nicht als Aufruf
+    // von `drahtStufe` – sonst prüfte der Test die Funktion gegen sich selbst.
+    check('Meldung bei Einstieg: die Stufe hinter dem Draht ist ein Wort, nicht „undefined"',
+      einNote.includes('(-12, neutral)') && !einNote.includes('undefined'), einNote);
 
     // --- Meldung: Blamage --------------------------------------------------
     const [BlG, BlU] = await neu();
@@ -1556,6 +1563,9 @@ function view(buttons) {
       blNote.includes(`😶 ${gross.name} reagiert nicht.`)
       && blNote.includes('📉 Dein Hype hat gelitten.')
       && blNote.includes(`⏱️ Die **${bdata.BEEF_TIME}** Stunden sind trotzdem weg`), blNote);
+    // Die Blamage ist der zweite Zweig, der `beefDraht` aufruft: Draht −7, neutral.
+    check('Meldung bei Blamage: Draht −7 mit Stufenwort, nicht „undefined"',
+      blNote.includes('**-7** (-7, neutral)') && !blNote.includes('undefined'), blNote);
 
     // --- Meldung: Disstrack, mit und ohne Häme ----------------------------
     const [DG, DU] = await neu();
@@ -1620,18 +1630,20 @@ function view(buttons) {
 
     // --- Meldung: Frieden --------------------------------------------------
     const [FG, FU] = await neu();
-    // Von −40 aus greift der Deckel: −40 + 30 wäre 10, gemeldet werden muss
-    // FRIEDEN_DECKEL. (Ein Draht ÜBER dem Deckel bleibt unangetastet – der
-    // Deckel bremst nach oben und zieht nicht nach unten; das rechnet
-    // test/beef.test.js von beiden Seiten durch.)
+    // Von −40/−40 aus greift der Deckel auf dem VERTRAUEN: −40 + 30 wäre −10,
+    // also genau FRIEDEN_DECKEL. Der Respekt bleibt bei −40, gemeldet wird der
+    // Draht round((−40 − 10) / 2) = −25. (Ein Vertrauen ÜBER dem Deckel bleibt
+    // unangetastet – der Deckel bremst nach oben und zieht nicht nach unten; das
+    // rechnet test/beef.test.js von beiden Seiten durch.)
     contacts.moveDraht(FG, FU, klein.id, -40, jetzt);
     setzeBeef(FG, FU, klein.id, { hitze: 10 });
     const friede = beef.frieden(FG, FU, klein.id, jetzt, wuerfel(0));
     check('Frieden geht unter Hitze 30', friede.ok === true,
       JSON.stringify({ ok: friede.ok, reason: friede.reason }));
-    check('Meldung bei Frieden: der Draht springt nicht ins Plus',
-      friedenNote(friede, jetzt).includes(
-        `🕊️ Ihr habt Frieden geschlossen. Draht **${bdata.FRIEDEN_DECKEL}**.`),
+    check('Meldung bei Frieden: das Vertrauen springt nicht ins Plus, der Draht liegt bei −25',
+      friede.draht.achsen.vertrauen === bdata.FRIEDEN_DECKEL
+      && friedenNote(friede, jetzt).includes(
+        '🕊️ Ihr habt Frieden geschlossen. Draht **-25**.'),
       friedenNote(friede, jetzt));
 
     // --- Die Fehlerfälle mit dem Wortlaut der Spec ------------------------
