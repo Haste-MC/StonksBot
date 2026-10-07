@@ -557,8 +557,15 @@ function musiktag(G, U, now, rand, konzertZuerst = false, horten = false, beefTa
 /** Zähler des laufenden Kontaktlaufs – `null`, solange nicht gemessen wird. */
 let kz = null;
 
-function neuerZaehler() {
+function neuerZaehler({ beziehung = false } = {}) {
   return {
+    /*
+     * Die Beziehungszähler (Task 7): nur dort, wo ein Aufrufer sie ausdrücklich
+     * bestellt (`kontaktvariante`, `angebotvariante`). Sie lesen jeden Tag die
+     * ganze Kontaktliste und kosten Zeit, die die übrigen Abschnitte nicht
+     * brauchen. `null` heißt: nicht gemessen – kein Ergebnis, keine Null.
+     */
+    beziehung: beziehung ? neuerBeziehungsZaehler() : null,
     versuche: 0,
     antworten: { zusage: 0, echt: 0, fluechtig: 0, ignoriert: 0 },
     abgelehnt: {},                  // Grund -> Anzahl (keine Zeit, Wand, …)
@@ -576,6 +583,143 @@ function neuerZaehler() {
     proAnfrage: {},                 // "seite/anfrage" -> { versuche, zusage, echt, fluechtig, ignoriert }
     publishes: 0, shows: 0, akte: 0,
   };
+}
+
+/** Die zehn Beziehungsarten, in der Reihenfolge von `contacts.artOf` (die erste passende gewinnt). */
+const BEZIEHUNGSARTEN = ['beef', 'rivale', 'verstimmt', 'mentor', 'schuetzling', 'partner',
+  'band', 'geschaeftlich', 'bekannt', 'fremd'];
+
+/**
+ * Die Beziehungszähler eines Messlaufs – eine Zeile je Konto, nicht je Tag.
+ *
+ *  • `arten`: je Art, in wie vielen Konten sie im Messjahr bei MINDESTENS EINEM
+ *    Kontakt auftrat (`konten`), bei wie vielen (Konto, Kontakt)-Paaren überhaupt
+ *    je (`paare`) und wie viele Kontakte sie am Laufende hatten (`ende`).
+ *    Eine Art mit null Vorkommen ist ein Befund, keine Randnotiz.
+ *  • Vertrauen: je Konto der höchste und der tiefste Stand über alle Kontakte
+ *    mit Datenbankzeile (wer nie angeschrieben wurde, steht bei 0 und zählt
+ *    nicht als „tiefster") und die Tage mit mindestens einem Kontakt unter 0.
+ *  • `drahtMax` steht daneben, damit der Vergleich mit dem Draht der alten Welt
+ *    (Anteil mit Draht ≥ 50) aus demselben Lauf kommt.
+ *  • Projekte: aus `db.projekteOf` am Laufende, nur `kollabo` und `tour`.
+ *
+ * Gesampelt wird einmal am Tagesende. Ein Stand, der innerhalb eines Tages
+ * steigt und wieder fällt, bliebe unsichtbar – bei Wochen-Abkühlung und einer
+ * Bewegung je Kontakt und Tag kommt das praktisch nicht vor, ist aber die
+ * Grenze der Zahl.
+ */
+function neuerBeziehungsZaehler() {
+  return {
+    konten: 0,
+    arten: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, { konten: 0, paare: 0, ende: 0 }])),
+    vertrauenMax: [], vertrauenMin: [], tageUnterNull: [], drahtMax: [],
+    partnerJemals: 0,            // Konten, die an irgendeinem Tag einen Partner hatten
+    ohneKontakt: 0,              // Konten ohne eine einzige Kontaktzeile (kein Max/Min)
+    projekte: {
+      kollabo: { fertig: 0, verfallen: 0, offen: 0 },
+      tour: { fertig: 0, verfallen: 0, offen: 0 },
+    },
+  };
+}
+
+/** Der Tageszustand EINES Kontos, solange der Lauf geht. */
+function neuerBeziehungsStand() {
+  return {
+    max: -Infinity, min: Infinity, drahtMax: -Infinity, tageUnterNull: 0, partner: false,
+    jemals: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, new Set()])),
+    ende: null,
+  };
+}
+
+/**
+ * Ein Tag Beziehungsbefund. Liest nur: `contacts.listFor` ist dieselbe Funktion
+ * wie die Ansicht des Spielers, `achsenJetzt` rechnet das Abkühlen beim Lesen.
+ * Es wird nichts geschrieben und nichts gewürfelt.
+ */
+function beziehungsTag(st, G, U, now) {
+  const liste = contacts.listFor(G, U, { now });
+  const heute = {};
+  for (const e of liste) {
+    heute[e.art] = (heute[e.art] ?? 0) + 1;
+    st.jemals[e.art]?.add(e.contact.id);
+    if (e.partner) st.partner = true;
+  }
+  st.ende = heute;
+  // Vertrauen und Draht nur über Kontakte, die es in der Datenbank wirklich gibt.
+  let unterNull = false;
+  for (const z of db.contactsOf(G, U)) {
+    const a = contacts.achsenJetzt(z, now);
+    if (a.vertrauen > st.max) st.max = a.vertrauen;
+    if (a.vertrauen < st.min) st.min = a.vertrauen;
+    if (a.draht > st.drahtMax) st.drahtMax = a.draht;
+    if (a.vertrauen < 0) unterNull = true;
+  }
+  if (unterNull) st.tageUnterNull++;
+}
+
+/** Am Laufende: den Tagesstand des Kontos und die Projekte in den Zähler übernehmen. */
+function beziehungsEnde(bz2, st, G, U) {
+  bz2.konten++;
+  for (const a of BEZIEHUNGSARTEN) {
+    bz2.arten[a].konten += st.jemals[a].size > 0 ? 1 : 0;
+    bz2.arten[a].paare += st.jemals[a].size;
+    bz2.arten[a].ende += st.ende?.[a] ?? 0;
+  }
+  if (st.max === -Infinity) bz2.ohneKontakt++;
+  else {
+    bz2.vertrauenMax.push(st.max);
+    bz2.vertrauenMin.push(st.min);
+    bz2.drahtMax.push(st.drahtMax);
+  }
+  bz2.tageUnterNull.push(st.tageUnterNull);
+  if (st.partner) bz2.partnerJemals++;
+  for (const p of db.projekteOf(G, U)) {
+    const z = bz2.projekte[p.art];
+    if (!z) continue;
+    if (p.status === 'fertig') z.fertig++;
+    else if (p.status === 'verfallen') z.verfallen++;
+    else z.offen++;
+  }
+}
+
+/** Die Ausgabezeilen der Beziehungszähler – vollständig, auch die Nullen. */
+function beziehungsZeilen(bz2, { projekteMoeglich = true } = {}) {
+  const out = [];
+  const n = bz2.konten;
+  const anteil = (k) => (n ? `${komma((k / n) * 100, 1)} %` : '–');
+  const liste = (a) => [...a].sort((x, y) => x - y).join(' ');
+  const med = (a) => (a.length ? komma(median(a), 1) : '–');
+  const vm = bz2.vertrauenMax;
+  const ab50 = vm.filter((v) => v >= 50).length;
+  const draht50 = bz2.drahtMax.filter((v) => v >= 50).length;
+  out.push(`Beziehungsarten im Messjahr (${n} Konten; Konten mit Art bei mindestens einem Kontakt · ` +
+    `(Konto, Kontakt)-Paare insgesamt · Kontakte am Laufende):`);
+  for (const a of BEZIEHUNGSARTEN) {
+    const z = bz2.arten[a];
+    out.push(`    ${a.padEnd(14)} ${String(z.konten).padStart(4)} Konten · ${String(z.paare).padStart(6)} Paare · ` +
+      `${String(z.ende).padStart(6)} am Ende${z.paare === 0 ? '   ← NULL VORKOMMEN (Befund)' : ''}`);
+  }
+  out.push(`Vertrauen: Anteil der Konten mit mindestens einem Kontakt ≥ 50: ${anteil(ab50)} ` +
+    `(${ab50} von ${n}${bz2.ohneKontakt ? `, ${bz2.ohneKontakt} Konten ohne eine einzige Kontaktzeile` : ''})`);
+  out.push(`           (zum Vergleich im selben Lauf, Draht ≥ 50 bei mindestens einem Kontakt: ` +
+    `${anteil(draht50)}; mit Partnerstatus an irgendeinem Tag: ${anteil(bz2.partnerJemals)})`);
+  out.push(`           höchstes Vertrauen je Konto: Median ${med(vm)} · sortiert: ${liste(vm) || '–'}`);
+  out.push(`           tiefstes Vertrauen je Konto: Median ${med(bz2.vertrauenMin)} · sortiert: ${liste(bz2.vertrauenMin) || '–'}`);
+  out.push(`           Tage mit mindestens einem Kontakt unter Vertrauen 0: Median ${med(bz2.tageUnterNull)}, ` +
+    `Mittel ${komma(mittel(bz2.tageUnterNull), 1)}, größter ${bz2.tageUnterNull.length ? Math.max(...bz2.tageUnterNull) : '–'} · ` +
+    `Konten mit mindestens einem solchen Tag: ${bz2.tageUnterNull.filter((t) => t > 0).length} von ${n} · ` +
+    `sortiert: ${liste(bz2.tageUnterNull) || '–'}`);
+  const pk = bz2.projekte.kollabo;
+  const pt = bz2.projekte.tour;
+  const fertig = pk.fertig + pt.fertig;
+  const verfallen = pk.verfallen + pt.verfallen;
+  out.push(`Projekte:  ${fertig} abgeschlossen, ${verfallen} verfallen (kollabo ${pk.fertig}/${pk.verfallen}, ` +
+    `tour ${pt.fertig}/${pt.verfallen}; am Laufende noch offen ${pk.offen + pt.offen})` +
+    (projekteMoeglich
+      ? (fertig === 0 ? '   ← NULL ABGESCHLOSSEN = FEHLSCHLAG, kein Ergebnis' : '')
+      : '   (hier entstehen keine Projekte – es laufen keine Gegenanfragen, oder die Spielweise nimmt keine ' +
+        'an –, 0 ist erwartet und kein Fehlschlag)'));
+  return out;
 }
 
 /*
@@ -779,9 +923,10 @@ function kontakttag(G, U, now, rand, vorrang = null) {
    * Vorrang ist also kein besseres Spiel, sondern das Messwerkzeug für genau
    * diesen Schub.
    *
-   * `vorrang = 'partner'`: NUR die Musikseite, und dort der Kontakt mit dem
-   * HÖCHSTEN Draht zuerst – das Messwerkzeug des Angebotslaufs (Stück 5c), aus
-   * demselben Grund wie der Konzert-Vorrang und mit demselben Vorbehalt: Es ist
+   * `vorrang = 'partner'`: NUR die Musikseite, und dort der Kontakt, der dem
+   * Partnerstatus am nächsten ist (die schwächere Achse, `min(Respekt,
+   * Vertrauen)`, am höchsten), zuerst – das Messwerkzeug des Angebotslaufs
+   * (Stück 5c), aus demselben Grund wie der Konzert-Vorrang und mit demselben Vorbehalt: Es ist
    * eine Spielweise, keine Empfehlung. Zwei Dinge aus dem Code erzwingen ihn:
    *
    *  • Eine Gegenanfrage kommt ausschließlich von einem Kontakt mit MUSIK-
@@ -815,15 +960,21 @@ function kontakttag(G, U, now, rand, vorrang = null) {
       if (nurMusik && b.seite !== 'musik') continue;
       const score = r.chance * b.nutzen;
       const konzert = vorrang === 'konzert' && r.id === 'konzert';
-      // Beim Partner-Vorrang schlägt der höhere Draht jeden Score: Dieselbe
-      // Person weiter füttern, bis sie Partner ist. Innerhalb eines Kontakts
+      // Beim Partner-Vorrang schlägt die schwächere Achse jeden Score: Dieselbe
+      // Person weiter füttern, bis sie Partner ist. Partner ist `respekt >= 50 &&
+      // vertrauen >= 50` und hängt damit an der SCHWÄCHEREN Achse – nicht am
+      // Draht, dem Mittelwert: Eine echte Antwort hebt den Respekt dreimal
+      // schneller (9 gegen 3), der Draht als Ziel wählte darum den
+      // respektlastigen Kontakt (80/20, Draht 50) vor dem, der eine Zusage vom
+      // Partner entfernt ist (50/48, Draht 49). Innerhalb eines Kontakts
       // entscheidet danach wieder Chance × Nutzen wie überall.
+      const naehe = Math.min(d.respekt, d.vertrauen);
       const besser = nurMusik
-        ? (!wahl || d.draht > wahl.draht || (d.draht === wahl.draht && score > wahl.score))
+        ? (!wahl || naehe > wahl.naehe || (naehe === wahl.naehe && score > wahl.score))
         : (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score));
       if (besser) {
         wahl = { score, konzert, contactId: z.contact.id, requestId: r.id, seite: b.seite,
-          chance: r.chance, draht: d.draht, respekt: d.respekt, vertrauen: d.vertrauen };
+          chance: r.chance, draht: d.draht, naehe, respekt: d.respekt, vertrauen: d.vertrauen };
       }
     }
   }
@@ -891,6 +1042,8 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    * Würfel statt der Kontakte.
    */
   const kontaktRand = rng(seed + 500_000);
+  // Beziehungsbefund (Task 7) – nur, wenn der Aufrufer ihn bestellt hat.
+  const bzStand = kz?.beziehung ? neuerBeziehungsStand() : null;
   /*
    * DRITTER Würfel für den Beef (Stück 5b), aus demselben Grund wie der
    * Kontaktwürfel: Anstacheln, Disstrack und das Angezähltwerden dürfen den
@@ -1089,8 +1242,10 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
         };
       }
     }
+    if (bzStand) beziehungsTag(bzStand, G, U, now + 21.1e6);
     now += DAY;
   }
+  if (bzStand) beziehungsEnde(kz.beziehung, bzStand, G, U);
 
   /*
    * Die Hörerzahl MIT Zeitstempel lesen.
@@ -1929,7 +2084,7 @@ async function verlauf(laeufe, tage) {
 
 /** Eine Variante (mit/ohne Kontaktpflege) über alle Seeds; die Zähler kommen mit. */
 async function kontaktvariante(kennungBasis, musik, strat, laeufe, tage) {
-  kz = neuerZaehler();
+  kz = neuerZaehler({ beziehung: true });
   const geld = [];
   const hoerer = [];
   const follower = [];
@@ -2078,7 +2233,7 @@ function passungsblock() {
     const gleichesLand = c.country === ich.country;
     const arg = {
       meineReichweite: MEINE, seineReichweite: c.reach, gleichesLand, sprache, genre,
-      draht: 0, tuerOeffner: 0, hype: 1, trait: c.trait, partner: false,
+      respekt: 0, vertrauen: 0, tuerOeffner: 0, hype: 1, trait: c.trait, partner: false,
     };
     const staerke = contacts.staerkeOf({
       seineReichweite: c.reach, meineReichweite: MEINE, passung: p.passung, stufe: 'zusage' });
@@ -2091,6 +2246,7 @@ function passungsblock() {
     const basis = Math.min(contactsData.CHANCE_MAX, 0.6 * Math.sqrt(MEINE / c.reach));
     const teile = [
       `Basis ${komma(basis, 3)} (Größe)`,
+      `Respekt-Gewicht ${komma(contacts.respektGewicht(MEINE, c.reach), 3)} (×Respekt/100)`,
       `Land ${gleichesLand ? '+0,050' : '±0,000'}`,
       `Sprache ${sprache === 'gleich' ? '+0,100' : sprache === 'englisch' ? '±0,000' : '−0,150'}`,
       `Genre ${genre === 'gleich' ? '+0,050' : genre === 'verwandt' ? '±0,000' : '−0,050'}`,
@@ -2103,7 +2259,7 @@ function passungsblock() {
   };
 
   out.push(`  Spieler: ${ich.country} / ${ich.language} / ${ich.genre}, ${de(MEINE)} Hörer, ` +
-    `Draht 0, Hype 1, kein Türöffner, kein Partner.`);
+    `Respekt 0, Vertrauen 0, Hype 1, kein Türöffner, kein Partner.`);
   out.push('');
   out.push('  (a) NUR die Passung verschoben: derselbe Kontakt (3,2 Mio, kollegial, Land de = gleiches Land),');
   out.push('      nur Sprache und Genre getauscht.');
@@ -2202,6 +2358,7 @@ async function kontaktlauf(laeufe, tage) {
       ` → mit ${komma(lm.akte)} · ${komma(lm.publishes)} · ${komma(lm.shows)}` +
       ` (${prozent(lm.akte / Math.max(1e-9, lo.akte) - 1)} Kanalaktionen)`);
     for (const l of kontaktZeilen(mit.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    for (const l of beziehungsZeilen(mit.zaehler.beziehung, { projekteMoeglich: false })) console.log(`      ${l}`);
     if (ohne.zaehler.versuche || ohne.zaehler.gesetzt) {
       console.log(`      KONTROLLE ohne Kontakte: Versuche ${ohne.zaehler.versuche}, Schübe ${ohne.zaehler.gesetzt} – muss 0 sein!`);
     } else {
@@ -2212,6 +2369,7 @@ async function kontaktlauf(laeufe, tage) {
     console.log(zeile('mit Konzert-Vorrang', kon));
     console.log(diffzeile(kon));
     for (const l of kontaktZeilen(kon.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    for (const l of beziehungsZeilen(kon.zaehler.beziehung, { projekteMoeglich: false })) console.log(`      ${l}`);
     console.log();
   }
 }
@@ -3284,6 +3442,16 @@ const ANGEBOT_ANNAHME = {
 /** `--zerlegung`: die vier „alles-an ohne X"-Varianten mitfahren. */
 const ZERLEGUNG = process.argv.includes('--zerlegung');
 
+/**
+ * Nimmt die Spielweise überhaupt `kollabo` oder `tour` an? Nur dann ist „null
+ * abgeschlossene Projekte" ein Fehlschlag; bei `alles-ab`, `nur-geld` und
+ * `nur-label` ist die Null Absicht und darf nicht wie ein Alarm aussehen.
+ */
+const nimmtProjekteAn = (spielweise) => {
+  const an = ANGEBOT_ANNAHME[spielweise];
+  return Boolean(an && (an.has('kollabo') || an.has('tour')));
+};
+
 /** Die Spielweisen, die einen Angebotstag bekommen – „aus" steht NICHT darin. */
 const ANGEBOT_SPIELWEISEN = new Set(Object.entries(ANGEBOT_ANNAHME)
   .filter(([, v]) => v !== null).map(([k]) => k));
@@ -3560,7 +3728,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
 
 /** Eine Variante des Angebotslaufs über alle Seeds; beide Zähler kommen mit. */
 async function angebotvariante(kennungBasis, musik, strat, laeufe, tage, spielweise) {
-  kz = neuerZaehler();                 // Kanalaktionen, Veröffentlichungen, Konzerte
+  kz = neuerZaehler({ beziehung: true });                 // Kanalaktionen, Veröffentlichungen, Konzerte
   ag = neuerAngebotZaehler(spielweise);
   const geld = [];
   const hoerer = [];
@@ -3860,6 +4028,7 @@ async function angebotelauf(laeufe, tage) {
     for (const name of ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
       console.log(`    ${name}:`);
       for (const z of angebotZeilen(v[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+      for (const z of beziehungsZeilen(v[name].zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
     }
 
     /*
@@ -3974,6 +4143,7 @@ async function angebotelauf(laeufe, tage) {
     for (const [name, r] of [['horten-aus', hAus], ['horten-kollabo', hKol]]) {
       console.log(`    ${name}:`);
       for (const z of angebotZeilen(r.angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+      for (const z of beziehungsZeilen(r.zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
     }
     const zh = hAus.angebotZaehler;
     console.log(`      KONTROLLE „horten-aus": ${leer(zh)
@@ -4026,6 +4196,7 @@ async function angebotelauf(laeufe, tage) {
       for (const name of ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']) {
         console.log(`    ${name}:`);
         for (const z of angebotZeilen(w[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+        for (const z of beziehungsZeilen(w[name].zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
       }
       // Kontrolle: Jede Variante MUSS bei ihrer ausgelassenen Gruppe auf null stehen.
       const sum2 = (o) => Object.values(o).reduce((x, y) => x + y, 0);
