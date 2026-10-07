@@ -1568,7 +1568,18 @@ function view(buttons) {
       blNote.includes('**-7** (-7, neutral)') && !blNote.includes('undefined'), blNote);
 
     // --- Meldung: Disstrack, mit und ohne Häme ----------------------------
+    /*
+     * Gegen einen VORBELASTETEN Kontakt, und das mit Absicht: Auf einem
+     * frischen Kontakt (0/0) ist der Stand nach der Buchung zufällig gleich
+     * dem Ausschlag, und die Meldung „**-13** (-13, …)" könnte die zwei Zahlen
+     * vertauschen, ohne dass es auffällt. Erst angestacheln (Vertrauen −24),
+     * dann dissen (Respekt +10, Vertrauen −36): Stand −25, Ausschlag −13.
+     */
     const [DG, DU] = await neu();
+    const dissVor = beef.anstacheln(DG, DU, gross.id, jetzt, wuerfel(0));
+    check('das Anstacheln vor dem Diss geht durch (Vertrauen −24)',
+      dissVor.ok && dissVor.ein === true && dissVor.draht.nachher === -12,
+      JSON.stringify(dissVor.reason ?? dissVor.draht));
     setzeBeef(DG, DU, gross.id, { hitze: 62 });
     const dissRes = beef.diss(DG, DU, gross.id, jetzt, wuerfel(0.99, 0.5));
     check('der Disstrack gegen den Großen geht durch und ohne Häme',
@@ -1580,10 +1591,11 @@ function view(buttons) {
       && /🔥 Gegen \*\*Rammstein\*\* · Aufmerksamkeit ×\d+,\d · Runden 1:0/.test(dNote), dNote);
     // Die Buchung des Disstracks (Respekt +10, Vertrauen −36) gehört in die Meldung.
     // Heute zeigt `beefDraht` nur Ausschlag und Stufe; die Ansichts-Aufgabe hebt es
-    // auf beide Achsen. Geprüft wird die GERENDERTE Zeichenkette: Frisch 0/0 ergibt
-    // round((10 − 36) / 2) = −13, Stufe neutral.
-    check('Meldung beim Disstrack nennt, was gebucht wurde: Draht −13, neutral',
-      dNote.includes('**-13** (-13, neutral)') && !dNote.includes('undefined')
+    // auf beide Achsen. Geprüft wird die GERENDERTE Zeichenkette – und zwar mit
+    // ZWEI verschiedenen Zahlen: Nach dem Anstacheln (0/−24) steht der Draht auf
+    // round((10 − 60) / 2) = −25, der Ausschlag ist −13, die Stufe verstimmt.
+    check('Meldung beim Disstrack nennt Stand und Ausschlag getrennt: −25 (−13, verstimmt)',
+      dNote.includes('**-25** (-13, verstimmt)') && !dNote.includes('undefined')
       && !dNote.includes('null'), dNote);
 
     const [HG, HU] = await neu();
@@ -1595,8 +1607,12 @@ function view(buttons) {
       dissNote(haeme, jetzt).includes(
         `😬 Das ging nach hinten los: ${klein.name} ist eine Nummer zu klein für dich.`),
       dissNote(haeme, jetzt));
-    check('…und auch die Häme meldet die Buchung (der Diss bucht in beiden Zweigen)',
-      dissNote(haeme, jetzt).includes('**-13** (-13, neutral)'), dissNote(haeme, jetzt));
+    // Die Häme bucht ihr EIGENES Paar (Respekt −8, Vertrauen −20): Sie hat ihm
+    // die Runde gegeben und dich Hype und Hörer gekostet – danach nimmt er dich
+    // weniger ernst. Frisch 0/0 ergibt round((−8 − 20) / 2) = −14.
+    check('…und die Häme meldet ihre eigene Buchung: Draht −14, neutral',
+      dissNote(haeme, jetzt).includes('**-14** (-14, neutral)')
+      && !dissNote(haeme, jetzt).includes('(-13,'), dissNote(haeme, jetzt));
 
     // --- Meldung: Gegenschlag (aus settle) --------------------------------
     const [KG5, KU5] = await neu();
@@ -1613,6 +1629,20 @@ function view(buttons) {
     // Konter: Respekt −6, Vertrauen −14, frisch 0/0 -> Draht −10, neutral.
     check('Meldung beim Gegenschlag nennt die Buchung: Draht −10, neutral',
       kNote.includes('**-10** (-10, neutral)') && !kNote.includes('undefined'), kNote);
+    /*
+     * Die REIHENFOLGE der Zeilen, nicht nur ihr Vorkommen.
+     *
+     * Eine Drahtzeile nennt keinen Namen. Steht sie vor dem Namen oder vor dem
+     * Schaden, ist sie nicht mehr zuzuordnen – und bei zwei Kontakten in einer
+     * Meldung (unten) ist die Reihenfolge die einzige Zuordnung, die der
+     * Spieler hat. Also: Name, Ton, Hype/Hörer, dann der Draht.
+     */
+    const kZeilen = kNote.split('\n');
+    check('Gegenschlag: Name, Ton, Schaden, dann die Drahtzeile – in dieser Reihenfolge',
+      kZeilen.findIndex((z) => z.includes('hat zurückgeschlagen.')) === 0
+      && kZeilen.findIndex((z) => z.startsWith('📉 Hype'))
+        < kZeilen.findIndex((z) => z.startsWith('🤝 Draht')),
+      kZeilen.join(' | '));
 
     // --- Meldung: Angezählt (steckt in der Veröffentlichungsmeldung) -------
     const [ANG, ANU] = await neu();
@@ -1628,6 +1658,31 @@ function view(buttons) {
     check('Meldung beim Angezähltwerden nennt die Buchung: Draht −10, neutral',
       anNote.includes(`🔥 **${angez.contact.name}** zählt dich an.`)
       && anNote.includes('**-10** (-10, neutral)') && !anNote.includes('undefined'), anNote);
+    // Die namenlose Drahtzeile steht HINTER dem Namen, der sie erklärt.
+    const anZeilen = anNote.split('\n');
+    check('Angezählt: die Drahtzeile steht hinter dem Namen und dem Ton',
+      anZeilen.findIndex((z) => z.includes('zählt dich an.'))
+        < anZeilen.findIndex((z) => z.startsWith('🤝 Draht'))
+      && anZeilen.findIndex((z) => z.startsWith('_'))
+        < anZeilen.findIndex((z) => z.startsWith('🤝 Draht')),
+      anZeilen.join(' | '));
+
+    /*
+     * Der Fall mit ZWEI namenlosen Drahtzeilen: ein Disstrack, der im selben
+     * Zug ein Anzählen auslöst. Dann stehen zwei Buchungen für zwei
+     * verschiedene Kontakte in einer Meldung, und die Reihenfolge ist die
+     * einzige Zuordnung – die des Anzählens gehört unter dessen Namen, die des
+     * Disses an den Schluss. Zusammengesetzt aus zwei ECHTEN Ergebnissen.
+     */
+    const zweiNote = dissNote({ ...dissRes, angezaehlt: angez }, jetzt);
+    const zweiZeilen = zweiNote.split('\n');
+    const iAnzaehlen = zweiZeilen.findIndex((z) => z.includes('zählt dich an.'));
+    const iAnDraht = zweiZeilen.findIndex((z) => z.includes('(-10, neutral)'));
+    const iDissDraht = zweiZeilen.findIndex((z) => z.includes('(-13, verstimmt)'));
+    check('zwei Drahtzeilen in einer Meldung: erst die des Anzählens, dann die des Disses',
+      iAnzaehlen >= 0 && iAnzaehlen < iAnDraht && iAnDraht < iDissDraht
+      && iDissDraht === zweiZeilen.length - 1,
+      zweiZeilen.join(' | '));
 
     // --- Meldung: Abrechnung in allen drei Ausgängen -----------------------
     // Drei Fronten, eine Abrechnung: die Hitze ist bei allen längst durch.
@@ -1892,14 +1947,21 @@ function view(buttons) {
     check('kontaktNote sagt bei Grund beef dasselbe wie der gesperrte Knopf',
       kNote5b({ ok: false, reason: 'beef' }, jetzt) === '❌ Solange der Beef läuft, nicht.',
       kNote5b({ ok: false, reason: 'beef' }, jetzt));
+    // Die Attrappe trägt den Draht des ECHTEN Anzähl-Laufs oben mit: Ohne ihn
+    // prüfte sie eine Meldung ohne Buchungszeile grün – genau den Zustand, den
+    // `releaseNote` nicht mehr kennt (`beef.anzaehlen` liefert `draht` immer,
+    // und die Wache darum fällt).
     const angeNote = rNote5b({
       release: { emoji: '💿', name: 'Single' },
       audience: 12_000, listeners: 11_000, listenersBefore: 10_000,
-      angezaehlt: { contact: klein, text: 'Er postet einen Screenshot von dir.' },
+      angezaehlt: { contact: klein, text: 'Er postet einen Screenshot von dir.',
+        draht: angez.draht },
     });
-    check('die Veröffentlichung meldet, wenn dich jemand anzählt',
+    check('die Veröffentlichung meldet, wenn dich jemand anzählt – samt Buchung',
       angeNote.includes(`🔥 **${klein.name}** zählt dich an.`)
-      && angeNote.includes('_Er postet einen Screenshot von dir._'), angeNote);
+      && angeNote.includes('_Er postet einen Screenshot von dir._')
+      && angeNote.includes('**-10** (-10, neutral)')
+      && !angeNote.includes('undefined') && !angeNote.includes('null'), angeNote);
   }
 
   console.log('--- Angebote (Spec 5c: Anzeige) ---');
@@ -2382,7 +2444,16 @@ function view(buttons) {
           ok: true, cancelled: false, cut: 60, amount: 220, gained: 100,
           extraHoerer: 1_200, kontakt: { name: 'Haiyti', factor: 1.5 },
           event: null, incident: null,
-          beefVorher: [{ art: 'konter', contact: RAMM, wucht: 1, treffer: { verloren: 900 } }],
+          /*
+           * Mit `draht` – wie `beef.settle` es liefert. Ohne ihn gibt
+           * `beefDraht` null zurück, und `Array.join` macht daraus eine LEERE
+           * Zeile mitten in der Tour-Meldung. Die Zahlen sind das Paar
+           * ACHSEN_KONTER auf einem frischen Kontakt (Draht −10).
+           */
+          beefVorher: [{ art: 'konter', contact: RAMM, wucht: 1, treffer: { verloren: 900 },
+            draht: { vorher: 0, nachher: -10, stufe: 'neutral',
+              achsenVor: { respekt: 0, vertrauen: 0, boden: 0 },
+              achsen: { respekt: -6, vertrauen: -14, boden: 0 } } }],
         },
         { ok: true, cancelled: true, cut: 0, amount: 0, gained: 0,
           event: { id: 'absage', text: 'Die Halle ist abgebrannt.' } },
@@ -2404,6 +2475,11 @@ function view(buttons) {
       && !kNoteTour.includes('Abend 4:'), kNoteTour);
     check('und der fällige Gegenschlag steht auch hier vor allem anderen',
       kNoteTour.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`), kNoteTour);
+    // Und er meldet seine Buchung, ohne eine leere Zeile zu hinterlassen.
+    check('der Gegenschlag in der Tour-Meldung bucht sichtbar und ohne Leerzeile',
+      kNoteTour.includes('**-10** (-10, neutral)')
+      && !kNoteTour.split('\n').some((z) => z.trim() === '')
+      && !kNoteTour.includes('null'), kNoteTour);
 
     // --- Die Hinweiszeile in Musik- und Kontaktansicht ---------------------
     const studio = await ui.buildMusicView({ guildId: VG, userId: VU });

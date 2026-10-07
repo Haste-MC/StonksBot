@@ -725,8 +725,10 @@ function releaseNote(res) {
     note += `\n🔥 **${res.angezaehlt.contact.name}** zählt dich an.`;
     if (res.angezaehlt.text) note += `\n_${res.angezaehlt.text}_`;
     // Was das Anzählen gebucht hat: ein stummer Knopfdruck verschluckt es sonst.
-    const anDraht = beefDraht(res.angezaehlt.draht);
-    if (anDraht) note += `\n${anDraht}`;
+    // Die Zeile steht ungeschützt da wie an den vier anderen Aufrufstellen –
+    // `beef.anzaehlen` liefert `draht` immer, eine Wache hätte nur eine
+    // Test-Attrappe ohne `draht` gedeckt.
+    note += `\n${beefDraht(res.angezaehlt.draht)}`;
   }
   note += incidentNote(res.incident);
   note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
@@ -797,7 +799,7 @@ function settleBeef(guildId, userId, now = Date.now()) {
   return beefNote(require('./beef').settle(guildId, userId, now)) || null;
 }
 
-/** Die Drahtbewegung, wie `contacts.moveDraht` sie meldet. */
+/** Die Drahtbewegung, wie `contacts.move` sie meldet. */
 function beefDraht(d) {
   if (!d) return null;
   const delta = d.nachher - d.vorher;
@@ -869,11 +871,17 @@ function dissNote(res, now = Date.now()) {
       + `×${b.aufmerksamkeit.toFixed(1).replace('.', ',')} · `
       + `Runden ${b.rundenIch}:${b.rundenEr}`;
   }
-  // Der Diss bucht in beiden Zweigen – auch die Häme kostet den Draht.
+  // Der Diss bucht in beiden Zweigen – aber nicht dasselbe: Der gelandete hebt
+  // den Respekt, die Häme senkt ihn (ACHSEN_DISS gegen ACHSEN_HAEME).
   return `${note}\n${beefDraht(b.draht)}`;
 }
 
-/** Frieden: der Draht springt dabei nie ins Plus (FRIEDEN_DECKEL). */
+/**
+ * Frieden: Gedeckelt ist das VERTRAUEN (FRIEDEN_DECKEL), nicht der Draht – der
+ * kann dabei sehr wohl ins Plus springen, wenn der Respekt oben steht
+ * (Respekt 68 / Vertrauen −74 ist Draht −3; `friedenZiel(−74)` = −44 hebt ihn
+ * auf +12).
+ */
 function friedenNote(res, now = Date.now()) {
   if (!res.ok) return beefProblem(res, now);
   // Die Drahtzeile tritt an die Stelle der alten „Draht **N**"-Angabe.
