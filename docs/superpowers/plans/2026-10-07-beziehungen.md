@@ -314,10 +314,26 @@ console.log(a.respekt === 44 && a.vertrauen === 44 && a.boden === 0
 
 Erwartet: `drake 44 44 44 0`, `anitta -30 -30 -30 0`, `WANDERUNG OK`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Die neue Testdatei in `npm test` eintragen**
+
+`package.json` → `scripts.test` fährt `rm -rf .testdata`, setzt `DATA_DIR` und listet dann ~51 Testdateien einzeln auf. Eine Datei, die dort nicht steht, läuft in der Gesamtsuite **nie** — und niemand merkt es, weil die Suite grün bleibt. `test/beziehungen.test.js` kommt direkt **hinter `node test/angebote.test.js`**, wo die Kontakt-Familie steht.
+
+**Daraus folgt eine Anforderung an die Datei selbst:** `npm test` löscht `.testdata` nur **einmal** am Anfang und fährt danach alles gegen **dieselbe** Datenbank. `test/beziehungen.test.js` läuft dort nach `contacts`, `beef` und `angebote`, die alle in die Tabelle `contacts` schreiben. Die Datei darf deshalb keinen leeren Ausgangszustand voraussetzen:
+
+- **Eigene Schlüssel**, nicht `g1`/`u1`: Präfix `b6a-` (`b6a-g1`, `b6a-g2`, `b6a-u1`, `b6a-u2`). Mit `grep -rn "b6a-" test/` prüfen, dass sie sonst nirgends vorkommen.
+- **Vorher aufräumen**: Am Anfang jedes Abschnitts, der leere Tabellen braucht, `db.clearContacts(gilde, nutzer)` für jede benutzte Kombination — das löscht seit Step 4 auch das Gedächtnis mit.
+
+Zwei Zusicherungen dafür, und die zweite ist die eigentliche:
 
 ```bash
-git add src/db.js test/beziehungen.test.js
+rm -rf .testdata && DATA_DIR=.testdata node test/beziehungen.test.js   # grün
+DATA_DIR=.testdata node test/beziehungen.test.js                       # ohne rm, ebenfalls grün
+```
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/db.js test/beziehungen.test.js package.json
 git commit -m "beziehungen: zwei achsen, die wanderung und die gedaechtnistabelle"
 ```
 

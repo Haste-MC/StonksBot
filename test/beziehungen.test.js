@@ -16,12 +16,22 @@ const check = (label, ok, extra = '') => {
 };
 const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 
-const G = 'g1';
-const G2 = 'g2';
-const U = 'u1';
-const U2 = 'u2';
+// Eigene Schlüssel: npm test fährt alle Dateien gegen EINE Datenbank, und die
+// Kontakt-Familie davor schreibt in dieselben Tabellen.
+const G = 'b6a-g1';
+const G2 = 'b6a-g2';
+const U = 'b6a-u1';
+const U2 = 'b6a-u2';
+const U3 = 'b6a-u3';
+const U4 = 'b6a-u4';
+
+/** Alles aufräumen, was diese Datei anlegt – vorher UND nachher, nie ein Leerstand vorausgesetzt. */
+const aufraeumen = () => {
+  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4]]) db.clearContacts(g, u);
+};
 
 (async () => {
+
   console.log('--- Spalten und abgeleiteter Draht ---');
   {
     db.saveContact(G, U, 'lilpfand', {
@@ -151,8 +161,6 @@ const U2 = 'u2';
 
   console.log('--- clearContacts löscht auch das Gedächtnis ---');
   {
-    const U3 = 'u3';
-    const U4 = 'u4';
     for (const [u, cs] of [[U3, ['lilpfand', 'ninachuba']], [U4, ['lilpfand']]]) {
       for (const c of cs) {
         db.saveContact(G, u, c, { respekt: 10, vertrauen: 10 });
@@ -380,6 +388,8 @@ const U2 = 'u2';
       `${g(100_000, 1_500_000)} / ${g(100_000, 1_520_000)}`);
   }
 
+
+  aufraeumen();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
