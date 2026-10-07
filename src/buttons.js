@@ -779,7 +779,10 @@ function beefNote(events) {
       if (e.text) zeilen.push(`_${e.text}_`);
     }
   }
-  return zeilen.join('\n');
+  // Wie bei den vier anderen Renderern: `beefDraht` gibt bei einer Bewegung
+  // ohne Achsen `null` zurück, und `join` machte daraus eine LEERE Zeile
+  // mitten in der Meldung.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /** Die fälligen Beef-Ereignisse VOR die eigentliche Meldung setzen. */
@@ -904,7 +907,11 @@ function friedenNote(res, now = Date.now()) {
   const zeilen = ['🕊️ Ihr habt Frieden geschlossen.', beefDraht(res.draht)];
   if (res.text) zeilen.push(`_${res.text}_`);
   zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
-  return zeilen.join('\n');
+  // `filter(Boolean)` wie bei den vier anderen Renderern: `beefDraht` gibt bei
+  // einer Bewegung ohne Achsen `null` zurück, und `join` machte daraus eine
+  // LEERE Zeile mitten in der Meldung. Produktiv unerreichbar – aber das ist
+  // die Kehrseite der Wache: vorher hätte es geworfen, jetzt klaffte eine Lücke.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /**
@@ -976,7 +983,9 @@ function angebotNote(ereignisse) {
       if (e.draht) zeilen.push(beefDraht(e.draht));
     }
   }
-  return zeilen.join('\n');
+  // Wie oben: eine Bewegung ohne Achsen lässt die Zeile weg, nicht eine leere
+  // Lücke zwischen zwei Ereignissen.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /** Die fälligen Angebots-Ereignisse VOR die eigentliche Meldung setzen. */

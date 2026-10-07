@@ -2777,19 +2777,37 @@ const ARTEN_NAMEN = {
 };
 
 /**
- * Derselbe Artname ohne sein Zeichen – nur für die LISTE.
+ * Dieselben zehn Arten ohne ihr Zeichen – nur für die LISTE.
  *
  * Dort stehen vor dem Namen schon das Emoji des Kontakts und seine Flagge;
  * ein drittes Zeichen in derselben Zeile ist Lärm. In der Detailansicht, wo
  * die Art eine eigene Zeile trägt, bleibt es stehen.
  *
+ * Ausgeschrieben und nicht gerechnet: Ein `replace(/^\S+\s+/, '')` schnitt das
+ * erste WORT ab, nicht das erste Zeichen. Mit den heutigen zehn Namen ist das
+ * harmlos, weil alle ein führendes Emoji tragen – aber „alte Band" war in
+ * diesem Stück schon einmal ein Kandidat, und daraus wäre still „Band"
+ * geworden. Zwei Spalten können auseinanderlaufen; dagegen prüft die
+ * Tabellenprobe, dass jeder lange Name auf seinem kurzen endet.
+ *
  * Kein `??`-Rückfall, hier und an den zwei Ansichtsstellen: Mit den richtigen
  * Schlüsseln ist er unerreichbar, und bei einem Tippfehler verwandelte er den
  * Bruch in eine stille Lüge – ein Mentor stünde als „fremd" da, und keine
  * `undefined`-Wache griffe. Die Tabellenprobe in test/fluxer-render.test.js
- * hält die zehn Schlüssel gegen `contacts.artOf`.
+ * hält beide Tabellen gegen `contacts.artOf`.
  */
-const artName = (art) => ARTEN_NAMEN[art].replace(/^\S+\s+/, '');
+const ARTEN_KURZ = {
+  beef: 'Beef',
+  rivale: 'Rivale',
+  verstimmt: 'verstimmt',
+  mentor: 'Mentor',
+  schuetzling: 'Schützling',
+  partner: 'fester Partner',
+  band: 'gemeinsame Vergangenheit',
+  geschaeftlich: 'geschäftlich',
+  bekannt: 'bekannt',
+  fremd: 'fremd',
+};
 
 /** Kurze Namen der vier Anfragearten – die vollen passen auf keinen Knopf. */
 const ANFRAGE_KURZ = {
@@ -3121,7 +3139,7 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       : z.gesperrtBis > now ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
-      + `Draht ${drahtBar(z.draht)} ${zahl(z.draht)} (${artName(z.art)}) · `
+      + `Draht ${drahtBar(z.draht)} ${zahl(z.draht)} (${ARTEN_KURZ[z.art]}) · `
       // Die Chance der Liste ist die EINE Anfrageart, mit der contacts.listFor
       // rechnet (`LIST_REQUEST`, die neutrale Erwähnung). Ohne den Namen stünde
       // hier eine Zahl, die einen Klick später in keinem der vier Knöpfe
@@ -5878,7 +5896,7 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, achsenZeile, frist, alter, restZeit, ARTEN_NAMEN, artName,
+  drahtBar, achsenZeile, frist, alter, restZeit, ARTEN_NAMEN, ARTEN_KURZ,
   SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,

@@ -1257,6 +1257,26 @@ function view(buttons) {
       JSON.stringify([cdata.MEMORY_TEXTE.verstimmt, cdata.MEMORY_TEXTE.zusage,
         cdata.MEMORY_TEXTE.projekt_fertig]));
     /*
+     * Geschlechtsneutral, weil die Person datenseitig unbekannt IST: Der
+     * Katalog hat kein Geschlechtsfeld, und `beef.anzaehlen` wählt aus allen
+     * Nicht-Partnern – Nina Chuba, Loredana, Rosalía, Anitta, Angèle, Pomme,
+     * Sezen Aksu, Ado, Aimer, Peggy Gou, Pamela Reif, Vanessa Wagner und
+     * Bands. „Er hat dich angezählt" war über „Nina Chuba zählt dich an"
+     * schlicht falsch, und es war die EINZIGE der zwölf Vorlagen mit einem
+     * Subjektpronomen.
+     *
+     * Die Probe läuft über alle zwölf, nicht nur über die eine: Eine neue
+     * Vorlage mit „Er"/„Sie"/„sein"/„ihr" fällt hier auf. „Dein Disstrack …"
+     * bleibt erlaubt – das ist der SPIELER, und der ist „du".
+     */
+    check('keine der zwölf Gedächtnisvorlagen nennt ein Subjekt- oder Possessivpronomen',
+      cdata.MEMORY_TEXTE.angezaehlt === 'Hat dich angezählt'
+      && Object.keys(cdata.MEMORY_TEXTE).length === 12
+      && Object.values(cdata.MEMORY_TEXTE).every((t) =>
+        !/\b(Er|Sie|Ihm|Ihn|Ihr|ihm|ihn|ihre?[rmsn]?|seine?[rmsn]?)\b/.test(t)),
+      JSON.stringify(Object.entries(cdata.MEMORY_TEXTE)
+        .filter(([, t]) => /\b(Er|Sie|Ihm|Ihn|Ihr|ihm|ihn|ihre?[rmsn]?|seine?[rmsn]?)\b/.test(t))));
+    /*
      * „7 Versuche ohne Zusage", NICHT „7 Mal kam nichts zurück".
      *
      * `tries − yes` bedeutet nicht, dass nichts zurückkam: `tries` steigt auch
@@ -1425,8 +1445,12 @@ function view(buttons) {
     const artQuelle = require('fs').readFileSync(
       require('path').join(__dirname, '../src/contacts.js'), 'utf8');
     const artBody = artQuelle.slice(artQuelle.indexOf('function artOf('));
+    // `[^']+` und NICHT `[a-z]+`: Mit dem engeren Muster fiel jede Art mit
+    // Unterstrich aus der Probe – `return 'alte_band'` blieb grün. Und
+    // snake_case ist in genau diesem Modul Hausstil, die Schwestertabelle
+    // MEMORY_TEXTE hat `angebot_an`, `projekt_fertig`, `beef_start`.
     const artIds = [...new Set([...artBody.slice(0, artBody.indexOf('\n}'))
-      .matchAll(/return '([a-z]+)'/g)].map((m) => m[1]))];
+      .matchAll(/return '([^']+)'/g)].map((m) => m[1]))];
     check('contacts.artOf liefert genau zehn Arten, und jede hat einen Namen',
       artIds.length === 10
       && artIds.every((id) => typeof ui.ARTEN_NAMEN[id] === 'string'
@@ -1434,6 +1458,13 @@ function view(buttons) {
       && Object.keys(ui.ARTEN_NAMEN).length === 10,
       JSON.stringify({ artIds, namen: Object.keys(ui.ARTEN_NAMEN) }));
     // Die zehn Namen als Literale – samt der Listenfassung ohne Zeichen.
+    /*
+     * BEIDE Tabellen im Wortlaut – die lange für die Detailansicht, die kurze
+     * für die Liste. Die kurzen Namen standen vorher nicht als Literale da,
+     * sondern als Kopie der Regex, mit der der Code sie ausrechnete (und sogar
+     * als eine ANDERE: `\s` im Test gegen `\s+` im Code). Damit prüfte sich der
+     * Test selbst. Jetzt sind es zehn ausgeschriebene Zeichenketten.
+     */
     check('die zehn Artnamen stehen im Wortlaut, mit Zeichen und ohne',
       JSON.stringify(ui.ARTEN_NAMEN) === JSON.stringify({
         beef: '🔥 Beef',
@@ -1447,11 +1478,35 @@ function view(buttons) {
         bekannt: '👋 bekannt',
         fremd: '· fremd',
       })
-      && artIds.map((id) => ui.artName(id)).join('|')
-        === 'beef|rivale|verstimmt|mentor|schuetzling|partner|band|geschaeftlich|bekannt|fremd'
-          .split('|').map((id) => ui.ARTEN_NAMEN[id].replace(/^\S+\s/, '')).join('|')
-      && ui.artName('mentor') === 'Mentor' && ui.artName('fremd') === 'fremd',
-      JSON.stringify(ui.ARTEN_NAMEN));
+      && JSON.stringify(ui.ARTEN_KURZ) === JSON.stringify({
+        beef: 'Beef',
+        rivale: 'Rivale',
+        verstimmt: 'verstimmt',
+        mentor: 'Mentor',
+        schuetzling: 'Schützling',
+        partner: 'fester Partner',
+        band: 'gemeinsame Vergangenheit',
+        geschaeftlich: 'geschäftlich',
+        bekannt: 'bekannt',
+        fremd: 'fremd',
+      }),
+      JSON.stringify([ui.ARTEN_NAMEN, ui.ARTEN_KURZ]));
+    /*
+     * Zwei Spalten können auseinanderlaufen – dagegen diese Probe: Jede Art hat
+     * in BEIDEN Tabellen einen Eintrag, und der lange endet auf dem kurzen.
+     * Das ist die Regel zwischen den Spalten, nicht die Regex, mit der sie
+     * früher gerechnet wurde: „alte Band" → „Band" fiele hier auf, weil der
+     * lange Name auf „alte Band" endete und nicht auf „Band".
+     */
+    check('beide Tabellen kennen dieselben zehn Arten, und der lange Name endet auf dem kurzen',
+      artIds.every((id) => typeof ui.ARTEN_KURZ[id] === 'string'
+        && ui.ARTEN_KURZ[id].length > 0
+        && ui.ARTEN_NAMEN[id].endsWith(ui.ARTEN_KURZ[id]))
+      && Object.keys(ui.ARTEN_KURZ).length === 10
+      // Und das Zeichen ist wirklich weg, nicht nur ein Wort.
+      && ui.ARTEN_KURZ.partner === 'fester Partner'
+      && ui.ARTEN_KURZ.band === 'gemeinsame Vergangenheit',
+      JSON.stringify(ui.ARTEN_KURZ));
 
     // Antwortmeldung: Zusage (Würfel trifft, zweiter Wurf landet auf „zusage").
     const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
@@ -2102,6 +2157,25 @@ function view(buttons) {
       && !fNote.includes('Draht **') && !fNote.includes('undefined'),
       fNote);
 
+    /*
+     * Die Kehrseite der Achsen-Wache in `beefDraht`: Sie gibt `null` zurück,
+     * und `join('\n')` machte daraus eine LEERE Zeile mitten in der Meldung –
+     * anders als bei den vier Renderern, die schon `filter(Boolean)` hatten.
+     * Produktiv unerreichbar, aber vorher hätte es geworfen und jetzt klaffte
+     * eine Lücke. Beide Attrappen tragen eine Bewegung OHNE Achsen.
+     */
+    const kLeer = beefNote([{ art: 'konter', contact: klein, text: 'Ein Ton.',
+      wucht: 1, treffer: { verloren: 0 }, draht: { nachher: 5, vorher: 0 } }]);
+    check('beefNote lässt die Zeile weg statt eine Leerzeile zu hinterlassen',
+      kLeer.includes('hat zurückgeschlagen.') && !kLeer.includes('🤝')
+      && !kLeer.split('\n').some((z) => z.trim() === ''), JSON.stringify(kLeer));
+    const fLeer = friedenNote({ ok: true, contact: klein, text: 'Passt.',
+      zeit: { left: 4 }, draht: { nachher: 5, vorher: 0 } }, jetzt);
+    check('friedenNote lässt die Zeile weg statt eine Leerzeile zu hinterlassen',
+      fLeer.startsWith('🕊️ Ihr habt Frieden geschlossen.\n_Passt._')
+      && !fLeer.includes('🤝')
+      && !fLeer.split('\n').some((z) => z.trim() === ''), JSON.stringify(fLeer));
+
     // --- Die Fehlerfälle mit dem Wortlaut der Spec ------------------------
     check('laeuft_schon', beefProblem({ reason: 'laeuft_schon' }, jetzt)
       === '🔥 Mit ihm läuft schon einer.');
@@ -2543,6 +2617,22 @@ function view(buttons) {
       draht: { nachher: 5, vorher: 0 } }, jetzt);
     check('eine Bewegung ohne Achsen lässt die Zeile weg statt die Meldung abzureißen',
       ohneAchsen === '🚪 Du hast abgesagt.\n_ohne Achsen_', ohneAchsen);
+    /*
+     * Dasselbe für `angebotNote` – und hier zählt es doppelt: Der Renderer
+     * setzt MEHRERE Ereignisse untereinander, eine leere Zeile stünde also
+     * mitten zwischen zwei Meldungen. Beide Zweige mit einer Bewegung ohne
+     * Achsen, dazu ein drittes Ereignis danach, damit die Lücke sichtbar wäre.
+     */
+    const angLeer = angebotNote([
+      { art: 'verfallen', contact: OXMO, draht: { nachher: 5, vorher: 0 } },
+      { art: 'projekt_verfallen', contact: OXMO, projekt: { stunden_ist: 0 },
+        draht: { nachher: 5, vorher: 0 } },
+      { art: 'neu', contact: OXMO, text: 'Noch eine Idee.' },
+    ]);
+    check('angebotNote lässt beide Zeilen weg statt Lücken zwischen den Ereignissen',
+      angLeer.includes('ist verstrichen.') && angLeer.includes('an der Frist gescheitert.')
+      && angLeer.includes('_Noch eine Idee._') && !angLeer.includes('🤝')
+      && !angLeer.split('\n').some((z) => z.trim() === ''), JSON.stringify(angLeer));
 
     check('an der Klemme meldet die Absage ±0, nicht die Konstante −5',
       resAb2.ok

@@ -216,7 +216,15 @@ const MEMORY_TEXTE = {
   blamage:           'Dein Disstrack ging nach hinten los',
   diss:              'Dein Disstrack hat getroffen',
   konter:            'Konter kassiert',
-  angezaehlt:        'Er hat dich angezählt',
+  // Subjektlos wie die zehn anderen ereignisbezogenen Vorlagen: Der Katalog
+  // hat KEIN Geschlechtsfeld, und `beef.anzaehlen` wählt aus allen
+  // Nicht-Partnern – darunter Nina Chuba, Loredana, Rosalía, Anitta, Angèle,
+  // Pomme, Sezen Aksu, Ado, Aimer, Peggy Gou, Pamela Reif, Vanessa Wagner und
+  // Bands. „Er hat dich angezählt" war über „Nina Chuba zählt dich an"
+  // schlicht falsch, und geschlechtsneutral ist Vorgabe, wo die Person
+  // datenseitig unbekannt ist. („Dein Disstrack …" bleibt: das ist der
+  // SPIELER, und der ist „du".)
+  angezaehlt:        'Hat dich angezählt',
   frieden:           'Frieden gemacht',
 };
 
