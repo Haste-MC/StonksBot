@@ -1400,7 +1400,7 @@ git commit -m "beziehungen: angebote auf die achsen, das durchziehen zaehlt endl
 
 **Interfaces:**
 - Consumes: `contacts.move`, `contacts.istPartnerRow` aus Task 3.
-- Produces: keine neuen Signaturen nach außen.
+- Produces: `beef.friedenZiel(vertrauen) -> number` — reine Funktion, damit der Deckel prüfbar ist, ohne die Formel im Test zu wiederholen.
 
 - [ ] **Step 1: Die Konstanten**
 
@@ -1501,11 +1501,20 @@ Zeile 598 ersetzen. Die Deckel-Logik bleibt wortgleich, sie wirkt nur auf die an
   // Respekt bleibt unberührt: Was du getroffen hast, respektiert er weiter.
   const vorherAchsen = contacts.achsenJetzt(
     db.getContact(guildId, userId, contactId), now);
-  const zielV = Math.max(vorherAchsen.vertrauen,
-    Math.min(data.FRIEDEN_DECKEL, vorherAchsen.vertrauen + data.FRIEDEN_PLUS));
   const draht = contacts.move(guildId, userId, contactId, {
-    setzeVertrauen: zielV, merken: { art: 'frieden', detail: '' },
+    setzeVertrauen: friedenZiel(vorherAchsen.vertrauen),
+    merken: { art: 'frieden', detail: '' },
   }, now, { sperre: true });
+```
+
+Die Formel bekommt dabei einen **Namen** und steht in der reinen Hälfte von `src/beef.js`, exportiert — sonst kann sie nur geprüft werden, indem ein Test sie nachrechnet und damit sich selbst bestätigt:
+
+```js
+/** Wohin die Versöhnung das Vertrauen hebt – gedeckelt, nie nach unten. */
+function friedenZiel(vertrauen) {
+  return Math.max(vertrauen,
+    Math.min(data.FRIEDEN_DECKEL, vertrauen + data.FRIEDEN_PLUS));
+}
 ```
 
 - [ ] **Step 4: Die Partner-Regel in der Anzählrunde**
@@ -1560,10 +1569,14 @@ An `test/beziehungen.test.js` anfügen:
         meine: 100_000, seine: 100_000 }));
 
     // Der Frieden hebt Vertrauen bis zum Deckel und rührt den Respekt nicht an.
-    check('der Frieden deckelt bei −10',
-      Math.max(-70, Math.min(bdata.FRIEDEN_DECKEL, -70 + bdata.FRIEDEN_PLUS)) === -40);
-    check('…und zieht einen hohen Wert nicht herunter',
-      Math.max(20, Math.min(bdata.FRIEDEN_DECKEL, 20 + bdata.FRIEDEN_PLUS)) === 20);
+    // Geprüft wird die PRODUKTIONSFUNKTION, nicht eine Kopie ihrer Formel.
+    const beef = require('../src/beef');
+    check('der Frieden hebt −70 auf den Deckel −10', beef.friedenZiel(-70) === -40,
+      String(beef.friedenZiel(-70)));
+    check('…und −20 nur bis −10', beef.friedenZiel(-20) === -10,
+      String(beef.friedenZiel(-20)));
+    check('…und zieht einen hohen Wert nicht herunter', beef.friedenZiel(20) === 20,
+      String(beef.friedenZiel(20)));
   }
 ```
 
@@ -1698,14 +1711,28 @@ In `grundText` (Zeile 3148) ergänzen — `r.minVertrauen` statt `r.minDraht`:
 
 - [ ] **Step 5: Die Meldungen in `src/buttons.js`**
 
-`anfrageNote` (Zeile 658) — statt des Stufennamens die zwei Achsen-Deltas, die mehr sagen:
+Beide Meldungen zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Achsen-Deltas. Sie bekommen **einen** Erzeuger in `src/ui.js`, direkt hinter `drahtBar` — sonst steht derselbe dreiteilige String zweimal im Code und läuft beim nächsten Mal auseinander:
 
 ```js
-  const dR = res.achsen.respekt - res.achsenVor.respekt;
-  const dV = res.achsen.vertrauen - res.achsenVor.vertrauen;
-  zeilen.push(`🤝 Draht ${drahtBar(res.draht)} **${res.draht}** `
-    + `(${res.delta >= 0 ? '+' : ''}${res.delta})`
-    + ` · Respekt ${dR >= 0 ? '+' : ''}${dR} · Vertrauen ${dV >= 0 ? '+' : ''}${dV}`);
+/**
+ * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
+ *
+ * `anfrageNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
+ * und jedem verfallenen Projekt) zeigen dasselbe aus verschieden geformten
+ * Ergebnissen; die Zeile selbst gibt es nur hier.
+ */
+function achsenZeile(draht, delta, achsenVor, achsen) {
+  const vz = (n) => `${n >= 0 ? '+' : ''}${n}`;
+  return `🤝 Draht ${drahtBar(draht)} **${draht}** (${vz(delta)})`
+    + ` · Respekt ${vz(achsen.respekt - achsenVor.respekt)}`
+    + ` · Vertrauen ${vz(achsen.vertrauen - achsenVor.vertrauen)}`;
+}
+```
+
+`achsenZeile` exportieren. `anfrageNote` (Zeile 658) ruft sie:
+
+```js
+  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen));
 ```
 
 `beefDraht` (Zeile 793) ebenso — `d.stufe` gibt es nicht mehr:
@@ -1714,12 +1741,7 @@ In `grundText` (Zeile 3148) ergänzen — `r.minVertrauen` statt `r.minDraht`:
 /** Die Achsenbewegung, wie `contacts.move` sie meldet. */
 function beefDraht(d) {
   if (!d) return null;
-  const delta = d.nachher - d.vorher;
-  const dR = d.achsen.respekt - d.achsenVor.respekt;
-  const dV = d.achsen.vertrauen - d.achsenVor.vertrauen;
-  return `🤝 Draht ${drahtBar(d.nachher)} **${d.nachher}** `
-    + `(${delta >= 0 ? '+' : ''}${delta})`
-    + ` · Respekt ${dR >= 0 ? '+' : ''}${dR} · Vertrauen ${dV >= 0 ? '+' : ''}${dV}`;
+  return achsenZeile(d.nachher, d.nachher - d.vorher, d.achsenVor, d.achsen);
 }
 ```
 
