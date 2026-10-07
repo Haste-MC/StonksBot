@@ -1763,13 +1763,18 @@ git commit -m "beziehungen: beef auf die achsen, der diss hebt den respekt"
 ```js
 /** Die zehn Beziehungsarten – contacts.artOf liefert die Schlüssel. */
 const ARTEN_NAMEN = {
+  // `band` heißt NICHT „alte Band": Mit BODEN_AN = 3 reichen vier angenommene
+  // kleine Gegenanfragen für Boden 12 ≥ ART_BAND_BODEN, also trüge jemand den
+  // Namen ohne ein einziges gemeinsames Album. Über die Schwelle lässt sich das
+  // nicht lösen – ART_BAND_BODEN müsste über 12 steigen und verlöre dann den
+  // Ein-Album-Weg bei BODEN_FERTIG = 10. Der Name deckt darum beide Wege.
   beef: '🔥 Beef',
   rivale: '⚔️ Rivale',
   verstimmt: '🙄 verstimmt',
   mentor: '🎓 Mentor',
   schuetzling: '🐣 Schützling',
   partner: '🤝 fester Partner',
-  band: '💿 alte Band',
+  band: '💿 gemeinsame Vergangenheit',
   geschaeftlich: '💼 geschäftlich',
   bekannt: '👋 bekannt',
   fremd: '· fremd',
