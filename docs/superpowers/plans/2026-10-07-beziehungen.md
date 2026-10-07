@@ -1367,6 +1367,8 @@ Jede weitere Stelle, die `artenFuer` aufruft, mitziehen: `grep -n 'artenFuer' sr
 
 Alle `contacts.moveDraht(..., data.DRAHT_*, now)` zu `contacts.move(..., { ...paar, boden, merken }, now)`:
 
+> **Eine Zusicherung auf die gerenderte Zeile gehört hierher.** Gemessen in Task 4: Entfernt man `stufe` aus `contacts.move`, bleiben `test/beef.test.js` (398) **und** `test/fluxer-render.test.js` (408) beide grün — **keine** ihrer Zusicherungen prüft die Stufenzeile einer Beef-Drahtmeldung. Die Quelle ist seit Task 4 bewacht, ihre Weiterverwendung in `beefDraht` nicht. Ergänze in `test/beef.test.js` eine Zeile, die `buttons.beefDraht(ergebnis.draht)` rendert und verlangt, dass darin ein **echter** Stufenname aus `DRAHT_STUFEN` steht und nicht `undefined`.
+>
 > **`buttons.beefDraht` liest `d.stufe` aus allen sechs dieser Ergebnisse.** `contacts.move` liefert das Feld seit Task 4 selbst — prüf das zuerst mit `grep -n "stufe" src/contacts.js` an der Rückgabe von `move`. Fehlt es dort, **ergänze es dort** (`stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))`) und nicht an den sechs Aufrufstellen: Sonst steht in jeder Beef-Meldung still das Wort `undefined`, und **kein Test prüft diese Zeichenketten**.
 
 `settle` Schritt 1, verfallene Anfrage (Zeile 291):
