@@ -24,10 +24,11 @@ const U = 'b6a-u1';
 const U2 = 'b6a-u2';
 const U3 = 'b6a-u3';
 const U4 = 'b6a-u4';
+const U5 = 'b6a-u5';
 
 /** Alles aufräumen, was diese Datei anlegt – vorher UND nachher, nie ein Leerstand vorausgesetzt. */
 const aufraeumen = () => {
-  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4]]) db.clearContacts(g, u);
+  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4], [G, U5]]) db.clearContacts(g, u);
 };
 
 (async () => {
@@ -463,6 +464,256 @@ const aufraeumen = () => {
     check('Faktor 15,2 ist die Grenze',
       g(100_000, 1_600_000) > 0.25 && g(100_000, 1_500_000) < 0.25,
       `${g(100_000, 1_500_000)} / ${g(100_000, 1_600_000)}`);
+  }
+
+
+  console.log('--- Fester Partner: eine Regel ---');
+  {
+    const contacts = require('../src/contacts');
+    check('beide oben', contacts.istPartner(50, 50) === true);
+    check('Respekt knapp drunter', contacts.istPartner(49, 50) === false);
+    check('Vertrauen knapp drunter', contacts.istPartner(50, 49) === false);
+    // Der Fall, den die alte Regel durchließ: Draht 50 ohne jedes Vertrauen.
+    check('Respekt 100 und Vertrauen 0 ist KEIN Partner',
+      contacts.istPartner(100, 0) === false);
+    check('beide unten', contacts.istPartner(0, 0) === false);
+  }
+
+  console.log('--- Die Art der Beziehung ---');
+  {
+    const contacts = require('../src/contacts');
+    const art = (o) => contacts.artOf({ meine: 100_000, seine: 100_000, ...o });
+
+    check('offener Beef schlägt alles',
+      art({ respekt: 90, vertrauen: 90, boden: 30, beefOffen: true }) === 'beef');
+    check('Rivale: Respekt 30, Vertrauen −20',
+      art({ respekt: 30, vertrauen: -20 }) === 'rivale');
+    check('Respekt 29 ist kein Rivale',
+      art({ respekt: 29, vertrauen: -20 }) === 'fremd',
+      art({ respekt: 29, vertrauen: -20 }));
+    check('Vertrauen −19 ist kein Rivale',
+      art({ respekt: 30, vertrauen: -19 }) === 'fremd',
+      art({ respekt: 30, vertrauen: -19 }));
+    // Der Zustand, den eine Zahl nicht ausdrücken kann: Draht −25, aber Rivale.
+    check('der Rivale bei Draht −25 wird NICHT verstimmt',
+      art({ respekt: 30, vertrauen: -80 }) === 'rivale',
+      art({ respekt: 30, vertrauen: -80 }));
+    check('verstimmt bei Draht −20 ohne Respekt',
+      art({ respekt: 0, vertrauen: -40 }) === 'verstimmt');
+    check('Draht −19 ist nicht verstimmt',
+      art({ respekt: 0, vertrauen: -38 }) === 'fremd',
+      art({ respekt: 0, vertrauen: -38 }));
+
+    const gross = { meine: 100_000, seine: 10_000_000 };
+    check('Mentor', contacts.artOf({ ...gross, respekt: 50, vertrauen: 40 }) === 'mentor');
+    check('Respekt 49 ist kein Mentor',
+      contacts.artOf({ ...gross, respekt: 49, vertrauen: 40 }) === 'bekannt',
+      contacts.artOf({ ...gross, respekt: 49, vertrauen: 40 }));
+    check('Vertrauen 39 ist kein Mentor',
+      contacts.artOf({ ...gross, respekt: 50, vertrauen: 39 }) === 'bekannt',
+      contacts.artOf({ ...gross, respekt: 50, vertrauen: 39 }));
+    check('Faktor 10 reicht für den Mentor',
+      contacts.artOf({ meine: 100_000, seine: 1_000_000, respekt: 50, vertrauen: 40 }) === 'mentor');
+    check('Faktor 9,99999 reicht nicht',
+      contacts.artOf({ meine: 100_000, seine: 999_999, respekt: 50, vertrauen: 40 }) === 'bekannt',
+      contacts.artOf({ meine: 100_000, seine: 999_999, respekt: 50, vertrauen: 40 }));
+    // Die Reihenfolge-Absicht aus der Spec: Mentor steht ÜBER Partner, das
+    // ⭐ hängt daran aber nicht.
+    check('Mentor schlägt Partner',
+      contacts.artOf({ ...gross, respekt: 60, vertrauen: 60 }) === 'mentor');
+    check('…und ist trotzdem fester Partner', contacts.istPartner(60, 60) === true);
+
+    check('Schützling',
+      contacts.artOf({ meine: 10_000_000, seine: 100_000, respekt: 0, vertrauen: 40 }) === 'schuetzling');
+    // Dieselbe Absicht von der anderen Seite: Auch der Schützling steht über
+    // dem Partner.
+    check('Schützling schlägt Partner',
+      contacts.artOf({ meine: 10_000_000, seine: 100_000, respekt: 60, vertrauen: 60 }) === 'schuetzling',
+      contacts.artOf({ meine: 10_000_000, seine: 100_000, respekt: 60, vertrauen: 60 }));
+    check('Partner bei gleicher Größe', art({ respekt: 50, vertrauen: 50 }) === 'partner');
+    check('alte Band: Boden 10 ohne warme Achsen',
+      art({ respekt: 0, vertrauen: 0, boden: 10 }) === 'band');
+    check('Boden 9 ist keine Band',
+      art({ respekt: 0, vertrauen: 0, boden: 9 }) === 'fremd',
+      art({ respekt: 0, vertrauen: 0, boden: 9 }));
+    // Die zweite Reihenfolge-Absicht: band steht UNTER den warmen Arten.
+    check('warme Band wird Partner, nicht Band',
+      art({ respekt: 70, vertrauen: 70, boden: 10 }) === 'partner',
+      art({ respekt: 70, vertrauen: 70, boden: 10 }));
+    check('geschäftlich',
+      art({ respekt: 40, vertrauen: 0, trait: 'geschaeftlich' }) === 'geschaeftlich');
+    check('derselbe Respekt ohne den Charakterzug ist nur bekannt',
+      art({ respekt: 40, vertrauen: 0, trait: 'kollegial' }) === 'bekannt',
+      art({ respekt: 40, vertrauen: 0, trait: 'kollegial' }));
+    check('bekannt bei Draht 20', art({ respekt: 20, vertrauen: 20 }) === 'bekannt');
+    check('fremd bei null', art({ respekt: 0, vertrauen: 0 }) === 'fremd');
+
+    // Jede der zehn Arten muss erreichbar sein – sonst ist eine Schwelle tot.
+    const alle = new Set([
+      art({ respekt: 0, vertrauen: 0, beefOffen: true }),
+      art({ respekt: 30, vertrauen: -80 }),
+      art({ respekt: 0, vertrauen: -40 }),
+      contacts.artOf({ ...gross, respekt: 50, vertrauen: 40 }),
+      contacts.artOf({ meine: 10_000_000, seine: 100_000, respekt: 0, vertrauen: 40 }),
+      art({ respekt: 50, vertrauen: 50 }),
+      art({ respekt: 0, vertrauen: 0, boden: 10 }),
+      art({ respekt: 40, vertrauen: 0, trait: 'geschaeftlich' }),
+      art({ respekt: 20, vertrauen: 20 }),
+      art({ respekt: 0, vertrauen: 0 }),
+    ]);
+    check('alle zehn Arten sind erreichbar', alle.size === 10,
+      `${alle.size}: ${[...alle].join(', ')}`);
+  }
+
+  console.log('--- Antwortchance: die Tabelle der Spec ---');
+  {
+    const contacts = require('../src/contacts');
+    // Neutrale Anfrage, gleiches Land, gleiche Sprache, gleiches Genre weg –
+    // gemessen wird der Beziehungs-Summand, nicht die Beiwerke.
+    const arg = (meine, seine, respekt, vertrauen = 0) => ({
+      meineReichweite: meine, seineReichweite: seine, request: 'shoutout',
+      gleichesLand: false, sprache: 'englisch', genre: 'verwandt',
+      respekt, vertrauen, tuerOeffner: 0, hype: 1, trait: 'launisch',
+      partner: false, szene: 0,
+    });
+    const c = (...a) => contacts.chanceOf(arg(...a));
+    const tabelle = [
+      // meine,     seine,  R,   erwartet
+      [100_000,   100_000,   0, 0.6000],
+      [100_000,   100_000,  50, 0.6600],
+      [100_000,   100_000, 100, 0.7200],
+      [100_000, 1_000_000,   0, 0.1897],
+      [100_000, 1_000_000, 100, 0.4197],
+      [100_000, 10_000_000,  0, 0.0600],
+      [100_000, 10_000_000, 50, 0.2300],
+      [100_000, 10_000_000, 100, 0.4000],
+      [10_000,  10_000_000, 50, 0.2440],
+      [10_000,  10_000_000, 100, 0.4690],
+    ];
+    for (const [m, s, r, soll] of tabelle) {
+      check(`${m} → ${s} bei Respekt ${r}: ${(soll * 100).toFixed(1)} %`,
+        near(c(m, s, r), soll, 5e-5), String(c(m, s, r)));
+    }
+
+    check('positives Vertrauen hebt die Chance NICHT',
+      near(c(100_000, 10_000_000, 50, 0), c(100_000, 10_000_000, 50, 100), 1e-12));
+
+    // Der Riegel: Dauer-Beefer mit Respekt 20 und Vertrauen −100.
+    check('Dauer-Beefer landet auf CHANCE_MIN',
+      near(c(100_000, 10_000_000, 20, -100), 0.02),
+      String(c(100_000, 10_000_000, 20, -100)));
+    check('…ohne den Malus wäre er über dem Fremden',
+      c(100_000, 10_000_000, 20, 0) > c(100_000, 10_000_000, 0, 0));
+  }
+
+  console.log('--- Die Schreibwege ---');
+  {
+    const contacts = require('../src/contacts');
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+
+    // move: addiert, klemmt, kühlt vorher faul ab.
+    db.saveContact(G, U2, 'drake',
+      { respekt: 40, vertrauen: 40, boden: 0, last_move: T });
+    const m1 = contacts.move(G, U2, 'drake', { respekt: 10, vertrauen: -20 }, T);
+    check('move addiert beide Achsen',
+      m1.achsen.respekt === 50 && m1.achsen.vertrauen === 20, JSON.stringify(m1.achsen));
+    check('move meldet den Draht vorher und nachher',
+      m1.vorher === 40 && m1.nachher === 35, `${m1.vorher}/${m1.nachher}`);
+    check('move meldet die Achsen von vorher',
+      m1.achsenVor.respekt === 40 && m1.achsenVor.vertrauen === 40 && m1.achsenVor.boden === 0,
+      JSON.stringify(m1.achsenVor));
+
+    // Vier Wochen später: Respekt −4, Vertrauen −12.
+    const spaet = T + 28 * DAY;
+    const a = contacts.achsenJetzt(db.getContact(G, U2, 'drake'), spaet);
+    check('Respekt kühlt mit 1 je Woche', a.respekt === 46, String(a.respekt));
+    check('Vertrauen kühlt mit 3 je Woche', a.vertrauen === 8, String(a.vertrauen));
+    check('der Draht kühlt mit den alten 2', a.draht === 27, String(a.draht));
+    check('Lesen hat nichts geschrieben (§4)',
+      db.getContact(G, U2, 'drake').respekt === 50);
+
+    // Der Boden hebt das Vertrauen mit.
+    db.saveContact(G, U3, 'anitta', { respekt: 0, vertrauen: 2, boden: 0, last_move: T });
+    const m2 = contacts.move(G, U3, 'anitta', { boden: 10 }, T);
+    check('der Boden hebt das Vertrauen auf seine Höhe',
+      m2.achsen.boden === 10 && m2.achsen.vertrauen === 10, JSON.stringify(m2.achsen));
+    const m3 = contacts.move(G, U3, 'anitta', { boden: 30 }, T);
+    check('der Boden ist bei 30 gedeckelt', m3.achsen.boden === 30, String(m3.achsen.boden));
+
+    // setzeVertrauen: nur die Versöhnung benutzt es.
+    db.saveContact(G, U4, 'ezhel', { respekt: 20, vertrauen: -70, boden: 0, last_move: T });
+    const m4 = contacts.move(G, U4, 'ezhel', { setzeVertrauen: -40 }, T);
+    check('setzeVertrauen setzt statt zu addieren',
+      m4.achsen.vertrauen === -40 && m4.achsen.respekt === 20, JSON.stringify(m4.achsen));
+
+    // merken schreibt eine Gedächtniszeile mit den echten Deltas – bewusst
+    // UNGLEICH, sonst wäre ein Vertauschen der zwei Achsen unsichtbar.
+    contacts.move(G, U4, 'ezhel',
+      { respekt: 9, vertrauen: 3, merken: { art: 'frieden', detail: '' } }, T);
+    const mem = db.memoryOf(G, U4, 'ezhel', 1);
+    check('merken schreibt mit den echten Deltas',
+      mem.length === 1 && mem[0].art === 'frieden'
+      && mem[0].d_respekt === 9 && mem[0].d_vertrauen === 3, JSON.stringify(mem));
+    check('ohne merken keine Zeile', db.memoryCount(G, U2, 'drake') === 0);
+
+    // Der Boden bremst auch beim Lesen: ohne ihn fiele das Vertrauen auf 0.
+    db.saveContact(G, U5, 'rammstein', { respekt: 0, vertrauen: 30, boden: 20, last_move: T });
+    const b10 = contacts.achsenJetzt(db.getContact(G, U5, 'rammstein'), T + 70 * DAY);
+    check('achsenJetzt hält das Vertrauen auf dem Boden',
+      b10.vertrauen === 20 && b10.boden === 20, JSON.stringify(b10));
+    check('der Respekt hat keinen Boden und fällt auf 0',
+      b10.respekt === 0 && b10.draht === 10, JSON.stringify(b10));
+
+    // Die Klemme: beide Achsen bleiben zwischen −100 und 100.
+    db.saveContact(G, U5, 'anitta', { respekt: 95, vertrauen: -95, boden: 0, last_move: T });
+    const m5 = contacts.move(G, U5, 'anitta', { respekt: 50, vertrauen: -50 }, T);
+    check('move klemmt beide Achsen bei ±100',
+      m5.achsen.respekt === 100 && m5.achsen.vertrauen === -100, JSON.stringify(m5.achsen));
+  }
+
+  // Der Paritätsabschnitt oben baut die Wochenzählung und die ±100-Klemme im
+  // TEST nach. Erst hier läuft dieselbe Ereignisfolge durch die echte
+  // Schreibmechanik: contacts.move schreibt, contacts.achsenJetzt liest.
+  console.log('--- Dieselbe Kette durch move und achsenJetzt ---');
+  {
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+
+    // Zwanzig echte Antworten, alle am selben Tag. Die alte Kette ergab hier
+    // Draht 100; dass es jetzt 80 sind, ist das Design (siehe „Die gewollte
+    // Abweichung") – hier steht es für die echte Mechanik.
+    for (let i = 0; i < 20; i++) {
+      contacts.move(G, U5, 'lilpfand',
+        { respekt: cdata.ACHSEN.echt.respekt, vertrauen: cdata.ACHSEN.echt.vertrauen }, T);
+    }
+    const z = contacts.achsenJetzt(db.getContact(G, U5, 'lilpfand'), T);
+    check('20 × echt durch move: Respekt sättigt bei 100, Vertrauen steht bei 60',
+      z.respekt === 100 && z.vertrauen === 60, JSON.stringify(z));
+    check('20 × echt durch move: der Draht ist 80', z.draht === 80, String(z.draht));
+
+    // Respekt 50 / Vertrauen −50 (Draht 0), dann nichts mehr. Die alte Kette
+    // blieb bei 0 stehen, weil ein Draht von 0 nicht abkühlt.
+    contacts.move(G, U5, 'ninachuba', { respekt: 50, vertrauen: -50 }, T);
+    const zeile = db.getContact(G, U5, 'ninachuba');
+    const n0 = contacts.achsenJetzt(zeile, T);
+    check('Ausgangspunkt durch move: 50 / −50 ist Draht 0',
+      n0.respekt === 50 && n0.vertrauen === -50 && n0.draht === 0, JSON.stringify(n0));
+    const n4 = contacts.achsenJetzt(zeile, T + 28 * DAY);
+    check('vier Wochen durch achsenJetzt: 46 / −38, Draht 4',
+      n4.respekt === 46 && n4.vertrauen === -38 && n4.draht === 4, JSON.stringify(n4));
+    const n10 = contacts.achsenJetzt(zeile, T + 70 * DAY);
+    check('zehn Wochen durch achsenJetzt: 40 / −20, Draht 10',
+      n10.respekt === 40 && n10.vertrauen === -20 && n10.draht === 10, JSON.stringify(n10));
+    // Angebrochene Wochen zählen nicht: 27 Tage sind drei Wochen, nicht vier.
+    const n27 = contacts.achsenJetzt(zeile, T + 27 * DAY);
+    check('27 Tage sind drei Wochen: 47 / −41, Draht 3',
+      n27.respekt === 47 && n27.vertrauen === -41 && n27.draht === 3, JSON.stringify(n27));
+    check('das Lesen hat die Zeile nicht angefasst (§4)',
+      db.getContact(G, U5, 'ninachuba').respekt === 50
+      && db.getContact(G, U5, 'ninachuba').vertrauen === -50);
   }
 
 

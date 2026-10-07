@@ -70,18 +70,11 @@ const SPERRE_TAGE = 3;
 /** Wer ignoriert wurde, darf erst nach einer Woche wieder nerven. */
 const SPERRE_IGNORIERT_TAGE = 7;
 
-/** Was eine Antwort am Draht bewegt. */
-const DRAHT_ZUSAGE = 12;
-const DRAHT_ECHT = 6;
-const DRAHT_FLUECHTIG = 2;
-const DRAHT_IGNORIERT = -1;
-const DRAHT_VERSTIMMT = -5;
-
 /**
  * Ohne Kontakt kühlt die Beziehung ab: zwei Punkte je Woche Richtung 0.
  * Bleibt als REFERENZ des Paritätstests stehen (test/beziehungen.test.js) und
- * wird von contacts.decay noch gelesen – nicht mit den übrigen DRAHT_*
- * aufräumen.
+ * wird von contacts.decay noch gelesen – die übrigen DRAHT_* sind mit dem
+ * Umbau auf die Achsen weggefallen, diese Zahl bleibt.
  */
 const DRAHT_DECAY_PRO_WOCHE = 2;
 
@@ -90,9 +83,6 @@ const STUFE_BEKANNT = 20;
 const STUFE_PARTNER = 50;
 const STUFE_VERSTIMMT = -20;
 const STUFE_BEEF = -50;
-
-/** So viele Zusagen machen jemanden zum festen Partner. */
-const PARTNER_YES = 3;
 
 /** Die Antwortchance bleibt immer zwischen diesen Grenzen. */
 const CHANCE_MIN = 0.02;
@@ -693,10 +683,9 @@ const byId = (id) => CONTACTS.find((c) => c.id === id) || null;
 module.exports = {
   CONTACTS, REQUESTS, TRAIT_BONUS, LINES, RELATED_GENRES, byId,
   KONTAKT_TIME, SPERRE_TAGE, SPERRE_IGNORIERT_TAGE,
-  DRAHT_ZUSAGE, DRAHT_ECHT, DRAHT_FLUECHTIG, DRAHT_IGNORIERT, DRAHT_VERSTIMMT,
   DRAHT_DECAY_PRO_WOCHE,
   STUFE_BEKANNT, STUFE_PARTNER, STUFE_VERSTIMMT, STUFE_BEEF,
-  PARTNER_YES, CHANCE_MIN, CHANCE_MAX,
+  CHANCE_MIN, CHANCE_MAX,
   ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX,
   RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS,
   PARTNER_RESPEKT, PARTNER_VERTRAUEN,

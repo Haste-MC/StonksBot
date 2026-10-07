@@ -87,7 +87,7 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     const basis = (r) => Math.min(0.95, 0.6 * Math.sqrt(r));
     const arg = (over) => ({
       meineReichweite: 1_000, seineReichweite: 1_000, request: 'shoutout',
-      gleichesLand: false, sprache: 'gleich', genre: 'gleich', draht: 0,
+      gleichesLand: false, sprache: 'gleich', genre: 'gleich', respekt: 0, vertrauen: 0,
       tuerOeffner: 0, hype: 1, trait: 'launisch', partner: false, ...over });
     // 1:1, alles neutral außer gleicher Sprache/Genre: 0,6 + 0,10 + 0,05 = 0,75
     check('1:1, gleiche Sprache und Genre: 0,75', near(contacts.chanceOf(arg()), 0.75), String(contacts.chanceOf(arg())));
@@ -99,29 +99,37 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('1:1000, gleiche Sprache und Genre: 0,169',
       near(contacts.chanceOf(arg({ seineReichweite: 1_000_000 })), 0.6 * Math.sqrt(0.001) + 0.15),
       String(contacts.chanceOf(arg({ seineReichweite: 1_000_000 }))));
-    check('Draht 50 hebt um 0,125', near(contacts.chanceOf(arg({ draht: 50 })) - contacts.chanceOf(arg()), 0.125));
-    check('Draht −100 senkt um 0,25', near(contacts.chanceOf(arg()) - contacts.chanceOf(arg({ draht: -100 })), 0.25));
+    // Die Umverteilung: Auf Augenhöhe wiegt die Beziehung weniger als früher.
+    // Als Formel statt als Literal, damit die Zusicherung nicht einfriert.
+    check('Respekt 50 hebt um 0,06',
+      near(contacts.chanceOf(arg({ respekt: 50, vertrauen: 50 })) - contacts.chanceOf(arg()),
+        0.5 * contacts.respektGewicht(1_000, 1_000)),
+      String(contacts.chanceOf(arg({ respekt: 50, vertrauen: 50 })) - contacts.chanceOf(arg())));
+    check('Vertrauen −100 senkt um 0,25',
+      near(contacts.chanceOf(arg()) - contacts.chanceOf(arg({ respekt: -100, vertrauen: -100 })), 0.25),
+      String(contacts.chanceOf(arg()) - contacts.chanceOf(arg({ respekt: -100, vertrauen: -100 }))));
     check('Partner gibt +0,10', near(contacts.chanceOf(arg({ partner: true })) - contacts.chanceOf(arg()), 0.10));
     check('Reaktion ist leichter als Konzert um 0,35',
       near(contacts.chanceOf(arg({ request: 'reaktion' })) - contacts.chanceOf(arg({ request: 'konzert' })), 0.35));
-    check('Obergrenze 0,95', contacts.chanceOf(arg({ seineReichweite: 10, draht: 100, trait: 'kollegial' })) === 0.95);
+    check('Obergrenze 0,95',
+      contacts.chanceOf(arg({ seineReichweite: 10, respekt: 100, vertrauen: 100, trait: 'kollegial' })) === 0.95);
     check('frischer Account: Boden 100 statt Division durch null',
       Number.isFinite(contacts.chanceOf(arg({ meineReichweite: 0, seineReichweite: 1_000_000 }))));
   }
 
   console.log('--- Stufe und Stärke ---');
   {
-    // Gewichte: fluechtig 6, echt 3, zusage 1 × (1 + 2×min(1,ratio)) × (1 + draht/100)
-    const zaehle = (ratio, draht, n = 20_000) => {
+    // Gewichte: fluechtig 6, echt 3, zusage 1 × (1 + 2×min(1,ratio)) × (1 + respekt/100)
+    const zaehle = (ratio, respekt, n = 20_000) => {
       let i = 0; const rng = () => ((i = (i * 1103515245 + 12345) % 2147483648) / 2147483648);
       const out = { fluechtig: 0, echt: 0, zusage: 0 };
-      for (let k = 0; k < n; k++) out[contacts.stufeVon(rng, { ratio, draht })]++;
+      for (let k = 0; k < n; k++) out[contacts.stufeVon(rng, { ratio, respekt })]++;
       return out;
     };
     const gross = zaehle(1, 50);   // ratio 1 → naehe 1
     const erwartetZusage = 1 * (1 + 2) * (1 + 0.5);      // 4,5
     const summe = 6 + 3 + erwartetZusage;                 // 13,5 → Anteil 0,333
-    check('auf Augenhöhe mit Draht 50: Zusagen ≈ 33 % der Fälle',
+    check('auf Augenhöhe mit Respekt 50: Zusagen ≈ 33 % der Fälle',
       Math.abs(gross.zusage / 20_000 - erwartetZusage / summe) < 0.02,
       `${(gross.zusage / 20_000).toFixed(3)} vs ${(erwartetZusage / summe).toFixed(3)}`);
     const klein = zaehle(0.001, 0);
@@ -151,8 +159,17 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('Konzert: 50.000 zusätzliche Hörer, 7 Tage',
       b3.extra === 50_000 && b3.dauerMs === 7 * 24 * 3600e3, JSON.stringify(b3));
 
-    check('Drahtstufen', contacts.drahtStufe(-60) === 'beef' && contacts.drahtStufe(-25) === 'verstimmt'
-      && contacts.drahtStufe(0) === 'neutral' && contacts.drahtStufe(25) === 'bekannt' && contacts.drahtStufe(60) === 'partner');
+    // Die Beziehungsart statt der alten Drahtstufe. „beef" heißt jetzt „offener
+    // Beef", nicht mehr „Draht ≤ −50" – ein Draht von −50 ohne Beef ist
+    // verstimmt oder Rivale, darum entfällt dieser Fall hier.
+    check('Art: null ist fremd', contacts.artOf({ respekt: 0, vertrauen: 0 }) === 'fremd',
+      contacts.artOf({ respekt: 0, vertrauen: 0 }));
+    check('Art: 20 / 20 ist bekannt', contacts.artOf({ respekt: 20, vertrauen: 20 }) === 'bekannt',
+      contacts.artOf({ respekt: 20, vertrauen: 20 }));
+    check('Art: 50 / 50 ist Partner', contacts.artOf({ respekt: 50, vertrauen: 50 }) === 'partner',
+      contacts.artOf({ respekt: 50, vertrauen: 50 }));
+    check('Art: 0 / −40 ist verstimmt', contacts.artOf({ respekt: 0, vertrauen: -40 }) === 'verstimmt',
+      contacts.artOf({ respekt: 0, vertrauen: -40 }));
     check('Abklingen: 21 Punkte nach zwei Wochen → 17', contacts.decay(21, 14) === 17);
     check('Abklingen zieht auch negative Richtung 0', contacts.decay(-21, 14) === -17);
     check('Abklingen überschießt nicht', contacts.decay(3, 70) === 0 && contacts.decay(-3, 70) === 0);
@@ -254,6 +271,99 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('gleich stark verlängert nur das Fenster',
       gleich.neu === false && gleich.row.until === t0 + 96 * H
       && gleich.row.request_id === 'feature', JSON.stringify(gleich));
+
+    // ----------------------------------------------- Achsen durch die Mechanik
+    // Bis hier hat nur der DRAHT gezeigt, dass sich etwas bewegt – und der ist
+    // der Mittelwert, also blind gegen vertauschte Achsen. Diese Fälle lesen
+    // die Achsen selbst.
+    db.saveArtist(G, U, { ...db.getArtist(G, U, t0), listeners: 10_000 });
+    /** Gesetzter Zufall: erst die Chance, dann die Stufe, dann der Satz. */
+    const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+
+    // Rammstein, Respekt 100 bei Vertrauen −100: Draht 0, aber die Stufe hängt
+    // am RESPEKT. 0,73 liegt zwischen den zwei Grenzen (0,7058 mit Respekt 100,
+    // 0,7500 mit dem Draht 0) – mit dem Respekt fällt es auf „echt", mit dem
+    // Draht bliebe es „flüchtig".
+    const tR = t0 + 20 * 24 * H;
+    db.saveContact(G, U, 'rammstein', { respekt: 100, vertrauen: -100, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: tR, ignored_at: 0 });
+    const re = await contacts.request(G, U, 'rammstein', 'shoutout', tR, folge(0.001, 0.73, 0.5));
+    check('die Stufe hängt am Respekt, nicht am Draht', re.ok && re.antwort === 'echt',
+      JSON.stringify({ ok: re.ok, a: re.antwort, reason: re.reason }));
+    check('echt bewegt ungleich: Respekt +9 (geklemmt bei 100), Vertrauen +3',
+      re.achsen.respekt === 100 && re.achsen.vertrauen === -97, JSON.stringify(re.achsen));
+    check('achsenVor meldet den Stand davor',
+      re.achsenVor.respekt === 100 && re.achsenVor.vertrauen === -100, JSON.stringify(re.achsenVor));
+    check('der Draht ist der Mittelwert der neuen Achsen',
+      re.draht === 2 && re.drahtVor === 0 && re.delta === 2,
+      JSON.stringify({ d: re.draht, v: re.drahtVor, delta: re.delta }));
+    check('viel Respekt bei zerstörtem Vertrauen ist ein Rivale', re.art === 'rivale', re.art);
+    check('echt schreibt keine Gedächtniszeile', db.memoryCount(G, U, 'rammstein') === 0,
+      String(db.memoryCount(G, U, 'rammstein')));
+
+    // Ninachuba, frisch: eine Zusage. 0,999 landet im letzten Gewicht.
+    const tZ = tR + 24 * H;
+    const rz = await contacts.request(G, U, 'ninachuba', 'shoutout', tZ, folge(0.001, 0.999, 0.5));
+    check('Zusage', rz.ok && rz.antwort === 'zusage', JSON.stringify({ ok: rz.ok, a: rz.antwort }));
+    check('Zusage bewegt beide Achsen um 12',
+      rz.achsen.respekt === 12 && rz.achsen.vertrauen === 12, JSON.stringify(rz.achsen));
+    check('eine Zusage allein macht noch keinen festen Partner',
+      rz.partner === false && rz.partnerNeu === false, JSON.stringify([rz.partner, rz.partnerNeu]));
+    const mz = db.memoryOf(G, U, 'ninachuba', 2);
+    check('die Zusage steht im Gedächtnis, mit ihren Deltas',
+      mz.length === 1 && mz[0].art === 'zusage' && mz[0].detail === 'Dich erwähnen'
+      && mz[0].d_respekt === 12 && mz[0].d_vertrauen === 12, JSON.stringify(mz));
+
+    // Rammstein ist kühl: Ablehnung kann verstimmen. 0,999 verfehlt die Chance,
+    // 0,1 liegt unter VERSTIMMT_CHANCE.
+    const tV = tR + 4 * 24 * H;
+    const rv = await contacts.request(G, U, 'rammstein', 'shoutout', tV, folge(0.999, 0.1, 0.5));
+    check('der Kühle verstimmt sich', rv.ok && rv.antwort === 'ignoriert', JSON.stringify(rv.antwort));
+    check('verstimmt kostet Respekt 8 und Vertrauen 2',
+      rv.achsen.respekt === 92 && rv.achsen.vertrauen === -99, JSON.stringify(rv.achsen));
+    const mv = db.memoryOf(G, U, 'rammstein', 2);
+    check('die Verstimmung steht im Gedächtnis',
+      mv.length === 1 && mv[0].art === 'verstimmt'
+      && mv[0].d_respekt === -8 && mv[0].d_vertrauen === -2, JSON.stringify(mv));
+
+    // Der Türöffner zählt feste Partner, nicht Draht 50: Respekt 100 bei
+    // Vertrauen 0 ist genau Draht 50 – und öffnet trotzdem keine Tür.
+    const tP = tR + 10 * 24 * H;
+    db.saveContact(G, U, 'ninachuba', { respekt: 100, vertrauen: 0, boden: 0,
+      tries: 1, yes: 1, last_try: 0, last_move: tP, ignored_at: 0 });
+    check('Draht 50 ohne Vertrauen öffnet keine Tür',
+      contacts.detail(G, U, klein.id, tP).tuerOeffner === 0,
+      String(contacts.detail(G, U, klein.id, tP).tuerOeffner));
+    db.saveContact(G, U, 'ninachuba', { respekt: 100, vertrauen: 50, boden: 0,
+      tries: 1, yes: 1, last_try: 0, last_move: tP, ignored_at: 0 });
+    check('ein fester Partner im Umfeld öffnet sie',
+      near(contacts.detail(G, U, klein.id, tP).tuerOeffner, 0.075),
+      String(contacts.detail(G, U, klein.id, tP).tuerOeffner));
+
+    // Der Boden erzählt die alte Band – auch ohne warme Achsen.
+    db.saveContact(G, U, 'igorlevit', { respekt: 0, vertrauen: 0, boden: 10,
+      tries: 0, yes: 0, last_try: 0, last_move: tP, ignored_at: 0 });
+    check('detail: Boden 10 ohne warme Achsen ist eine alte Band',
+      contacts.detail(G, U, 'igorlevit', tP).art === 'band',
+      contacts.detail(G, U, 'igorlevit', tP).art);
+    const dB = contacts.detail(G, U, 'igorlevit', tP);
+    check('detail meldet die Achsen und den Boden',
+      dB.respekt === 0 && dB.vertrauen === 0 && dB.boden === 10 && dB.draht === 0,
+      JSON.stringify([dB.respekt, dB.vertrauen, dB.boden, dB.draht]));
+
+    // Ein offener Beef schlägt alles – in der Liste wie im Detail.
+    db.saveBeef(G, U, 'igorlevit', { hitze: 40, runden_ich: 1, runden_er: 0,
+      last_hit: tP, last_cool: tP, konter_at: 0, angefangen: tP,
+      status: 'offen', bonus_until: 0 });
+    check('detail: offener Beef schlägt die alte Band',
+      contacts.detail(G, U, 'igorlevit', tP).art === 'beef',
+      contacts.detail(G, U, 'igorlevit', tP).art);
+    const zl = contacts.listFor(G, U, { filter: 'alle', now: tP })
+      .find((z) => z.contact.id === 'igorlevit');
+    check('listFor kennt den offenen Beef auch', zl?.art === 'beef', JSON.stringify(zl?.art));
+    check('listFor liefert die Achsen und den Boden mit',
+      zl?.respekt === 0 && zl?.vertrauen === 0 && zl?.boden === 10 && zl?.draht === 0,
+      JSON.stringify([zl?.respekt, zl?.vertrauen, zl?.boden, zl?.draht]));
   }
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

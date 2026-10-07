@@ -18,6 +18,8 @@
  *   drahtVon    der Draht als Mittelwert der zwei Achsen
  *   decayAchse  wie EINE Achse abkühlt (mit Boden)
  *   respektGewicht  das Gewicht des Respekts in der Antwortchance
+ *   istPartner  fester Partner – die EINZIGE Regel dafür
+ *   artOf      die Art der Beziehung (zehn Arten, Reihenfolge ist Absicht)
  *
  * Die Zahlen und Schwellen stehen in data/contacts.js.
  */
@@ -43,7 +45,8 @@ function passungOf({ meine, seine, seite = 'musik' }) {
 
 /** Antwortchance (Wurf 1) – alle Summanden aus der Spec. */
 function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, sprache, genre,
-  draht = 0, tuerOeffner = 0, hype = 1, trait = 'launisch', partner = false, szene = 0 }) {
+  respekt = 0, vertrauen = 0, tuerOeffner = 0, hype = 1, trait = 'launisch',
+  partner = false, szene = 0 }) {
   const ratio = Math.max(100, meineReichweite || 0) / Math.max(1, seineReichweite);
   const basis = Math.min(data.CHANCE_MAX, 0.6 * Math.sqrt(ratio));
   const r = data.REQUESTS.find((x) => x.id === request);
@@ -52,20 +55,32 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
   return clamp(data.CHANCE_MIN, data.CHANCE_MAX,
     basis + (r?.schwierigkeit ?? 0)
     + (gleichesLand ? 0.05 : 0) + sprachbonus + genrebonus
-    + (draht / 100) * 0.25 + clamp(0, 0.15, tuerOeffner)
+    // Respekt öffnet die Tür, und je größer der Abstand, desto mehr.
+    + (Math.max(0, respekt) / 100) * respektGewicht(meineReichweite, seineReichweite)
+    // Positives Vertrauen hebt die Chance NICHT – das ist Respekts Aufgabe.
+    // Negatives senkt sie, und das ist der Riegel gegen den Dauer-Beefer.
+    + Math.min(0, vertrauen / 100) * data.VERTRAUEN_MALUS
+    + clamp(0, 0.15, tuerOeffner)
     + (hype - 1) * 0.1 + (data.TRAIT_BONUS[trait] ?? 0) + (partner ? 0.10 : 0)
     // Solange ein Beef offen ist, macht die Szene des Gegners dicht (5b). Die
     // reine Hälfte holt sich das nicht selbst – sie bekommt es gereicht.
     + szene);
 }
 
-/** Wie verbindlich die Antwort ausfällt (Wurf 2). */
-function stufeVon(random, { ratio, draht = 0 }) {
+/**
+ * Wie verbindlich die Antwort ausfällt (Wurf 2).
+ *
+ * Das Gewicht der Zusage hängt am RESPEKT, nicht am Mittelwert: Mit Vertrauen
+ * wäre es selbstverstärkend (Vertrauen erzeugt Zusagen erzeugt Vertrauen), und
+ * Respekt ist durchgehend die Achse, die über das Antworten entscheidet. Der
+ * `ratio` bleibt der rohe Größenvergleich.
+ */
+function stufeVon(random, { ratio, respekt = 0 }) {
   const naehe = Math.min(1, ratio);
   const gewichte = {
     fluechtig: 6 * (ratio < 0.05 ? 2 : 1),
     echt: 3,
-    zusage: 1 * (1 + 2 * naehe) * (1 + draht / 100),
+    zusage: 1 * (1 + 2 * naehe) * (1 + respekt / 100),
   };
   const summe = gewichte.fluechtig + gewichte.echt + gewichte.zusage;
   let wurf = random() * summe;
@@ -131,6 +146,55 @@ function respektGewicht(meine, seine) {
   const dekaden = Math.log10(Math.max(1, seine) / Math.max(100, meine || 0));
   return data.RESPEKT_W_MIN
     + data.RESPEKT_W_SPAN * clamp(0, 1, dekaden / data.RESPEKT_W_DEKADEN);
+}
+
+/**
+ * Fester Partner. Die EINZIGE Regel – gültig für das ⭐, die +10 Punkte
+ * Antwortchance, die Türöffner-Zählung und die Anzählrunde in beef.js.
+ *
+ * Vorher gab es drei Fassungen, von denen zwei sich widersprachen: Die Ansicht
+ * zeigte das ⭐ bei `yes >= 3`, gezählt wurde aber nur `draht >= 50` – wer drei
+ * Zusagen bei Draht 30 hatte, las „das öffnet Türen im Umfeld" und öffnete
+ * keine.
+ */
+const istPartner = (respekt, vertrauen) =>
+  respekt >= data.PARTNER_RESPEKT && vertrauen >= data.PARTNER_VERTRAUEN;
+
+/**
+ * Die Art der Beziehung – reine Funktion, kein Zustand, keine Datenbank.
+ * Die ERSTE passende Art gewinnt, und die Reihenfolge ist an drei Stellen
+ * Absicht:
+ *
+ *   • `rivale` über `verstimmt`, sonst verschwindet er: Respekt 30 bei
+ *     Vertrauen −80 ergibt Draht −25 und hieße sonst nur „verstimmt".
+ *   • `mentor`/`schuetzling` über `partner`, weil sie das Spezifischere sind.
+ *     `istPartner` ist davon unabhängig – die Ansicht zeigt beides.
+ *   • `band` unter den warmen Arten, damit sie das bedeutet, was sie sagt:
+ *     Ihr habt ein Album zusammen, und seither ist es abgekühlt.
+ *
+ * `beefOffen` wird hereingereicht, nicht gelesen – der Aufrufer hat den Beef
+ * sowieso in der Hand (`contacts.detail` fragt ihn heute schon).
+ */
+function artOf({ respekt, vertrauen, boden = 0, meine = 0, seine = 0,
+  trait = null, beefOffen = false }) {
+  const draht = drahtVon(respekt, vertrauen);
+  const erGroesser = Math.max(1, seine) / Math.max(1, meine);
+  const ichGroesser = Math.max(1, meine) / Math.max(1, seine);
+
+  if (beefOffen) return 'beef';
+  if (respekt >= data.ART_RIVALE_RESPEKT
+    && vertrauen <= data.ART_RIVALE_VERTRAUEN) return 'rivale';
+  if (draht <= data.STUFE_VERSTIMMT) return 'verstimmt';
+  if (erGroesser >= data.ART_ABSTAND && respekt >= data.ART_MENTOR_RESPEKT
+    && vertrauen >= data.ART_MENTOR_VERTRAUEN) return 'mentor';
+  if (ichGroesser >= data.ART_ABSTAND
+    && vertrauen >= data.ART_SCHUETZLING_VERTRAUEN) return 'schuetzling';
+  if (istPartner(respekt, vertrauen)) return 'partner';
+  if (boden >= data.ART_BAND_BODEN) return 'band';
+  if (trait === 'geschaeftlich'
+    && respekt >= data.ART_GESCHAEFTLICH_RESPEKT) return 'geschaeftlich';
+  if (draht >= data.STUFE_BEKANNT) return 'bekannt';
+  return 'fremd';
 }
 
 
@@ -229,11 +293,30 @@ function kontextFor(contact, ich, seite) {
   };
 }
 
-/** Der Draht von heute: abgekühlt seit der letzten Bewegung, ohne zu schreiben. */
+/**
+ * Die Achsen von heute: abgekühlt seit der letzten Bewegung, ohne zu schreiben
+ * (§4). Erst die nächste Bewegung schreibt die abgekühlten Werte fort.
+ */
+function achsenJetzt(row, now) {
+  if (!row) return { respekt: 0, vertrauen: 0, boden: 0, draht: 0 };
+  const boden = row.boden ?? 0;
+  const wochen = row.last_move
+    ? Math.floor(Math.max(0, (now - row.last_move) / DAY_MS) / 7)
+    : 0;
+  const respekt = decayAchse(row.respekt, wochen * data.RESPEKT_DECAY_PRO_WOCHE, 0);
+  const vertrauen = decayAchse(row.vertrauen, wochen * data.VERTRAUEN_DECAY_PRO_WOCHE, boden);
+  return { respekt, vertrauen, boden, draht: drahtVon(respekt, vertrauen) };
+}
+
+/** Nur der Draht davon – was angebote.js, beef.js und die Messung brauchen. */
 function drahtJetzt(row, now) {
-  if (!row) return 0;
-  if (!row.last_move) return row.draht;
-  return decay(row.draht, (now - row.last_move) / DAY_MS);
+  return achsenJetzt(row, now).draht;
+}
+
+/** Fester Partner, direkt auf einer Zeile. */
+function istPartnerRow(row, now) {
+  const a = achsenJetzt(row, now);
+  return istPartner(a.respekt, a.vertrauen);
 }
 
 /** Bis wann dieser Kontakt dicht ist (0 = frei). */
@@ -242,11 +325,6 @@ function gesperrtBisOf(row) {
   return Math.max(
     row.last_try ? row.last_try + data.SPERRE_TAGE * DAY_MS : 0,
     row.ignored_at ? row.ignored_at + data.SPERRE_IGNORIERT_TAGE * DAY_MS : 0);
-}
-
-/** Zählt als fester Partner, wer drei Zusagen hat oder auf Stufe „Partner" steht. */
-function istPartner(row, draht) {
-  return (row?.yes ?? 0) >= data.PARTNER_YES || draht >= data.STUFE_PARTNER;
 }
 
 /**
@@ -262,18 +340,19 @@ function tuerOeffnerFor(zeilen, contact, now) {
     if (!other) continue;
     const nah = other.country === contact.country
       || (Boolean(other.genre) && other.genre === contact.genre);
-    if (nah && drahtJetzt(row, now) >= data.STUFE_PARTNER) anzahl++;
+    if (nah && istPartnerRow(row, now)) anzahl++;
   }
   return 0.15 * Math.min(1, anzahl / 2);
 }
 
 /** Die Antwortchance für genau dieses Paar und diese Anfrageart. */
-function chanceFor({ guildId, userId, now, contact, ich, k, requestId, draht, tuerOeffner, partner }) {
+function chanceFor({ guildId, userId, now, contact, ich, k, requestId, respekt, vertrauen,
+  tuerOeffner, partner }) {
   return chanceOf({
     meineReichweite: k.meine, seineReichweite: k.seine, request: requestId,
     gleichesLand: contact.country === ich.country,
     sprache: k.sprache, genre: k.genre,
-    draht, tuerOeffner, hype: ich.hype, trait: contact.trait, partner,
+    respekt, vertrauen, tuerOeffner, hype: ich.hype, trait: contact.trait, partner,
     szene: require('./beef').szeneMalus(guildId, userId, contact, now),
   });
 }
@@ -295,6 +374,10 @@ function listFor(guildId, userId, { filter = 'alle', now = Date.now() } = {}) {
   const ich = ichFor(guildId, userId, now);
   const zeilen = db.contactsOf(guildId, userId);
   const nach = new Map(zeilen.map((z) => [z.contact_id, z]));
+  // Einmal vor der Schleife, nicht je Kontakt: Die Liste läuft über alle
+  // Einträge, und `offenerBeef` wäre je Aufruf eine eigene Abfrage.
+  const offene = new Set(require('./beef').offeneBeefs(guildId, userId, now)
+    .map((b) => b.contact_id));
 
   const out = [];
   for (const contact of data.CONTACTS) {
@@ -303,14 +386,22 @@ function listFor(guildId, userId, { filter = 'alle', now = Date.now() } = {}) {
     if (!seite) continue;
 
     const row = nach.get(contact.id) ?? null;
-    const draht = drahtJetzt(row, now);
-    const partner = istPartner(row, draht);
+    const a = achsenJetzt(row, now);
+    const partner = istPartner(a.respekt, a.vertrauen);
     const k = kontextFor(contact, ich, seite);
+    const beefOffen = offene.has(contact.id);
 
     out.push({
-      contact, seite, draht, stufe: drahtStufe(draht),
+      contact, seite,
+      respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht,
+      // `stufe` bleibt bis Stück 6a Task 6 neben `art` stehen: ui.js liest es.
+      stufe: drahtStufe(a.draht),
+      art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
+        meine: k ? k.meine : 0, seine: k ? k.seine : 0,
+        trait: contact.trait, beefOffen: Boolean(beefOffen) }),
       passung: k.passung,
-      chance: chanceFor({ guildId, userId, now, contact, ich, k, requestId: LIST_REQUEST, draht,
+      chance: chanceFor({ guildId, userId, now, contact, ich, k, requestId: LIST_REQUEST,
+        respekt: a.respekt, vertrauen: a.vertrauen,
         tuerOeffner: tuerOeffnerFor(zeilen, contact, now), partner }),
       gesperrtBis: gesperrtBisOf(row),
       tries: row?.tries ?? 0, yes: row?.yes ?? 0, partner,
@@ -329,8 +420,8 @@ function detail(guildId, userId, contactId, now = Date.now()) {
   const ich = ichFor(guildId, userId, now);
   const zeilen = db.contactsOf(guildId, userId);
   const row = zeilen.find((z) => z.contact_id === contact.id) ?? null;
-  const draht = drahtJetzt(row, now);
-  const partner = istPartner(row, draht);
+  const a = achsenJetzt(row, now);
+  const partner = istPartner(a.respekt, a.vertrauen);
   const tuerOeffner = tuerOeffnerFor(zeilen, contact, now);
   const gesperrtBis = gesperrtBisOf(row);
 
@@ -347,12 +438,14 @@ function detail(guildId, userId, contactId, now = Date.now()) {
     const ks = s === seite ? k : (s ? kontextFor(contact, ich, s) : null);
     const grund = !ks ? 'seite'
       : beefOffen ? 'beef'
-        : (r.minDraht !== null && draht < r.minDraht) ? 'draht'
-          : gesperrtBis > now ? 'gesperrt' : null;
+        : (r.minDraht != null && a.draht < r.minDraht) ? 'draht'
+          : (r.minVertrauen != null && a.vertrauen < r.minVertrauen) ? 'vertrauen'
+            : gesperrtBis > now ? 'gesperrt' : null;
     return {
       ...r,
       seite: s,
-      chance: ks ? chanceFor({ guildId, userId, now, contact, ich, k: ks, requestId: r.id, draht, tuerOeffner, partner }) : 0,
+      chance: ks ? chanceFor({ guildId, userId, now, contact, ich, k: ks, requestId: r.id,
+        respekt: a.respekt, vertrauen: a.vertrauen, tuerOeffner, partner }) : 0,
       moeglich: grund === null,
       grund,
     };
@@ -365,7 +458,12 @@ function detail(guildId, userId, contactId, now = Date.now()) {
     passung: k ? k.passung : 0,
     sprachfaktor: k ? k.sprachfaktor : 0,
     genrefaktor: k ? k.genrefaktor : 0,
-    draht, stufe: drahtStufe(draht),
+    respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht,
+    // `stufe` bleibt bis Stück 6a Task 6 neben `art` stehen: ui.js liest es.
+    stufe: drahtStufe(a.draht),
+    art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
+      meine: k ? k.meine : 0, seine: k ? k.seine : 0,
+      trait: contact.trait, beefOffen: Boolean(beefOffen) }),
     tries: row?.tries ?? 0, yes: row?.yes ?? 0,
     partner, gesperrtBis, tuerOeffner, requests,
   };
@@ -392,31 +490,62 @@ function consumeBoost(guildId, userId, kind, now = Date.now()) {
 }
 
 /**
- * Bewegt den Draht – die einzige Stelle, an der ihn jemand von außen
- * schreibt. Das Abklingen wird vorher faul eingerechnet (§4), damit ein alter
- * Wert nicht konserviert wird. `sperre` setzt zusätzlich `last_try` (drei
- * Tage Ruhe).
+ * Bewegt die Achsen – die einzige Stelle, an der sie jemand von außen
+ * schreibt. Das Abkühlen wird vorher faul eingerechnet (§4), damit ein alter
+ * Wert nicht konserviert wird. `sperre` setzt zusätzlich `last_try`.
+ *
+ * `setzeVertrauen` setzt ein Ziel statt zu addieren – das braucht genau eine
+ * Stelle, die Versöhnung in beef.js. `merken` schreibt eine Gedächtniszeile,
+ * synchron direkt hinter dem Achsen-Schreibvorgang und ohne `await` dazwischen
+ * (§7); das Projekt benutzt nirgends `db.transaction`.
  *
  * (`request` unten schreibt seine Zeile weiterhin selbst: Es setzt in
  * DERSELBEN Anweisung auch `yes` und `ignored_at` – ein Beef tut das nie.)
  */
-function moveDraht(guildId, userId, contactId, delta, now = Date.now(), { sperre = false } = {}) {
+function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre = false } = {}) {
+  const { respekt = 0, vertrauen = 0, boden = 0,
+    setzeVertrauen = null, merken = null } = bewegung;
   const zeilen = db.contactsOf(guildId, userId);
   const row = zeilen.find((z) => z.contact_id === contactId) ?? null;
-  const vorher = drahtJetzt(row, now);
-  const nachher = Math.max(-100, Math.min(100, vorher + delta));
-  // Zwischenzustand: gleichmäßige Spaltung (beide Achsen = der alte Draht,
-  // Mittelwert unverändert). Wird in Stück 6a Task 3 durch die echten Paare
-  // aus data.ACHSEN ersetzt.
+  const vor = achsenJetzt(row, now);
+
+  const bodenNeu = clamp(0, data.BODEN_MAX, vor.boden + boden);
+  const respektNeu = clamp(-100, 100, vor.respekt + respekt);
+  const rohV = setzeVertrauen === null ? vor.vertrauen + vertrauen : setzeVertrauen;
+  // Wer den Boden hebt, hebt das Vertrauen mit – es darf nie unter dem
+  // eigenen Boden liegen.
+  const vertrauenNeu = clamp(-100, 100, boden > 0 ? Math.max(rohV, bodenNeu) : rohV);
+
   db.saveContact(guildId, userId, contactId, {
-    respekt: nachher, vertrauen: nachher, boden: row?.boden ?? 0,
+    respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu,
     tries: (row?.tries ?? 0) + (sperre ? 1 : 0),
     yes: row?.yes ?? 0,
     last_try: sperre ? now : (row?.last_try ?? 0),
     last_move: now,
     ignored_at: row?.ignored_at ?? 0,
   });
-  return { vorher, nachher, stufe: drahtStufe(nachher) };
+  if (merken) {
+    db.addMemory(guildId, userId, contactId, {
+      at: now, art: merken.art, detail: merken.detail ?? '',
+      dRespekt: respektNeu - vor.respekt, dVertrauen: vertrauenNeu - vor.vertrauen,
+    }, data.MEMORY_MAX);
+  }
+
+  return {
+    vorher: vor.draht, nachher: drahtVon(respektNeu, vertrauenNeu),
+    achsenVor: { respekt: vor.respekt, vertrauen: vor.vertrauen, boden: vor.boden },
+    achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu },
+  };
+}
+
+/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
+ *  Spaltung – Mittelwert unverändert, siehe Paritätstest. */
+function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
+  const erg = move(guildId, userId, contactId,
+    { respekt: delta, vertrauen: delta }, now, opts);
+  // `stufe` muss mitkommen: buttons.js:798 (beefDraht) liest es, und kein Test
+  // prüft diese Zeichenkette – ohne das Feld stünde dort still „undefined".
+  return { ...erg, stufe: drahtStufe(erg.nachher) };
 }
 
 /**
@@ -444,13 +573,17 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
   const zeilen = db.contactsOf(guildId, userId);
   const row = zeilen.find((z) => z.contact_id === contact.id) ?? null;
-  const draht = drahtJetzt(row, now);
+  const a = achsenJetzt(row, now);
   const tries = row?.tries ?? 0;
   const yes = row?.yes ?? 0;
-  const partner = istPartner(row, draht);
+  const partner = istPartner(a.respekt, a.vertrauen);
 
-  if (r.minDraht !== null && draht < r.minDraht) {
-    return { ok: false, reason: 'draht', contact, request: r, draht, need: r.minDraht };
+  if (r.minDraht != null && a.draht < r.minDraht) {
+    return { ok: false, reason: 'draht', contact, request: r, draht: a.draht, need: r.minDraht };
+  }
+  if (r.minVertrauen != null && a.vertrauen < r.minVertrauen) {
+    return { ok: false, reason: 'vertrauen', contact, request: r,
+      vertrauen: a.vertrauen, need: r.minVertrauen };
   }
   const bis = gesperrtBisOf(row);
   if (bis > now) {
@@ -464,36 +597,41 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
   const k = kontextFor(contact, ich, seite);
   const tuerOeffner = tuerOeffnerFor(zeilen, contact, now);
-  const chance = chanceFor({ guildId, userId, now, contact, ich, k, requestId, draht, tuerOeffner, partner });
+  const chance = chanceFor({ guildId, userId, now, contact, ich, k, requestId,
+    respekt: a.respekt, vertrauen: a.vertrauen, tuerOeffner, partner });
 
   // Wurf 1: antwortet er überhaupt? Wurf 2: wie verbindlich?
   const ratio = Math.max(100, k.meine || 0) / Math.max(1, k.seine);
-  const antwort = random() < chance ? stufeVon(random, { ratio, draht }) : 'ignoriert';
+  const antwort = random() < chance ? stufeVon(random, { ratio, respekt: a.respekt }) : 'ignoriert';
 
-  let delta;
-  if (antwort === 'zusage') delta = data.DRAHT_ZUSAGE;
-  else if (antwort === 'echt') delta = data.DRAHT_ECHT;
-  else if (antwort === 'fluechtig') delta = data.DRAHT_FLUECHTIG;
-  else {
-    // Wer arrogant oder kühl ist, nimmt das Nerven manchmal übel.
-    const empfindlich = contact.trait === 'arrogant' || contact.trait === 'kuehl';
-    delta = empfindlich && random() < VERSTIMMT_CHANCE
-      ? data.DRAHT_VERSTIMMT : data.DRAHT_IGNORIERT;
-  }
-  const neu = clamp(-100, 100, draht + delta);
+  // Wer arrogant oder kühl ist, nimmt das Nerven manchmal übel.
+  const empfindlich = contact.trait === 'arrogant' || contact.trait === 'kuehl';
+  const schluessel = antwort !== 'ignoriert' ? antwort
+    : (empfindlich && random() < VERSTIMMT_CHANCE ? 'verstimmt' : 'ignoriert');
+  const paar = data.ACHSEN[schluessel];
+
+  const respektNeu = clamp(-100, 100, a.respekt + paar.respekt);
+  const vertrauenNeu = clamp(-100, 100, a.vertrauen + paar.vertrauen);
+  const drahtNeu = drahtVon(respektNeu, vertrauenNeu);
   const yesNeu = yes + (antwort === 'zusage' ? 1 : 0);
 
-  // Zwischenzustand: gleichmäßige Spaltung (beide Achsen = der alte Draht,
-  // Mittelwert unverändert). Wird in Stück 6a Task 3 durch die echten Paare
-  // aus data.ACHSEN ersetzt.
+  // EINE Anweisung (§7) – sie setzt auch `yes` und `ignored_at`.
   db.saveContact(guildId, userId, contact.id, {
-    respekt: neu, vertrauen: neu, boden: row?.boden ?? 0,
+    respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
     tries: tries + 1,
     yes: yesNeu,
     last_try: now,
     last_move: now,
     ignored_at: antwort === 'ignoriert' ? now : (row?.ignored_at ?? 0),
   });
+  // Nur Zusage und Verstimmung kommen ins Gedächtnis – flüchtig, echt und
+  // ignoriert sind häufig und klein, die erzählt `tries − yes`.
+  if (schluessel === 'zusage' || schluessel === 'verstimmt') {
+    db.addMemory(guildId, userId, contact.id, {
+      at: now, art: schluessel, detail: r.name,
+      dRespekt: respektNeu - a.respekt, dVertrauen: vertrauenNeu - a.vertrauen,
+    }, data.MEMORY_MAX);
+  }
 
   // Was die Antwort wert ist – und was sie anschiebt.
   let staerke = 0;
@@ -531,10 +669,16 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
   return {
     ok: true, contact, request: r, seite,
     antwort, text, chance, staerke, boost,
-    draht: neu, drahtVor: draht, delta, stufe: drahtStufe(neu),
+    draht: drahtNeu, drahtVor: a.draht, delta: drahtNeu - a.draht,
+    // `stufe` bleibt bis Stück 6a Task 6 stehen: buttons.anfrageNote liest es.
+    stufe: drahtStufe(drahtNeu),
+    achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden },
+    achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden },
+    art: artOf({ respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
+      meine: k.meine, seine: k.seine, trait: contact.trait, beefOffen: false }),
     tries: tries + 1, yes: yesNeu,
-    partner: istPartner({ yes: yesNeu }, neu),
-    partnerNeu: !partner && istPartner({ yes: yesNeu }, neu),
+    partner: istPartner(respektNeu, vertrauenNeu),
+    partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu),
     gesperrtBis: gesperrtBisOf({ last_try: now, ignored_at: antwort === 'ignoriert' ? now : (row?.ignored_at ?? 0) }),
     zeit,
   };
@@ -542,7 +686,7 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
 module.exports = {
   passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
-  drahtVon, decayAchse, respektGewicht,
-  VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, tuerOeffnerFor,
-  listFor, detail, request, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
+  drahtVon, decayAchse, respektGewicht, istPartner, artOf,
+  VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, achsenJetzt, istPartnerRow, tuerOeffnerFor,
+  listFor, detail, request, move, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
 };
