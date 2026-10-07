@@ -292,12 +292,41 @@ zahlt sie. Gerechnet, nicht geschätzt:
 | 10k → 10 Mio | 1,9 / 14,4 / 26,9 % | 1,9 / **24,4** / **46,9** % |
 
 **Positives Vertrauen hebt die Antwortchance nicht** — das ist Respekts Aufgabe.
-**Negatives Vertrauen senkt sie**, mit derselben Stärke, die der heutige
-Draht-Term auf der negativen Seite hatte. Das ist kein Beiwerk, sondern der
-Riegel gegen die naheliegende Masche: Wer denselben Kontakt wiederholt anstachelt,
-sammelt Respekt (+10 je gelandetem Diss) bei Vertrauen auf −100. Gerechnet, bei
-100× Abstand: 6,0 % + 6,8 % − 25,0 % = **−12,2 %**, also `CHANCE_MIN` von 2 %.
-Ohne den Malus wäre es 12,8 % — mehr als das Doppelte des Fremden.
+**Negatives Vertrauen senkt sie** doppelt, und das zweite ist nötig:
+
+```js
+respektWirkt = Math.max(0, respekt) * (1 + Math.min(0, vertrauen / 100))
+… + (respektWirkt / 100) * respektGewicht(meine, seine)
+  + Math.min(0, vertrauen / 100) * VERTRAUEN_MALUS
+```
+
+Bei Vertrauen ≥ 0 ist der Faktor **1** und nichts ändert sich — alle Zahlen der
+Tabelle oben gelten unverändert. Bei Vertrauen −100 ist der Respekt-Term **ganz
+weg**.
+
+**Warum der additive Malus allein nicht reicht — gemessen, und er widerlegt eine
+frühere Fassung dieser Spec.** `VERTRAUEN_MALUS` sättigt bei −0,25, während der
+Respekt-Term bis `1,0 × 0,45` läuft. Ein Spieler, der denselben Kontakt
+wiederholt **disst** (nicht anstachelt — Anstacheln bringt 0 Respekt), sammelt
++10 Respekt je Treffer bei Vertrauen längst auf −100:
+
+| Zustand (10k gegen 10 Mio) | R | V | nur additiv | **mit Dämpfer** |
+|---|---|---|---|---|
+| fremd | 0 | 0 | 6,9 % | 6,9 % |
+| Rivale | 30 | −20 | 15,4 % | 12,7 % |
+| 8 gelandete Disse | 68 | −100 | **12,5 %** | **2,0 %** |
+| 12 gelandete Disse | 88 | −100 | **21,5 %** | **2,0 %** |
+| echte Beziehung | 60 | 60 | 33,9 % | 33,9 % |
+
+Ohne den Dämpfer ist der Dauer-Beefer ab acht Treffern **besser dran als ein
+Fremder** — und schlimmer: `stufeVon` wiegt die Zusage mit `(1 + respekt/100)`
+und liest **kein** Vertrauen, das Zusage-Gewicht stieg also dauerhaft auf 1,68
+und mit ihm der Schub je Antwort. Damit hätte der Beef den **Ertrag** verändert
+und nicht nur den Zugang, und das verletzt §3.
+
+Deshalb liest **auch `stufeVon`** den gedämpften Respekt, nicht den rohen. Der
+Rivale behält dabei 80 % seines Vorteils (12,7 % gegen 6,9 % beim Fremden) — er
+bleibt ein echter, bevorteilter Zustand, nur kein Wachstumsweg.
 
 ### 4.3 Die Verbindlichkeit
 
