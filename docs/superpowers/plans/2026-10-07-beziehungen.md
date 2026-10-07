@@ -2060,7 +2060,9 @@ Gewertet wird der **Median** über die 30 Läufe, nicht der Mittelwert — die V
 
 - [ ] **Step 5: Die blockierende Entscheidung aus §5.1 treffen**
 
-Liegt der Anteil der Konten, die Vertrauen 50 erreichen, **unter** dem heutigen Anteil, der Draht 50 erreicht, geht `minVertrauen` der drei großen Formate in `src/data/angebote.js` eine Stufe herunter, und Schritt 4 wird wiederholt:
+**Beide Anteile kommen aus demselben Lauf** — ein Querlauf gegen `main` ist nicht möglich (das alte Skript hat die Zähler nicht, das neue läuft gegen `main`-Code nicht) und auch nicht nötig: In einer Variante ohne Beef und ohne Projekte **ist** „Draht ≥ 50" der `main`-Wert, weil die fünf Antwort-Paare identische Mittelwerte haben (§8.1).
+
+Liegt der Anteil der Konten, die Vertrauen 50 erreichen, **unter** dem Anteil, der Draht 50 erreicht, geht `minVertrauen` der drei großen Formate in `src/data/angebote.js` eine Stufe herunter, und Schritt 4 wird wiederholt:
 
 ```
 50  →  45  →  40  →  35

@@ -390,7 +390,19 @@ Stunden ab).
 
 **Blockierende Vorbedingung vor dem Merge.** Gemessen wird mit demselben Aufbau
 wie 5c der Anteil der Konten, die binnen eines Jahres Vertrauen 50 erreichen,
-gegen den heutigen Anteil, der Draht 50 erreicht. Liegt er darunter, geht
+gegen den Anteil, der Draht 50 erreicht — **beides im selben Lauf**.
+
+**Warum kein Lauf gegen `main` nötig ist, und warum einer gar nicht geht:** Das
+alte Skript auf `main` hat diese Zähler nicht, und das neue läuft gegen
+`main`-Code nicht (dort liefert `contacts.detail` kein `respekt`/`vertrauen`).
+Der Vergleich im selben Lauf ist aber **genauer** als ein Querlauf: Für eine
+Variante, die **nur** Kontakte spielt (kein Beef, keine Projekte), ist der Draht
+des Zweigs per Konstruktion derselbe wie der von `main` — die fünf
+Antwort-Paare haben identische Mittelwerte (+12 / +6 / +2 / −1 / −5), das ist
+die Paritätseigenschaft aus §8.1. „Draht ≥ 50" in dieser Variante **ist** also
+der `main`-Wert. Für Varianten mit Beef oder Projekten gilt das nicht, weil dort
+drei Mittelwerte absichtlich abweichen; dort ist „Draht ≥ 50" nur ein
+Anhaltspunkt und gehört als solcher ins Messfile. Liegt er darunter, geht
 `minVertrauen` für die drei großen Formate in Stufen herunter — **50 → 45 → 40
 → 35** — bis die Anteile übereinstimmen. Zusätzlich wird gezählt, wie viele
 `kollabo`- und `tour`-Projekte im Messjahr überhaupt zustande kommen; **null ist
