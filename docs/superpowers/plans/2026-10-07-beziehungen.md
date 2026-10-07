@@ -1783,7 +1783,11 @@ const ARTEN_NAMEN = {
 
 `module.exports`: `DRAHT_STUFEN` heraus, `ARTEN_NAMEN` hinein. Beide Fundstellen in `src/buttons.js` mitziehen.
 
-**Zwei tote Reste aus Task 4 räumt diese Aufgabe mit auf**, weil sie beide Dateien ohnehin umbaut: Seit kein `REQUESTS`-Eintrag mehr `minDraht` trägt, sind der Schlüssel `draht` in `grundText` (`src/ui.js`) und der Zweig `res.reason === 'draht'` in `kontaktNote` (`src/buttons.js`) unerreichbar. Prüf mit `grep -rn "minDraht" src/data/contacts.js`, dass das noch stimmt, und entferne dann beide. Das Draht-Tor der **Angebotsarten** (`tausch`, `gastpart`, `vorgruppe`) bleibt davon unberührt — es läuft über `artenFuer`, nicht über `grundText`.
+**Die zwei „toten Reste" aus Task 4 bleiben stehen — diese Anweisung ist zurückgenommen.** Der Schlüssel `draht` in `grundText` (`src/ui.js`) und der Zweig `res.reason === 'draht'` in `kontaktNote` (`src/buttons.js`) sind datenseitig unerreichbar, weil alle `REQUESTS` `minDraht: null` tragen — **aber `src/contacts.js` erzeugt den Grund in `detail` und `request` weiter**, und die Felder lassen sich nicht wegnehmen: Zwei Zusicherungen machen die strukturelle Aussage „jede Anfrageart trägt höchstens **ein** Tor" daran fest.
+
+Entfernte man nur die **Leser**, fiele ein solcher Grund auf `Chance **x %**` auf einem gesperrten Knopf zurück — genau die stille Falle, die dieser Zweig viermal hatte. Die halbe Löschung ist schlechter als keine, und Erzeuger, Feld und Leser sind ein funktionierendes, symmetrisches Gegenstück zu `minVertrauen`.
+
+**Stattdessen eine Zeile Kommentar** an `grundText`: Der Schlüssel `draht` ist derzeit datenseitig unerreichbar und bleibt als Gegenstück zu `minVertrauen` stehen, damit eine künftige Anfrageart mit Draht-Tor nicht auf eine Chance zurückfällt, die niemand bekommen kann.
 
 **Diese Aufgabe löscht außerdem `contacts.moveDraht`** — und sie ist die erste, die es darf. Nach Task 4 und 5 ruft kein Produktivcode es mehr, aber **sechs Teststellen** benutzen es noch als Aufbauhelfer („setze den Draht auf diesen Wert"):
 
@@ -1891,6 +1895,16 @@ In `buildKontaktView` hinter dem Kopf einhängen:
 Alle zehn bekommen ihr Objekt aus `contacts.move` und tragen damit `achsenVor` und `achsen`. **Du änderst darum keine zehn Stellen, sondern eine:** `beefDraht` wird zur dünnen Hülle über `achsenZeile`, und alle zehn Meldungen zeigen von da an die zwei Achsen-Deltas. Erst damit erfährt der Spieler, dass ein gelandeter Disstrack den **Respekt hebt**, während er das Vertrauen zerstört — die Aussage, für die dieses ganze Stück gebaut ist.
 
 Die **elfte** Stelle ist die Ausnahme: `kontaktNote` baut die Zeile heute inline zusammen, statt `beefDraht` zu rufen. Sie wird einzeln umgestellt.
+
+> **`achsenZeile` ist in `src/buttons.js` schon belegt.** Task 4 hat dort eine lokale `achsenZeile(d)` angelegt, die nur die zwei Deltas rendert („Vertrauen **+18**, Respekt **+6**"), mit zwei Aufrufstellen in `durchgezogenNote` und im `projekt_verfallen`-Zweig. **Lösch sie ganz** und nimm den Namen für den neuen Erzeuger: Die neue Zeile trägt strikt mehr — Draht, Balken, Ausschlag **und** beide Deltas —, und zwei Zeilen übereinander, von denen die obere eine Teilmenge der unteren ist, sind Lärm. Die drei Zusicherungen, die den alten Wortlaut pinnen (`test/fluxer-render.test.js` bei 2149, 2337, 2421), zieh auf den neuen nach und rechne ihre Erwartungen aus dem Ausgangszustand neu. **Nicht** verschwinden darf dabei die Boden-Zeile samt der getrennten Prüfung von Absolutwert und Ausschlag — daran hing ein eigener Review-Befund.
+>
+> **`contacts.move` gibt zusätzlich `contact: data.byId(contactId)` zurück**, damit `achsenZeile` den Namen tragen kann. Reines Lesen, §4 unberührt, keine Zahl bewegt sich — und der Hebel bleibt: eine Stelle statt zwölf. Der Name steht **vorn**, und ohne Kontakt im Objekt fällt er weg:
+>
+> ```
+> 🤝 **Rammstein** · Draht ▱▱▱▱▱ **−12** (−12) · Respekt −12 · Vertrauen −12
+> ```
+>
+> Er löst den offenen Befund aus Task 5: Eine Diss-Meldung, die gleichzeitig ein Anzählen auslöst, trug zwei **namenlose** Drahtzeilen für zwei verschiedene Kontakte.
 
 Beide Erzeuger zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Achsen-Deltas. Sie bekommen **einen** Erzeuger in `src/ui.js`, direkt hinter `drahtBar` — sonst steht derselbe dreiteilige String zweimal im Code und läuft beim nächsten Mal auseinander:
 
