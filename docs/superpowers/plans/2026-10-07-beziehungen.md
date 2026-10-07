@@ -1367,6 +1367,8 @@ Jede weitere Stelle, die `artenFuer` aufruft, mitziehen: `grep -n 'artenFuer' sr
 
 Alle `contacts.moveDraht(..., data.DRAHT_*, now)` zu `contacts.move(..., { ...paar, boden, merken }, now)`:
 
+> **`buttons.beefDraht` liest `d.stufe` aus allen sechs dieser Ergebnisse.** `contacts.move` liefert das Feld seit Task 4 selbst — prüf das zuerst mit `grep -n "stufe" src/contacts.js` an der Rückgabe von `move`. Fehlt es dort, **ergänze es dort** (`stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))`) und nicht an den sechs Aufrufstellen: Sonst steht in jeder Beef-Meldung still das Wort `undefined`, und **kein Test prüft diese Zeichenketten**.
+
 `settle` Schritt 1, verfallene Anfrage (Zeile 291):
 
 ```js
@@ -1762,6 +1764,8 @@ const ARTEN_NAMEN = {
 ```
 
 `module.exports`: `DRAHT_STUFEN` heraus, `ARTEN_NAMEN` hinein. Beide Fundstellen in `src/buttons.js` mitziehen.
+
+**Zwei tote Reste aus Task 4 räumt diese Aufgabe mit auf**, weil sie beide Dateien ohnehin umbaut: Seit kein `REQUESTS`-Eintrag mehr `minDraht` trägt, sind der Schlüssel `draht` in `grundText` (`src/ui.js`) und der Zweig `res.reason === 'draht'` in `kontaktNote` (`src/buttons.js`) unerreichbar. Prüf mit `grep -rn "minDraht" src/data/contacts.js`, dass das noch stimmt, und entferne dann beide. Das Draht-Tor der **Angebotsarten** (`tausch`, `gastpart`, `vorgruppe`) bleibt davon unberührt — es läuft über `artenFuer`, nicht über `grundText`.
 
 **Diese Aufgabe löscht außerdem `contacts.moveDraht`** — und sie ist die erste, die es darf. Nach Task 4 und 5 ruft kein Produktivcode es mehr, aber **sechs Teststellen** benutzen es noch als Aufbauhelfer („setze den Draht auf diesen Wert"):
 
