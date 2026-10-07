@@ -256,6 +256,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   const achsen = (G, U, contactId, t = T0) =>
     contacts.achsenJetzt(db.getContact(G, U, contactId), t);
 
+  /** Die Gedächtniszeile dieser Art zu einem Kontakt (oder undefined). */
+  const gedaechtnis = (G, U, contactId, art) =>
+    db.memoryOf(G, U, contactId, 20).find((m) => m.art === art);
+
   /** Eine Anfrage, die genau jetzt eingegangen ist. */
   const anfrage = (G, U, art, contactId, t = T0) => db.insertAngebot({
     guildId: G, userId: U, art, contactId, erstellt: t, frist: ang.fristOf(t) });
@@ -369,6 +373,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const av = achsen(G, U, LILPFAND.id, spaet);
     check('Verfallen: Respekt −4, Vertrauen −12, Boden unberührt',
       av.respekt === 60 - 4 && av.vertrauen === 60 - 12 && av.boden === 0, JSON.stringify(av));
+    const mv = gedaechtnis(G, U, LILPFAND.id, 'angebot_verfallen');
+    check('und es kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mv && mv.d_respekt === -4 && mv.d_vertrauen === -12 && mv.detail === 'Gegenseitige Erwähnung',
+      JSON.stringify(mv));
     check('das Verfallen steht in `vorher` genau dieses Klicks',
       (r.vorher ?? []).some((e) => e.art === 'verfallen' && e.angebot.id === row.id),
       JSON.stringify(r.vorher));
@@ -396,6 +404,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const at = achsen(G, U, LILPFAND.id);
     check('Annehmen: Respekt +4, Vertrauen +12, Boden +3',
       at.respekt === 34 && at.vertrauen === 42 && at.boden === data.BODEN_AN, JSON.stringify(at));
+    const ma = gedaechtnis(G, U, LILPFAND.id, 'angebot_an');
+    check('die Annahme kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      ma && ma.d_respekt === 4 && ma.d_vertrauen === 12 && ma.detail === 'Gegenseitige Erwähnung',
+      JSON.stringify(ma));
     check('abgelehnt_folge zurück auf 0', db.angebotUhr(G, U).abgelehnt_folge === 0);
     check('zwei Stunden gebucht', creator.budget(G, U, T0).left === zeitVor - 2,
       String(creator.budget(G, U, T0).left));
@@ -421,6 +433,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const ab = achsen(G, U, LILPFAND.id);
     check('Absagen: Respekt −2, Vertrauen −8, Boden unberührt',
       ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 0, JSON.stringify(ab));
+    check('eine saubere Absage ist keine Geschichte: kein Gedächtniseintrag',
+      db.memoryOf(G, U, LILPFAND.id, 20).length === 0, JSON.stringify(db.memoryOf(G, U, LILPFAND.id, 20)));
     check('Absagen meldet die Stufe mit (die Meldung liest `stufe`)',
       typeof r.draht.stufe === 'string' && r.draht.stufe === contacts.drahtStufe(r.draht.nachher),
       JSON.stringify(r.draht));
@@ -627,6 +641,12 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       knapp === 'vorgruppe', knapp);
     check('Vertrauen 50: dieselbe Ziehung landet beim label',
       genug === 'label', genug);
+    // Das GEWICHT bleibt am Draht: Respekt 100 / Vertrauen −40 ist Draht 30,
+    // also meldet er sich (Gewicht 1) – nur eben mit den kleinen Formaten.
+    // Läse das Gewicht das Vertrauen, bliebe er unsichtbar.
+    const kalt = await zustellung(-40);
+    check('das Gewicht hängt am Draht: Draht 30 bei Vertrauen −40 meldet sich mit einem kleinen Format',
+      ['tausch', 'gastpart', 'vorgruppe'].includes(kalt), kalt);
   }
 
   console.log('--- Ein Blick schreibt nichts (§4) ---');
@@ -1059,6 +1079,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       nach.vertrauen - vor.vertrauen === 18 && nach.respekt - vor.respekt === 6
       && nach.boden === 10,
       `${vor.vertrauen} → ${nach.vertrauen}, Respekt ${vor.respekt} → ${nach.respekt}, Boden ${nach.boden}`);
+    const mf = gedaechtnis(G, U, RAF.id, 'projekt_fertig');
+    check('das Durchziehen kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mf && mf.d_respekt === 6 && mf.d_vertrauen === 18 && mf.detail === 'Gemeinsames Album',
+      JSON.stringify(mf));
     check('und der Draht bewegt sich um +12 – vorher war es null',
       nach.draht - vor.draht === 12, `${vor.draht} → ${nach.draht}`);
     // Der Boden ist die einzige dauerhafte Zusicherung: Ein halbes Jahr
@@ -1218,6 +1242,10 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       && nachVerfallAchsen.respekt - vorVerfall.respekt === -6
       && nachVerfallAchsen.boden === vorVerfall.boden,
       `${vorVerfall.vertrauen} → ${nachVerfallAchsen.vertrauen}, Respekt ${vorVerfall.respekt} → ${nachVerfallAchsen.respekt}`);
+    const mp = gedaechtnis(G, U, RAF.id, 'projekt_verfallen');
+    check('das Verrotten kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mp && mp.d_respekt === -6 && mp.d_vertrauen === -20 && mp.detail === 'Tour zu zweit',
+      JSON.stringify(mp));
     check('nach der Frist lässt sich nicht weiterarbeiten',
       r.ok === false && r.reason === 'weg', JSON.stringify(r.reason));
     check('Schritt 0 hat es auf "verfallen" gesetzt und meldet es unter `vorher`',
