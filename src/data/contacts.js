@@ -93,6 +93,109 @@ const PARTNER_YES = 3;
 const CHANCE_MIN = 0.02;
 const CHANCE_MAX = 0.95;
 
+// --- Respekt und Vertrauen (Stück 6a) --------------------------------------
+
+/**
+ * Was eine Antwort an den zwei Achsen bewegt.
+ *
+ * Der Mittelwert ist bei allen fünf Zeilen identisch zum alten Draht-Delta
+ * (+12 / +6 / +2 / −1 / −5) – die Spaltung ist die einzige Änderung, und der
+ * Paritätstest in test/beziehungen.test.js hängt daran. Ein 🔥 zurück und ein
+ * echter Satz bringen fast nur Respekt; eine Zusage bringt beides.
+ */
+const ACHSEN = {
+  zusage:    { respekt: 12, vertrauen: 12 },   // Mittel +12
+  echt:      { respekt:  9, vertrauen:  3 },   // Mittel  +6
+  fluechtig: { respekt:  3, vertrauen:  1 },   // Mittel  +2
+  ignoriert: { respekt: -2, vertrauen:  0 },   // Mittel  −1
+  verstimmt: { respekt: -8, vertrauen: -2 },   // Mittel  −5
+};
+
+/**
+ * Ohne Kontakt kühlt die Beziehung ab. Respekt bleibt länger als Vertrauen:
+ * Wer dich einmal ernst genommen hat, tut das auch in einem halben Jahr noch –
+ * verlassen tut er sich nur auf jemanden, von dem er zuletzt etwas gehört hat.
+ * (1 + 3) / 2 = 2, also kühlt der Draht mit genau den alten zwei Punkten ab,
+ * solange Vertrauen über seinem Boden steht.
+ */
+const RESPEKT_DECAY_PRO_WOCHE = 1;
+const VERTRAUEN_DECAY_PRO_WOCHE = 3;
+
+/**
+ * Der Boden, unter den Vertrauen nicht fällt. Nur DURCHGEZOGENES setzt ihn
+ * (die Werte stehen in data/angebote.js), Zusagen und freundliche Antworten
+ * nicht. Bei 30 Boden und Respekt 0 liegt der Draht bei 15 – unter „bekannt"
+ * und unter der Schwelle, ab der Gegenanfragen überhaupt kommen: Die Beziehung
+ * bleibt warm und öffnet nichts von allein.
+ */
+const BODEN_MAX = 30;
+
+/**
+ * Das Gewicht des Respekts in der Antwortchance – es WÄCHST mit dem Abstand.
+ *
+ *   gleich groß oder kleiner  0,12   (heute 0,25)
+ *   10×                       0,23
+ *   100×                      0,34
+ *   1000× und mehr            0,45
+ *
+ * Die Grenze liegt bei Faktor 15,2: Darunter kostet die Umverteilung, darüber
+ * zahlt sie. Multiplikativ ginge das nicht – die Wurzel in der Basis staucht
+ * jeden Faktor so stark, dass der Weltstar SCHWERER erreichbar würde
+ * (100k gegen 10 Mio bei voller Beziehung 19,0 % statt 31,0 %).
+ */
+const RESPEKT_W_MIN = 0.12;
+const RESPEKT_W_SPAN = 0.33;
+const RESPEKT_W_DEKADEN = 3;
+
+/**
+ * Negatives Vertrauen zieht die Antwortchance – positives hebt sie NICHT, das
+ * ist Respekts Aufgabe. Der Riegel gegen die naheliegende Masche: Wer denselben
+ * Kontakt wiederholt anstachelt, sammelt Respekt bei Vertrauen auf −100 und
+ * landet damit auf CHANCE_MIN statt über dem Fremden.
+ */
+const VERTRAUEN_MALUS = 0.25;
+
+/** Fester Partner: beide Achsen oben. Die EINZIGE Regel dafür. */
+const PARTNER_RESPEKT = 50;
+const PARTNER_VERTRAUEN = 50;
+
+/** Schwellen der Beziehungsarten (Reihenfolge in contacts.artOf). */
+const ART_RIVALE_RESPEKT = 30;
+const ART_RIVALE_VERTRAUEN = -20;
+const ART_ABSTAND = 10;              // ab Faktor 10 ist einer „viel größer"
+const ART_MENTOR_RESPEKT = 50;
+const ART_MENTOR_VERTRAUEN = 40;
+const ART_SCHUETZLING_VERTRAUEN = 40;
+const ART_BAND_BODEN = 10;
+const ART_GESCHAEFTLICH_RESPEKT = 40;
+
+/** Das Gedächtnis: so viele Zeilen je Kontakt, so viele in der Ansicht. */
+const MEMORY_MAX = 12;
+const MEMORY_ZEIGEN = 3;
+
+/**
+ * Was eine Gedächtniszeile erzählt. `{detail}` wird ersetzt.
+ *
+ * Bewusst NICHT eingetragen werden `fluechtig`, `echt`, `ignoriert` und
+ * `angebot_ab`: Sie sind häufig und klein, und zwanzig Zeilen „ignoriert"
+ * machen die Liste wertlos. Was man nur gewollt hat, erzählt stattdessen die
+ * Zusammenfassung aus `tries − yes`.
+ */
+const MEMORY_TEXTE = {
+  zusage:            'Zusage für {detail}',
+  verstimmt:         'Du hast {detail} zu oft gefragt',
+  angebot_an:        '{detail} angenommen',
+  angebot_verfallen: '{detail} verfallen lassen',
+  projekt_fertig:    '{detail} zu zweit fertig gemacht',
+  projekt_verfallen: '{detail} verrotten lassen',
+  beef_start:        'Beef angefangen',
+  blamage:           'Dein Disstrack ging nach hinten los',
+  diss:              'Dein Disstrack hat getroffen',
+  konter:            'Konter kassiert',
+  angezaehlt:        'Er hat dich angezählt',
+  frieden:           'Frieden gemacht',
+};
+
 // --- Anfragearten ----------------------------------------------------------
 
 /**
@@ -577,4 +680,10 @@ module.exports = {
   DRAHT_DECAY_PRO_WOCHE,
   STUFE_BEKANNT, STUFE_PARTNER, STUFE_VERSTIMMT, STUFE_BEEF,
   PARTNER_YES, CHANCE_MIN, CHANCE_MAX,
+  ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX,
+  RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS,
+  PARTNER_RESPEKT, PARTNER_VERTRAUEN,
+  ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT,
+  ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN,
+  ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE,
 };

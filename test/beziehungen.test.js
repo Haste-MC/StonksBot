@@ -243,6 +243,107 @@ const U2 = 'u2';
     }
   }
 
+  console.log('--- Parität gegen die alte Kette ---');
+  {
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+
+    // Die alten Draht-Deltas, wie main sie rechnete.
+    const ALT = { zusage: 12, echt: 6, fluechtig: 2, ignoriert: -1, verstimmt: -5 };
+    const klemm = (v) => Math.max(-100, Math.min(100, v));
+
+    /** Die alte Kette: EIN Draht, Abkühlen mit contacts.decay. */
+    const altKette = (folge) => folge.reduce((draht, [art, tage]) =>
+      klemm(contacts.decay(draht, tage) + ALT[art]), 0);
+
+    /**
+     * Die neue Kette mit GLEICHMÄSSIGER Spaltung und gleicher Abkühlrate:
+     * beide Achsen tragen in jedem Schritt dasselbe, also gilt (d+d)/2 = d.
+     * Weicht das ab, liegt der Fehler in der Mechanik – nicht in den Zahlen.
+     */
+    const neuKette = (folge) => {
+      let r = 0, v = 0;
+      for (const [art, tage] of folge) {
+        const ab = Math.floor(Math.max(0, tage) / 7) * cdata.DRAHT_DECAY_PRO_WOCHE;
+        r = klemm(contacts.decayAchse(r, ab, 0) + ALT[art]);
+        v = klemm(contacts.decayAchse(v, ab, 0) + ALT[art]);
+      }
+      return contacts.drahtVon(r, v);
+    };
+
+    const folgen = [
+      [['zusage', 0]],
+      [['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0]],
+      [['ignoriert', 3], ['ignoriert', 3], ['ignoriert', 3], ['verstimmt', 7]],
+      [['zusage', 0], ['zusage', 0], ['fluechtig', 70]],
+      [['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0],
+        ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0],
+        ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0],
+        ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0],
+        ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0], ['verstimmt', 0],
+        ['verstimmt', 0], ['verstimmt', 0]],            // läuft an die −100
+      [['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0],
+        ['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0], ['zusage', 0]],  // an die +100
+    ];
+    for (let i = 0; i < folgen.length; i++) {
+      const a = altKette(folgen[i]);
+      const n = neuKette(folgen[i]);
+      check(`Parität, Folge ${i + 1} (${folgen[i].length} Schritte): ${a}`, a === n,
+        `alt ${a}, neu ${n}`);
+    }
+
+    // Und dasselbe über 400 gewürfelte Folgen mit gesätem Zufall.
+    let seed = 20261007;
+    const wuerfel = () => {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      return seed / 0x7fffffff;
+    };
+    const arten = Object.keys(ALT);
+    let abweichungen = 0;
+    for (let n = 0; n < 400; n++) {
+      const folge = [];
+      const len = 1 + Math.floor(wuerfel() * 25);
+      for (let i = 0; i < len; i++) {
+        folge.push([arten[Math.floor(wuerfel() * arten.length)],
+          Math.floor(wuerfel() * 40)]);
+      }
+      if (altKette(folge) !== neuKette(folge)) abweichungen++;
+    }
+    check('Parität über 400 gewürfelte Folgen', abweichungen === 0,
+      `${abweichungen} Abweichungen`);
+  }
+
+  console.log('--- Abkühlen mit Boden ---');
+  {
+    const contacts = require('../src/contacts');
+    const f = contacts.decayAchse;
+    check('von oben gegen 0', f(40, 3, 0) === 37, String(f(40, 3, 0)));
+    check('kein Überschießen nach unten', f(2, 3, 0) === 0, String(f(2, 3, 0)));
+    check('von unten gegen 0', f(-40, 3, 0) === -37, String(f(-40, 3, 0)));
+    check('kein Überschießen nach oben', f(-2, 3, 0) === 0, String(f(-2, 3, 0)));
+    check('der Boden bremst den Fall', f(31, 3, 30) === 30, String(f(31, 3, 30)));
+    check('auf dem Boden bleibt es liegen', f(30, 3, 30) === 30, String(f(30, 3, 30)));
+    check('der Boden zieht NICHT nach oben', f(0, 3, 30) === 0, String(f(0, 3, 30)));
+    check('von unten ist der Boden egal', f(-50, 3, 30) === -47, String(f(-50, 3, 30)));
+  }
+
+  console.log('--- Respekt-Gewicht ---');
+  {
+    const contacts = require('../src/contacts');
+    const g = contacts.respektGewicht;
+    check('gleich groß: 0,12', near(g(100_000, 100_000), 0.12), String(g(100_000, 100_000)));
+    check('10×: 0,23', near(g(100_000, 1_000_000), 0.23), String(g(100_000, 1_000_000)));
+    check('100×: 0,34', near(g(100_000, 10_000_000), 0.34), String(g(100_000, 10_000_000)));
+    check('1000×: 0,45', near(g(10_000, 10_000_000), 0.45), String(g(10_000, 10_000_000)));
+    check('er ist kleiner: 0,12 (geklemmt)', near(g(100_000, 10_000), 0.12), String(g(100_000, 10_000)));
+    check('weit über 1000× bleibt 0,45', near(g(100, 1_000_000_000), 0.45), String(g(100, 1_000_000_000)));
+    // Die Grenze, an der das neue Gewicht die alten 0,25 übersteigt.
+    check('Faktor 15,2 ist die Grenze',
+      g(100_000, 1_520_000) > 0.25 && g(100_000, 1_500_000) < 0.2501,
+      `${g(100_000, 1_500_000)} / ${g(100_000, 1_520_000)}`);
+  }
+
+
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);
   process.exit(fail === 0 ? 0 : 1);
 })();

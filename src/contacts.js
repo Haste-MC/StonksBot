@@ -15,6 +15,9 @@
  *   boostOf     der Schub, den ein Ja setzt
  *   drahtStufe  in welcher Beziehung man steht
  *   decay       wie die Beziehung ohne Kontakt abkühlt
+ *   drahtVon    der Draht als Mittelwert der zwei Achsen
+ *   decayAchse  wie EINE Achse abkühlt (mit Boden)
+ *   respektGewicht  das Gewicht des Respekts in der Antwortchance
  *
  * Die Zahlen und Schwellen stehen in data/contacts.js.
  */
@@ -106,6 +109,28 @@ function decay(draht, tage) {
   if (draht > 0) return Math.max(0, draht - ab);
   if (draht < 0) return Math.min(0, draht + ab);
   return 0;
+}
+
+/** Der Draht ist abgeleitet – hier gerechnet, geschrieben nur in db.saveContact. */
+const drahtVon = (respekt, vertrauen) => Math.round((respekt + vertrauen) / 2);
+
+/**
+ * Eine Achse Richtung Ziel, ohne Überschießen.
+ *
+ * Von oben gegen `boden`, von unten gegen 0. Der Boden bremst nur den Fall –
+ * er zieht nicht nach oben und heilt damit keinen Beef.
+ */
+function decayAchse(wert, punkte, boden = 0) {
+  if (wert > boden) return Math.max(boden, wert - punkte);
+  if (wert < 0) return Math.min(0, wert + punkte);
+  return wert;
+}
+
+/** Das Gewicht des Respekts in der Antwortchance – wächst mit dem Abstand. */
+function respektGewicht(meine, seine) {
+  const dekaden = Math.log10(Math.max(1, seine) / Math.max(100, meine || 0));
+  return data.RESPEKT_W_MIN
+    + data.RESPEKT_W_SPAN * clamp(0, 1, dekaden / data.RESPEKT_W_DEKADEN);
 }
 
 
@@ -517,6 +542,7 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
 module.exports = {
   passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
+  drahtVon, decayAchse, respektGewicht,
   VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, tuerOeffnerFor,
   listFor, detail, request, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
 };
