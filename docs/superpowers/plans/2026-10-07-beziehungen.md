@@ -2000,6 +2000,7 @@ Erwartet: Der gerechnete erwartete Stufenfaktor und der millionenfach gewürfelt
 
 Der Kontaktbericht braucht zwei Zahlen, die es heute nicht gibt. In die Kontaktvariante (`kontaktvariante`, der Aufbau ab Zeile 2156) je Lauf mitschreiben:
 
+- `arten`: wie oft jede der **zehn** Beziehungsarten im Messjahr auftritt. **Eine Art mit null Vorkommen ist Dekoration und gehört ins Messfile als Befund.** Zwei stehen unter Verdacht: `rivale` verlangt Respekt ≥ 30 und entsteht deshalb nur bei vorherigem Standing (Respekt ≥ 26, also drei echte Antworten) oder nach fünf gelandeten Dissen; `schuetzling` verlangt, dass der Spieler **zehnmal größer** ist als der Kontakt, was im Katalog nur gegen die kleinsten Einträge geht.
 - `vertrauenMax` je Konto: das höchste Vertrauen, das irgendein Kontakt im Messjahr erreicht hat
 - `projekteFertig`: wie viele `kollabo`- und `tour`-Projekte im Messjahr **abgeschlossen** wurden (`db.projekteOf(...).filter((p) => p.status === 'fertig').length`)
 
