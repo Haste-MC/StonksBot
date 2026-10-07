@@ -660,7 +660,7 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 > | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | die `delta`-Zuweisung in `request` (Step 5, ersetzt durch `data.ACHSEN`) |
 > | `data.PARTNER_YES` | die alte `istPartner` (Step 6) |
 >
-> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen hängen **vier** Zeichenketten daran, nicht zwei: `src/ui.js:3013` (aus `listFor`), `src/ui.js:3110` (aus `detail`), `src/buttons.js:659` (`anfrageNote`, aus `request`) und `src/buttons.js:798` (`beefDraht`, aus `moveDraht`) lesen alle `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
+> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen hängen **vier** Zeichenketten daran, nicht zwei: `src/ui.js:3013` (aus `listFor`), `src/ui.js:3110` (aus `detail`), `src/buttons.js:662` (in `kontaktNote`, aus `request`) und `src/buttons.js:805` (`beefDraht`, aus `moveDraht`) lesen alle `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
 > | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
 >
 > `data.DRAHT_DECAY_PRO_WOCHE` und `contacts.decay` bleiben: Sie sind das Referenzmodell des Paritätstests.
@@ -907,7 +907,7 @@ Der Wurf und der Schreibvorgang:
   }
 ```
 
-Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, das bisherige `stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))` (es bleibt bis Task 6, weil `buttons.anfrageNote` es liest), dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
+Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, das bisherige `stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))` (es bleibt bis Task 6, weil `buttons.kontaktNote` es liest), dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
 
 ```js
     art: artOf({ respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
@@ -1749,7 +1749,7 @@ git commit -m "beziehungen: beef auf die achsen, der diss hebt den respekt"
 
 **Files:**
 - Modify: `src/ui.js` (`DRAHT_STUFEN` 2761, `buildKontakteView` 2969, `buildKontaktView` 3078, `module.exports` 5688)
-- Modify: `src/buttons.js` (`anfrageNote` ~658, `beefDraht` ~793)
+- Modify: `src/buttons.js` (`kontaktNote` ab 621, `beefDraht` ab 801)
 - Test: `test/fluxer-render.test.js`
 
 **Interfaces:**
@@ -1798,7 +1798,7 @@ const ARTEN_NAMEN = {
 
 Alle sechs auf `contacts.move(…, { respekt: d, vertrauen: d }, …)` umstellen — die gleichmäßige Spaltung, deren Mittelwert genau der alte Draht ist. Erst danach `moveDraht` löschen und mit `grep -rn "moveDraht" src/ test/ scripts/` gegenprüfen, dass nur noch die zwei erklärenden Kommentare in `src/beef.js:133` und `src/angebote.js:113` übrig sind — **die beiden Kommentartexte mitziehen**, sie nennen `moveDraht` als „eine Stelle, ein Abklingen, eine Sperre", und das ist ab dann `move`.
 
-**Diese Aufgabe trägt zudem die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `anfrageNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
+**Diese Aufgabe trägt zudem die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `kontaktNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
 
 - [ ] **Step 2: Der dreizeilige Kopf**
 
@@ -1880,7 +1880,7 @@ Beide Meldungen zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Ac
 /**
  * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
  *
- * `anfrageNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
+ * `kontaktNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
  * und jedem verfallenen Projekt) zeigen dasselbe aus verschieden geformten
  * Ergebnissen; die Zeile selbst gibt es nur hier.
  */
@@ -1896,13 +1896,13 @@ function achsenZeile(draht, delta, achsenVor, achsen) {
 }
 ```
 
-`achsenZeile` exportieren. `anfrageNote` (Zeile 658) ruft sie:
+`achsenZeile` exportieren. `kontaktNote` (ab Zeile 621 — dieselbe Funktion, der Task 4 den `'vertrauen'`-Zweig gegeben hat) ruft sie:
 
 ```js
   zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen));
 ```
 
-`beefDraht` (Zeile 793) ebenso — `d.stufe` gibt es nicht mehr:
+`beefDraht` (ab Zeile 801) ebenso — `d.stufe` gibt es nicht mehr:
 
 ```js
 /** Die Achsenbewegung, wie `contacts.move` sie meldet. */
