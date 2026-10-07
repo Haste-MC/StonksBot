@@ -1072,9 +1072,13 @@ function view(buttons) {
     // Der Name der ART, nicht der alte Stufenname: Fünf unangetastete Kontakte
     // sind alle „fremd". Das Literal steht hier, nicht `ARTEN_NAMEN.fremd` –
     // sonst prüfte der Test die Tabelle gegen sich selbst.
-    check('die Liste nennt die Beziehungsart „· fremd", nicht die alte Stufe',
+    // In der LISTE ohne Emoji: Kontakt und Flagge tragen dort schon zwei, ein
+    // drittes Zeichen in derselben Zeile ist Lärm. In der Detailansicht, wo die
+    // Art eine eigene Zeile hat, steht es mit (unten geprüft).
+    check('die Liste nennt die Beziehungsart „fremd" ohne Emoji, nicht die alte Stufe',
       lEmbed.description.split('\n')
-        .filter((z) => z.includes('Draht ') && z.includes('(· fremd)')).length === 5
+        .filter((z) => z.includes('Draht ') && z.includes('(fremd)')).length === 5
+      && !lEmbed.description.includes('(· fremd)')
       && !lEmbed.description.includes('(neutral)'),
       lEmbed.description);
     const lRows = liste.components.map((r) => r.toJSON().components);
@@ -1225,13 +1229,45 @@ function view(buttons) {
      */
     check('„Was zwischen euch war" zeigt die drei jüngsten Zeilen, neueste zuerst',
       mBeschr.includes('📖 **Was zwischen euch war**\n'
-        + '• vor 3 Tagen · Frieden gemacht _(+30 Vertrauen)_\n'
-        + '• vor 5 Tagen · Dein Disstrack hat getroffen _(+10 Respekt, −36 Vertrauen)_\n'
-        + '• vor 10 Tagen · Du hast Dich erwähnen zu oft gefragt '
+        + '• vor 2 Tagen · Frieden gemacht _(+30 Vertrauen)_\n'
+        + '• vor 4 Tagen · Dein Disstrack hat getroffen _(+10 Respekt, −36 Vertrauen)_\n'
+        + '• vor 9 Tagen · Zu oft um „Dich erwähnen" gebeten '
         + '_(−2 Respekt, −8 Vertrauen)_'),
       mBeschr);
-    check('die vierte Zeile steht nicht da, sondern als Schwanz samt vergeblicher Versuche',
-      mBeschr.includes('_… und 1 weitere · 7 Mal kam nichts zurück_')
+    /*
+     * Das ALTER, nicht die Restzeit: Die Zeilen liegen auf exakt 2, 4 und 9
+     * Tagen, und `frist` hätte sie mit `Math.ceil` als 3, 5 und 10 gemeldet –
+     * jedes Ereignis, das gerade eben über N Tage alt ist, als N+1. `alter`
+     * schneidet ab einem Tag ab. Die Erwartungen oben sind die WAHREN Werte.
+     */
+    check('alter() schneidet Tage ab, frist() rundet sie auf',
+      ui.alter(2 * TAG6 + 1000) === '2 Tagen' && ui.frist(2 * TAG6 + 1000) === '3 Tagen'
+      && ui.alter(TAG6) === '1 Tag' && ui.alter(20 * TAG6) === '20 Tagen'
+      // Unter einem Tag ist `frist` richtig und wird nicht gedoppelt.
+      && ui.alter(5 * 3600e3) === ui.frist(5 * 3600e3),
+      `${ui.alter(2 * TAG6 + 1000)} / ${ui.frist(2 * TAG6 + 1000)}`);
+    // Der volle Satz der Anfrageart steht in Anführung, sonst las sich
+    // „Du hast Dich erwähnen zu oft gefragt" als Aussage über den Spieler.
+    check('die Gedächtniszeile einer Anfrage setzt die Bitte in Anführung',
+      cdata.MEMORY_TEXTE.verstimmt === 'Zu oft um „{detail}" gebeten'
+      && cdata.MEMORY_TEXTE.zusage === 'Zusage für „{detail}"'
+      // Und keine Vorlage stottert mehr auf „Tour zu zweit".
+      && cdata.MEMORY_TEXTE.projekt_fertig.replace('{detail}', 'Tour zu zweit')
+        === 'Tour zu zweit durchgezogen',
+      JSON.stringify([cdata.MEMORY_TEXTE.verstimmt, cdata.MEMORY_TEXTE.zusage,
+        cdata.MEMORY_TEXTE.projekt_fertig]));
+    /*
+     * „7 Versuche ohne Zusage", NICHT „7 Mal kam nichts zurück".
+     *
+     * `tries − yes` bedeutet nicht, dass nichts zurückkam: `tries` steigt auch
+     * bei `echt` und `fluechtig` – wo sehr wohl etwas zurückkam – und bei jedem
+     * `contacts.move({ sperre: true })`, also auch bei `beef.anstacheln` und
+     * `beef.frieden`, die gar keine Anfragen sind. Der Fall ohne jede Anfrage
+     * steht gleich darunter.
+     */
+    check('die vierte Zeile steht nicht da, sondern als Schwanz samt Versuchen ohne Zusage',
+      mBeschr.includes('_… und 1 weitere · 7 Versuche ohne Zusage_')
+      && !mBeschr.includes('kam nichts zurück')
       && !mBeschr.includes('Beef angefangen')
       && db.memoryCount(MG, MU, klein.id) === 4, mBeschr);
     // Ein Ausschlag von 0 fällt ganz weg: „+0 Respekt" wäre keine Geschichte.
@@ -1240,6 +1276,182 @@ function view(buttons) {
     check('Kontaktansicht mit Gedächtnis hält das Fluxer-Limit (kein Überlauf)',
       render.mapReactions(mView).overflow === undefined,
       String(render.mapReactions(mView).overflow));
+
+    /*
+     * ---------------------------------------------------------------------
+     *  Negative Achsen – die Hälfte der Skala, die vorher unsichtbar war
+     * ---------------------------------------------------------------------
+     *
+     * Zwei Befunde treffen hier zusammen, und beide konnten nur durchrutschen,
+     * weil JEDER bisherige Ansichtsfall nichtnegativ war (72/24/48 und 0/0/0):
+     *
+     *  • `${d.draht}` roh schrieb den ASCII-Bindestrich – in derselben
+     *    Beschreibung, in der der Gedächtnisblock drei Zeilen weiter U+2212
+     *    schreibt. Genau der Mischfall, gegen den die Zeile gebaut wurde.
+     *  • `drahtBar` klemmte die negative Hälfte auf `Math.max(0, …)`: Respekt
+     *    −100 und Respekt 0 sahen beide als `▱▱▱▱▱` aus. Bei ZWEI Achsenbalken,
+     *    deren ganzer Zweck die Unterscheidung ist, war die halbe Skala blind.
+     *
+     * Respekt −10 / Vertrauen −60 ergibt Draht −35: drei verschiedene negative
+     * Zahlen mit drei verschiedenen Balken.
+     */
+    const [NG, NU] = [`KON_T6N_${Date.now()}`, 'kon_user_negativ'];
+    await home.setHome(NG, NU, 'de');
+    home.setLanguage(NG, NU, 'deutsch');
+    music.setup(NG, NU, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(NG, NU, { ...db.getArtist(NG, NU, jetzt), listeners: 10_000 });
+    db.saveContact(NG, NU, klein.id, { respekt: -10, vertrauen: -60, boden: 0,
+      tries: 2, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
+    // Zwei Beef-Ereignisse, KEINE Anfrage – der gemessene Fall zu „N Mal kam
+    // nichts zurück": `tries` steigt in `contacts.move` bei jedem
+    // `{ sperre: true }`, also auch beim Anstacheln und beim Frieden.
+    db.addMemory(NG, NU, klein.id, { at: jetzt - 3 * TAG6, art: 'beef_start',
+      detail: '', dRespekt: 0, dVertrauen: -24 }, cdata.MEMORY_MAX);
+    db.addMemory(NG, NU, klein.id, { at: jetzt - TAG6, art: 'frieden',
+      detail: '', dRespekt: 0, dVertrauen: 14 }, cdata.MEMORY_MAX);
+    const nView = await ui.buildKontaktView({ guildId: NG, userId: NU, contactId: klein.id });
+    const nBeschr = nView.embeds[0].toJSON().description;
+    check('negative Achsen: echtes Minus im Kopf und drei verschieden gefüllte Balken',
+      nBeschr.includes('🙄 verstimmt\n'
+        + '   Draht ▬▬▱▱▱ −35 · 2 Versuche, 0 Zusagen\n'
+        + '   Respekt ▬▱▱▱▱ −10 · Vertrauen ▬▬▬▱▱ −60'),
+      nBeschr);
+    /*
+     * Die Probe auf den Mischfall: keine einzige NEGATIVE ZAHL mit
+     * ASCII-Bindestrich in der ganzen Beschreibung, obwohl vier darin stehen.
+     * Geprüft wird `-` direkt vor einer Ziffer – „Hip-Hop" und „Klassik /
+     * Score" dürfen ihren Bindestrich behalten, der ist keine Zahl.
+     */
+    check('keine negative Zahl mit ASCII-Bindestrich, obwohl vier in der Beschreibung stehen',
+      !/-\d/.test(nBeschr) && (nBeschr.match(/−\d/g) ?? []).length >= 4, nBeschr);
+    // Und −100 sieht nicht mehr wie 0 aus: Das war die Bedingung des Befunds.
+    check('drahtBar unterscheidet die negative Hälfte, positiv bleibt es wie bisher',
+      ui.drahtBar(-100) === '▬▬▬▬▬' && ui.drahtBar(0) === '▱▱▱▱▱'
+      && ui.drahtBar(-100) !== ui.drahtBar(0) && ui.drahtBar(-1) !== ui.drahtBar(0)
+      && ui.drahtBar(48) === '▰▰▰▱▱' && ui.drahtBar(100) === '▰▰▰▰▰',
+      [ui.drahtBar(-100), ui.drahtBar(-1), ui.drahtBar(0), ui.drahtBar(48)].join(' '));
+    /*
+     * Der Schwanz auf einem Kontakt, der NIE angefragt wurde: zwei Beef-Zeilen
+     * stehen namentlich darüber, und der alte Satz hätte genau sie als „2 Mal
+     * kam nichts zurück" gezählt. „2 Versuche ohne Zusage" ist per Konstruktion
+     * wahr und nennt dieselbe Zahl, die der Kopf schon „Versuche" nennt.
+     */
+    check('der Schwanz zählt keine Beef-Ereignisse als „nichts zurückgekommen"',
+      nBeschr.includes('• vor 1 Tag · Frieden gemacht _(+14 Vertrauen)_\n'
+        + '• vor 3 Tagen · Beef angefangen _(−24 Vertrauen)_\n'
+        + '_2 Versuche ohne Zusage_')
+      && !nBeschr.includes('kam nichts zurück'), nBeschr);
+    // Auch die LISTE schreibt das echte Minus und den gefüllten Negativbalken.
+    const nListe = await ui.buildKontakteView({ guildId: NG, userId: NU, page: 1, filter: 'alle' });
+    const nZeile = nListe.embeds[0].toJSON().description.split('\n')
+      .find((z) => z.includes(klein.name));
+    check('die Liste schreibt negativen Draht mit echtem Minus und gefülltem Balken',
+      nZeile.includes('Draht ▬▬▱▱▱ −35 (verstimmt)') && !nZeile.includes('-35'), nZeile);
+
+    /*
+     * ---------------------------------------------------------------------
+     *  Zwei Fugen und die Partner-Wache
+     * ---------------------------------------------------------------------
+     *
+     * Ein fester Partner mit OFFENEM Beef: `artOf` meldet dann „beef", und
+     * `d.partner` ist trotzdem wahr – der einzige Weg, auf dem der Stern neben
+     * der Art steht. Steht die Art selbst auf „partner", muss er wegfallen,
+     * sonst stünde „🤝 fester Partner · ⭐ fester Partner".
+     *
+     * Und der Gedächtnisblock gehört HINTER die Beef-Zeile: Er beginnt mit
+     * einer Leerzeile, und davor eingehängt klebte die Beef-Zeile ohne Abstand
+     * an seinem kursiven Schwanz.
+     */
+    const [PG6, PU6] = [`KON_T6P_${Date.now()}`, 'kon_user_partner'];
+    await home.setHome(PG6, PU6, 'de');
+    home.setLanguage(PG6, PU6, 'deutsch');
+    music.setup(PG6, PU6, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(PG6, PU6, { ...db.getArtist(PG6, PU6, jetzt), listeners: 10_000 });
+    const gross6 = cdata.CONTACTS.find((c) => c.id === 'rammstein');
+    db.saveContact(PG6, PU6, gross6.id, { respekt: 80, vertrauen: 80, boden: 0,
+      tries: 1, yes: 1, last_try: 0, last_move: jetzt, ignored_at: 0 });
+    db.saveBeef(PG6, PU6, gross6.id, { hitze: 40, runden_ich: 1, runden_er: 0,
+      last_hit: jetzt, last_cool: jetzt, konter_at: 0, angefangen: jetzt,
+      status: 'offen', bonus_until: 0 });
+    db.addMemory(PG6, PU6, gross6.id, { at: jetzt - 2 * TAG6, art: 'beef_start',
+      detail: '', dRespekt: 0, dVertrauen: -24 }, cdata.MEMORY_MAX);
+    const pBeschr = (await ui.buildKontaktView({
+      guildId: PG6, userId: PU6, contactId: gross6.id })).embeds[0].toJSON().description;
+    check('ein Partner im Beef trägt den Stern neben der Art',
+      pBeschr.includes('🔥 Beef · ⭐ fester Partner'), pBeschr);
+    // Singular: „1 Versuch, 1 Zusage" – nicht „1 Versuche, 1 Zusagen".
+    check('Einzahl bei genau einem Versuch und einer Zusage',
+      pBeschr.includes('1 Versuch, 1 Zusage')
+      && !pBeschr.includes('1 Versuche') && !pBeschr.includes('1 Zusagen'), pBeschr);
+    const pZeilen = pBeschr.split('\n');
+    check('der Gedächtnisblock steht hinter der Beef-Zeile, mit Leerzeile dazwischen',
+      pZeilen.findIndex((z) => z.startsWith('🔥 **Beef**'))
+        === pZeilen.findIndex((z) => z === '📖 **Was zwischen euch war**') - 2
+      && pZeilen[pZeilen.indexOf('📖 **Was zwischen euch war**') - 1] === '', pBeschr);
+    // Und bei art === 'partner' fällt der Stern weg – sonst zweimal dasselbe.
+    const [QG6, QU6] = [`KON_T6Q_${Date.now()}`, 'kon_user_partner2'];
+    await home.setHome(QG6, QU6, 'de');
+    home.setLanguage(QG6, QU6, 'deutsch');
+    music.setup(QG6, QU6, 'hiphop', music.PERSONAS[0].id);
+    db.saveArtist(QG6, QU6, { ...db.getArtist(QG6, QU6, jetzt), listeners: 10_000 });
+    db.saveContact(QG6, QU6, klein.id, { respekt: 80, vertrauen: 80, boden: 0,
+      tries: 3, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
+    const qBeschr = (await ui.buildKontaktView({
+      guildId: QG6, userId: QU6, contactId: klein.id })).embeds[0].toJSON().description;
+    check('bei der Art „fester Partner" steht der Stern NICHT zweimal',
+      qBeschr.includes('🤝 fester Partner')
+      && !qBeschr.includes('⭐'), qBeschr);
+    // Zweite Fuge: Versuche ohne Zusage, aber keine Gedächtniszeile – dann
+    // stand die Überschrift ohne Inhalt da.
+    check('ohne Gedächtniszeilen steht der Schwanz allein, ohne leere Überschrift',
+      qBeschr.endsWith('\n\n_3 Versuche ohne Zusage_')
+      && !qBeschr.includes('Was zwischen euch war'), qBeschr);
+
+    /*
+     * ---------------------------------------------------------------------
+     *  Die Tabellenprobe: jede Art von `contacts.artOf` hat einen Namen
+     * ---------------------------------------------------------------------
+     *
+     * Vorher waren acht der zehn Namen unasserted, und `ARTEN_NAMEN[d.art] ??
+     * ARTEN_NAMEN.fremd` maskierte den Bruch: `mentor: undefined` blieb grün,
+     * ein Mentor stand still als „fremd" da, und keine
+     * `!includes('undefined')`-Wache griff. Der Rückfall ist gefallen; diese
+     * Probe hält stattdessen die Schlüssel beisammen.
+     *
+     * Die Arten werden aus der QUELLE von `contacts.artOf` gelesen, nicht aus
+     * `ARTEN_NAMEN` – sonst prüfte die Tabelle sich selbst, und eine neu
+     * hinzugefügte Art ohne Namen fiele nicht auf.
+     */
+    const artQuelle = require('fs').readFileSync(
+      require('path').join(__dirname, '../src/contacts.js'), 'utf8');
+    const artBody = artQuelle.slice(artQuelle.indexOf('function artOf('));
+    const artIds = [...new Set([...artBody.slice(0, artBody.indexOf('\n}'))
+      .matchAll(/return '([a-z]+)'/g)].map((m) => m[1]))];
+    check('contacts.artOf liefert genau zehn Arten, und jede hat einen Namen',
+      artIds.length === 10
+      && artIds.every((id) => typeof ui.ARTEN_NAMEN[id] === 'string'
+        && ui.ARTEN_NAMEN[id].length > 0)
+      && Object.keys(ui.ARTEN_NAMEN).length === 10,
+      JSON.stringify({ artIds, namen: Object.keys(ui.ARTEN_NAMEN) }));
+    // Die zehn Namen als Literale – samt der Listenfassung ohne Zeichen.
+    check('die zehn Artnamen stehen im Wortlaut, mit Zeichen und ohne',
+      JSON.stringify(ui.ARTEN_NAMEN) === JSON.stringify({
+        beef: '🔥 Beef',
+        rivale: '⚔️ Rivale',
+        verstimmt: '🙄 verstimmt',
+        mentor: '🎓 Mentor',
+        schuetzling: '🐣 Schützling',
+        partner: '🤝 fester Partner',
+        band: '💿 gemeinsame Vergangenheit',
+        geschaeftlich: '💼 geschäftlich',
+        bekannt: '👋 bekannt',
+        fremd: '· fremd',
+      })
+      && artIds.map((id) => ui.artName(id)).join('|')
+        === 'beef|rivale|verstimmt|mentor|schuetzling|partner|band|geschaeftlich|bekannt|fremd'
+          .split('|').map((id) => ui.ARTEN_NAMEN[id].replace(/^\S+\s/, '')).join('|')
+      && ui.artName('mentor') === 'Mentor' && ui.artName('fremd') === 'fremd',
+      JSON.stringify(ui.ARTEN_NAMEN));
 
     // Antwortmeldung: Zusage (Würfel trifft, zweiter Wurf landet auf „zusage").
     const wuerfel = (...werte) => { let i = 0; return () => werte[Math.min(i++, werte.length - 1)]; };
@@ -1250,7 +1462,7 @@ function view(buttons) {
     check('Meldung: Stufe, Text des Kontakts, Schub, Draht und Sperre',
       zNote.includes('Zusage!') && zNote.includes(zusage.text)
       && /🤝 Wirkt auf deine nächste Veröffentlichung: ×\d+,\d, noch 48 h/.test(zNote)
-      && zNote.includes('🤝 Draht ▰▱▱▱▱ **12** (+12) · Respekt +12 · Vertrauen +12')
+      && zNote.includes('🤝 **Lil Pfand** · Draht ▰▱▱▱▱ **12** (+12) · Respekt +12 · Vertrauen +12')
       && zNote.includes('Wieder erreichbar in 3 Tagen'), zNote);
 
     // Schub-Zeile in der Musikansicht.
@@ -1286,11 +1498,13 @@ function view(buttons) {
     const nNote = kontaktNote(nein, jetzt);
     check('Meldung ohne Schub, mit Sperre von sieben Tagen',
       !nNote.includes('Wirkt auf') && nNote.includes('Wieder erreichbar in 7 Tagen')
-      // Die zwei Achsen stehen UNGLEICH da (Respekt −2, Vertrauen 0): Wer die
+      // Die zwei Achsen stehen UNGLEICH da (Respekt −2, Vertrauen ±0): Wer die
       // Beschriftungen im Formatierer vertauscht, wird hier rot, obwohl die
       // Buchung stimmt. Stand und Ausschlag sind auf diesem frischen Kontakt
-      // beide −1 und könnten das allein nicht leisten.
-      && nNote.includes('🤝 Draht ▱▱▱▱▱ **−1** (−1) · Respekt −2 · Vertrauen +0'),
+      // beide −1 und könnten das allein nicht leisten. Und der Name steht
+      // auch hier: Über dieser Zeile kann eine benannte eines ANDEREN
+      // Kontakts stehen (ein fälliger Konter aus `beef.settle`).
+      && nNote.includes('🤝 **Hans Zimmer** · Draht ▬▱▱▱▱ **−1** (−1) · Respekt −2 · Vertrauen ±0'),
       nNote);
 
     // Fehlerfälle – Wortlaut aus der Spec.
@@ -1652,7 +1866,7 @@ function view(buttons) {
     check('Meldung bei Einstieg: Name, Ton des Kontakts, Hitze, Draht',
       einNote.includes(`🔥 **${klein.name}** steigt ein.`) && einNote.includes(ein.text)
       && einNote.includes(`🔥 Hitze ${bdata.HITZE_ANSTACHELN}`)
-      && einNote.includes('🤝 **Lil Pfand** · Draht ▱▱▱▱▱ **−12** (−12)'), einNote);
+      && einNote.includes('🤝 **Lil Pfand** · Draht ▬▱▱▱▱ **−12** (−12)'), einNote);
     /*
      * Die Achsen hinter dem Draht, und der Name davor (6a Task 6).
      *
@@ -1665,8 +1879,8 @@ function view(buttons) {
      * „**-12** (−12)" hatte beide Zeichen in einer Zeile.
      */
     check('Meldung bei Einstieg: Name, beide Achsen einzeln, durchgehend echtes Minus',
-      einNote.includes('🤝 **Lil Pfand** · Draht ▱▱▱▱▱ **−12** (−12) · '
-        + 'Respekt +0 · Vertrauen −24')
+      einNote.includes('🤝 **Lil Pfand** · Draht ▬▱▱▱▱ **−12** (−12) · '
+        + 'Respekt ±0 · Vertrauen −24')
       && !einNote.includes('undefined') && !einNote.includes('-12'), einNote);
 
     // --- Meldung: Blamage --------------------------------------------------
@@ -1683,7 +1897,7 @@ function view(buttons) {
     // UNGLEICH (Respekt −10, Vertrauen −4) – das Gegenstück zum Einstieg, der
     // nur am Vertrauen bucht: Vertauschte Beschriftungen fallen an beiden auf.
     check('Meldung bei Blamage: Respekt −10, Vertrauen −4, Draht −7',
-      blNote.includes('🤝 **Rammstein** · Draht ▱▱▱▱▱ **−7** (−7) · '
+      blNote.includes('🤝 **Rammstein** · Draht ▬▱▱▱▱ **−7** (−7) · '
         + 'Respekt −10 · Vertrauen −4')
       && !blNote.includes('undefined'), blNote);
 
@@ -1720,7 +1934,7 @@ function view(buttons) {
      * Keine zwei lassen sich vertauschen, ohne dass die Zeile rot wird.
      */
     check('Meldung beim Disstrack: Respekt +10 HOCH, Vertrauen −36 runter, Stand −25 (−13)',
-      dNote.includes('🤝 **Rammstein** · Draht ▱▱▱▱▱ **−25** (−13) · '
+      dNote.includes('🤝 **Rammstein** · Draht ▬▬▱▱▱ **−25** (−13) · '
         + 'Respekt +10 · Vertrauen −36')
       && !dNote.includes('undefined') && !dNote.includes('null'), dNote);
 
@@ -1737,7 +1951,7 @@ function view(buttons) {
     // die Runde gegeben und dich Hype und Hörer gekostet – danach nimmt er dich
     // weniger ernst. Frisch 0/0 ergibt round((−8 − 20) / 2) = −14.
     check('…und die Häme meldet ihre eigene Buchung: Respekt −8, Vertrauen −20',
-      dissNote(haeme, jetzt).includes('🤝 **Lil Pfand** · Draht ▱▱▱▱▱ **−14** (−14) · '
+      dissNote(haeme, jetzt).includes('🤝 **Lil Pfand** · Draht ▬▱▱▱▱ **−14** (−14) · '
         + 'Respekt −8 · Vertrauen −20')
       // Der gelandete Diss hebt den Respekt, die Häme senkt ihn – das ist der
       // Unterschied, den die Zeile sichtbar macht.
@@ -1757,7 +1971,7 @@ function view(buttons) {
       && /📉 Hype −\d+ %, [\d.]+ Hörer weg\./.test(kNote), kNote);
     // Konter: Respekt −6, Vertrauen −14, frisch 0/0 -> Draht −10.
     check('Meldung beim Gegenschlag nennt die Buchung: Respekt −6, Vertrauen −14',
-      kNote.includes('🤝 **Rammstein** · Draht ▱▱▱▱▱ **−10** (−10) · '
+      kNote.includes('🤝 **Rammstein** · Draht ▬▱▱▱▱ **−10** (−10) · '
         + 'Respekt −6 · Vertrauen −14')
       && !kNote.includes('undefined'), kNote);
     /*
@@ -1788,7 +2002,7 @@ function view(buttons) {
     // senkt das Anzählen BEIDE Achsen – wer angezählt wird, gewinnt nichts.
     check('Meldung beim Angezähltwerden nennt die Buchung: Respekt −4, Vertrauen −16',
       anNote.includes(`🔥 **${angez.contact.name}** zählt dich an.`)
-      && anNote.includes(`🤝 **${angez.contact.name}** · Draht ▱▱▱▱▱ **−10** (−10) · `
+      && anNote.includes(`🤝 **${angez.contact.name}** · Draht ▬▱▱▱▱ **−10** (−10) · `
         + 'Respekt −4 · Vertrauen −16')
       && !anNote.includes('undefined'), anNote);
     // Die Drahtzeile steht HINTER dem Namen und dem Ton, die sie erklären.
@@ -1826,9 +2040,9 @@ function view(buttons) {
      * wie seine Zahlen, nicht nur irgendwo in der Meldung.
      */
     check('jede der zwei Drahtzeilen trägt den Namen ihres eigenen Kontakts',
-      zweiZeilen[iAnDraht] === `🤝 **${angez.contact.name}** · Draht ▱▱▱▱▱ **−10** (−10) · `
+      zweiZeilen[iAnDraht] === `🤝 **${angez.contact.name}** · Draht ▬▱▱▱▱ **−10** (−10) · `
         + 'Respekt −4 · Vertrauen −16'
-      && zweiZeilen[iDissDraht] === `🤝 **${gross.name}** · Draht ▱▱▱▱▱ **−25** (−13) · `
+      && zweiZeilen[iDissDraht] === `🤝 **${gross.name}** · Draht ▬▬▱▱▱ **−25** (−13) · `
         + 'Respekt +10 · Vertrauen −36'
       && angez.contact.name !== gross.name,
       `${zweiZeilen[iAnDraht]} ## ${zweiZeilen[iDissDraht]}`);
@@ -1883,7 +2097,7 @@ function view(buttons) {
     check('Meldung bei Frieden: Respekt bleibt stehen, Vertrauen +30, Draht −25 (+15)',
       friede.draht.achsen.vertrauen === bdata.FRIEDEN_DECKEL
       && fNote.startsWith(`🕊️ Ihr habt Frieden geschlossen.\n🤝 **${klein.name}** · Draht `)
-      && fNote.includes('**−25** (+15) · Respekt +0 · Vertrauen +30')
+      && fNote.includes('**−25** (+15) · Respekt ±0 · Vertrauen +30')
       && fNote.split('−25').length === 2   // die Zahl steht genau einmal da
       && !fNote.includes('Draht **') && !fNote.includes('undefined'),
       fNote);
@@ -2114,7 +2328,7 @@ function view(buttons) {
     check('die Veröffentlichung meldet, wenn dich jemand anzählt – samt Buchung',
       angeNote.includes(`🔥 **${klein.name}** zählt dich an.`)
       && angeNote.includes('_Er postet einen Screenshot von dir._')
-      && angeNote.includes(`🤝 **${klein.name}** · Draht ▱▱▱▱▱ **−10** (−10) · `
+      && angeNote.includes(`🤝 **${klein.name}** · Draht ▬▱▱▱▱ **−10** (−10) · `
         + 'Respekt −4 · Vertrauen −16')
       && !angeNote.includes('undefined') && !angeNote.includes('null'), angeNote);
   }
@@ -2281,17 +2495,78 @@ function view(buttons) {
     const ab = anfrage(BG, BU, 'tausch', OXMO.id, jetzt + 2 * TAG);
     const resAb = ang.ablehnen(BG, BU, ab.id, jetzt, nie);
     const abNote = absageNote(resAb, jetzt);
-    check('Meldung bei Absage: Draht −5 und die Zeile des Kontakts',
-      resAb.ok && abNote.includes(`🚪 Du hast abgesagt. Draht **−${Math.abs(adata.DRAHT_AB)}**.`)
+    /*
+     * Die Achsenzeile der Absage – die ZEHNTE Aufrufstelle von `beefDraht`.
+     *
+     * Sie war die einzige der zehn, die sich still abklemmen ließ: Die eine
+     * Zusicherung, die sie je gedeckt hat, hing am gelöschten `stufe`-Feld und
+     * ist mit ihm gefallen. Jetzt steht die gerenderte Zeile selbst da.
+     *
+     * Und die Zeile „Draht **−5**." ist WEG: Sie nannte die Konstante
+     * `DRAHT_AB` statt des Gebuchten (der Klemmfall gleich darunter).
+     */
+    check('Meldung bei Absage: die gerenderte Achsenzeile, und keine Konstante mehr',
+      resAb.ok
+      && abNote.startsWith('🚪 Du hast abgesagt.\n')
+      && abNote.includes(`🤝 **${OXMO.name}** · Draht ▬▱▱▱▱ **−5** (−5) · `
+        + `Respekt ${adata.ACHSEN_AB.respekt} · Vertrauen ${adata.ACHSEN_AB.vertrauen}`
+          .replace(/-/g, '−'))
+      && !abNote.includes('abgesagt. Draht')
       && abNote.includes(`_${resAb.text}_`), abNote);
+
+    /*
+     * Derselbe Weg AN DER KLEMME, und das ist der Beweis für Befund 4:
+     *
+     * Der Kontakt liegt auf −100/−100, die Absage will −2/−8 buchen, es bewegt
+     * sich nichts. Die alte Zeile behauptete trotzdem „Draht **−5**" – eine
+     * Zahl aus der Konstantentabelle über einer Buchung von ±0. Jetzt sagt die
+     * Meldung EINE Wahrheit, und die Zahl −5 kommt darin nicht mehr vor.
+     *
+     * Zugleich ein Fall mit NEGATIVEN Achsen und mit Stand ≠ Ausschlag
+     * (−100 gegen ±0), den die übrigen Absage-Fälle nicht liefern.
+     */
+    const [BG2, BU2] = await neu();
+    db.saveContact(BG2, BU2, OXMO.id, { respekt: -100, vertrauen: -100, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: jetzt, ignored_at: 0 });
+    const ab2 = anfrage(BG2, BU2, 'tausch', OXMO.id, jetzt + 2 * TAG);
+    const resAb2 = ang.ablehnen(BG2, BU2, ab2.id, jetzt, nie);
+    const abNote2 = absageNote(resAb2, jetzt);
+    /*
+     * Die Achsen-Wache in `beefDraht`: Die gelöschte lokale `achsenZeile` hatte
+     * `if (!d?.achsen || !d?.achsenVor) return null;` – ohne sie würfe
+     * `ui.achsenZeile` beim Lesen von `achsen.respekt` einen TypeError und riss
+     * die ganze Meldung ab. Produktiv trägt jedes Objekt aus `contacts.move`
+     * die Achsen, aber eine Attrappe oder ein künftiger Rückgabeweg darf die
+     * Meldung nicht sprengen: Die Zeile fällt weg, der Rest steht.
+     */
+    const ohneAchsen = absageNote({ ok: true, text: 'ohne Achsen',
+      draht: { nachher: 5, vorher: 0 } }, jetzt);
+    check('eine Bewegung ohne Achsen lässt die Zeile weg statt die Meldung abzureißen',
+      ohneAchsen === '🚪 Du hast abgesagt.\n_ohne Achsen_', ohneAchsen);
+
+    check('an der Klemme meldet die Absage ±0, nicht die Konstante −5',
+      resAb2.ok
+      && resAb2.draht.achsen.respekt === -100 && resAb2.draht.achsen.vertrauen === -100
+      && abNote2.includes(`🤝 **${OXMO.name}** · Draht ▬▬▬▬▬ **−100** (±0) · `
+        + 'Respekt ±0 · Vertrauen ±0')
+      && !abNote2.includes('−5') && !abNote2.includes('-5'), abNote2);
 
     // --- Meldung: verfallen -------------------------------------------------
     const [CG, CU] = await neu();
     anfrage(CG, CU, 'gastpart', OXMO.id, jetzt - 1000);
     const verfall = angebotNote(ang.settle(CG, CU, jetzt, nie));
-    check('Meldung bei Verfall: Name und Draht −8',
-      verfall.includes(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen. `
-        + `Draht **−${Math.abs(adata.DRAHT_VERFALL)}**.`), verfall);
+    /*
+     * Auch der Verfall rendert jetzt die Buchung statt `DRAHT_VERFALL`. Das
+     * Ereignis trug das volle `draht`-Objekt schon, und der Renderer warf es
+     * weg – es war die letzte Stelle der Familie, an der der Spieler eine
+     * Draht-Zahl aus der alten Welt sah und die zwei Achsen nie.
+     */
+    check('Meldung bei Verfall: Name und die gerenderte Achsenzeile statt der Konstante',
+      verfall.startsWith(`⌛ Die Anfrage von **${OXMO.name}** ist verstrichen.\n`)
+      && verfall.includes(`🤝 **${OXMO.name}** · Draht ▬▱▱▱▱ **−8** (−8) · `
+        + `Respekt ${adata.ACHSEN_VERFALL.respekt} · Vertrauen ${adata.ACHSEN_VERFALL.vertrauen}`
+          .replace(/-/g, '−'))
+      && !verfall.includes('verstrichen. Draht'), verfall);
 
     /*
      * 6a, Review-Befund 2: Das verrottete Projekt kostet Vertrauen −20 – und der
@@ -2612,7 +2887,7 @@ function view(buttons) {
       && tNote.includes(`🛡️ Boden **${adata.BODEN_AN + adata.BODEN_FERTIG}** `
         + `(+${adata.BODEN_FERTIG})`)
       // Und die zweite Zeile gehört dem anderen Kontakt, nicht demselben.
-      && tNote.includes(`🤝 **${RAMM.name}** · Draht ▱▱▱▱▱ **−10** (−10) · `
+      && tNote.includes(`🤝 **${RAMM.name}** · Draht ▬▱▱▱▱ **−10** (−10) · `
         + 'Respekt −6 · Vertrauen −14')
       && !tNote.includes('Vertrauen **+'),
       tNote);
@@ -2675,7 +2950,7 @@ function view(buttons) {
      * würde sich rühren.
      */
     check('der Gegenschlag in der Tour-Meldung bucht sichtbar und ohne Leerzeile',
-      kNoteTour.includes('🤝 Draht ▱▱▱▱▱ **−10** (−10) · Respekt −6 · Vertrauen −14')
+      kNoteTour.includes('🤝 Draht ▬▱▱▱▱ **−10** (−10) · Respekt −6 · Vertrauen −14')
       && !kNoteTour.split('\n').some((z) => z.trim() === '')
       && !kNoteTour.includes('null') && !kNoteTour.includes('undefined'), kNoteTour);
 
