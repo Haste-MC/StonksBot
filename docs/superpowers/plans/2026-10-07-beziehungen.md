@@ -22,6 +22,7 @@
 - **Eine Partner-Regel:** `respekt >= 50 && vertrauen >= 50`, gültig für ⭐, Antwortchance, Türöffner und `beef.js`. Kein zweiter Weg.
 - **Alle Zahlenkonstanten stehen in `src/data/*.js`**, nie im Rechencode. Beef-Werte in `data/beef.js`, Angebots-Werte in `data/angebote.js`, alles übrige in `data/contacts.js`.
 - **Sprache:** Benutzertexte deutsch, geschlechtsneutral, wo die Person unbekannt ist. Dezimaltrennzeichen Komma in jedem Text, den ein Spieler liest.
+- **`test/fluxer-render.test.js` gehört in die Pflicht-Testliste jeder Aufgabe, die `contacts.detail` oder `contacts.listFor` anfasst** — Task 4, 5 und 6 tun das alle drei. Empirisch belegt: Ein `TypeError` auf dem `detail`-Pfad ist für `beziehungen`, `contacts`, `beef`, `angebote` und `db` **unsichtbar**; nur `fluxer-render` stürzt, weil nur es `buildKontaktView` rendert. Genau dort ist in Task 3 ein Fixer hineingelaufen.
 - **Zeilennummern in diesem Plan sind Wegweiser, keine Adressen.** Sie stammen vom Tag, an dem der Plan geschrieben wurde, und verschieben sich mit jeder vorangehenden Aufgabe — Task 2 hat allein in `src/contacts.js` 26 Zeilen eingefügt. **Verbindlich ist immer der Name** der Funktion, der Konstante oder des Textbausteins; such ihn mit `grep -n`, statt einer Nummer zu folgen. Steht an der genannten Nummer etwas anderes als beschrieben, ist die Nummer veraltet und nicht der Code falsch.
 
 ## Dateien
@@ -913,7 +914,7 @@ Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`,
       meine: k.meine, seine: k.seine, trait: contact.trait, beefOffen: false }),
 ```
 
-`module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis Task 5 exportiert, `drahtJetzt` dauerhaft.
+`module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis **Task 6** exportiert — dort fallen die sechs Teststellen und die Funktion selbst. `drahtJetzt` bleibt dauerhaft.
 
 - [ ] **Step 6: `istPartner` und `artOf` — die alte Fassung verschwindet in derselben Änderung**
 

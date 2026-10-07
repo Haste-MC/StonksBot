@@ -542,13 +542,21 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
   };
 }
 
-/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Spaltet
- *  `delta` gleichmäßig auf beide Achsen. Der Draht bewegt sich nur dann um
- *  genau `delta`, wenn BEIDE Achsen gleich stehen und KEINE klemmt – das ist
- *  die Voraussetzung des Paritätstests. Bei ungleichen Achsen (und die
- *  schreibt `request` mit ACHSEN.echt jetzt) weicht er ab: Respekt 100 /
- *  Vertrauen 40 (Draht 70) plus 12 ergibt 76 statt 82, weil der Respekt an der
- *  Klemme hängt. Harmlos, weil moveDraht in Task 5 verschwindet. */
+/**
+ * Alt-Einstieg, bis die sechs Teststellen umgestellt sind (Stück 6a, Task 6).
+ * Spaltet `delta` gleichmäßig auf beide Achsen.
+ *
+ * Der Draht bewegt sich dabei um genau `delta`, solange **keine Achse klemmt**.
+ * Die Achsen müssen dafür NICHT gleich stehen – `round((R+V)/2 + δ)` ist
+ * `round((R+V)/2) + δ` für jedes ganzzahlige δ. Nachgerechnet über alle
+ * 201 × 201 Achsenpaare × δ ∈ [−30, 30]: 2.057.980 Fälle mit ungleichen Achsen
+ * und ohne Klemme, **null** Abweichungen.
+ *
+ * An der Klemme bricht es, und seit `request` ungleiche Achsen schreibt
+ * (`ACHSEN.echt` ist 9/3) kommt der Fall im Spiel vor: Respekt 100 /
+ * Vertrauen 40 (Draht 70) plus 12 ergibt `drahtVon(100, 52) = 76` statt 82,
+ * weil der Respekt oben anliegt.
+ */
 function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
   const erg = move(guildId, userId, contactId,
     { respekt: delta, vertrauen: delta }, now, opts);
