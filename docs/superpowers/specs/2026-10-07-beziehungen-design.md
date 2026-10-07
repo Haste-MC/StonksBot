@@ -212,6 +212,24 @@ Vertrauensverlust im Spiel.
 
 Der gelandete Disstrack ist der Fall, der die Spaltung rechtfertigt: Er nimmt
 dich **ernster** als vorher und lässt sich auf kein mehrtägiges Format mehr ein.
+
+**Gemessen, und es korrigiert eine Behauptung dieser Spec:** Ein einzelner
+Schlagwechsel macht aus einem Fremden **keinen** Rivalen. Anstacheln (0),
+ein Diss (+10) und ein Konter (−6) ergeben netto **+4** Respekt — bei
+Vertrauen −74 ist das Draht −35 und damit die Art `verstimmt`, nicht `rivale`
+(der verlangt Respekt ≥ 30). Der Rivale entsteht auf genau zwei Wegen:
+
+| Weg | |
+|---|---|
+| **Du hattest schon Standing.** Respekt ≥ 26 vor dem Beef — drei echte Antworten (je +9) reichen. | der Regelfall |
+| **Ein langer Krieg.** Fünf gelandete Disse gegen zwei Konter: Respekt 38. | selten |
+
+Das ist **besser als das, was hier ursprünglich stand**, und bleibt so: Ein
+Niemand, der einen Weltstar einmal anpiekst und einen Konter kassiert, ist
+dessen Rivale nicht — er ist jemand, über den der Star sich geärgert hat. Wer
+ein Rivale werden will, muss vorher etwas bedeuten. Die Messung (§8.3) berichtet,
+wie oft `rivale` im Messjahr tatsächlich vorkommt, damit die Art nicht
+stillschweigend Dekoration bleibt.
 Anstacheln bringt keinen Respekt — eine Provokation ist noch kein Treffer. Sich
 zu blamieren kostet Respekt, nicht Vertrauen.
 
@@ -528,6 +546,13 @@ Alle Tests ohne Netz (§12), gesäte Würfel.
 | nur Musiker | leicht hoch (Weltstars erreichbarer) |
 | nur Creator | ± wenige Prozent |
 | Partner-Anteil der Kontakte | **runter** (die Verschärfung aus §6.1) |
+| Verteilung der zehn Arten | jede muss vorkommen |
+
+**Zusätzlich zu zählen:** Wie oft jede der zehn Beziehungsarten im Messjahr
+auftritt. Eine Art mit **null** Vorkommen ist Dekoration, und zwei stehen unter
+Verdacht: `rivale` (braucht Respekt ≥ 30, also vorheriges Standing oder einen
+langen Krieg) und `schuetzling` (braucht, dass der Spieler zehnmal größer ist als
+der Kontakt).
 
 **Auslöser:** Steigt die Jahressumme eines Archetyps um mehr als **25 %** über
 `main`, wird `RESPEKT_W_SPAN` gesenkt, bis es darunter liegt — und die Messung
