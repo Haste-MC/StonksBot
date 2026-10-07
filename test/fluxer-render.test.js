@@ -1107,7 +1107,7 @@ function view(buttons) {
     check('Seite 99 landet auf der letzten Seite',
       seite99.components[0].toJSON().components.length > 0);
 
-    // Kontaktansicht: die Konzert-Anfrage braucht Draht 20 und ist gesperrt.
+    // Kontaktansicht: die Konzert-Anfrage braucht Vertrauen 20 (6a, vorher Draht 20) und ist gesperrt.
     const klein = cdata.CONTACTS.find((c) => c.id === 'lilpfand');
     const kontakt = await ui.buildKontaktView({ guildId: KG, userId: KU, contactId: klein.id });
     const kEmbed = kontakt.embeds[0].toJSON();
@@ -1123,10 +1123,11 @@ function view(buttons) {
     check('vier Anfrage-Knöpfe mit Prozent im Namen',
       kRow.length === 5 && kRow.slice(0, 4).every((b) => / \d+ %$/.test(b.label)),
       kRow.map((b) => b.label).join(' | '));
-    check('das Konzert ist ohne Draht 20 gesperrt',
+    check('das Konzert ist ohne Vertrauen 20 gesperrt',
       kRow[3].custom_id === `kanfrage|${klein.id}-konzert|${KU}` && kRow[3].disabled === true,
       JSON.stringify(kRow[3]));
-    check('Grund steht auch im Text', kEmbed.fields[0].value.includes('Draht 20 nötig'),
+    check('Grund steht auch im Text – und die Chance wird nicht beworben',
+      kEmbed.fields[0].value.includes('Gemeinsam auf die Bühne** · ⏱️ 2 h · 🔒 Vertrauen 20 nötig'),
       kEmbed.fields[0].value);
     check('Zurück und Hauptmenü', kontakt.components[1].toJSON().components
       .map((b) => b.custom_id).join(' ') === `kontakte|alle|1|${KU} home|${KU}`);
@@ -1188,9 +1189,9 @@ function view(buttons) {
     check('gesperrt: „Melde dich in … wieder."',
       kontaktNote(contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1)), jetzt)
         === '⏳ Melde dich in 3 Tagen wieder.');
-    check('zu wenig Draht nennt die nötige Zahl',
+    check('zu wenig Vertrauen nennt die nötige Zahl (und nicht „Das ging nicht")',
       kontaktNote(contacts.request(KG, KU, 'ninachuba', 'konzert', jetzt, wuerfel(0.1)), jetzt)
-        === '🤝 Dafür kennt ihr euch noch nicht gut genug (Draht 20 nötig).');
+        === '🤝 Dafür verlässt er sich noch nicht genug auf dich (Vertrauen 20 nötig).');
     check('unbekannter Kontakt wird abgewiesen statt verwechselt',
       kontaktNote(contacts.request(KG, KU, 'gibtsnichtmehr', 'shoutout', jetzt, wuerfel(0.1)), jetzt)
         .includes('gibt es nicht'));

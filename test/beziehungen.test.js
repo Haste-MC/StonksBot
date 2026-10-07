@@ -857,6 +857,91 @@ const aufraeumen = () => {
   }
 
 
+  console.log('--- Angebote: Tore und Achsen ---');
+  {
+    const adata = require('../src/data/angebote');
+    const cdata = require('../src/data/contacts');
+
+    check('jede Angebotsart trägt genau EIN Tor',
+      adata.ARTEN.every((a) =>
+        (a.minDraht == null) !== (a.minVertrauen == null)),
+      JSON.stringify(adata.ARTEN.map((a) => [a.id, a.minDraht, a.minVertrauen])));
+    check('die drei großen Formate hängen am Vertrauen',
+      ['kollabo', 'tour', 'label'].every((id) =>
+        adata.ARTEN.find((a) => a.id === id).minVertrauen === 50));
+    check('die drei kleinen hängen am Draht',
+      ['tausch', 'gastpart', 'vorgruppe'].every((id) =>
+        adata.ARTEN.find((a) => a.id === id).minDraht === 20));
+    check('jede Anfrageart trägt höchstens EIN Tor',
+      cdata.REQUESTS.every((r) => !(r.minDraht != null && r.minVertrauen != null)));
+    check('die gemeinsame Bühne hängt am Vertrauen',
+      cdata.REQUESTS.find((r) => r.id === 'konzert').minVertrauen === 20
+      && cdata.REQUESTS.find((r) => r.id === 'konzert').minDraht === null);
+
+    // Die Mittelwerte: drei wie früher, zwei neu.
+    const mittel = (p) => (p.respekt + p.vertrauen) / 2;
+    check('ACHSEN_AN mittelt auf die alten +8', mittel(adata.ACHSEN_AN) === 8);
+    check('ACHSEN_AB mittelt auf die alten −5', mittel(adata.ACHSEN_AB) === -5);
+    check('ACHSEN_VERFALL mittelt auf die alten −8', mittel(adata.ACHSEN_VERFALL) === -8);
+    check('ACHSEN_FERTIG ist neu und positiv', mittel(adata.ACHSEN_FERTIG) === 12);
+    check('ACHSEN_PFUSCH ist neu und der härteste Verlust',
+      adata.ACHSEN_PFUSCH.vertrauen < adata.ACHSEN_VERFALL.vertrauen
+      && adata.ACHSEN_PFUSCH.vertrauen === -20);
+    check('Verfallen kostet mehr Vertrauen als Absagen',
+      adata.ACHSEN_VERFALL.vertrauen < adata.ACHSEN_AB.vertrauen);
+    check('Absagen kostet kaum Respekt',
+      Math.abs(adata.ACHSEN_AB.respekt) < Math.abs(adata.ACHSEN_AB.vertrauen));
+    check('nur Durchgezogenes hebt den Boden',
+      adata.BODEN_FERTIG === 10 && adata.BODEN_AN === 3);
+
+    // Der Mittelwert ist blind für vertauschte Achsen – darum die Achsen einzeln.
+    check('die Paare stehen Achse für Achse fest (nicht nur im Mittel)',
+      JSON.stringify(adata.ACHSEN_AN) === '{"respekt":4,"vertrauen":12}'
+      && JSON.stringify(adata.ACHSEN_AB) === '{"respekt":-2,"vertrauen":-8}'
+      && JSON.stringify(adata.ACHSEN_VERFALL) === '{"respekt":-4,"vertrauen":-12}'
+      && JSON.stringify(adata.ACHSEN_FERTIG) === '{"respekt":6,"vertrauen":18}'
+      && JSON.stringify(adata.ACHSEN_PFUSCH) === '{"respekt":-6,"vertrauen":-20}');
+    check('die alten Draht-Deltas sind abgeleitet und stehen noch da (Spielermeldungen lesen sie)',
+      adata.DRAHT_AN === 8 && adata.DRAHT_AB === -5 && adata.DRAHT_VERFALL === -8);
+
+    // Das Vertrauens-Tor der Anfrage `konzert`: bei 19 zu, bei 20 offen – und
+    // zwar auf dem VERTRAUEN, nicht auf dem Draht. Respekt 100 / Vertrauen 19
+    // ist Draht 60, und trotzdem bleibt die Tür zu.
+    const contacts = require('../src/contacts');
+    const creator = require('../src/creator');
+    const T = 1_700_000_000_000;
+    const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+    const setze = (vertrauen) => db.saveContact(G, U6, 'lilpfand', { respekt: 100, vertrauen,
+      boden: 0, tries: 0, yes: 0, last_try: 0, last_move: T, ignored_at: 0 });
+
+    setze(19);
+    const links = creator.budget(G, U6, T).left;
+    const zu = await contacts.request(G, U6, 'lilpfand', 'konzert', T, folge(0.001, 0.999, 0.5));
+    check('konzert bei Vertrauen 19 (Draht 60) wird mit „vertrauen" abgewiesen',
+      zu.ok === false && zu.reason === 'vertrauen' && zu.need === 20 && zu.vertrauen === 19,
+      JSON.stringify({ ok: zu.ok, reason: zu.reason, need: zu.need, v: zu.vertrauen }));
+    check('die Abweisung bucht weder Zeit noch Versuch noch Draht',
+      creator.budget(G, U6, T).left === links
+      && db.getContact(G, U6, 'lilpfand').tries === 0
+      && db.getContact(G, U6, 'lilpfand').vertrauen === 19);
+    const dZu = contacts.detail(G, U6, 'lilpfand', T).requests.find((r) => r.id === 'konzert');
+    check('detail meldet für konzert bei 19: gesperrt, Grund „vertrauen"',
+      dZu.moeglich === false && dZu.grund === 'vertrauen', JSON.stringify(dZu.grund));
+    check('die drei anderen Anfragen sind bei 19 unberührt offen',
+      contacts.detail(G, U6, 'lilpfand', T).requests
+        .filter((r) => r.id !== 'konzert').every((r) => r.grund === null));
+
+    setze(20);
+    const dOffen = contacts.detail(G, U6, 'lilpfand', T).requests.find((r) => r.id === 'konzert');
+    check('detail meldet für konzert bei 20: möglich', dOffen.moeglich === true && dOffen.grund === null,
+      JSON.stringify(dOffen.grund));
+    const auf = await contacts.request(G, U6, 'lilpfand', 'konzert', T, folge(0.001, 0.999, 0.5));
+    check('konzert bei Vertrauen 20 geht durch', auf.ok === true,
+      JSON.stringify({ ok: auf.ok, reason: auf.reason }));
+  }
+
+
+
   aufraeumen();
 
   console.log(`\n${pass} bestanden, ${fail} fehlgeschlagen`);

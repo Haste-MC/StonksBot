@@ -73,12 +73,56 @@ const PAUSE_SCHWELLE = 3;
  */
 const ROLL_TAGE_MAX = 7;
 
-// --- Draht -----------------------------------------------------------------
+// --- Achsen ----------------------------------------------------------------
 
-/** Was eine Anfrage am Draht macht – Liegenlassen ist schlimmer als Absagen. */
-const DRAHT_AN = 8;
-const DRAHT_AB = -5;
-const DRAHT_VERFALL = -8;
+/**
+ * Was eine Gegenanfrage an den zwei Achsen macht. Die ersten drei Mittelwerte
+ * sind identisch zu den alten Draht-Deltas (+8 / −5 / −8); eine angenommene
+ * Anfrage bringt vor allem VERTRAUEN, eine saubere Absage kostet kaum Respekt.
+ */
+const ACHSEN_AN = { respekt: 4, vertrauen: 12 };        // Mittel  +8
+const ACHSEN_AB = { respekt: -2, vertrauen: -8 };       // Mittel  −5
+const ACHSEN_VERFALL = { respekt: -4, vertrauen: -12 }; // Mittel  −8
+
+/**
+ * Die zwei NEUEN Bewegungen – vorher bewegte ein abgeschlossenes Album zu
+ * zweit null Punkte Draht, und ein verrottetes Projekt ebenfalls null. Das
+ * Durchziehen und das Vermasseln waren für die Beziehung unsichtbar.
+ *
+ * Ein bezahltes Album verrotten zu lassen ist der härteste Vertrauensverlust
+ * im Spiel – härter als eine verfallene Anfrage, weil die Stunden schon
+ * investiert waren.
+ */
+const ACHSEN_FERTIG = { respekt: 6, vertrauen: 18 };    // Mittel +12 (vorher 0)
+const ACHSEN_PFUSCH = { respekt: -6, vertrauen: -20 };  // Mittel −13 (vorher 0)
+
+/**
+ * Was den Vertrauens-Boden hebt – NUR Durchgezogenes.
+ *
+ * `tausch`, `gastpart`, `vorgruppe` und `label` sind mit der Annahme erledigt
+ * und buchen BODEN_AN sofort. `kollabo` und `tour` erzeugen ein Projekt und
+ * buchen erst beim Abschluss, dann über BODEN_FERTIG – nicht beides.
+ */
+const BODEN_AN = 3;
+const BODEN_FERTIG = 10;
+
+/**
+ * Die alten Draht-Deltas, jetzt abgeleitet statt doppelt gepflegt.
+ *
+ * Fünf Stellen lesen sie weiter, und zwei davon sind Spielermeldungen:
+ * `buttons.js` („Draht −8"), `angeboteUi.js` („Absagen kostet 5 Draht,
+ * Liegenlassen 8"), dazu sieben Zusicherungen in test/angebote.test.js und drei
+ * in test/fluxer-render.test.js. Gelöscht stünde in den Meldungen `NaN`.
+ *
+ * Die Ableitung ist dabei mehr als Bequemlichkeit: Sie erzwingt im CODE, was
+ * sonst nur ein Test behauptet – dass der Mittelwert jedes Paares das alte
+ * Draht-Delta ist. Wer ein Paar so ändert, dass der Mittelwert wandert, sieht
+ * es sofort in der Spielermeldung.
+ */
+const mittel = (paar) => (paar.respekt + paar.vertrauen) / 2;
+const DRAHT_AN = mittel(ACHSEN_AN);            // +8
+const DRAHT_AB = mittel(ACHSEN_AB);            // −5
+const DRAHT_VERFALL = mittel(ACHSEN_VERFALL);  // −8
 
 // --- Gewichtung beim Ziehen ------------------------------------------------
 
@@ -121,8 +165,10 @@ const ARBEIT_STUNDEN = 2;
 
 /**
  * Dieselbe Form wie REQUESTS in 5a und BEEF_AKTIONEN in 5b (`id`, `name`,
- * `emoji`, `time`), dazu `minDraht`: `kollabo`, `tour` und `label` kommen
- * ausschließlich von Partnern (Draht ≥ 50).
+ * `emoji`, `time`), dazu GENAU EIN Tor: die drei kleinen Formate hängen am
+ * Draht (`minDraht`), `kollabo`, `tour` und `label` am Vertrauen
+ * (`minVertrauen`) – wer sich auf mehrere Tage einlässt, muss sich auf dich
+ * verlassen können.
  *
  * `time: 0` bei `kollabo` und `tour`: Die Annahme selbst kostet nichts, das
  * Projekt kostet danach seine Stunden.
@@ -132,12 +178,12 @@ const ARBEIT_STUNDEN = 2;
  * haben (siehe Banner oben).
  */
 const ARTEN = [
-  { id: 'tausch', name: 'Gegenseitige Erwähnung', emoji: '🔁', time: 2, minDraht: 20 },
-  { id: 'gastpart', name: 'Gastpart auf der neuen Platte', emoji: '🎙️', time: 2, minDraht: 20 },
-  { id: 'vorgruppe', name: 'Vorgruppe beim nächsten Konzert', emoji: '🎪', time: 4, minDraht: 20 },
-  { id: 'kollabo', name: 'Gemeinsames Album', emoji: '💿', time: 0, minDraht: 50 },
-  { id: 'tour', name: 'Tour zu zweit', emoji: '🎵', time: 0, minDraht: 50 },
-  { id: 'label', name: 'Einführung beim Label', emoji: '📝', time: 2, minDraht: 50 },
+  { id: 'tausch', name: 'Gegenseitige Erwähnung', emoji: '🔁', time: 2, minDraht: 20, minVertrauen: null },
+  { id: 'gastpart', name: 'Gastpart auf der neuen Platte', emoji: '🎙️', time: 2, minDraht: 20, minVertrauen: null },
+  { id: 'vorgruppe', name: 'Vorgruppe beim nächsten Konzert', emoji: '🎪', time: 4, minDraht: 20, minVertrauen: null },
+  { id: 'kollabo', name: 'Gemeinsames Album', emoji: '💿', time: 0, minDraht: null, minVertrauen: 50 },
+  { id: 'tour', name: 'Tour zu zweit', emoji: '🎵', time: 0, minDraht: null, minVertrauen: 50 },
+  { id: 'label', name: 'Einführung beim Label', emoji: '📝', time: 2, minDraht: null, minVertrauen: 50 },
 ];
 
 // --- Texte -----------------------------------------------------------------
@@ -239,6 +285,8 @@ const LINES = {
 module.exports = {
   ANFRAGE_CHANCE, ANFRAGEN_MAX, FRIST_TAGE, PAUSE_TAGE, PAUSE_SCHWELLE, ROLL_TAGE_MAX,
   DRAHT_AN, DRAHT_AB, DRAHT_VERFALL,
+  ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH,
+  BODEN_AN, BODEN_FERTIG,
   GEWICHT_BEKANNT, GEWICHT_PARTNER,
   HONORAR_K, HONORAR_EXP, HONORAR_DECKEL_TAGE,
   VORGRUPPE_ANTEIL,

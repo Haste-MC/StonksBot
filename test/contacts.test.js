@@ -63,7 +63,9 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('Doppelrollen haben beide Seiten', data.CONTACTS.filter((c) => c.kind === 'beides')
       .every((c) => c.genre && c.reach > 0 && c.platform && c.reachCreator > 0));
     check('vier Anfragearten mit 2 h', data.REQUESTS.length === 4 && data.REQUESTS.every((r) => r.time === 2));
-    check('Konzert braucht Draht 20', data.REQUESTS.find((r) => r.id === 'konzert').minDraht === 20);
+    check('Konzert braucht Vertrauen 20 (kein Draht-Tor mehr)',
+      data.REQUESTS.find((r) => r.id === 'konzert').minVertrauen === 20
+      && data.REQUESTS.find((r) => r.id === 'konzert').minDraht === null);
     check('Texte für jeden Charakter und jede Stufe', Object.keys(data.TRAIT_BONUS).every((t) =>
       ['fluechtig', 'echt', 'zusage', 'nein'].every((s) => Array.isArray(data.LINES[t]?.[s]) && data.LINES[t][s].length >= 3)));
   }

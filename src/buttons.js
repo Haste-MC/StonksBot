@@ -624,6 +624,9 @@ function kontaktNote(res, now = Date.now()) {
     if (res.reason === 'draht') {
       return `🤝 Dafür kennt ihr euch noch nicht gut genug (Draht ${res.need} nötig).`;
     }
+    if (res.reason === 'vertrauen') {
+      return `🤝 Dafür verlässt er sich noch nicht genug auf dich (Vertrauen ${res.need} nötig).`;
+    }
     if (res.reason === 'seite') return '❌ Dafür fehlt dir die passende Karriere.';
     if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
     // `no_time` heißt nicht erschöpft, sondern: der Tag ist voll. Genau so

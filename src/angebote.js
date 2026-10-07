@@ -110,7 +110,7 @@ function textFor(trait, lage, name, random = Math.random) {
  *     Fehlt das, verschluckt ein abgewiesener Klick eine verfallene Anfrage
  *     samt Draht-Verlust; genau dieser Fehler ist in 5b zweimal passiert.
  *   • Der Draht wird hier nie selbst geschrieben, das macht ausschließlich
- *     `contacts.moveDraht` – eine Stelle, ein Abklingen, eine Sperre.
+ *     `contacts.move` – eine Stelle, ein Abklingen, eine Sperre.
  */
 
 const db = require('./db');
@@ -119,6 +119,16 @@ const DAY_MS = 86_400_000;
 
 /** Die Art hinter einer Id – null, wenn der Katalog sie nicht (mehr) kennt. */
 function artOf(id) { return data.ARTEN.find((a) => a.id === String(id ?? '')) ?? null; }
+
+/**
+ * Die Drahtbewegung samt Stufe. `contacts.move` meldet nur vorher/nachher und
+ * die Achsen; `buttons.beefDraht` liest aber `stufe` (aus dem alten
+ * `moveDraht`) – ohne das Feld stünde in der Annahme- und Absagemeldung still
+ * „undefined" statt des Stufennamens, und kein Test prüft diese Zeichenkette.
+ */
+function mitStufe(contacts, erg) {
+  return { ...erg, stufe: contacts.drahtStufe(erg.nachher) };
+}
 
 /**
  * Wer ich auf der MUSIKSEITE bin – Sprache und Genre, für die Passung.
@@ -205,14 +215,17 @@ function offeneProjekte(guildId, userId, now = Date.now()) {
  * Wie `offeneProjekte` liest das den Tabellenstand: Eine Anfrage, deren Frist
  * durch ist, sperrt nicht mehr – `settle` räumt sie eine Zeile vorher weg.
  */
-function artenFuer(guildId, userId, draht, now) {
+function artenFuer(guildId, userId, achsen, now) {
   const projektOffen = db.projekteOf(guildId, userId).some((p) => p.status === 'offen');
   const grossOffen = db.angeboteOf(guildId, userId).some((r) => r.status === 'offen'
     && r.frist > now && (r.art === 'kollabo' || r.art === 'tour'));
   const vertrag = Boolean(db.activeContract(guildId, userId))
     || Boolean(db.openContract(guildId, userId, now));
   return data.ARTEN.filter((a) => {
-    if (draht < a.minDraht) return false;
+    // Die kleinen Formate hängen am Draht, die drei großen am Vertrauen:
+    // Wer sich auf mehrere Tage einlässt, muss sich auf dich verlassen.
+    if (a.minDraht != null && achsen.draht < a.minDraht) return false;
+    if (a.minVertrauen != null && achsen.vertrauen < a.minVertrauen) return false;
     if (a.id === 'label') return !vertrag;
     if (a.id === 'kollabo' || a.id === 'tour') return !projektOffen && !grossOffen;
     return true;
@@ -234,11 +247,13 @@ function zustellen(guildId, userId, meine, now, random) {
   for (const c of katalog.CONTACTS) {
     if (!c.reach) continue;                 // ohne Musik-Reichweite kein Angebot
     const row = zeilen.find((z) => z.contact_id === c.id) ?? null;
-    const draht = contacts.drahtJetzt(row, now);
-    const g = gewichtOf({ draht, passung: passungFor(meine, c) });
+    const achsen = contacts.achsenJetzt(row, now);
+    // Das Gewicht bleibt am Draht – ob er sich überhaupt meldet, ist die
+    // Gesamtwärme; erst die Art fragt nach dem Vertrauen.
+    const g = gewichtOf({ draht: achsen.draht, passung: passungFor(meine, c) });
     if (g <= 0) continue;
     summe += g;
-    kandidaten.push({ c, g, draht });
+    kandidaten.push({ c, g, achsen });
   }
   if (!kandidaten.length || summe <= 0) return null;
 
@@ -248,7 +263,7 @@ function zustellen(guildId, userId, meine, now, random) {
 
   // Die Art gleichverteilt aus den erlaubten. Bleibt keine übrig, passiert bei
   // diesem Wurf nichts – der Kontakt hat dann gerade nichts anzubieten.
-  const erlaubt = artenFuer(guildId, userId, treffer.draht, now);
+  const erlaubt = artenFuer(guildId, userId, treffer.achsen, now);
   if (!erlaubt.length) return null;
   const art = erlaubt[Math.min(erlaubt.length - 1, Math.floor(random() * erlaubt.length))];
 
@@ -288,7 +303,10 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
     if (row.status !== 'offen' || row.frist > now) continue;
     const neu = db.saveAngebot(guildId, row.id, { status: 'verfallen' });
     const contact = katalog.byId(row.contact_id);
-    const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_VERFALL, now);
+    const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+      ...data.ACHSEN_VERFALL,
+      merken: { art: 'angebot_verfallen', detail: artOf(row.art)?.name ?? row.art },
+    }, now));
     abgelehntFolge += 1;
     ereignisse.push({
       art: 'verfallen', contact,
@@ -303,8 +321,14 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
     if (row.status !== 'offen' || row.frist > now) continue;
     const neu = db.saveProjekt(guildId, row.id, { status: 'verfallen' });
     const contact = katalog.byId(row.contact_id);
+    // NEU in 6a: Ein bezahltes Projekt verrotten zu lassen kostet Vertrauen.
+    // Vorher war der härteste Fehlgriff des Systems am Draht unsichtbar.
+    const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+      ...data.ACHSEN_PFUSCH,
+      merken: { art: 'projekt_verfallen', detail: artOf(row.art)?.name ?? row.art },
+    }, now));
     ereignisse.push({
-      art: 'projekt_verfallen', contact,
+      art: 'projekt_verfallen', contact, draht,
       projekt: { ...neu, artInfo: artOf(row.art), contact },
     });
   }
@@ -607,7 +631,13 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
 
   // 8. Jetzt ist es verbindlich: Status, Draht, Zähler.
   const angebot = db.saveAngebot(guildId, id, { status: 'an' });
-  const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_AN, now);
+  const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+    ...data.ACHSEN_AN,
+    // kollabo und tour sind mit der Annahme NICHT erledigt – ihr Boden kommt
+    // beim Abschluss über BODEN_FERTIG. Sonst zählte dasselbe zweimal.
+    boden: projekt ? 0 : data.BODEN_AN,
+    merken: { art: 'angebot_an', detail: art.name },
+  }, now));
   const uhr = db.angebotUhr(guildId, userId);
   db.saveAngebotUhr(guildId, userId, { ...uhr, abgelehnt_folge: 0 });
 
@@ -642,7 +672,7 @@ function ablehnen(guildId, userId, id, now = Date.now(), random = Math.random) {
   const { row, art, contact } = p;
 
   const angebot = db.saveAngebot(guildId, id, { status: 'ab' });
-  const draht = contacts.moveDraht(guildId, userId, row.contact_id, data.DRAHT_AB, now);
+  const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, data.ACHSEN_AB, now));
   const uhr = db.angebotUhr(guildId, userId);
   db.saveAngebotUhr(guildId, userId, { ...uhr, abgelehnt_folge: uhr.abgelehnt_folge + 1 });
 
@@ -684,6 +714,7 @@ function ablehnen(guildId, userId, id, now = Date.now(), random = Math.random) {
  */
 async function abschliessen(guildId, userId, p, now, random) {
   const music = require('./music');
+  const contacts = require('./contacts');
   const contact = require('./data/contacts').byId(p.contact_id);
   // Dieselbe Lage wie bei der Annahme. Fehlt sie – der Kontakt ist aus dem
   // Katalog verschwunden, die Musikkarriere gelöscht –, wird nichts
@@ -691,8 +722,18 @@ async function abschliessen(guildId, userId, p, now, random) {
   const lage = contact ? require('./beef').musikLage(guildId, userId, contact, now) : null;
   if (!lage) return { ok: false, reason: 'seite', contact };
 
-  const fertig = () => db.saveProjekt(guildId, p.id,
-    { status: 'fertig', stundenIst: p.stunden_soll });
+  const fertig = () => {
+    const projekt = db.saveProjekt(guildId, p.id,
+      { status: 'fertig', stundenIst: p.stunden_soll });
+    // NEU in 6a: Das Durchziehen zählt. Der Boden hält das Vertrauen danach
+    // dauerhaft – ein Album zu zweit ist nach einem halben Jahr Funkstille
+    // nicht nichts.
+    contacts.move(guildId, userId, p.contact_id, {
+      ...data.ACHSEN_FERTIG, boden: data.BODEN_FERTIG,
+      merken: { art: 'projekt_fertig', detail: artOf(p.art)?.name ?? p.art },
+    }, now);
+    return projekt;
+  };
 
   if (p.art === 'kollabo') {
     // Sein Publikum kommt hier über den EINEN Hebel, den `publish` dafür hat:

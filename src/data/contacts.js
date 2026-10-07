@@ -209,16 +209,20 @@ const MEMORY_TEXTE = {
 
 // --- Anfragearten ----------------------------------------------------------
 
+/** Eine gemeinsame Bühne ist eine Verpflichtung – sie hängt am Vertrauen. */
+const KONZERT_VERTRAUEN = 20;
+
 /**
  * Vier Dinge, um die man bitten kann. `schwierigkeit` ist der Aufschlag auf
  * die Antwortchance – eine Reaktion kostet niemanden etwas, eine gemeinsame
- * Bühne schon. `minDraht` verlangt eine bestehende Beziehung.
+ * Bühne schon. `minDraht` verlangt eine bestehende Beziehung, `minVertrauen`
+ * dass er sich auf dich verlässt – höchstens EINES der beiden Tore je Art.
  */
 const REQUESTS = [
-  { id: 'reaktion', name: 'Auf deinen Post reagieren', emoji: '💬', time: KONTAKT_TIME, schwierigkeit: 0.15, minDraht: null },
-  { id: 'shoutout', name: 'Dich erwähnen', emoji: '📣', time: KONTAKT_TIME, schwierigkeit: 0, minDraht: null },
-  { id: 'feature', name: 'Gemeinsame Sache', emoji: '🎤', time: KONTAKT_TIME, schwierigkeit: -0.10, minDraht: null },
-  { id: 'konzert', name: 'Gemeinsam auf die Bühne', emoji: '🎪', time: KONTAKT_TIME, schwierigkeit: -0.20, minDraht: STUFE_BEKANNT },
+  { id: 'reaktion', name: 'Auf deinen Post reagieren', emoji: '💬', time: KONTAKT_TIME, schwierigkeit: 0.15, minDraht: null, minVertrauen: null },
+  { id: 'shoutout', name: 'Dich erwähnen', emoji: '📣', time: KONTAKT_TIME, schwierigkeit: 0, minDraht: null, minVertrauen: null },
+  { id: 'feature', name: 'Gemeinsame Sache', emoji: '🎤', time: KONTAKT_TIME, schwierigkeit: -0.10, minDraht: null, minVertrauen: null },
+  { id: 'konzert', name: 'Gemeinsam auf die Bühne', emoji: '🎪', time: KONTAKT_TIME, schwierigkeit: -0.20, minDraht: null, minVertrauen: KONZERT_VERTRAUEN },
 ];
 
 // --- Charakterzüge ---------------------------------------------------------
@@ -688,6 +692,7 @@ module.exports = {
   CONTACTS, REQUESTS, TRAIT_BONUS, LINES, RELATED_GENRES, byId,
   KONTAKT_TIME, SPERRE_TAGE, SPERRE_IGNORIERT_TAGE,
   DRAHT_DECAY_PRO_WOCHE,
+  KONZERT_VERTRAUEN,
   STUFE_BEKANNT, STUFE_PARTNER, STUFE_VERSTIMMT, STUFE_BEEF,
   CHANCE_MIN, CHANCE_MAX,
   ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX,
