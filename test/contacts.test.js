@@ -282,15 +282,27 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     /** Gesetzter Zufall: erst die Chance, dann die Stufe, dann der Satz. */
     const folge = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
 
-    // Rammstein, Respekt 100 bei Vertrauen −100: Draht 0, aber die Stufe hängt
-    // am RESPEKT. 0,73 liegt zwischen den zwei Grenzen (0,7058 mit Respekt 100,
-    // 0,7500 mit dem Draht 0) – mit dem Respekt fällt es auf „echt", mit dem
-    // Draht bliebe es „flüchtig".
+    /*
+     * Rammstein, Respekt 100 bei Vertrauen −100: der Rivale.
+     *
+     * Hier stand bis Task 5 die Zusicherung „die Stufe hängt am Respekt, nicht
+     * am Draht" mit dem Wurf 0,73. Sie ist an dieser Stelle NICHT mehr prüfbar:
+     * Seit `stufeVon` den Respekt mit `respektWirkt` dämpft, ist bei Vertrauen
+     * −100 der wirkende Respekt 0 – und damit zufällig genau der Draht 0. Die
+     * zwei Größen sind in diesem Zustand nicht mehr zu unterscheiden, der Fall
+     * liegt jetzt unten bei kimchikid (Vertrauen 0, Draht 50 ≠ Respekt 100).
+     *
+     * Der Fall selbst bleibt: Er trägt die Achsen von „echt", die Rivalen-Art
+     * und die Verstimmung darunter. Nur der Wurf wandert von 0,73 auf 0,80 –
+     * die Grenze zu „echt" liegt ohne den Respekt-Term bei 0,7499 statt 0,7058,
+     * und 0,80 liegt wie vorher 0,73 in der Spanne von „echt" (bis 0,9374).
+     */
     const tR = t0 + 20 * 24 * H;
     db.saveContact(G, U, 'rammstein', { respekt: 100, vertrauen: -100, boden: 0,
       tries: 0, yes: 0, last_try: 0, last_move: tR, ignored_at: 0 });
-    const re = await contacts.request(G, U, 'rammstein', 'shoutout', tR, folge(0.001, 0.73, 0.5));
-    check('die Stufe hängt am Respekt, nicht am Draht', re.ok && re.antwort === 'echt',
+    const re = await contacts.request(G, U, 'rammstein', 'shoutout', tR, folge(0.001, 0.80, 0.5));
+    check('beim Rivalen (Respekt 100, Vertrauen −100) fällt die Antwort „echt"',
+      re.ok && re.antwort === 'echt',
       JSON.stringify({ ok: re.ok, a: re.antwort, reason: re.reason }));
     check('echt bewegt ungleich: Respekt +9 (geklemmt bei 100), Vertrauen +3',
       re.achsen.respekt === 100 && re.achsen.vertrauen === -97, JSON.stringify(re.achsen));
@@ -341,6 +353,27 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
     check('ein fester Partner im Umfeld öffnet sie',
       near(contacts.detail(G, U, klein.id, tP).tuerOeffner, 0.075),
       String(contacts.detail(G, U, klein.id, tP).tuerOeffner));
+
+    /*
+     * Die Stufe hängt am RESPEKT, nicht am Draht – und das bei Vertrauen 0, wo
+     * nichts gedämpft wird.
+     *
+     * kimchikid (41.000) gegen 10.000 Hörer ist Verhältnis 0,2439. Respekt 100
+     * bei Vertrauen 0 ist Draht 50, und die zwei Gewichte liegen auseinander:
+     * mit dem Respekt ist die Grenze zu „echt" 0,50102, mit dem Draht 0,53420.
+     * Der Wurf 0,52 liegt dazwischen – mit dem Respekt fällt es auf „echt", mit
+     * dem Draht bliebe es „flüchtig". Das ist die Zusicherung, die vorher auf
+     * dem Rivalen saß (siehe dort).
+     */
+    const tS = tP + 5 * 24 * H;
+    db.saveContact(G, U, 'kimchikid', { respekt: 100, vertrauen: 0, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: tS, ignored_at: 0 });
+    const rs = await contacts.request(G, U, 'kimchikid', 'shoutout', tS, folge(0.001, 0.52, 0.5));
+    check('die Stufe hängt am Respekt, nicht am Draht', rs.ok && rs.antwort === 'echt',
+      JSON.stringify({ ok: rs.ok, a: rs.antwort, reason: rs.reason, draht: rs.drahtVor }));
+    check('…und der Draht dieses Falls ist wirklich 50, nicht 100',
+      rs.drahtVor === 50 && rs.achsenVor.respekt === 100 && rs.achsenVor.vertrauen === 0,
+      JSON.stringify({ d: rs.drahtVor, a: rs.achsenVor }));
 
     // Der Boden erzählt die alte Band – auch ohne warme Achsen.
     db.saveContact(G, U, 'igorlevit', { respekt: 0, vertrauen: 0, boden: 10,

@@ -18,6 +18,7 @@
  *   drahtVon    der Draht als Mittelwert der zwei Achsen
  *   decayAchse  wie EINE Achse abkühlt (mit Boden)
  *   respektGewicht  das Gewicht des Respekts in der Antwortchance
+ *   respektWirkt    der Respekt, der bei diesem Vertrauen noch wirkt
  *   istPartner  fester Partner – die EINZIGE Regel dafür
  *   artOf      die Art der Beziehung (zehn Arten, Reihenfolge ist Absicht)
  *
@@ -55,10 +56,11 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
   return clamp(data.CHANCE_MIN, data.CHANCE_MAX,
     basis + (r?.schwierigkeit ?? 0)
     + (gleichesLand ? 0.05 : 0) + sprachbonus + genrebonus
-    // Respekt öffnet die Tür, und je größer der Abstand, desto mehr.
-    + (Math.max(0, respekt) / 100) * respektGewicht(meineReichweite, seineReichweite)
+    // Respekt öffnet die Tür, und je größer der Abstand, desto mehr – aber nur
+    // so weit, wie er dir überhaupt noch traut (`respektWirkt`).
+    + (respektWirkt(respekt, vertrauen) / 100) * respektGewicht(meineReichweite, seineReichweite)
     // Positives Vertrauen hebt die Chance NICHT – das ist Respekts Aufgabe.
-    // Negatives senkt sie, und das ist der Riegel gegen den Dauer-Beefer.
+    // Negatives senkt sie zusätzlich: der additive Teil des Riegels.
     + Math.min(0, vertrauen / 100) * data.VERTRAUEN_MALUS
     + clamp(0, 0.15, tuerOeffner)
     + (hype - 1) * 0.1 + (data.TRAIT_BONUS[trait] ?? 0) + (partner ? 0.10 : 0)
@@ -74,13 +76,18 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
  * wäre es selbstverstärkend (Vertrauen erzeugt Zusagen erzeugt Vertrauen), und
  * Respekt ist durchgehend die Achse, die über das Antworten entscheidet. Der
  * `ratio` bleibt der rohe Größenvergleich.
+ *
+ * Das Vertrauen steht hier nur als DÄMPFER (`respektWirkt`), nicht als eigener
+ * Summand: Wer nur noch Respekt und kein Vertrauen hat, bekommt sonst über das
+ * Zusage-Gewicht dauerhaft mehr Schub je Antwort – der Beef veränderte damit
+ * den Ertrag und nicht bloß den Zugang (§3).
  */
-function stufeVon(random, { ratio, respekt = 0 }) {
+function stufeVon(random, { ratio, respekt = 0, vertrauen = 0 }) {
   const naehe = Math.min(1, ratio);
   const gewichte = {
     fluechtig: 6 * (ratio < 0.05 ? 2 : 1),
     echt: 3,
-    zusage: 1 * (1 + 2 * naehe) * (1 + respekt / 100),
+    zusage: 1 * (1 + 2 * naehe) * (1 + respektWirkt(respekt, vertrauen) / 100),
   };
   const summe = gewichte.fluechtig + gewichte.echt + gewichte.zusage;
   let wurf = random() * summe;
@@ -149,11 +156,28 @@ function respektGewicht(meine, seine) {
 }
 
 /**
- * Fester Partner. Die EINZIGE Regel – gültig heute für drei Stellen: das ⭐,
- * die +10 Punkte Antwortchance und die Türöffner-Zählung. Die Anzählrunde in
- * beef.js (Zeile 399) liest noch `drahtJetzt >= STUFE_PARTNER` und folgt dieser
- * Regel erst in Task 5 – bis dahin gibt es zwei Fassungen: Respekt 100 /
- * Vertrauen 0 ist Draht 50, also dort Partner, hier nicht.
+ * Der Respekt, der tatsächlich wirkt.
+ *
+ * Er nimmt dich ernst – aber solange er dir überhaupt nicht traut, nützt dir
+ * das nichts. Bei Vertrauen ≥ 0 ist der Faktor 1 und nichts ändert sich; bei
+ * −100 ist der Respekt-Term ganz weg.
+ *
+ * Ohne diese Dämpfung sättigt der additive VERTRAUEN_MALUS bei −0,25, während
+ * der Respekt-Term bis 0,45 läuft: Ein Spieler mit acht gelandeten Dissen
+ * (Respekt 68, Vertrauen −100) käme auf 12,5 % Antwortchance gegen 6,9 % beim
+ * Fremden – und über das Zusage-Gewicht in `stufeVon` auch an mehr Schub, also
+ * an mehr Hörer. Das wäre §3.
+ */
+function respektWirkt(respekt, vertrauen) {
+  return Math.max(0, respekt) * (1 + Math.min(0, vertrauen / 100));
+}
+
+/**
+ * Fester Partner. Die EINZIGE Regel – gültig für vier Stellen: das ⭐, die +10
+ * Punkte Antwortchance, die Türöffner-Zählung und die Anzählrunde in beef.js,
+ * die seit Task 5 über `istPartnerRow` hier mitliest statt `drahtJetzt >=
+ * STUFE_PARTNER` zu prüfen. Respekt 100 / Vertrauen 0 ist Draht 50 und
+ * trotzdem kein Partner – und das gilt jetzt überall gleich.
  *
  * Vorher gab es drei Fassungen, von denen zwei sich widersprachen: Die Ansicht
  * zeigte das ⭐ bei `yes >= 3`, gezählt wurde aber nur `draht >= 50` – wer drei
@@ -541,8 +565,9 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
   return {
     vorher: vor.draht, nachher: drahtVon(respektNeu, vertrauenNeu),
     // Die einzige Quelle für `stufe` an einer Drahtbewegung: `buttons.beefDraht`
-    // liest es („Draht 38 (+8, Stufenname)"), und kein Test prüft diese
-    // Zeichenkette – fehlte es, stünde dort still „undefined".
+    // liest es („Draht 38 (+8, Stufenname)"), und zwei Zusicherungen in
+    // test/fluxer-render.test.js prüfen die Zeichenkette samt Stufenwort –
+    // fehlte es, stünde dort still „undefined".
     stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu)),
     achsenVor: { respekt: vor.respekt, vertrauen: vor.vertrauen, boden: vor.boden },
     achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu },
@@ -624,7 +649,9 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
   // Wurf 1: antwortet er überhaupt? Wurf 2: wie verbindlich?
   const ratio = Math.max(100, k.meine || 0) / Math.max(1, k.seine);
-  const antwort = random() < chance ? stufeVon(random, { ratio, respekt: a.respekt }) : 'ignoriert';
+  const antwort = random() < chance
+    ? stufeVon(random, { ratio, respekt: a.respekt, vertrauen: a.vertrauen })
+    : 'ignoriert';
 
   // Wer arrogant oder kühl ist, nimmt das Nerven manchmal übel.
   const empfindlich = contact.trait === 'arrogant' || contact.trait === 'kuehl';
@@ -708,7 +735,7 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 
 module.exports = {
   passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
-  drahtVon, decayAchse, respektGewicht, istPartner, artOf,
+  drahtVon, decayAchse, respektGewicht, respektWirkt, istPartner, artOf,
   VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, achsenJetzt, istPartnerRow, tuerOeffnerFor,
   listFor, detail, request, move, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
 };

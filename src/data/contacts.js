@@ -160,9 +160,15 @@ const RESPEKT_W_DEKADEN = 3;
 
 /**
  * Negatives Vertrauen zieht die Antwortchance – positives hebt sie NICHT, das
- * ist Respekts Aufgabe. Der Riegel gegen die naheliegende Masche: Wer denselben
- * Kontakt wiederholt anstachelt, sammelt Respekt bei Vertrauen auf −100 und
- * landet damit auf CHANCE_MIN statt über dem Fremden.
+ * ist Respekts Aufgabe.
+ *
+ * Dieser Summand allein ist KEIN Riegel: Er sättigt bei −0,25, während der
+ * Respekt-Term bis 0,45 läuft. Die Masche ist der wiederholte DISSTRACK (nicht
+ * das Anstacheln – das bringt 0 Respekt): Jeder gelandete Diss legt +10 Respekt
+ * nach, das Vertrauen liegt längst auf −100, und ab acht Treffern stünde der
+ * Dauer-Beefer besser da als ein Fremder. Den Riegel macht erst
+ * `contacts.respektWirkt`, das den Respekt-Term bei Vertrauen −100 auf null
+ * dämpft – erst zusammen landet die Masche auf CHANCE_MIN.
  */
 const VERTRAUEN_MALUS = 0.25;
 

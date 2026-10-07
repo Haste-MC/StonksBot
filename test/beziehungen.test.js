@@ -609,6 +609,96 @@ const aufraeumen = () => {
       String(c(100_000, 10_000_000, 20, -100)));
     check('…ohne den Malus wäre er über dem Fremden',
       c(100_000, 10_000_000, 20, 0) > c(100_000, 10_000_000, 0, 0));
+
+    // Der Dämpfer `respektWirkt` greift AUSSCHLIESSLICH ins Negative: Bei
+    // Vertrauen ≥ 0 ist sein Faktor 1, und damit gelten die zehn Zahlen oben
+    // Punkt für Punkt unverändert – bei Vertrauen 0 wie bei vollem Vertrauen.
+    check('bei Vertrauen ≥ 0 dämpft nichts: alle zehn Zahlen bleiben gleich',
+      tabelle.every(([m, s, r, soll]) => near(c(m, s, r, 0), soll, 5e-5)
+        && near(c(m, s, r, 50), soll, 5e-5) && near(c(m, s, r, 100), soll, 5e-5)),
+      tabelle.map(([m, s, r]) =>
+        `${c(m, s, r, 0).toFixed(4)}/${c(m, s, r, 100).toFixed(4)}`).join(' '));
+  }
+
+  console.log('--- Der Dämpfer: Respekt wirkt nur, soweit er traut ---');
+  {
+    const contacts = require('../src/contacts');
+    const cdata = require('../src/data/contacts');
+
+    // Die reine Rechnung zuerst. Sie ist der Riegel, den der additive
+    // VERTRAUEN_MALUS allein nicht ist: Er sättigt bei −0,25, der Respekt-Term
+    // läuft bis 0,45.
+    check('respektWirkt lässt bei Vertrauen ≥ 0 alles stehen',
+      contacts.respektWirkt(68, 0) === 68 && contacts.respektWirkt(68, 100) === 68,
+      `${contacts.respektWirkt(68, 0)} / ${contacts.respektWirkt(68, 100)}`);
+    check('respektWirkt löscht den Respekt bei Vertrauen −100',
+      contacts.respektWirkt(68, -100) === 0, String(contacts.respektWirkt(68, -100)));
+    check('respektWirkt lässt dem Rivalen (V −20) 80 % seines Respekts',
+      contacts.respektWirkt(30, -20) === 24, String(contacts.respektWirkt(30, -20)));
+    check('negativer Respekt wirkt nie (auch nicht als Bonus)',
+      contacts.respektWirkt(-50, 0) === 0 && contacts.respektWirkt(-50, -100) === 0);
+
+    // Der Fall des Dauer-Beefers mit den Zahlen des Reviews: 10.000 Hörer
+    // gegen 10 Mio., gleiches Land, sonst neutral. Fremd sind das 6,9 %.
+    const arg = (respekt, vertrauen) => ({
+      meineReichweite: 10_000, seineReichweite: 10_000_000, request: 'shoutout',
+      gleichesLand: true, sprache: 'englisch', genre: 'verwandt',
+      respekt, vertrauen, tuerOeffner: 0, hype: 1, trait: 'launisch',
+      partner: false, szene: 0,
+    });
+    const c = (r, v) => contacts.chanceOf(arg(r, v));
+    check('der Fremde (R 0 / V 0) steht bei 6,9 %', near(c(0, 0), 0.0690, 5e-5), String(c(0, 0)));
+    // Acht gelandete Disse: +10 Respekt je Treffer, Vertrauen längst auf −100.
+    // Ohne den Dämpfer wären das 12,5 % – fast das Doppelte des Fremden.
+    check('acht gelandete Disse (R 68 / V −100) landen auf CHANCE_MIN',
+      c(68, -100) === cdata.CHANCE_MIN, String(c(68, -100)));
+    check('…und zwölf (R 88 / V −100) genauso',
+      c(88, -100) === cdata.CHANCE_MIN, String(c(88, -100)));
+    check('der Dauer-Beefer kommt damit nie über den Fremden',
+      c(68, -100) < c(0, 0) && c(88, -100) < c(0, 0),
+      `${c(68, -100)} / ${c(88, -100)} gegen ${c(0, 0)}`);
+    // Der Rivale ist der Fall, der NICHT verschwinden darf: Respekt 30 bei
+    // Vertrauen −20 behält 80 % seines Respekt-Vorteils, also 12,7 %.
+    check('der Rivale (R 30 / V −20) steht bei 12,7 % und damit über dem Fremden',
+      near(c(30, -20), 0.1270, 5e-5) && c(30, -20) > c(0, 0), String(c(30, -20)));
+
+    /*
+     * Das Zusage-Gewicht in `stufeVon`.
+     *
+     * Die Funktion würfelt und gibt ihre Verteilung nicht heraus – also wird
+     * die Schwelle gesucht, ab der ein Wurf eine Zusage wird. Daraus folgt das
+     * Gewicht exakt: Bei p = z / (f + e + z) ist z = (f + e) × p / (1 − p).
+     * Gemessen wird also das GEWICHT, nicht eine gewürfelte Häufigkeit.
+     */
+    const schwelle = (ratio, respekt, vertrauen) => {
+      let lo = 0, hi = 1;
+      for (let i = 0; i < 60; i++) {
+        const m = (lo + hi) / 2;
+        if (contacts.stufeVon(() => m, { ratio, respekt, vertrauen }) === 'zusage') hi = m;
+        else lo = m;
+      }
+      return hi;
+    };
+    const gewicht = (ratio, respekt, vertrauen = 0) => {
+      const p = 1 - schwelle(ratio, respekt, vertrauen);
+      const rest = 6 * (ratio < 0.05 ? 2 : 1) + 3;
+      return (rest * p) / (1 - p);
+    };
+    const R = 0.001;   // 10.000 Hörer gegen 10 Mio.
+    check('die Schwellensuche trifft das Zusage-Gewicht des Fremden (1,002)',
+      near(gewicht(R, 0), 1 * (1 + 2 * R), 1e-9), String(gewicht(R, 0)));
+    check('bei Vertrauen 0 hebt Respekt 68 das Zusage-Gewicht auf das 1,68-fache',
+      near(gewicht(R, 68, 0), 1.68 * gewicht(R, 0), 1e-9),
+      `${gewicht(R, 68, 0)} statt ${1.68 * gewicht(R, 0)}`);
+    // Der Kern von §3: Der Beef darf den ZUGANG verändern, nicht den ERTRAG.
+    // Ohne den Dämpfer stünde das Gewicht hier dauerhaft bei 1,68 – mehr
+    // Zusagen, mehr Schub, mehr Hörer aus demselben Beef.
+    check('stufeVon: bei R 68 / V −100 ist das Zusage-Gewicht das des Fremden',
+      near(gewicht(R, 68, -100), gewicht(R, 0), 1e-9),
+      `${gewicht(R, 68, -100)} statt ${gewicht(R, 0)}`);
+    check('…und der Rivale (R 30 / V −20) behält auch hier 80 %',
+      near(gewicht(R, 30, -20), 1.24 * gewicht(R, 0), 1e-9),
+      `${gewicht(R, 30, -20)} statt ${1.24 * gewicht(R, 0)}`);
   }
 
   console.log('--- Die Schreibwege ---');
@@ -669,6 +759,26 @@ const aufraeumen = () => {
       b10.vertrauen === 20 && b10.boden === 20, JSON.stringify(b10));
     check('der Respekt hat keinen Boden und fällt auf 0',
       b10.respekt === 0 && b10.draht === 10, JSON.stringify(b10));
+
+    /*
+     * `istPartnerRow` rechnet auf den ABGEKÜHLTEN Achsen (§4).
+     *
+     * Seit diesem Task trägt die Funktion auch die Anzählrunde in beef.js: Wer
+     * Partner ist, wird nicht angezählt. Läse sie die rohe Zeile, bliebe ein
+     * Partner von vor einem halben Jahr dauerhaft verschont, ohne je wieder
+     * etwas dafür zu tun.
+     */
+    db.saveContact(G, U5, 'drake', { respekt: 60, vertrauen: 60, boden: 0,
+      tries: 0, yes: 0, last_try: 0, last_move: T, ignored_at: 0 });
+    const pRow = () => db.getContact(G, U5, 'drake');
+    check('istPartnerRow sieht den frischen Partner', contacts.istPartnerRow(pRow(), T) === true);
+    // 14 Wochen Funkstille: Respekt 60 − 14 = 46, Vertrauen 60 − 42 = 18.
+    const kalt = T + 98 * DAY;
+    check('istPartnerRow rechnet das Abkühlen mit: nach 14 Wochen kein Partner mehr',
+      contacts.istPartnerRow(pRow(), kalt) === false
+      && contacts.achsenJetzt(pRow(), kalt).respekt === 46
+      && contacts.achsenJetzt(pRow(), kalt).vertrauen === 18,
+      JSON.stringify(contacts.achsenJetzt(pRow(), kalt)));
 
     // Die Klemme: beide Achsen bleiben zwischen −100 und 100.
     db.saveContact(G, U5, 'anitta', { respekt: 95, vertrauen: -95, boden: 0, last_move: T });
