@@ -1,5 +1,15 @@
 # Gegenanfragen und große Formate – Stück 5c
 
+> **Nachtrag aus Stück 6a (2026-10-08):** Die hier wortgetreu vorgeschriebenen
+> Meldungstexte sind überholt. Sie sprachen mit einem Pronomen über einen
+> **beliebigen** Kontakt — etwa »für ihn«, »Mit ihm läuft schon einer«, »sein
+> Konter«, »bei seinem Label« —, und der Katalog in `src/data/contacts.js` hat
+> **kein Geschlechtsfeld**. Betroffen waren unter anderem Nina Chuba, Loredana,
+> Rosalía, Anitta, Angèle, Sezen Aksu, Ado, Peggy Gou und Pamela Reif, dazu die
+> Bands. Stück 6a hat sie neutral gefasst; der gültige Stand steht in
+> `docs/superpowers/specs/2026-10-07-beziehungen-design.md` und im Code.
+> **Wer gegen dieses Dokument implementiert, übernimmt die Texte nicht wortgetreu.**
+
 Teil der Kontakte-Reihe (5a Der Draht zu anderen Künstlern · 5b Beef und
 Disstracks · **5c Gegenanfragen und große Formate**) · Stand 2026-10-02 ·
 Vorgänger: `docs/superpowers/specs/2026-09-25-kontakte-design.md` und
