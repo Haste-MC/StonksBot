@@ -451,9 +451,11 @@ Die letzte Zeile deckt „was du nur gewollt hast" ab — sie kommt aus
 `tries − yes` und braucht keine Gedächtniszeilen. Ohne das wären es zwanzig
 Zeilen „ignoriert" und die Liste wäre wertlos.
 
-Die Blöcke gehen durch `notizAus(bloecke, trenner, max)` (`src/buttons.js`), das
-für die Vorfälle gebaut wurde — damit kann der Text das Limit der Beschreibung
-nicht still überschreiten.
+Die Länge ist durch `MEMORY_ZEIGEN` gedeckelt und braucht keinen
+Kürzungshelfer: Drei Zeilen à höchstens rund 70 Zeichen können die Beschreibung
+nicht sprengen. `buttons.notizAus` passt hier ausdrücklich **nicht** — sein
+Überlauftext verweist auf die Vorfall-Ansicht („sie stehen im Verlauf der
+Vorfall-Ansicht"), und das wäre an dieser Stelle gelogen.
 
 ### 7.2 Liste (`buildKontakteView`)
 
