@@ -491,9 +491,9 @@ wahr ist. Die Ansicht zeigt dann beides — die Art als Zeile, das ⭐ daneben.
 Die heutige Draht-Zeile wird zu drei:
 
 ```
-🤝 Mentor · ⭐ fester Partner
-   Draht ▓▓▓░░ 63 · 17 Versuche, 4 Zusagen
-   Respekt ▓▓▓▓░ 72 · Vertrauen ▓▓▓░░ 54 (Boden 10)
+🎓 Mentor · ⭐ fester Partner
+   Draht ▰▰▰▱▱ 63 · 17 Versuche, 4 Zusagen
+   Respekt ▰▰▰▰▱ 72 · Vertrauen ▰▰▰▱▱ 54 _(Boden 10)_
 ```
 
 Darunter das Gedächtnis, die neuesten `MEMORY_ZEIGEN = 3`:
@@ -506,8 +506,9 @@ Darunter das Gedächtnis, die neuesten `MEMORY_ZEIGEN = 3`:
 _… und 6 weitere · 13 Mal kam nichts zurück_
 ```
 
-Die letzte Zeile deckt „was du nur gewollt hast" ab — sie kommt aus
-`tries − yes` und braucht keine Gedächtniszeilen. Ohne das wären es zwanzig
+Die letzte Zeile heißt **„N Versuche ohne Zusage"**, nicht „N Mal kam nichts
+zurück": `tries` zählt auch Beef-Aktionen mit (jedes `move` mit `sperre`), und
+`echt` wie `fluechtig` sind Antworten. Sie kommt aus `tries − yes` und braucht keine Gedächtniszeilen. Ohne das wären es zwanzig
 Zeilen „ignoriert" und die Liste wäre wertlos.
 
 Die Länge ist durch `MEMORY_ZEIGEN` gedeckelt und braucht keinen
