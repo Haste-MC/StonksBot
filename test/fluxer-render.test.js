@@ -2027,6 +2027,23 @@ function view(buttons) {
         + `Draht **−${Math.abs(adata.DRAHT_VERFALL)}**.`), verfall);
 
     /*
+     * 6a, Review-Befund 2: Das verrottete Projekt kostet Vertrauen −20 – und der
+     * Spieler muss es LESEN. Die Meldung sagte nur „die Stunden sind weg", und
+     * das Schlagwort der Aufgabe („das Vermasseln zählt") blieb unsichtbar.
+     */
+    const [PG, PU] = await neu();
+    db.saveContact(PG, PU, OXMO.id, { respekt: 60, vertrauen: 60, boden: 0, tries: 0, yes: 0,
+      last_try: 0, last_move: jetzt, ignored_at: 0 });
+    db.insertProjekt({ guildId: PG, userId: PU, art: 'kollabo', contactId: OXMO.id,
+      stundenSoll: adata.KOLLABO_STUNDEN, stundenIst: 6, frist: jetzt - 1000 });
+    const pvNote = angebotNote(ang.settle(PG, PU, jetzt, nie));
+    check('Meldung bei verrottetem Projekt: Stunden weg UND Vertrauen −20, Respekt −6',
+      pvNote.includes('investierten Stunden sind weg.')
+      && pvNote.includes(`Vertrauen **−${Math.abs(adata.ACHSEN_PFUSCH.vertrauen)}**, `
+        + `Respekt **−${Math.abs(adata.ACHSEN_PFUSCH.respekt)}**.`)
+      && pvNote.includes('🤝 Draht '), pvNote);
+
+    /*
      * -----------------------------------------------------------------------
      *  Der Fehler aus 5b: ein abgelehnter Klick verschluckt die Abrechnung
      * -----------------------------------------------------------------------
@@ -2203,6 +2220,13 @@ function view(buttons) {
       && fertigNote.includes('👂 ')
       && fertigNote.includes(`💿 Das gemeinsame Album mit **${OXMO.name}** ist draußen.`),
       fertigNote);
+    // 6a, Review-Befund 2: „Das Durchziehen zählt" muss in der Meldung stehen –
+    // beide Achsen einzeln und der Boden, denn der ist das Dauerhafte.
+    check('die Abschlussmeldung nennt Vertrauen +18, Respekt +6 und den Boden 10',
+      fertigNote.includes(`🤝 Vertrauen **+${adata.ACHSEN_FERTIG.vertrauen}**, `
+        + `Respekt **+${adata.ACHSEN_FERTIG.respekt}**.`)
+      && fertigNote.includes(`🛡️ Boden **${adata.BODEN_FERTIG}** (+${adata.BODEN_FERTIG})`)
+      && fertigNote.includes('🤝 Draht '), fertigNote);
     check('die Stundenzahl im Arbeitstext kommt aus der Konstante, nicht aus Prosa',
       arbeitNote(geArbeitet, '€', jetzt)
         .includes(`${adata.ARBEIT_STUNDEN} Stunden mehr.`),
@@ -2276,6 +2300,11 @@ function view(buttons) {
       && tNote.startsWith(`🔥 **${RAMM.name}** hat zurückgeschlagen.`),
       JSON.stringify({ ok: tFertig.ok, reason: tFertig.reason,
         vorher: tFertig.abende?.[0]?.beefVorher?.length }) + ' | ' + tNote.split('\n')[0]);
+    check('auch die Tour-Meldung nennt Vertrauen +18, Respekt +6 und den Boden 10',
+      tNote.includes(`🤝 Vertrauen **+${adata.ACHSEN_FERTIG.vertrauen}**, `
+        + `Respekt **+${adata.ACHSEN_FERTIG.respekt}**.`)
+      && tNote.includes(`🛡️ Boden **${adata.BODEN_FERTIG}** (+${adata.BODEN_FERTIG})`),
+      tNote);
     check('und `abschliessen` summiert den Agenturanteil der Abende selbst',
       tFertig.cut === tFertig.abende.reduce((sum, a) => sum + (a.cut ?? 0), 0),
       JSON.stringify({ cut: tFertig.cut }));

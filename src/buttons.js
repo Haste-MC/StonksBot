@@ -898,6 +898,39 @@ function friedenNote(res, now = Date.now()) {
 /** Ein Draht-Ausschlag im Text: „−8", „+8" – mit echtem Minus, nicht Bindestrich. */
 const drahtDelta = (n) => (n < 0 ? `−${Math.abs(n)}` : `+${n}`);
 
+/**
+ * Die zwei Achsen einzeln, wie sie sich bewegt haben: „Vertrauen **+18**,
+ * Respekt **+6**". Der Draht allein (`beefDraht`) ist der Mittelwert und
+ * verschweigt, WELCHE Achse es war – und dass das Vertrauen den Boden hebt,
+ * sieht man nur an ihr. Gelesen wird `achsenVor`/`achsen` aus `contacts.move`,
+ * also der tatsächliche Ausschlag samt Klemme, nicht die Konstante.
+ */
+function achsenZeile(d) {
+  if (!d?.achsen || !d?.achsenVor) return null;
+  const teile = [['Vertrauen', 'vertrauen'], ['Respekt', 'respekt']]
+    .map(([name, key]) => [name, d.achsen[key] - d.achsenVor[key]])
+    .filter(([, delta]) => delta !== 0)
+    .map(([name, delta]) => `${name} **${drahtDelta(delta)}**`);
+  return teile.length ? `${teile.join(', ')}.` : null;
+}
+
+/**
+ * Was ein durchgezogenes Projekt an der Beziehung gebucht hat: die Achsen, der
+ * Draht und – das Dauerhafte – der Boden. Der Satz zum Boden nennt seine
+ * Grenze genau: Er bremst das Abkühlen, nicht die eigenen Fehler.
+ */
+function durchgezogenNote(d) {
+  if (!d) return '';
+  const boden = d.achsen?.boden ?? 0;
+  const dBoden = boden - (d.achsenVor?.boden ?? 0);
+  return [
+    achsenZeile(d) && `🤝 ${achsenZeile(d)}`,
+    beefDraht(d),
+    boden > 0 && `🛡️ Boden **${boden}**${dBoden > 0 ? ` (+${dBoden})` : ''} – `
+      + 'so tief kühlt Funkstille das Vertrauen nicht ab.',
+  ].filter(Boolean).join('\n');
+}
+
 function angebotNote(ereignisse) {
   const adata = require('./data/angebote');
   const zeilen = [];
@@ -917,7 +950,11 @@ function angebotNote(ereignisse) {
         + 'ist an der Frist gescheitert.'
         // „0 investierte Stunden sind weg" wäre keine Nachricht, sondern Lärm.
         + (ist > 0
-          ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : ''));
+          ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : '')
+        // Das ist der eigentliche Preis: Die Stunden sind weg, aber das
+        // Vertrauen ist es, was ein Partner dir nachträgt.
+        + (achsenZeile(e.draht) ? ` ${achsenZeile(e.draht)}` : ''));
+      if (e.draht) zeilen.push(beefDraht(e.draht));
     }
   }
   return zeilen.join('\n');
@@ -1144,7 +1181,8 @@ function arbeitNote(res, symbol, now = Date.now()) {
     // `mpub`.
     return mitBeef(res.platte?.beefVorher,
       `${releaseNote(res.platte)}\n`
-      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`);
+      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`
+      + (res.draht ? `\n${durchgezogenNote(res.draht)}` : ''));
   }
 
   if (res.art === 'tour') {
@@ -1180,6 +1218,7 @@ function arbeitNote(res, symbol, now = Date.now()) {
       }
     });
     zeilen.push(`🎵 Die Tour mit **${name}** ist durch.`);
+    if (res.draht) zeilen.push(durchgezogenNote(res.draht));
     // Die Abende würfeln nicht mehr selbst: Einen Vorfall legt allein der
     // Tageswurf `tick` an, und der läuft in `settleMusic`, nicht hier. `incident`
     // der Abende ist deshalb leer, und diese Zeile bleibt als Netz für den Fall,

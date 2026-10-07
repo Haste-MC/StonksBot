@@ -718,11 +718,13 @@ async function abschliessen(guildId, userId, p, now, random) {
     // NEU in 6a: Das Durchziehen zählt. Der Boden hält das Vertrauen danach
     // dauerhaft – ein Album zu zweit ist nach einem halben Jahr Funkstille
     // nicht nichts.
-    contacts.move(guildId, userId, p.contact_id, {
+    // Die Bewegung geht mit hinaus (`draht`): `arbeitNote` meldet sie samt dem
+    // Boden – das Durchziehen zählt nur, wenn der Spieler es auch liest.
+    const draht = contacts.move(guildId, userId, p.contact_id, {
       ...data.ACHSEN_FERTIG, boden: data.BODEN_FERTIG,
       merken: { art: 'projekt_fertig', detail: artOf(p.art)?.name ?? p.art },
     }, now);
-    return projekt;
+    return { projekt, draht };
   };
 
   if (p.art === 'kollabo') {
@@ -744,15 +746,15 @@ async function abschliessen(guildId, userId, p, now, random) {
         contact, audience, platte,
       };
     }
-    const projekt = fertig();
+    const { projekt, draht } = fertig();
     return {
-      ok: true, art: p.art, contact, audience, platte,
+      ok: true, art: p.art, contact, audience, platte, draht,
       projekt: { ...projekt, artInfo: artOf(p.art), contact },
     };
   }
 
   if (p.art === 'tour') {
-    const projekt = fertig();
+    const { projekt, draht } = fertig();
     // Sein Publikum GENAU EINMAL – nicht je Abend –, und zwar wie bei der
     // Vorgruppe ausschließlich auf die GAGE dieses einen Abends: `gast` geht in
     // `hörer^0,7` ein und hebt sie um höchstens 2^0,7 = +62 %. In die
@@ -771,7 +773,7 @@ async function abschliessen(guildId, userId, p, now, random) {
       }));
     }
     return {
-      ok: true, art: p.art, contact, abende, gast,
+      ok: true, art: p.art, contact, abende, gast, draht,
       konzerte: abende.filter((a) => a.ok && !a.cancelled).length,
       brutto: abende.reduce((s, a) => s + (a.gross ?? 0), 0),
       verdient: abende.reduce((s, a) => s + (a.amount ?? 0), 0),
