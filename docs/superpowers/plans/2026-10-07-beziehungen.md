@@ -451,13 +451,13 @@ const MEMORY_TEXTE = {
 };
 ```
 
-`STUFE_BEEF` und `PARTNER_YES` **löschen** — beide werden nach Task 3 von nichts mehr gelesen (geprüft: `grep -rn 'STUFE_BEEF\|PARTNER_YES' src/ test/ scripts/` nennt nur `src/contacts.js` und `src/data/contacts.js`).
+> **Diese Aufgabe ist rein additiv und löscht NICHTS.** Die fünf alten `DRAHT_*`-Konstanten, `STUFE_BEEF`, `PARTNER_YES` und `drahtStufe` bleiben vollständig stehen und exportiert, obwohl sie am Ende verschwinden sollen. Grund, nachgemessen: `src/contacts.js:449-456` liest die fünf Deltas, `:224` liest `PARTNER_YES`, `:96` liest `STUFE_BEEF`, und `listFor`/`detail`/`request` rufen `drahtStufe`. Löschte diese Aufgabe sie, setzte `request` `delta = undefined` und schriebe `NaN` in den Draht — die Suite wäre bis Task 3 rot, und der nächste Reviewer könnte neue Brüche nicht von geerbten unterscheiden. **Task 3 löscht sie, in derselben Änderung, die ihre Leser ersetzt.**
 
-`module.exports` entsprechend: `DRAHT_ZUSAGE, DRAHT_ECHT, DRAHT_FLUECHTIG, DRAHT_IGNORIERT, DRAHT_VERSTIMMT, STUFE_BEEF, PARTNER_YES` heraus; `ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX, RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS, PARTNER_RESPEKT, PARTNER_VERTRAUEN, ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT, ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN, ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE` hinein. `DRAHT_DECAY_PRO_WOCHE` bleibt exportiert.
+`module.exports` wird nur **ergänzt**: `ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX, RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS, PARTNER_RESPEKT, PARTNER_VERTRAUEN, ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT, ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN, ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE`. Nichts kommt heraus.
 
 - [ ] **Step 2: Die Arithmetik in `src/contacts.js`**
 
-`drahtStufe` (Zeile 96) **löschen**. `decay` (Zeile 110) **unverändert stehen lassen**. Dahinter einfügen:
+`drahtStufe` (Zeile 96) **bleibt stehen** — ihre drei Aufrufer in `listFor`, `detail` und `request` verschwinden erst in Task 3. `decay` (Zeile 110) bleibt ebenfalls unverändert; sie ist das Referenzmodell des Paritätstests. Hinter `decay` einfügen:
 
 ```js
 /** Der Draht ist abgeleitet – hier gerechnet, geschrieben nur in db.saveContact. */
@@ -483,7 +483,7 @@ function respektGewicht(meine, seine) {
 }
 ```
 
-`module.exports`: `drahtStufe` heraus, `drahtVon, decayAchse, respektGewicht` hinein. `decay` bleibt exportiert.
+`module.exports` wird nur **ergänzt**: `drahtVon, decayAchse, respektGewicht` hinein. `drahtStufe` und `decay` bleiben exportiert.
 
 > **Warum `istPartner` und `artOf` hier NICHT stehen:** `src/contacts.js:223` trägt heute eine `function istPartner(row, draht)` mit fünf Aufrufern (Zeilen 282, 308, 422, 505, 506). Ein zusätzliches `const istPartner` im selben Gültigkeitsbereich ist ein `SyntaxError: Identifier 'istPartner' has already been declared` — die Datei ließe sich nicht einmal laden. Beide Funktionen kommen deshalb in Task 3, wo die alte Fassung und ihre fünf Aufrufer in derselben Änderung verschwinden.
 
@@ -636,6 +636,20 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
   - `contacts.detail(...)` liefert zusätzlich `respekt`, `vertrauen`, `boden`, `art`; `stufe` ist **weg**
   - `contacts.request(...)` liefert zusätzlich `achsen`, `achsenVor`, `art`; `stufe` ist **weg**
 
+> **Diese Aufgabe traegt alle Löschungen des Stücks.** Task 2 war rein additiv, damit die Suite nicht über zwei Aufgaben rot steht. Was hier verschwindet, und zwar jeweils in derselben Änderung, die seine Leser ersetzt:
+>
+> | zu löschen | Leser, die hier ersetzt werden |
+> |---|---|
+> | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | `contacts.js:449-456` (Step 5, ersetzt durch `data.ACHSEN`) |
+> | `data.PARTNER_YES` | `contacts.js:224`, die alte `istPartner` (Step 6) |
+> | `data.STUFE_BEEF` | `contacts.js:96` in `drahtStufe` (siehe nächste Zeile) |
+> | `contacts.drahtStufe` | `listFor`, `detail` (Step 4) und `request` (Step 5) — ersetzt durch `artOf` |
+> | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
+>
+> `data.DRAHT_DECAY_PRO_WOCHE` und `contacts.decay` bleiben: Sie sind das Referenzmodell des Paritätstests.
+>
+> Am Ende dieser Aufgabe müssen `test/contacts.test.js`, `test/beef.test.js`, `test/angebote.test.js`, `test/beziehungen.test.js` und `test/db.test.js` alle auf `0 fehlgeschlagen` stehen.
+
 - [ ] **Step 1: `achsenJetzt` und `drahtJetzt`**
 
 `drahtJetzt` (Zeile 207) **ersetzen**:
@@ -670,7 +684,17 @@ function istPartnerRow(row, now) {
 
 - [ ] **Step 2: `move` statt `moveDraht`**
 
-`istPartner` (Zeile 223, die alte Fassung mit `yes >= PARTNER_YES`) **löschen** und `moveDraht` (Zeile 395) **ersetzen**:
+`moveDraht` (Zeile 395) **bleibt vorerst stehen** — `src/beef.js` und `src/angebote.js` rufen es an neun Stellen, und die kommen erst in Task 4 und 5 dran. `move` wird **daneben** gebaut, und `moveDraht` ruft es intern, damit es nur eine Schreibmechanik gibt:
+
+```js
+/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
+ *  Spaltung – Mittelwert unverändert, siehe Paritätstest. */
+function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
+  return move(guildId, userId, contactId, { respekt: delta, vertrauen: delta }, now, opts);
+}
+```
+
+Die alte `istPartner` (Zeile 223) wird in Step 6 gelöscht. `move` selbst:
 
 ```js
 /**
@@ -869,7 +893,7 @@ Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`,
       meine: k.meine, seine: k.seine, trait: contact.trait, beefOffen: false }),
 ```
 
-`stufe` fällt überall weg. `module.exports`: `moveDraht` heraus; `move, achsenJetzt, istPartnerRow` hinein (`drahtJetzt` und `istPartner` bleiben).
+`stufe` fällt überall weg. `module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis Task 5 exportiert, `drahtJetzt` dauerhaft.
 
 - [ ] **Step 6: `istPartner` und `artOf` — die alte Fassung verschwindet in derselben Änderung**
 
