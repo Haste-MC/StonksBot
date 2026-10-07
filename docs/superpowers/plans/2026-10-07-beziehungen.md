@@ -1310,7 +1310,31 @@ Die anderen drei `REQUESTS` bekommen `minVertrauen: null`. `KONZERT_VERTRAUEN` e
 >
 > Dieselbe stille Falle wie das `undefined` beim Stufennamen, nur in anderer Form: Der Spieler sieht etwas Falsches, und kein Test blinkt. (Diese zwei Leser standen vorher in Task 6 — zwei Aufgaben zu spät.)
 
-`module.exports` in `data/angebote.js`: `DRAHT_AN, DRAHT_AB, DRAHT_VERFALL` heraus; `ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH, BODEN_AN, BODEN_FERTIG` hinein.
+**`DRAHT_AN`, `DRAHT_AB` und `DRAHT_VERFALL` werden NICHT gelöscht, sondern aus den Paaren abgeleitet:**
+
+```js
+/**
+ * Die alten Draht-Deltas, jetzt abgeleitet statt doppelt gepflegt.
+ *
+ * Fünf Stellen lesen sie weiter, und zwei davon sind Spielermeldungen:
+ * `buttons.js` („Draht −8"), `angeboteUi.js` („Absagen kostet 5 Draht,
+ * Liegenlassen 8"), dazu sieben Zusicherungen in test/angebote.test.js und drei
+ * in test/fluxer-render.test.js. Gelöscht stünde in den Meldungen `NaN`.
+ *
+ * Die Ableitung ist dabei mehr als Bequemlichkeit: Sie erzwingt im CODE, was
+ * sonst nur ein Test behauptet – dass der Mittelwert jedes Paares das alte
+ * Draht-Delta ist. Wer ein Paar so ändert, dass der Mittelwert wandert, sieht
+ * es sofort in der Spielermeldung.
+ */
+const mittel = (paar) => (paar.respekt + paar.vertrauen) / 2;
+const DRAHT_AN = mittel(ACHSEN_AN);            // +8
+const DRAHT_AB = mittel(ACHSEN_AB);            // −5
+const DRAHT_VERFALL = mittel(ACHSEN_VERFALL);  // −8
+```
+
+Gegengerechnet: Die drei Mittelwerte **sind** 8, −5 und −8, also genau die bisherigen Literale. Damit überleben alle fünf Leser unverändert, und die zehn bestehenden Zusicherungen in `test/angebote.test.js` und `test/fluxer-render.test.js` werden zu **kostenlosen Paritätsproben** dieser Aufgabe: `getContact(…).draht === 30 + DRAHT_AN` muss nach der Umstellung weiter stimmen, weil `(30+4 + 30+12) / 2 = 38` ist.
+
+`module.exports` in `data/angebote.js`: `DRAHT_AN, DRAHT_AB, DRAHT_VERFALL` **bleiben** (jetzt abgeleitet); `ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH, BODEN_AN, BODEN_FERTIG` kommen hinzu.
 
 - [ ] **Step 2: `artenFuer` nimmt beide Achsen**
 
@@ -1518,7 +1542,22 @@ const ACHSEN_KONTER = { respekt: -6, vertrauen: -14 };       // Mittel −10 (wi
 const ACHSEN_ANGEZAEHLT = { respekt: -4, vertrauen: -16 };   // Mittel −10 (wie vorher)
 ```
 
-Die fünf `DRAHT_*` löschen. `FRIEDEN_PLUS` (30) und `FRIEDEN_DECKEL` (−10) bleiben unverändert — sie wirken jetzt auf Vertrauen. Den Kommentar dort nachziehen:
+**Die fünf `DRAHT_*` werden hier wirklich gelöscht** — anders als bei den Angeboten, wo die Mittelwerte unverändert blieben und die Konstanten darum abgeleitet weiterleben. Gegengerechnet:
+
+| | Mittel neu | alt | |
+|---|---|---|---|
+| `ANSTACHELN` | −12 | −15 | **weicht ab** |
+| `BLAMAGE` | −7 | −5 | **weicht ab** |
+| `DISS` | −13 | −20 | **weicht ab** |
+| `KONTER` | −10 | −10 | gleich |
+| `ANGEZAEHLT` | −10 | −10 | gleich |
+
+Drei der fünf verschieben sich **absichtlich** — eine Ableitung wäre hier also eine Lüge. Zwei Zusicherungen lesen die alten Konstanten und müssen auf die neuen Zahlen nachgezogen werden, **nicht** gelöscht:
+
+- `test/beef.test.js:256` „Einstieg kostet Draht −15" → der Einstieg kostet jetzt **−12** (`ACHSEN_ANSTACHELN` ist 0/−24).
+- `test/beef.test.js:914` „Draht −10" → unverändert **−10** (`ACHSEN_ANGEZAEHLT` ist −4/−16), nur die Konstante im Test wechselt.
+
+`FRIEDEN_PLUS` (30) und `FRIEDEN_DECKEL` (−10) bleiben unverändert — sie wirken jetzt auf Vertrauen. Den Kommentar dort nachziehen:
 
 ```js
 // --- Frieden ---------------------------------------------------------------
