@@ -599,6 +599,10 @@ const BEZIEHUNGSARTEN = ['beef', 'rivale', 'verstimmt', 'mentor', 'schuetzling',
  *  • Vertrauen: je Konto der höchste und der tiefste Stand über alle Kontakte
  *    mit Datenbankzeile (wer nie angeschrieben wurde, steht bei 0 und zählt
  *    nicht als „tiefster") und die Tage mit mindestens einem Kontakt unter 0.
+ *  • `tageEinbruch`: Tage, an denen ein Kontakt unter Vertrauen 0 liegt, der
+ *    schon einmal Vertrauen >= 50 hatte - der Rückschlag einer GUTEN Beziehung
+ *    (Brief 5b). Die rohe Zahl `tageUnterNull` sättigt, sobald Beef läuft, und
+ *    steht nur zur Einordnung daneben.
  *  • `drahtMax` steht daneben, damit der Vergleich mit dem Draht der alten Welt
  *    (Anteil mit Draht ≥ 50) aus demselben Lauf kommt.
  *  • Projekte: aus `db.projekteOf` am Laufende, nur `kollabo` und `tour`.
@@ -612,7 +616,7 @@ function neuerBeziehungsZaehler() {
   return {
     konten: 0,
     arten: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, { konten: 0, paare: 0, ende: 0 }])),
-    vertrauenMax: [], vertrauenMin: [], tageUnterNull: [], drahtMax: [],
+    vertrauenMax: [], vertrauenMin: [], tageUnterNull: [], tageEinbruch: [], drahtMax: [],
     partnerJemals: 0,            // Konten, die an irgendeinem Tag einen Partner hatten
     ohneKontakt: 0,              // Konten ohne eine einzige Kontaktzeile (kein Max/Min)
     projekte: {
@@ -626,6 +630,8 @@ function neuerBeziehungsZaehler() {
 function neuerBeziehungsStand() {
   return {
     max: -Infinity, min: Infinity, drahtMax: -Infinity, tageUnterNull: 0, partner: false,
+    war50: new Set(),          // Kontakte, die irgendwann Vertrauen >= 50 hatten
+    tageEinbruch: 0,           // Tage mit einem solchen Kontakt unter Vertrauen 0
     jemals: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, new Set()])),
     ende: null,
   };
@@ -647,14 +653,18 @@ function beziehungsTag(st, G, U, now) {
   st.ende = heute;
   // Vertrauen und Draht nur über Kontakte, die es in der Datenbank wirklich gibt.
   let unterNull = false;
+  let einbruch = false;
   for (const z of db.contactsOf(G, U)) {
     const a = contacts.achsenJetzt(z, now);
+    if (a.vertrauen >= 50) st.war50.add(z.contact_id);
+    if (a.vertrauen < 0 && st.war50.has(z.contact_id)) einbruch = true;
     if (a.vertrauen > st.max) st.max = a.vertrauen;
     if (a.vertrauen < st.min) st.min = a.vertrauen;
     if (a.draht > st.drahtMax) st.drahtMax = a.draht;
     if (a.vertrauen < 0) unterNull = true;
   }
   if (unterNull) st.tageUnterNull++;
+  if (einbruch) st.tageEinbruch++;
 }
 
 /** Am Laufende: den Tagesstand des Kontos und die Projekte in den Zähler übernehmen. */
@@ -672,6 +682,7 @@ function beziehungsEnde(bz2, st, G, U) {
     bz2.drahtMax.push(st.drahtMax);
   }
   bz2.tageUnterNull.push(st.tageUnterNull);
+  bz2.tageEinbruch.push(st.tageEinbruch);
   if (st.partner) bz2.partnerJemals++;
   for (const p of db.projekteOf(G, U)) {
     const z = bz2.projekte[p.art];
@@ -709,6 +720,11 @@ function beziehungsZeilen(bz2, { projekteMoeglich = true } = {}) {
     `Mittel ${komma(mittel(bz2.tageUnterNull), 1)}, größter ${bz2.tageUnterNull.length ? Math.max(...bz2.tageUnterNull) : '–'} · ` +
     `Konten mit mindestens einem solchen Tag: ${bz2.tageUnterNull.filter((t) => t > 0).length} von ${n} · ` +
     `sortiert: ${liste(bz2.tageUnterNull) || '–'}`);
+  const eb = bz2.tageEinbruch;
+  out.push(`           Tage mit einem Kontakt unter Vertrauen 0, der schon einmal Vertrauen ≥ 50 hatte (der Einbruch ` +
+    `einer guten Beziehung, Brief 5b): Median ${med(eb)}, Mittel ${komma(mittel(eb), 1)}, ` +
+    `größter ${eb.length ? Math.max(...eb) : '–'} · Konten mit mindestens einem solchen Tag: ` +
+    `${eb.filter((t) => t > 0).length} von ${n} · sortiert: ${liste(eb) || '–'}`);
   const pk = bz2.projekte.kollabo;
   const pt = bz2.projekte.tour;
   const fertig = pk.fertig + pt.fertig;
@@ -3477,6 +3493,7 @@ function neuerAngebotZaehler(spielweise) {
     // Projekte
     projekteAuf: {}, projekteFertig: {}, projekteVerfallen: {},
     verfalleneStunden: [],          // Stunden, die mit einem Projekt verfallen sind
+    kollaboVerfall: [],             // je verfallenem Kollabo { ist, soll, titel }
     druecke: 0, arbeitAb: {},
     kollaboFaktoren: [], kollaboAudience: [], kollaboPlatz: [], kollaboGewonnen: [],
     tourAbende: 0, tourKonzerte: [], tourAbgesagt: 0, tourBrutto: [], tourNetto: 0,
@@ -3484,7 +3501,7 @@ function neuerAngebotZaehler(spielweise) {
     // Vertrag
     vertragAngebote: 0, vertragArten: {}, unterschrieben: 0, vorschuesse: [],
     vorschussNetto: 0, signAb: {}, vertragEnden: 0,
-    // Draht am Ende jedes Laufs – der Beweis, dass es Partner gab
+    // Beziehung am Ende jedes Laufs – der Beweis, dass es Partner gab (Respekt UND Vertrauen)
     partnerAmEnde: [], bekanntAmEnde: [], partnerReach: [],
   };
 }
@@ -3506,7 +3523,7 @@ music.settleContracts = (...a) => {
  * aus dem `vorher` JEDES Knopfdrucks. Doppelt zählt dabei nichts: `settle`
  * meldet ein Ereignis genau einmal, weil es es beim Melden auch schreibt.
  */
-function zaehleAngebotEreignisse(ereignisse) {
+function zaehleAngebotEreignisse(ereignisse, kontext = null) {
   if (!ag) return;
   for (const e of ereignisse ?? []) {
     if (e.art === 'neu') {
@@ -3520,6 +3537,20 @@ function zaehleAngebotEreignisse(ereignisse) {
       const id = e.projekt?.art ?? '?';
       ag.projekteVerfallen[id] = (ag.projekteVerfallen[id] ?? 0) + 1;
       ag.verfalleneStunden.push(e.projekt?.stunden_ist ?? 0);
+      /*
+       * Warum ein Kollabo verfällt (Task 7): Stunden gegen Soll UND die Titel, die
+       * beim Verfall im Katalog lagen. Ein Konto mit vollen Stunden und zu wenigen
+       * Titeln hängt an `no_songs` (`angebote.arbeiten`, `KOLLABO_TITEL`); eines mit
+       * zu wenigen Stunden hat die Zeit nicht investiert. Die Titel stehen am
+       * `now` der Abrechnung, also am Tag, an dem der Verfall bemerkt wird (nach der
+       * Frist), nicht an der Frist selbst.
+       */
+      if (e.projekt?.art === 'kollabo') {
+        ag.kollaboVerfall.push({
+          ist: e.projekt.stunden_ist ?? 0, soll: e.projekt.stunden_soll ?? 0,
+          titel: kontext ? music.status(kontext.G, kontext.U, kontext.now).songs : null,
+        });
+      }
     }
   }
 }
@@ -3633,7 +3664,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
   // 1. Zustellung und Fristen. Die Pause wird an der Uhr abgelesen, nicht
   //    nachgerechnet: `settle` meldet sie nicht als Ereignis.
   const uhrVor = db.angebotUhr(G, U);
-  zaehleAngebotEreignisse(angebote.settle(G, U, now, rand));
+  zaehleAngebotEreignisse(angebote.settle(G, U, now, rand), { G, U, now });
   const uhrNach = db.angebotUhr(G, U);
   if (uhrNach.pause_bis > uhrVor.pause_bis && uhrNach.pause_bis > now) ag.pausen++;
 
@@ -3652,7 +3683,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
     }
     if (annahme.has(a.art)) {
       const r = await angebote.annehmen(G, U, a.id, now, rand);
-      zaehleAngebotEreignisse(r.vorher);
+      zaehleAngebotEreignisse(r.vorher, { G, U, now });
       zaehleAnnahme(a.art, a.contact, r);
       if (TRACE === 'angebote' && r.ok) {
         console.error(JSON.stringify({
@@ -3667,7 +3698,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
       }
     } else {
       const r = angebote.ablehnen(G, U, a.id, now, rand);
-      zaehleAngebotEreignisse(r.vorher);
+      zaehleAngebotEreignisse(r.vorher, { G, U, now });
       if (r.ok) ag.abgelehnt[a.art] = (ag.abgelehnt[a.art] ?? 0) + 1;
       else ag.annahmeAb[`${a.art}/ab-${r.reason}`] = (ag.annahmeAb[`${a.art}/ab-${r.reason}`] ?? 0) + 1;
     }
@@ -3693,7 +3724,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
       }));
     }
     const r = await angebote.arbeiten(G, U, offen[0].id, now + i * 1000, rand);
-    zaehleAngebotEreignisse(r.vorher);
+    zaehleAngebotEreignisse(r.vorher, { G, U, now: now + i * 1000 });
     if (!r.ok) {
       ag.arbeitAb[`${offen[0].art}/${r.reason}`] = (ag.arbeitAb[`${offen[0].art}/${r.reason}`] ?? 0) + 1;
       break;                       // derselbe Grund gilt auch für den zweiten Druck
@@ -3754,10 +3785,13 @@ async function angebotvariante(kennungBasis, musik, strat, laeufe, tage, spielwe
        */
       const ende = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + tage * DAY;
       const zeilen = db.contactsOf(G, U)
-        .map((z) => ({ c: contactsData.byId(z.contact_id), draht: contacts.drahtJetzt(z, ende) }))
+        .map((z) => ({ c: contactsData.byId(z.contact_id), draht: contacts.drahtJetzt(z, ende),
+          partner: contacts.istPartnerRow(z, ende) }))
         .filter((z) => (z.c?.reach ?? 0) > 0);
       ag.bekanntAmEnde.push(zeilen.filter((z) => z.draht >= contactsData.STUFE_BEKANNT).length);
-      const partner = zeilen.filter((z) => z.draht >= contactsData.STUFE_PARTNER);
+      // Partner nach der EINEN Regel (`istPartner`: Respekt UND Vertrauen >= 50),
+      // nicht nach dem Draht – Respekt 100 / Vertrauen 0 ist Draht 50 und kein Partner.
+      const partner = zeilen.filter((z) => z.partner);
       ag.partnerAmEnde.push(partner.length);
       for (const z of partner) ag.partnerReach.push(z.c.reach);
     }
@@ -3809,6 +3843,17 @@ function angebotZeilen(z, tage, laeufe) {
     `Ø Reichweite des Partners ${f(z.gageSeine)}`);
   out.push(`Projekte aufgemacht: ${liste(z.projekteAuf)} · fertig: ${liste(z.projekteFertig)} · ` +
     `verfallen: ${liste(z.projekteVerfallen)} (dabei verfallene Stunden ${f(z.verfalleneStunden, 1)})`);
+  const kv = z.kollaboVerfall;
+  if (kv.length) {
+    const voll = kv.filter((k) => k.ist >= k.soll);
+    const titel = kv.map((k) => k.titel).filter((t) => t !== null);
+    out.push(`Verfallene Kollabos ${kv.length}: Stunden voll (${kv[0].soll}) bei ${voll.length}, ` +
+      `davon mit weniger als ${angeboteData.KOLLABO_TITEL} Titeln beim Verfall ` +
+      `${voll.filter((k) => (k.titel ?? Infinity) < angeboteData.KOLLABO_TITEL).length} · ` +
+      `Titel beim Verfall: Ø ${titel.length ? komma(mittel(titel), 1) : '–'} ` +
+      `(Soll ${angeboteData.KOLLABO_TITEL}) · je Projekt Stunden/Titel: ` +
+      `${kv.map((k) => `${k.ist}/${k.soll} h, ${k.titel ?? '?'} T`).join('; ')}`);
+  }
   out.push(`Drücke auf „daran arbeiten" ${de(z.druecke)} (${komma(z.druecke / n, 3)}/Tag, je Druck ` +
     `${angeboteData.ARBEIT_STUNDEN} h = ${de(z.druecke * angeboteData.ARBEIT_STUNDEN)} Stunden) · ` +
     `abgewiesen: ${liste(z.arbeitAb)}`);
@@ -3823,8 +3868,9 @@ function angebotZeilen(z, tage, laeufe) {
     `unterschrieben ${de(z.unterschrieben)} · ausgelaufen ${de(z.vertragEnden)} · ` +
     `Vorschuss ${f(z.vorschuesse)}, Σ ${de(z.vorschussNetto)} (${de(z.vorschussNetto / n)}/Tag) · ` +
     `nicht unterschrieben: ${liste(z.signAb)}`);
-  out.push(`Draht am Laufende (nur Kontakte mit Musik-Reichweite): Partner (≥ ` +
-    `${contactsData.STUFE_PARTNER}) ${f(z.partnerAmEnde, 1)} · bekannt (≥ ${contactsData.STUFE_BEKANNT}) ` +
+  out.push(`Beziehung am Laufende (nur Kontakte mit Musik-Reichweite): Partner (Respekt ≥ ` +
+    `${contactsData.PARTNER_RESPEKT} und Vertrauen ≥ ${contactsData.PARTNER_VERTRAUEN}) ${f(z.partnerAmEnde, 1)} · ` +
+    `bekannt (Draht ≥ ${contactsData.STUFE_BEKANNT}) ` +
     `${f(z.bekanntAmEnde, 1)} · Reichweite dieser Partner ${f(z.partnerReach)}`);
   return out;
 }
@@ -3898,23 +3944,27 @@ function angebotDecken() {
    */
   const ich = { language: 'deutsch', genre: 'pop' };
   /** Dieselben Summanden, mit denen `contacts.detail` die Chance auf den Knopf schreibt. */
-  const chance = (c, meine, draht) => contacts.chanceOf({
+  const chance = (c, meine, respekt = 0, vertrauen = 0) => contacts.chanceOf({
     meineReichweite: meine, seineReichweite: c.reach, request: 'shoutout',
     gleichesLand: c.country === 'de',
     sprache: c.language === ich.language ? 'gleich' : (c.language === 'englisch' ? 'englisch' : 'fremd'),
     genre: c.genre === ich.genre ? 'gleich'
       : (contactsData.RELATED_GENRES.some(([x, y]) => (x === ich.genre && y === c.genre)
         || (y === ich.genre && x === c.genre)) ? 'verwandt' : 'fremd'),
-    draht, hype: 1, trait: c.trait, partner: draht >= contactsData.STUFE_PARTNER,
+    respekt, vertrauen, hype: 1, trait: c.trait, partner: contacts.istPartner(respekt, vertrauen),
   });
   for (const meine of [100_000, 1_000_000]) {
     const zeilen = contactsData.CONTACTS.filter((c) => c.reach > 0)
       .sort((a, b) => b.reach - a.reach).slice(0, 3)
-      .map((c) => `${c.name} (${de(c.reach)}) ${komma(chance(c, meine, 0) * 100, 1)} %`);
+      .map((c) => `${c.name} (${de(c.reach)}) ${komma(chance(c, meine, 0, 0) * 100, 1)} %`);
     out.push(`  Antwortchance eines deutschen Pop-Künstlers mit ${de(meine)} Hörern bei den drei größten ` +
-      `Kontakten (chanceOf mit „Erwähnung", Draht 0, Hype 1,0): ${zeilen.join(' · ')} – ` +
+      `Kontakten (chanceOf mit „Erwähnung", Respekt 0, Vertrauen 0, Hype 1,0): ${zeilen.join(' · ')} – ` +
       `${komma(contactsData.CHANCE_MIN * 100, 1)} % ist die Untergrenze CHANCE_MIN, und sie ändert sich ` +
-      `mit dem Draht nur um ${komma(0.25 * 100, 0)} Punkte × Draht/100`);
+      `mit dem RESPEKT (nicht dem Draht) um ${komma(contactsData.RESPEKT_W_MIN * 100, 0)} bis ` +
+      `${komma((contactsData.RESPEKT_W_MIN + contactsData.RESPEKT_W_SPAN) * 100, 0)} Punkte × Respekt/100 – ` +
+      `je größer der Abstand, desto mehr, das volle Gewicht ab ${contactsData.RESPEKT_W_DEKADEN} Dekaden; ` +
+      `ein Vertrauen unter 0 dämpft den Respekt-Term und senkt die Chance zusätzlich, ` +
+      `positives Vertrauen hebt sie nicht`);
   }
   return out;
 }
