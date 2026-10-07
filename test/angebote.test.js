@@ -486,9 +486,6 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 10, JSON.stringify(ab));
     check('eine saubere Absage ist keine Geschichte: kein Gedächtniseintrag',
       db.memoryOf(G, U, LILPFAND.id, 20).length === 0, JSON.stringify(db.memoryOf(G, U, LILPFAND.id, 20)));
-    check('Absagen meldet die Stufe mit (die Meldung liest `stufe`; Quelle ist `contacts.move`)',
-      typeof r.draht.stufe === 'string' && r.draht.stufe === contacts.drahtStufe(r.draht.nachher),
-      JSON.stringify(r.draht));
     check('Ablehnen kostet keine Zeit', creator.budget(G, U, T0).left === zeitVor);
     check('Status "ab", und es zählt als nicht angenommen',
       db.angebotRow(G, row.id).status === 'ab' && db.angebotUhr(G, U).abgelehnt_folge === 1);
@@ -982,8 +979,6 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const ak = achsen(G, U, RAF.id);
     check('Annehmen eines Kollabos: Respekt +4, Vertrauen +12, aber Boden 0',
       ak.respekt === 64 && ak.vertrauen === 72 && ak.boden === 0, JSON.stringify(ak));
-    check('die Annahmemeldung kennt die Stufe (`stufe` am Draht)',
-      typeof r.draht.stufe === 'string' && r.draht.stufe.length > 0, JSON.stringify(r.draht));
     const offen = ang.offeneProjekte(G, U, T0);
     check('es steht in offeneProjekte, mit Kontakt und Restzeit',
       offen.length === 1 && offen[0].contact.id === RAF.id

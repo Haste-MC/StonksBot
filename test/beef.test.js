@@ -410,7 +410,7 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       hitze, runden_ich: 0, runden_er: 0, last_hit: t0, last_cool: t0,
       konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
 
-    contacts.moveDraht(G, U, klein.id, -60, t0);
+    contacts.move(G, U, klein.id, { respekt: -60, vertrauen: -60 }, t0);
     beefZeile(klein.id, 0);
     const f1 = beef.frieden(G, U, klein.id, t0);
     // Das Vertrauen steigt (−60 + 30 = −30), der Respekt bleibt bei −60:
@@ -440,7 +440,7 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       && db.beefRow(G, U, klein.id).bonus_until === 0
       && nah(beef.bonusOf(G, U, t0).faktor, 1));
 
-    contacts.moveDraht(G, U, klein2.id, -20, t0);
+    contacts.move(G, U, klein2.id, { respekt: -20, vertrauen: -20 }, t0);
     beefZeile(klein2.id, 0);
     const f2 = beef.frieden(G, U, klein2.id, t0);
     check('Vertrauen −20 + 30 wird auf −10 gedeckelt, der Respekt bleibt −20 (Draht −15)',
@@ -470,7 +470,7 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     // auch nicht kosten.
     {
       const P = await musiker('b6b', 10_000);
-      contacts.moveDraht(G, P, klein.id, 75, t0);
+      contacts.move(G, P, klein.id, { respekt: 75, vertrauen: 75 }, t0);
       db.saveBeef(G, P, klein.id, { hitze: 0, runden_ich: 0, runden_er: 0, last_hit: t0,
         last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
       const f4 = beef.frieden(G, P, klein.id, t0);
@@ -480,8 +480,9 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     }
 
     // Ungleiche Achsen: Der Frieden liest das VERTRAUEN, nicht den Draht und nicht
-    // den Respekt. Die Fälle oben starten alle bei gleichen Achsen (moveDraht
-    // spaltet gleichmäßig) und könnten die zwei verwechseln. Hier: Respekt 40,
+    // den Respekt. Die Fälle oben starten alle bei gleichen Achsen (die
+    // Aufbauzeilen spalten gleichmäßig) und könnten die zwei verwechseln.
+    // Hier: Respekt 40,
     // Vertrauen −70 → Vertrauen −70 + 30 = −40, Respekt bleibt 40, Draht 0.
     {
       const A = await musiker('b6d', 10_000);
@@ -504,7 +505,7 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     // spannen, beliebig oft.
     {
       const S = await musiker('b6c', 10_000);
-      contacts.moveDraht(G, S, klein2.id, -40, t0);
+      contacts.move(G, S, klein2.id, { respekt: -40, vertrauen: -40 }, t0);
       db.saveBeef(G, S, klein2.id, { hitze: 0, runden_ich: 0, runden_er: 0, last_hit: t0,
         last_cool: t0, konter_at: 0, angefangen: t0, status: 'offen', bonus_until: 0 });
       const k1 = beef.frieden(G, S, klein2.id, t0);
@@ -1049,7 +1050,8 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     }
     {
       const U = await musiker('bU', 10_000);
-      contacts.moveDraht(G, U, musikKontakte[0].id, cdata.STUFE_PARTNER, t0);
+      contacts.move(G, U, musikKontakte[0].id,
+      { respekt: cdata.STUFE_PARTNER, vertrauen: cdata.STUFE_PARTNER }, t0);
       db.saveBeef(G, U, musikKontakte[1].id, offeneZeile(25));
       const r = beef.anzaehlen(G, U, t0, wuerfel(0.01, 0, 0));
       check('Partner und laufende Beefs fallen aus der Auswahl',
