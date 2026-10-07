@@ -1146,6 +1146,11 @@ db.exec(`
 // Die Wanderung setzt beide auf den heutigen Draht – (d+d)/2 = d ohne Rundung,
 // am Wanderungstag ist also jeder Draht unverändert. Sie hängt an den gerade
 // angelegten Spalten und läuft darum genau einmal.
+// Nicht atomar: ADD COLUMN und UPDATE sind zwei Anweisungen. Bricht der Prozess
+// genau dazwischen ab, ist `respekt` beim nächsten Start schon da, die Wanderung
+// entfällt, und alle Achsen bleiben dauerhaft auf 0. Das Fenster ist winzig und
+// folgt dem Muster des Projekts (Spalten nachziehen, dann füllen) – bewusst
+// hingenommen, kein Code dafür.
 {
   const have = new Set(db.prepare('PRAGMA table_info(contacts)').all().map((c) => c.name));
   const spalten = {
