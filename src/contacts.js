@@ -537,6 +537,10 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
 
   return {
     vorher: vor.draht, nachher: drahtVon(respektNeu, vertrauenNeu),
+    // Die einzige Quelle für `stufe` an einer Drahtbewegung: `buttons.beefDraht`
+    // liest es („Draht 38 (+8, Stufenname)"), und kein Test prüft diese
+    // Zeichenkette – fehlte es, stünde dort still „undefined".
+    stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu)),
     achsenVor: { respekt: vor.respekt, vertrauen: vor.vertrauen, boden: vor.boden },
     achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu },
   };
@@ -558,11 +562,9 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
  * weil der Respekt oben anliegt.
  */
 function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
-  const erg = move(guildId, userId, contactId,
+  // `move` meldet `stufe` selbst mit – die Hülle gibt sein Ergebnis unverändert zurück.
+  return move(guildId, userId, contactId,
     { respekt: delta, vertrauen: delta }, now, opts);
-  // `stufe` muss mitkommen: buttons.js:798 (beefDraht) liest es, und kein Test
-  // prüft diese Zeichenkette – ohne das Feld stünde dort still „undefined".
-  return { ...erg, stufe: drahtStufe(erg.nachher) };
 }
 
 /**

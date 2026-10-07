@@ -121,16 +121,6 @@ const DAY_MS = 86_400_000;
 function artOf(id) { return data.ARTEN.find((a) => a.id === String(id ?? '')) ?? null; }
 
 /**
- * Die Drahtbewegung samt Stufe. `contacts.move` meldet nur vorher/nachher und
- * die Achsen; `buttons.beefDraht` liest aber `stufe` (aus dem alten
- * `moveDraht`) – ohne das Feld stünde in der Annahme- und Absagemeldung still
- * „undefined" statt des Stufennamens, und kein Test prüft diese Zeichenkette.
- */
-function mitStufe(contacts, erg) {
-  return { ...erg, stufe: contacts.drahtStufe(erg.nachher) };
-}
-
-/**
  * Wer ich auf der MUSIKSEITE bin – Sprache und Genre, für die Passung.
  *
  * Wie in 5b holt sich dieses Modul seine beiden Zahlen selbst und nimmt NICHT
@@ -303,10 +293,10 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
     if (row.status !== 'offen' || row.frist > now) continue;
     const neu = db.saveAngebot(guildId, row.id, { status: 'verfallen' });
     const contact = katalog.byId(row.contact_id);
-    const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+    const draht = contacts.move(guildId, userId, row.contact_id, {
       ...data.ACHSEN_VERFALL,
       merken: { art: 'angebot_verfallen', detail: artOf(row.art)?.name ?? row.art },
-    }, now));
+    }, now);
     abgelehntFolge += 1;
     ereignisse.push({
       art: 'verfallen', contact,
@@ -323,10 +313,10 @@ function settle(guildId, userId, now = Date.now(), random = Math.random) {
     const contact = katalog.byId(row.contact_id);
     // NEU in 6a: Ein bezahltes Projekt verrotten zu lassen kostet Vertrauen.
     // Vorher war der härteste Fehlgriff des Systems am Draht unsichtbar.
-    const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+    const draht = contacts.move(guildId, userId, row.contact_id, {
       ...data.ACHSEN_PFUSCH,
       merken: { art: 'projekt_verfallen', detail: artOf(row.art)?.name ?? row.art },
-    }, now));
+    }, now);
     ereignisse.push({
       art: 'projekt_verfallen', contact, draht,
       projekt: { ...neu, artInfo: artOf(row.art), contact },
@@ -631,13 +621,13 @@ async function annehmen(guildId, userId, id, now = Date.now(), random = Math.ran
 
   // 8. Jetzt ist es verbindlich: Status, Draht, Zähler.
   const angebot = db.saveAngebot(guildId, id, { status: 'an' });
-  const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, {
+  const draht = contacts.move(guildId, userId, row.contact_id, {
     ...data.ACHSEN_AN,
     // kollabo und tour sind mit der Annahme NICHT erledigt – ihr Boden kommt
     // beim Abschluss über BODEN_FERTIG. Sonst zählte dasselbe zweimal.
     boden: projekt ? 0 : data.BODEN_AN,
     merken: { art: 'angebot_an', detail: art.name },
-  }, now));
+  }, now);
   const uhr = db.angebotUhr(guildId, userId);
   db.saveAngebotUhr(guildId, userId, { ...uhr, abgelehnt_folge: 0 });
 
@@ -672,7 +662,7 @@ function ablehnen(guildId, userId, id, now = Date.now(), random = Math.random) {
   const { row, art, contact } = p;
 
   const angebot = db.saveAngebot(guildId, id, { status: 'ab' });
-  const draht = mitStufe(contacts, contacts.move(guildId, userId, row.contact_id, data.ACHSEN_AB, now));
+  const draht = contacts.move(guildId, userId, row.contact_id, data.ACHSEN_AB, now);
   const uhr = db.angebotUhr(guildId, userId);
   db.saveAngebotUhr(guildId, userId, { ...uhr, abgelehnt_folge: uhr.abgelehnt_folge + 1 });
 

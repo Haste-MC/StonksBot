@@ -812,6 +812,19 @@ const aufraeumen = () => {
     check('Boden +5 auf 10 ergibt 15 und hebt das Vertrauen von 12 auf 15 (nicht bei 12 stehen)',
       m1.achsen.boden === 15 && m1.achsen.vertrauen === 15
       && db.getContact(G, U6, 'anitta').vertrauen === 15, JSON.stringify(m1.achsen));
+    // Quelle der Stufe: `buttons.beefDraht` liest `stufe` aus JEDER Drahtbewegung
+    // (Angebote, später Beef) – fehlt sie hier, stünde dort still „undefined".
+    // Draht 13 liegt unter STUFE_BEKANNT (20), 73 darüber – der Name muss mitwandern.
+    check('move liefert `stufe` selbst, passend zum neuen Draht',
+      typeof m1.stufe === 'string' && m1.stufe === contacts.drahtStufe(m1.nachher),
+      JSON.stringify(m1));
+    const mS = contacts.move(G, U6, 'anitta', { respekt: 60, vertrauen: 60 }, T);
+    check('und die Stufe folgt dem Draht über die Schwelle',
+      mS.stufe === contacts.drahtStufe(mS.nachher) && mS.stufe !== m1.stufe,
+      JSON.stringify({ a: m1.stufe, b: mS.stufe, nachher: mS.nachher }));
+    // Zurück auf den Stand nach m1, damit die folgenden Zusicherungen unverändert gelten.
+    db.saveContact(G, U6, 'anitta', { respekt: 10, vertrauen: 15, boden: 15,
+      tries: 0, yes: 4, last_try: 0, last_move: T, ignored_at: 0 });
     check('move lässt yes stehen (4 bleibt 4)', db.getContact(G, U6, 'anitta').yes === 4,
       String(db.getContact(G, U6, 'anitta').yes));
     const m2 = contacts.move(G, U6, 'anitta', { boden: -50 }, T);

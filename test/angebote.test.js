@@ -435,7 +435,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 0, JSON.stringify(ab));
     check('eine saubere Absage ist keine Geschichte: kein Gedächtniseintrag',
       db.memoryOf(G, U, LILPFAND.id, 20).length === 0, JSON.stringify(db.memoryOf(G, U, LILPFAND.id, 20)));
-    check('Absagen meldet die Stufe mit (die Meldung liest `stufe`)',
+    check('Absagen meldet die Stufe mit (die Meldung liest `stufe`; Quelle ist `contacts.move`)',
       typeof r.draht.stufe === 'string' && r.draht.stufe === contacts.drahtStufe(r.draht.nachher),
       JSON.stringify(r.draht));
     check('Ablehnen kostet keine Zeit', creator.budget(G, U, T0).left === zeitVor);
