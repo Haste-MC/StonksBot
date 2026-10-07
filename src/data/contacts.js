@@ -11,19 +11,14 @@
  * src/contacts.js rechnet. Reine Daten, kein Zustand, keine Datenbank.
  *
  * ---------------------------------------------------------------------------
- *  Echte Namen, erfundene Zahlen und Zeilen
+ *  Echte Namen, erfundene Zahlen
  * ---------------------------------------------------------------------------
  * Die meisten Einträge tragen den echten Namen einer realen Künstlerin, eines
  * realen Künstlers oder Creators, damit die Welt vertraut wirkt – dazwischen
- * stehen bewusst erfundene Quatsch-Namen als lokale Ebene (z. B. „Steffi
+ * stehen bewusst erfundene Namen als lokale Ebene (z. B. „Steffi
  * Stream-Schnecke", „Der Timeline-Troll"). `reach`/`reachCreator` sind für
  * ALLE Einträge Spielfiktion in einer plausiblen Größenordnung, keine
- * recherchierten Werte. Die Texte in LINES sind KEINE Zitate und geben
- * niemandes Meinung wieder: Sie handeln ausschließlich von Musik, Streams,
- * Terminen und Zusammenarbeit – nichts über die Meinung, den Charakter, das
- * Aussehen, die Herkunft (außer der Staatsangehörigkeit), die Familie, die
- * Gesundheit oder das Privatleben der realen Person. Keine Aussagen zu
- * Politik oder Weltgeschehen. Wer hier etwas ergänzt, hält sich daran.
+ * recherchierten Werte; die Zeilen in LINES sind erfunden und keine Zitate.
  *
  * ---------------------------------------------------------------------------
  *  Abdeckung – eine Verpflichtung, kein Wunsch
