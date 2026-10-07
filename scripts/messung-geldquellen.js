@@ -2006,7 +2006,10 @@ function kontaktZeilen(z, tage, laeufe) {
  * Mal ab (die Funktion gibt ihre Verteilung nicht heraus). Abgeschriebenes
  * glaubt man nicht, man prüft es: Hier wird die echte `contacts.stufeVon`
  * millionenfach gewürfelt und der gewürfelte Mittelwert gegen den gerechneten
- * gehalten. Weicht er um mehr als 0,002 ab, steht das als ✗ in der Ausgabe.
+ * gehalten. Weicht er um mehr als 0,002 ab, steht das als ✗ in der Ausgabe –
+ * und `allesGut` ist false, damit der Aufrufer daraus einen Abbruch machen
+ * kann. Ein Wächter, der grün durchläuft, ist keiner: Genau so konnte der
+ * Draht-statt-Respekt-Bruch seit Stück 3 unbemerkt leben.
  */
 function stufenprobe(wuerfe = 1_000_000) {
   const faelle = [
@@ -2044,7 +2047,7 @@ function stufenprobe(wuerfe = 1_000_000) {
     out.push(`    Zusagen gerechnet ${(p.zusage * 100).toFixed(3)} % · gewürfelt ${((zahl.zusage / wuerfe) * 100).toFixed(3)} %`);
   }
   out.push(`  ${allesGut ? 'Alle Fälle stimmen überein ✔' : 'MINDESTENS EIN FALL WEICHT AB ✗'}`);
-  return out;
+  return { zeilen: out, allesGut };
 }
 
 /**
@@ -4909,15 +4912,20 @@ async function main() {
 
   if (process.argv[2] === 'stufenprobe') {
     console.log(`\n--- Gegenprobe: erwarteter Stufenfaktor gegen gewürfelte \`stufeVon\` ---\n`);
-    for (const l of stufenprobe(Number(process.argv[3] || 1_000_000))) console.log(l);
+    const probe = stufenprobe(Number(process.argv[3] || 1_000_000));
+    for (const l of probe.zeilen) console.log(l);
     console.log();
+    // Als Wächter in `npm test`: Weicht ein Fall ab, bricht der Lauf ab. Der
+    // Nachbau `stufenVerteilung` ist die einzige Stelle des Projekts, die eine
+    // Formel aus src/ abschreibt – und keine Testdatei prüft sie.
+    if (!probe.allesGut) process.exitCode = 1;
     return;
   }
 
   if (NUR === 'kontakte') {
     console.log(`\n--- Kontakte (Stück 5a: mit und ohne Kontaktpflege, ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
     console.log('  Gegenprobe zur Wahl des Spielers: erwarteter Stufenfaktor gegen gewürfelte `stufeVon`');
-    for (const l of stufenprobe(200_000)) console.log(l);
+    for (const l of stufenprobe(200_000).zeilen) console.log(l);
     console.log();
     console.log('  Passung (mit contacts.passungOf / chanceOf / staerkeOf / boostOf gerechnet):');
     for (const l of passungsblock()) console.log(l);
