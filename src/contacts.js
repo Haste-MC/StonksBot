@@ -13,7 +13,6 @@
  *   stufeVon    Wurf 2: wie verbindlich fällt die Antwort aus?
  *   staerkeOf   wie viel eine Antwort wert ist (Größenunterschied × Passung)
  *   boostOf     der Schub, den ein Ja setzt
- *   drahtStufe  in welcher Beziehung man steht
  *   decay       wie die Beziehung ohne Kontakt abkühlt
  *   drahtVon    der Draht als Mittelwert der zwei Achsen
  *   decayAchse  wie EINE Achse abkühlt (mit Boden)
@@ -115,14 +114,6 @@ function boostOf(requestId, staerke, seineReichweite) {
     return { kind: 'release', factor: Math.min(6, 1 + 5 * staerke), extra: 1 + 0.15 * staerke, dauerMs: 72 * 3600e3 };
   }
   return { kind: 'release', factor: Math.min(4, 1 + 3 * staerke), extra: 1, dauerMs: 48 * 3600e3 };
-}
-
-function drahtStufe(draht) {
-  if (draht <= data.STUFE_BEEF) return 'beef';
-  if (draht <= data.STUFE_VERSTIMMT) return 'verstimmt';
-  if (draht >= data.STUFE_PARTNER) return 'partner';
-  if (draht >= data.STUFE_BEKANNT) return 'bekannt';
-  return 'neutral';
 }
 
 /** Abklingen Richtung 0, 2 Punkte je Woche, ohne Überschießen. */
@@ -424,8 +415,6 @@ function listFor(guildId, userId, { filter = 'alle', now = Date.now() } = {}) {
     out.push({
       contact, seite,
       respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht,
-      // `stufe` bleibt bis Stück 6a Task 6 neben `art` stehen: ui.js liest es.
-      stufe: drahtStufe(a.draht),
       art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
         meine: k.meine, seine: k.seine,
         trait: contact.trait, beefOffen: Boolean(beefOffen) }),
@@ -489,8 +478,6 @@ function detail(guildId, userId, contactId, now = Date.now()) {
     sprachfaktor: k ? k.sprachfaktor : 0,
     genrefaktor: k ? k.genrefaktor : 0,
     respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht,
-    // `stufe` bleibt bis Stück 6a Task 6 neben `art` stehen: ui.js liest es.
-    stufe: drahtStufe(a.draht),
     art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
       meine: k ? k.meine : 0, seine: k ? k.seine : 0,
       trait: contact.trait, beefOffen: Boolean(beefOffen) }),
@@ -564,35 +551,16 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
 
   return {
     vorher: vor.draht, nachher: drahtVon(respektNeu, vertrauenNeu),
-    // Die einzige Quelle für `stufe` an einer Drahtbewegung: `buttons.beefDraht`
-    // liest es („Draht 38 (+8, Stufenname)"), und zwei Zusicherungen in
-    // test/fluxer-render.test.js prüfen die Zeichenkette samt Stufenwort –
-    // fehlte es, stünde dort still „undefined".
-    stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu)),
+    // Der Kontakt gehört an die Bewegung, nicht an ihre zehn Meldestellen:
+    // `buttons.beefDraht` nennt den Namen in seiner Zeile, weil eine
+    // Diss-Meldung gleichzeitig ein Anzählen melden kann und dann zwei Zeilen
+    // für ZWEI verschiedene Kontakte untereinander stehen. Ohne dieses Feld
+    // müssten alle zehn Aufrufstellen den Namen durchreichen. Reines Lesen –
+    // geschrieben wird die Beziehung weiter nur in `db.saveContact`.
+    contact: data.byId(contactId),
     achsenVor: { respekt: vor.respekt, vertrauen: vor.vertrauen, boden: vor.boden },
     achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: bodenNeu },
   };
-}
-
-/**
- * Alt-Einstieg, bis die sechs Teststellen umgestellt sind (Stück 6a, Task 6).
- * Spaltet `delta` gleichmäßig auf beide Achsen.
- *
- * Der Draht bewegt sich dabei um genau `delta`, solange **keine Achse klemmt**.
- * Die Achsen müssen dafür NICHT gleich stehen – `round((R+V)/2 + δ)` ist
- * `round((R+V)/2) + δ` für jedes ganzzahlige δ. Nachgerechnet über alle
- * 201 × 201 Achsenpaare × δ ∈ [−30, 30]: 2.057.980 Fälle mit ungleichen Achsen
- * und ohne Klemme, **null** Abweichungen.
- *
- * An der Klemme bricht es, und seit `request` ungleiche Achsen schreibt
- * (`ACHSEN.echt` ist 9/3) kommt der Fall im Spiel vor: Respekt 100 /
- * Vertrauen 40 (Draht 70) plus 12 ergibt `drahtVon(100, 52) = 76` statt 82,
- * weil der Respekt oben anliegt.
- */
-function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
-  // `move` meldet `stufe` selbst mit – die Hülle gibt sein Ergebnis unverändert zurück.
-  return move(guildId, userId, contactId,
-    { respekt: delta, vertrauen: delta }, now, opts);
 }
 
 /**
@@ -719,8 +687,6 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
     ok: true, contact, request: r, seite,
     antwort, text, chance, staerke, boost,
     draht: drahtNeu, drahtVor: a.draht, delta: drahtNeu - a.draht,
-    // `stufe` bleibt bis Stück 6a Task 6 stehen: buttons.anfrageNote liest es.
-    stufe: drahtStufe(drahtNeu),
     achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden },
     achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden },
     art: artOf({ respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
@@ -734,8 +700,8 @@ function request(guildId, userId, contactId, requestId, now = Date.now(), random
 }
 
 module.exports = {
-  passungOf, chanceOf, stufeVon, staerkeOf, boostOf, drahtStufe, decay, STUFEN_FAKTOR,
+  passungOf, chanceOf, stufeVon, staerkeOf, boostOf, decay, STUFEN_FAKTOR,
   drahtVon, decayAchse, respektGewicht, respektWirkt, istPartner, artOf,
   VERSTIMMT_CHANCE, seiteFuer, drahtJetzt, achsenJetzt, istPartnerRow, tuerOeffnerFor,
-  listFor, detail, request, move, moveDraht, activeBoost, consumeBoost, LIST_REQUEST,
+  listFor, detail, request, move, activeBoost, consumeBoost, LIST_REQUEST,
 };

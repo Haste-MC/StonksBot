@@ -2757,10 +2757,23 @@ const KONTAKT_FILTER = [
   { id: 'international', label: 'International', knopf: 'Nur International' },
 ];
 
-/** Beziehungsstufen, wie sie in der Anzeige heißen. */
-const DRAHT_STUFEN = {
-  beef: 'Beef', verstimmt: 'verstimmt', neutral: 'neutral',
-  bekannt: 'bekannt', partner: 'Partner',
+/** Die zehn Beziehungsarten – contacts.artOf liefert die Schlüssel. */
+const ARTEN_NAMEN = {
+  // `band` heißt NICHT „alte Band": Mit BODEN_AN = 3 reichen vier angenommene
+  // kleine Gegenanfragen für Boden 12 ≥ ART_BAND_BODEN, also trüge jemand den
+  // Namen ohne ein einziges gemeinsames Album. Über die Schwelle lässt sich das
+  // nicht lösen – ART_BAND_BODEN müsste über 12 steigen und verlöre dann den
+  // Ein-Album-Weg bei BODEN_FERTIG = 10. Der Name deckt darum beide Wege.
+  beef: '🔥 Beef',
+  rivale: '⚔️ Rivale',
+  verstimmt: '🙄 verstimmt',
+  mentor: '🎓 Mentor',
+  schuetzling: '🐣 Schützling',
+  partner: '🤝 fester Partner',
+  band: '💿 gemeinsame Vergangenheit',
+  geschaeftlich: '💼 geschäftlich',
+  bekannt: '👋 bekannt',
+  fremd: '· fremd',
 };
 
 /** Kurze Namen der vier Anfragearten – die vollen passen auf keinen Knopf. */
@@ -2789,6 +2802,39 @@ const zweistellig = (n) => Number(n).toFixed(2).replace('.', ',');
 function drahtBar(draht) {
   const n = Math.max(0, Math.min(5, Math.ceil(draht / 20)));
   return `${'▰'.repeat(n)}${'▱'.repeat(5 - n)}`;
+}
+
+/**
+ * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
+ *
+ * `kontaktNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
+ * und jedem verfallenen Projekt) zeigen dasselbe aus verschieden geformten
+ * Ergebnissen; die Zeile selbst gibt es nur hier.
+ *
+ * Der Name steht VORN, wo das Auge landet: Eine Diss-Meldung kann gleichzeitig
+ * ein Anzählen auslösen, und dann stünden hier zwei Zeilen für zwei
+ * verschiedene Kontakte untereinander. Ohne Namen wäre die Reihenfolge die
+ * einzige Zuordnung, die der Spieler hat. Kommt kein Kontakt mit, fällt der
+ * Namensteil weg – die Zeile muss auch dort tragen.
+ *
+ * Sie trägt strikt mehr als die alte Achsen-Zeile in buttons.js, die sie
+ * ersetzt (Draht, Balken, Ausschlag UND beide Achsen-Deltas): Zwei Zeilen
+ * übereinander, von denen die obere eine Teilmenge der unteren ist, sind keine
+ * Information, sondern Lärm.
+ */
+function achsenZeile(draht, delta, achsenVor, achsen, name = null) {
+  // Typografisches Minus, nicht der ASCII-Bindestrich einer JS-Zahl: Der Rest
+  // der Meldungen schreibt „−13", `beefDraht` schrieb bisher „-13" in derselben
+  // Zeile. Ein bestehender Test in test/fluxer-render.test.js nagelt den
+  // Bindestrich fest und wird dabei mitgezogen.
+  const vz = (n) => `${n >= 0 ? '+' : '\u2212'}${Math.abs(n)}`;
+  // Der STAND trägt kein Vorzeichen, aber dasselbe Minus: `**${draht}**` roh
+  // schrieb „**-10** (−10)" – beide Zeichen in EINER Zeile, einmal als
+  // JS-Zahl und einmal als Satzzeichen.
+  const zahl = (n) => (n < 0 ? `\u2212${Math.abs(n)}` : `${n}`);
+  return `🤝 ${name ? `**${name}** · ` : ''}Draht ${drahtBar(draht)} **${zahl(draht)}** (${vz(delta)})`
+    + ` · Respekt ${vz(achsen.respekt - achsenVor.respekt)}`
+    + ` · Vertrauen ${vz(achsen.vertrauen - achsenVor.vertrauen)}`;
 }
 
 /** Restzeit einer Sperre, grob: „3 Tagen", „5 Stunden", „20 Minuten". */
@@ -3010,7 +3056,7 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       : z.gesperrtBis > now ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
-      + `Draht ${drahtBar(z.draht)} ${z.draht} (${DRAHT_STUFEN[z.stufe]}) · `
+      + `Draht ${drahtBar(z.draht)} ${z.draht} (${ARTEN_NAMEN[z.art] ?? ARTEN_NAMEN.fremd}) · `
       // Die Chance der Liste ist die EINE Anfrageart, mit der contacts.listFor
       // rechnet (`LIST_REQUEST`, die neutrale Erwähnung). Ohne den Namen stünde
       // hier eine Zahl, die einen Klick später in keinem der vier Knöpfe
@@ -3070,6 +3116,47 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
 }
 
 /**
+ * „Was zwischen euch war" – die neuesten MEMORY_ZEIGEN Zeilen.
+ *
+ * Die Länge ist durch MEMORY_ZEIGEN gedeckelt und braucht darum keinen
+ * Kürzungshelfer: Drei Zeilen à höchstens rund 70 Zeichen können die
+ * Beschreibung nicht sprengen. (`buttons.notizAus` passt hier NICHT – sein
+ * Überlauftext verweist auf die Vorfall-Ansicht.)
+ *
+ * Die letzte Zeile deckt „was du nur gewollt hast" ab: Sie kommt aus
+ * `tries − yes` und braucht keine Gedächtniszeilen – zwanzig Zeilen
+ * „ignoriert" machten die Liste wertlos.
+ */
+function gedaechtnisBlock(guildId, userId, contactId, tries, yes, now) {
+  const cdata = require('./data/contacts');
+  const zeilen = db.memoryOf(guildId, userId, contactId, cdata.MEMORY_ZEIGEN);
+  const vergeblich = Math.max(0, tries - yes);
+  if (!zeilen.length && !vergeblich) return null;
+
+  // Dasselbe typografische Minus wie in `achsenZeile`: Hier stehen positive und
+  // negative Ausschläge in EINER Zeile („+10 Respekt, −36 Vertrauen"), und eine
+  // rohe JS-Zahl schriebe den Bindestrich daneben.
+  const vz = (n) => `${n > 0 ? '+' : '\u2212'}${Math.abs(n)}`;
+
+  const out = ['', '📖 **Was zwischen euch war**'];
+  for (const m of zeilen) {
+    const text = (cdata.MEMORY_TEXTE[m.art] ?? m.art).replace('{detail}', m.detail);
+    const d = [
+      m.d_respekt ? `${vz(m.d_respekt)} Respekt` : null,
+      m.d_vertrauen ? `${vz(m.d_vertrauen)} Vertrauen` : null,
+    ].filter(Boolean).join(', ');
+    out.push(`• vor ${frist(now - m.at)} · ${text}${d ? ` _(${d})_` : ''}`);
+  }
+  const gesamt = db.memoryCount(guildId, userId, contactId);
+  const schwanz = [
+    gesamt > zeilen.length ? `… und ${gesamt - zeilen.length} weitere` : null,
+    vergeblich ? `${vergeblich} Mal kam nichts zurück` : null,
+  ].filter(Boolean);
+  if (schwanz.length) out.push(`_${schwanz.join(' · ')}_`);
+  return out;
+}
+
+/**
  * Ein einzelner Kontakt: wer er ist, wie ihr steht, was du fragen kannst.
  *
  * Die vier Knöpfe tragen die Chance im Namen – man soll sehen, was ein
@@ -3107,9 +3194,14 @@ async function buildKontaktView({ guildId, userId, contactId }) {
     '',
     `🌍 ${land?.flag ?? '🌍'} ${c.language} · ${kontaktSparte(c, seite)} · `
       + `Reichweite ${short(d.seineReichweite)}`,
-    `🤝 Draht ${drahtBar(d.draht)} ${d.draht} (${DRAHT_STUFEN[d.stufe]}) · `
+    `${ARTEN_NAMEN[d.art] ?? ARTEN_NAMEN.fremd}`
+      + (d.partner && d.art !== 'partner' ? ' · ⭐ fester Partner' : ''),
+    `   Draht ${drahtBar(d.draht)} ${d.draht} · `
       + `${d.tries} ${d.tries === 1 ? 'Versuch' : 'Versuche'}, `
       + `${d.yes} ${d.yes === 1 ? 'Zusage' : 'Zusagen'}`,
+    `   Respekt ${drahtBar(d.respekt)} ${d.respekt} · `
+      + `Vertrauen ${drahtBar(d.vertrauen)} ${d.vertrauen}`
+      + (d.boden > 0 ? ` _(Boden ${d.boden})_` : ''),
     `🎯 Passung ${pct(d.passung)} _(Sprache ×${zweistellig(d.sprachfaktor)} · `
       + `${seite === 'creator' ? 'Plattform' : 'Genre'} ×${zweistellig(d.genrefaktor)})_`,
   ];
@@ -3120,11 +3212,13 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   } else {
     kopf.push('❌ Dafür fehlt dir die passende Karriere.');
   }
-  if (d.partner) kopf.push('⭐ Fester Partner – das öffnet Türen im Umfeld.');
   if (d.tuerOeffner > 0) {
     kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in seinem Umfeld.`);
   }
   if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
+
+  const erinnerung = gedaechtnisBlock(guildId, userId, contactId, d.tries, d.yes, now);
+  if (erinnerung) kopf.push(...erinnerung);
 
   /*
    * 5b: Der Beef steht direkt über den Anfragen – er ist der Grund, warum alle
@@ -3144,6 +3238,11 @@ async function buildKontaktView({ guildId, userId, contactId }) {
 
   const grundText = (r) => ({
     seite: '🔒 passende Karriere fehlt',
+    // 6a: Datenseitig derzeit unerreichbar – alle REQUESTS tragen
+    // `minDraht: null`. Der Schlüssel bleibt als Gegenstück zu `minVertrauen`
+    // stehen, damit eine künftige Anfrageart mit Draht-Tor nicht auf eine
+    // Chance zurückfällt, die niemand bekommen kann (`contacts.detail` erzeugt
+    // den Grund weiter). Die halbe Löschung wäre schlechter als keine.
     draht: `🔒 Draht ${r.minDraht} nötig`,
     // 6a: Ohne diesen Schlüssel bewürbe ein gesperrter Knopf eine Chance, die
     // gerade niemand bekommen kann (derselbe Rückfall wie bei `beef`).
@@ -5688,7 +5787,7 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
+  drahtBar, achsenZeile, frist, restZeit, ARTEN_NAMEN, SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };

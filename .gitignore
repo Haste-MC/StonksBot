@@ -16,3 +16,4 @@ node_modules/
 .testdata-koordinator/
 .testdata-review/
 .testdata-fix/
+.testdata-impl/

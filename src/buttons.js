@@ -23,7 +23,7 @@ const {
   buildFirmaView, buildFirmenView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
   buildKontakteView, buildKontaktView, frist, restZeit, drahtBar,
-  DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
+  achsenZeile, SCHUB_ZIEL_DEIN, schubGewirkt,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -658,8 +658,7 @@ function kontaktNote(res, now = Date.now()) {
       + `×${res.boost.factor.toFixed(1).replace('.', ',')}, noch ${restZeit(res.boost.restMs)}`);
   }
 
-  zeilen.push(`🤝 Draht ${drahtBar(res.draht)} **${res.draht}** `
-    + `(${res.delta >= 0 ? '+' : ''}${res.delta}, ${DRAHT_STUFEN[res.stufe]})`);
+  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen));
   if (res.partnerNeu) zeilen.push('⭐ Ihr seid ab jetzt feste Partner.');
   zeilen.push(`⏳ Wieder erreichbar in ${frist(res.gesperrtBis - now)} `
     + `· ⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
@@ -799,12 +798,19 @@ function settleBeef(guildId, userId, now = Date.now()) {
   return beefNote(require('./beef').settle(guildId, userId, now)) || null;
 }
 
-/** Die Drahtbewegung, wie `contacts.move` sie meldet. */
+/**
+ * Die Achsenbewegung, wie `contacts.move` sie meldet.
+ *
+ * Eine dünne Hülle über `ui.achsenZeile` – der EINE Formatierer. Diese eine
+ * Stelle versorgt zehn Aufrufstellen in neun Funktionen; erst dadurch erfährt
+ * der Spieler, dass ein gelandeter Disstrack den Respekt HEBT, während er das
+ * Vertrauen zerstört. Den Namen trägt `contacts.move` seit 6a mit, damit die
+ * Zeile ihn hier ohne zwölf durchgereichte Argumente nennen kann.
+ */
 function beefDraht(d) {
   if (!d) return null;
-  const delta = d.nachher - d.vorher;
-  return `🤝 Draht ${drahtBar(d.nachher)} **${d.nachher}** `
-    + `(${delta >= 0 ? '+' : ''}${delta}, ${DRAHT_STUFEN[d.stufe]})`;
+  return achsenZeile(d.nachher, d.nachher - d.vorher, d.achsenVor, d.achsen,
+    d.contact?.name ?? null);
 }
 
 /**
@@ -913,22 +919,6 @@ function friedenNote(res, now = Date.now()) {
 const drahtDelta = (n) => (n < 0 ? `−${Math.abs(n)}` : `+${n}`);
 
 /**
- * Die zwei Achsen einzeln, wie sie sich bewegt haben: „Vertrauen **+18**,
- * Respekt **+6**". Der Draht allein (`beefDraht`) ist der Mittelwert und
- * verschweigt, WELCHE Achse es war – und dass das Vertrauen den Boden hebt,
- * sieht man nur an ihr. Gelesen wird `achsenVor`/`achsen` aus `contacts.move`,
- * also der tatsächliche Ausschlag samt Klemme, nicht die Konstante.
- */
-function achsenZeile(d) {
-  if (!d?.achsen || !d?.achsenVor) return null;
-  const teile = [['Vertrauen', 'vertrauen'], ['Respekt', 'respekt']]
-    .map(([name, key]) => [name, d.achsen[key] - d.achsenVor[key]])
-    .filter(([, delta]) => delta !== 0)
-    .map(([name, delta]) => `${name} **${drahtDelta(delta)}**`);
-  return teile.length ? `${teile.join(', ')}.` : null;
-}
-
-/**
  * Was ein durchgezogenes Projekt an der Beziehung gebucht hat: die Achsen, der
  * Draht und – das Dauerhafte – der Boden. Der Satz zum Boden nennt seine
  * Grenze genau: Er bremst das Abkühlen, nicht die eigenen Fehler.
@@ -938,7 +928,10 @@ function durchgezogenNote(d) {
   const boden = d.achsen?.boden ?? 0;
   const dBoden = boden - (d.achsenVor?.boden ?? 0);
   return [
-    achsenZeile(d) && `🤝 ${achsenZeile(d)}`,
+    // Die Achsen stehen in `beefDraht` mit: Eine eigene Zeile „Vertrauen +18,
+    // Respekt +6" darüber wäre eine Teilmenge der Zeile darunter – kein
+    // Zugewinn, nur Lärm. Der BODEN bleibt eine eigene Zeile, er steht in
+    // keiner anderen.
     beefDraht(d),
     boden > 0 && `🛡️ Boden **${boden}**${dBoden > 0 ? ` (+${dBoden})` : ''} – `
       + 'so tief kühlt Funkstille das Vertrauen nicht ab.',
@@ -964,10 +957,11 @@ function angebotNote(ereignisse) {
         + 'ist an der Frist gescheitert.'
         // „0 investierte Stunden sind weg" wäre keine Nachricht, sondern Lärm.
         + (ist > 0
-          ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : '')
-        // Das ist der eigentliche Preis: Die Stunden sind weg, aber das
-        // Vertrauen ist es, was ein Partner dir nachträgt.
-        + (achsenZeile(e.draht) ? ` ${achsenZeile(e.draht)}` : ''));
+          ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : ''));
+      // Das ist der eigentliche Preis: Die Stunden sind weg, aber das
+      // Vertrauen ist es, was ein Partner dir nachträgt. Die Zeile nennt beide
+      // Achsen selbst – vorher stand der Ausschlag zweimal da, einmal mit
+      // typografischem Minus und einmal mit dem Bindestrich einer JS-Zahl.
       if (e.draht) zeilen.push(beefDraht(e.draht));
     }
   }
