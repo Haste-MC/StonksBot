@@ -1869,7 +1869,11 @@ Beide Meldungen zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Ac
  * Ergebnissen; die Zeile selbst gibt es nur hier.
  */
 function achsenZeile(draht, delta, achsenVor, achsen) {
-  const vz = (n) => `${n >= 0 ? '+' : ''}${n}`;
+  // Typografisches Minus, nicht der ASCII-Bindestrich einer JS-Zahl: Der Rest
+  // der Meldungen schreibt „−13", `beefDraht` schrieb bisher „-13" in derselben
+  // Zeile. Ein bestehender Test in test/fluxer-render.test.js nagelt den
+  // Bindestrich fest und wird dabei mitgezogen.
+  const vz = (n) => `${n >= 0 ? '+' : '\u2212'}${Math.abs(n)}`;
   return `🤝 Draht ${drahtBar(draht)} **${draht}** (${vz(delta)})`
     + ` · Respekt ${vz(achsen.respekt - achsenVor.respekt)}`
     + ` · Vertrauen ${vz(achsen.vertrauen - achsenVor.vertrauen)}`;
