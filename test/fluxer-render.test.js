@@ -1566,9 +1566,20 @@ function view(buttons) {
     check('gesperrt: „Melde dich in … wieder."',
       kontaktNote(contacts.request(KG, KU, klein.id, 'shoutout', jetzt, wuerfel(0.1)), jetzt)
         === '⏳ Melde dich in 3 Tagen wieder.');
-    check('zu wenig Vertrauen nennt die nötige Zahl (und nicht „Das ging nicht")',
-      kontaktNote(contacts.request(KG, KU, 'ninachuba', 'konzert', jetzt, wuerfel(0.1)), jetzt)
-        === '🤝 Dafür verlässt er sich noch nicht genug auf dich (Vertrauen 20 nötig).');
+    /*
+     * Ohne Pronomen – und der Fall steht hier nicht zufällig auf Nina Chuba:
+     * Der Satz gilt für JEDEN der 89 Kontakte, der Katalog hat kein
+     * Geschlechtsfeld, und „Dafür verlässt ER sich noch nicht genug auf dich"
+     * war über die Hälfte von ihnen schlicht falsch. Geprüft wird auf
+     * Gleichheit, und zusätzlich wird die alte Formulierung ausdrücklich
+     * abgelehnt, damit sie nicht zurückwandert.
+     */
+    const zuWenig = kontaktNote(
+      contacts.request(KG, KU, 'ninachuba', 'konzert', jetzt, wuerfel(0.1)), jetzt);
+    check('zu wenig Vertrauen nennt die nötige Zahl, ohne Pronomen',
+      zuWenig === '🤝 So viel Vertrauen ist noch nicht da (Vertrauen 20 nötig).'
+      && !zuWenig.includes('verlässt er sich')
+      && !/\b(er|ihn|ihm|sie|ihr)\b/.test(zuWenig), zuWenig);
     check('unbekannter Kontakt wird abgewiesen statt verwechselt',
       kontaktNote(contacts.request(KG, KU, 'gibtsnichtmehr', 'shoutout', jetzt, wuerfel(0.1)), jetzt)
         .includes('gibt es nicht'));
@@ -2164,6 +2175,32 @@ function view(buttons) {
      * Produktiv unerreichbar, aber vorher hätte es geworfen und jetzt klaffte
      * eine Lücke. Beide Attrappen tragen eine Bewegung OHNE Achsen.
      */
+    /*
+     * Der Rückfall, wenn ein Ereignis keinen Kontakt trägt: Er stand als „ihm"
+     * da und rendert damit „🔥 **ihm** hat zurückgeschlagen." – gegendert und
+     * grammatisch kaputt, „ihm hat" geht in keinem Fall.
+     *
+     * Zwei Fälle, zwei Formen: Nominativ beim Konter, Dativ nach „mit" am Ende.
+     * Ein echter Name trägt beide unverändert, nur der Rückfall muss sich
+     * beugen – darum steht die Gegenprobe mit Namen gleich daneben.
+     */
+    const ohneKontakt = beefNote([{ art: 'konter', text: 'Still.', wucht: 1,
+      treffer: { verloren: 0 }, draht: { nachher: 5, vorher: 0 } }]);
+    check('ein Konter ohne Kontakt meldet „Jemand", nicht „ihm"',
+      ohneKontakt.startsWith('🔥 **Jemand** hat zurückgeschlagen.')
+      && !ohneKontakt.includes('ihm'), ohneKontakt);
+    const endeOhne = beefNote([{ art: 'ende', status: 'unentschieden',
+      rundenIch: 1, rundenEr: 1 }]);
+    check('und das Beef-Ende beugt den Rückfall in den Dativ',
+      endeOhne === '🔥 Der Beef mit **jemandem** ist durch: **1:1**. Keiner hat gewonnen.',
+      endeOhne);
+    check('mit echtem Namen bleibt beide Male derselbe Name stehen',
+      beefNote([{ art: 'ende', status: 'unentschieden', rundenIch: 1, rundenEr: 1,
+        contact: klein }]) === `🔥 Der Beef mit **${klein.name}** ist durch: `
+        + '**1:1**. Keiner hat gewonnen.',
+      beefNote([{ art: 'ende', status: 'unentschieden', rundenIch: 1, rundenEr: 1,
+        contact: klein }]));
+
     const kLeer = beefNote([{ art: 'konter', contact: klein, text: 'Ein Ton.',
       wucht: 1, treffer: { verloren: 0 }, draht: { nachher: 5, vorher: 0 } }]);
     check('beefNote lässt die Zeile weg statt eine Leerzeile zu hinterlassen',

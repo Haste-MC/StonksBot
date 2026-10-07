@@ -625,7 +625,10 @@ function kontaktNote(res, now = Date.now()) {
       return `🤝 Dafür kennt ihr euch noch nicht gut genug (Draht ${res.need} nötig).`;
     }
     if (res.reason === 'vertrauen') {
-      return `🤝 Dafür verlässt er sich noch nicht genug auf dich (Vertrauen ${res.need} nötig).`;
+      // Ohne Pronomen: Der Satz gilt für JEDEN der 89 Kontakte, und der Katalog
+      // hat kein Geschlechtsfeld. „verlässt er sich" war über die Hälfte von
+      // ihnen falsch. Derselbe Ton, dieselbe Aussage, dieselbe Zahl.
+      return `🤝 So viel Vertrauen ist noch nicht da (Vertrauen ${res.need} nötig).`;
     }
     if (res.reason === 'seite') return '❌ Dafür fehlt dir die passende Karriere.';
     if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
@@ -757,7 +760,18 @@ function beefNote(events) {
   const bdata = require('./data/beef');
   const zeilen = [];
   for (const e of events ?? []) {
-    const name = e.contact?.name ?? 'ihm';
+    /*
+     * Der Rückfall ohne Kontakt stand als „ihm" da und rendert damit „🔥 **ihm**
+     * hat zurückgeschlagen." – gegendert UND grammatisch kaputt, „ihm hat" geht
+     * in keinem Fall.
+     *
+     * Zwei Formen, weil der Name in zwei Fällen steht: Nominativ beim Konter
+     * („**Jemand** hat zurückgeschlagen"), Dativ nach „mit" am Ende („Der Beef
+     * mit **jemandem** ist durch"). Ein echter Name trägt beide unverändert –
+     * nur der Rückfall muss sich beugen.
+     */
+    const name = e.contact?.name ?? 'Jemand';
+    const demName = e.contact?.name ?? 'jemandem';
     if (e.art === 'konter') {
       zeilen.push(`🔥 **${name}** hat zurückgeschlagen.`);
       if (e.text) zeilen.push(`_${e.text}_`);
@@ -775,7 +789,7 @@ function beefNote(events) {
         : e.status === 'niederlage'
           ? `${stand} für ihn. Das sitzt ${dauer}.`
           : `${stand}. Keiner hat gewonnen.`;
-      zeilen.push(`🔥 Der Beef mit **${name}** ist durch: ${schluss}`);
+      zeilen.push(`🔥 Der Beef mit **${demName}** ist durch: ${schluss}`);
       if (e.text) zeilen.push(`_${e.text}_`);
     }
   }
