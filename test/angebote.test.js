@@ -24,10 +24,34 @@ const nah = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 console.log('--- Gewichtung ---');
 check('unter Draht 20 meldet sich niemand', ang.gewichtOf({ draht: 19, passung: 1 }) === 0);
 check('Bekannter wiegt 1', nah(ang.gewichtOf({ draht: 20, passung: 1 }), 1));
-check('Partner wiegt 4', nah(ang.gewichtOf({ draht: 50, passung: 1 }), 4));
+check('ab Draht 50 wiegt es vierfach', nah(ang.gewichtOf({ draht: 50, passung: 1 }), 4));
 check('die Passung geht voll ein', nah(ang.gewichtOf({ draht: 50, passung: 0.3 }), 1.2));
-check('ohne Passung meldet sich auch ein Partner nicht',
+check('ohne Passung meldet sich auch der engste Draht nicht',
   ang.gewichtOf({ draht: 100, passung: 0 }) === 0);
+/*
+ * Die vierte Partner-Fassung, die hier lebte.
+ *
+ * Die Konstante hieß `GEWICHT_PARTNER` („der Wert des Partner-Status aus 5a")
+ * und teilte bei Draht 50 – aber Partner ist seit 6a ausschließlich, was
+ * `contacts.istPartner` sagt: Respekt ≥ 50 UND Vertrauen ≥ 50. Respekt 100 /
+ * Vertrauen 0 ist Draht 50, bekommt hier das vierfache Gewicht und wird von
+ * der Ansicht NICHT als Partner geführt. Die Mechanik bleibt (die Spec
+ * erlaubt den Draht an dieser Stelle ausdrücklich), der Name nicht – und die
+ * zwei Schwellen stehen jetzt als Konstanten in src/data/angebote.js statt
+ * als Literale in der Funktion.
+ */
+const contacts = require('../src/contacts');
+check('die Schwelle ist eine DRAHT-Schwelle, nicht der Partnerstatus',
+  !('GEWICHT_PARTNER' in data)
+  && data.GEWICHT_MIN_DRAHT === 20 && data.GEWICHT_SCHWELLE === 50
+  && data.GEWICHT_BEKANNT === 1 && data.GEWICHT_ENG === 4
+  // Respekt 100 / Vertrauen 0: viermal so viele Gegenanfragen, trotzdem kein
+  // Partner. Genau diese Aussage log der alte Name.
+  && contacts.drahtVon(100, 0) === data.GEWICHT_SCHWELLE
+  && contacts.istPartner(100, 0) === false
+  && nah(ang.gewichtOf({ draht: contacts.drahtVon(100, 0), passung: 1 }), data.GEWICHT_ENG),
+  JSON.stringify({ min: data.GEWICHT_MIN_DRAHT, schwelle: data.GEWICHT_SCHWELLE,
+    eng: data.GEWICHT_ENG, alt: 'GEWICHT_PARTNER' in data }));
 
 console.log('--- Honorar ---');
 /**

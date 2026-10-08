@@ -196,15 +196,30 @@ const MEMORY_ZEIGEN = 3;
  * `angebot_ab`: Sie sind häufig und klein, und zwanzig Zeilen „ignoriert"
  * machen die Liste wertlos. Was man nur gewollt hat, erzählt stattdessen die
  * Zusammenfassung aus `tries − yes`.
+ *
+ * JEDE Vorlage beschreibt das Ereignis, das sie wirklich bucht – nicht das
+ * benachbarte. Beim Beef war das dreimal auseinandergelaufen, weil die
+ * BUCHUNG in 6a gespalten wurde und die ERZÄHLUNG nicht mitkam: Die Häme
+ * schrieb `diss` („hat getroffen", während die Meldung desselben Klicks
+ * „ging nach hinten los" sagte), die Blamage erzählte von einem Disstrack,
+ * den es an der Stelle gar nicht gibt, und `verstimmt` behauptete eine
+ * Wiederholung, die ihre Bedingung nicht verlangt. Wer hier eine Vorlage
+ * anfasst, liest zuerst die Stelle, die ihr `merken: { art }` schreibt.
  */
 const MEMORY_TEXTE = {
   // Die zwei Anfrage-Vorlagen setzen `{detail}` in Anführung, weil es dort der
   // VOLLE Satz der Anfrageart ist (`detail: r.name` in `contacts.request`):
   // „Du hast Dich erwähnen zu oft gefragt" las sich als Aussage über den
   // Spieler, nicht über die Bitte. Mit Anführung trägt der ganze Satz:
-  // „Zu oft um „Gemeinsam auf die Bühne" gebeten".
+  // „Hat die Bitte um „Gemeinsam auf die Bühne" übel genommen".
   zusage:            'Zusage für „{detail}"',
-  verstimmt:         'Zu oft um „{detail}" gebeten',
+  // NICHT „Zu oft um … gebeten": `contacts.request` bucht `verstimmt` ohne
+  // jede Zählerbedingung – ein Empfindlicher (arrogant oder kühl), der nicht
+  // antwortet, nimmt es in VERSTIMMT_CHANCE der Fälle übel, und das kann die
+  // allererste Anfrage überhaupt sein (`tries` 0 → 1). Der alte Satz erzählte
+  // dann von einer Wiederholung, die es nicht gab; gebucht ist allein, dass
+  // DIESE Bitte übel genommen wurde.
+  verstimmt:         'Hat die Bitte um „{detail}" übel genommen',
   angebot_an:        '{detail} angenommen',
   angebot_verfallen: '{detail} verfallen lassen',
   // Kein „zu zweit" in der Vorlage: Projekte gibt es nur für `kollabo` und
@@ -213,10 +228,21 @@ const MEMORY_TEXTE = {
   projekt_fertig:    '{detail} durchgezogen',
   projekt_verfallen: '{detail} verrotten lassen',
   beef_start:        'Beef angefangen',
-  blamage:           'Dein Disstrack ging nach hinten los',
+  // Die Blamage ist der Else-Zweig von `beef.anstacheln`: Es ist KEIN
+  // Disstrack veröffentlicht, der Kontakt ist bloß nicht auf den Streit
+  // eingestiegen und die Zeile steht allein da. Der Satz, der hier stand
+  // („Dein Disstrack ging nach hinten los"), gehört zur Häme – und sitzt
+  // jetzt dort.
+  blamage:           'Nicht auf deinen Streit eingestiegen',
+  // Zwei Ausgänge, zwei Vorlagen – genau wie ACHSEN_DISS und ACHSEN_HAEME
+  // zwei Buchungen sind: `diss` NUR für den gelandeten Disstrack (+10
+  // Respekt), `haeme` für den, der eine Nummer zu klein getroffen hat und
+  // nach hinten losging (−8 Respekt, −20 Vertrauen). Eine gemeinsame Vorlage
+  // wäre dieselbe falsche Aussage, die die gemeinsame Buchung war.
   diss:              'Dein Disstrack hat getroffen',
+  haeme:             'Dein Disstrack ging nach hinten los – eine Nummer zu klein',
   konter:            'Konter kassiert',
-  // Subjektlos wie die zehn anderen ereignisbezogenen Vorlagen: Der Katalog
+  // Subjektlos wie jede andere ereignisbezogene Vorlage: Der Katalog
   // hat KEIN Geschlechtsfeld, und `beef.anzaehlen` wählt aus allen
   // Nicht-Partnern – darunter Nina Chuba, Loredana, Rosalía, Anitta, Angèle,
   // Pomme, Sezen Aksu, Ado, Aimer, Peggy Gou, Pamela Reif, Vanessa Wagner und

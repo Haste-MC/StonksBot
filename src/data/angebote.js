@@ -120,10 +120,12 @@ const BODEN_FERTIG = 10;
 /**
  * Die alten Draht-Deltas, jetzt abgeleitet statt doppelt gepflegt.
  *
- * Fünf Stellen lesen sie weiter, und zwei davon sind Spielermeldungen:
- * `buttons.js` („Draht −8"), `angeboteUi.js` („Absagen kostet 5 Draht,
- * Liegenlassen 8"), dazu sieben Zusicherungen in test/angebote.test.js und drei
- * in test/fluxer-render.test.js. Gelöscht stünde in den Meldungen `NaN`.
+ * Seit dem Merge-Review von 6a liest sie KEINE Spielermeldung mehr: `buttons.js`
+ * rendert die gebuchte Bewegung, und die Fußzeile in `angeboteUi.js` nennt
+ * seither Respekt und Vertrauen einzeln – damit Vorschau und Quittung dieselbe
+ * Sprache sprechen und eine ungerade Paarsumme hier nicht „5.5" mit PUNKT in
+ * einen deutschen Text schreibt. Was bleibt, sind Zusicherungen in
+ * test/angebote.test.js, test/beziehungen.test.js und test/fluxer-render.test.js.
  *
  * Die Ableitung ist dabei mehr als Bequemlichkeit: Sie erzwingt im CODE, was
  * sonst nur ein Test behauptet – dass der Mittelwert jedes Paares das alte
@@ -137,9 +139,21 @@ const DRAHT_VERFALL = mittel(ACHSEN_VERFALL);  // −8
 
 // --- Gewichtung beim Ziehen ------------------------------------------------
 
-/** Partner melden sich viermal so oft wie Bekannte – das ist der Wert des Partner-Status aus 5a. */
+/**
+ * Wer sich meldet, und wie oft – eine DRAHT-Schwelle, nicht der Partnerstatus.
+ *
+ * Der alte Name `GEWICHT_PARTNER` („der Wert des Partner-Status aus 5a") war
+ * seit 6a eine vierte, falsche Fassung des Partnerbegriffs: Partner ist
+ * ausschließlich, was `contacts.istPartner` sagt (Respekt ≥ 50 UND
+ * Vertrauen ≥ 50). Respekt 100 / Vertrauen 0 ist Draht 50 – es bekam damit
+ * das vierfache Gewicht, während die Ansicht denselben Kontakt NICHT als
+ * Partner führt. Die Mechanik bleibt (die Spec erlaubt den Draht an dieser
+ * Stelle ausdrücklich), der Name sagt jetzt, was gilt.
+ */
+const GEWICHT_MIN_DRAHT = 20;    // darunter meldet sich niemand
+const GEWICHT_SCHWELLE = 50;     // ab hier das Vierfache
 const GEWICHT_BEKANNT = 1;
-const GEWICHT_PARTNER = 4;
+const GEWICHT_ENG = 4;
 
 // --- Honorar (gastpart) ----------------------------------------------------
 
@@ -298,7 +312,7 @@ module.exports = {
   DRAHT_AN, DRAHT_AB, DRAHT_VERFALL,
   ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH,
   BODEN_AN, BODEN_FERTIG,
-  GEWICHT_BEKANNT, GEWICHT_PARTNER,
+  GEWICHT_MIN_DRAHT, GEWICHT_SCHWELLE, GEWICHT_BEKANNT, GEWICHT_ENG,
   HONORAR_K, HONORAR_EXP, HONORAR_DECKEL_TAGE,
   VORGRUPPE_ANTEIL,
   KOLLABO_STUNDEN, KOLLABO_TITEL, TOUR_STUNDEN, TOUR_KONZERTE,

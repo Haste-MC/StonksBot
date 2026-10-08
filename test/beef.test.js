@@ -241,6 +241,21 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
     // erzählte dem Spieler in „Was zwischen euch war" eine erfundene Geschichte.
     check('Blamage merkt sich die Art „blamage"',
       JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)) === '["blamage"]', JSON.stringify(db.memoryOf(G, U, riese.id, 5).map((m) => m.art)));
+    /*
+     * …und die Vorlage dieser Art erzählt, was wirklich geschah.
+     *
+     * An dieser Stelle ist KEIN Disstrack veröffentlicht – `anstacheln` hat
+     * nur eine Zeile rausgehauen, auf die niemand eingestiegen ist (der Beef
+     * steht nicht einmal in der Tabelle, eine Zusicherung darüber). Hier stand
+     * trotzdem „Dein Disstrack ging nach hinten los"; dieser Satz gehört der
+     * Häme und sitzt jetzt dort. Die Blamage darf keinen Disstrack erwähnen.
+     */
+    const cdataB = require('../src/data/contacts');
+    check('die Blamage-Vorlage erfindet keinen Disstrack',
+      !/[Dd]isstrack/.test(cdataB.MEMORY_TEXTE.blamage)
+      && cdataB.MEMORY_TEXTE.blamage !== cdataB.MEMORY_TEXTE.haeme
+      && cdataB.MEMORY_TEXTE.blamage !== cdataB.MEMORY_TEXTE.diss,
+      cdataB.MEMORY_TEXTE.blamage);
     // Die Achsen EINZELN: Der Draht ist ein Mittelwert und gegen vertauschte
     // Achsen blind (−10/−4 und −4/−10 ergeben beide −7).
     check('Blamage kostet Respekt −10 und Vertrauen −4 (Draht −7) und sperrt drei Tage',
@@ -874,11 +889,33 @@ check('textFor gibt bei unbekannter Lage nichts zurück', beef.textFor('kuehl', 
       data.ACHSEN_DISS.respekt > 0 && r.beef.draht.achsen.respekt < 0
       && r.beef.draht.achsen.respekt !== data.ACHSEN_DISS.respekt,
       JSON.stringify({ diss: data.ACHSEN_DISS, gebucht: r.beef.draht.achsen }));
+    /*
+     * Und dieselbe Spaltung in der ERZÄHLUNG, nicht nur in den Zahlen.
+     *
+     * Hier stand `art === 'diss'` – und `MEMORY_TEXTE.diss` ist „Dein
+     * Disstrack hat getroffen". Die Zusicherung nagelte damit eine Zeile fest,
+     * die das Gegenteil dessen behauptet, was gebucht wurde, und was die
+     * Meldung desselben Klicks sagt („😬 Das ging nach hinten los"). Die alte
+     * Art wird jetzt ausdrücklich ABGELEHNT: Wer sie zurückdreht, wird rot.
+     *
+     * Geprüft wird beides – die Art UND der Satz, den sie rendert. Eine
+     * `haeme`-Vorlage mit dem Wortlaut des gelandeten Disses wäre dieselbe
+     * Lüge unter neuem Schlüssel.
+     */
+    const haemeZeile = db.memoryOf(G, U, klein.id, 1)[0];
+    const cdataH = require('../src/data/contacts');
+    check('die Häme merkt sich „haeme", NICHT den gelandeten „diss"',
+      haemeZeile?.art === 'haeme' && haemeZeile.art !== 'diss',
+      JSON.stringify(haemeZeile));
     check('und das Gedächtnis erzählt dieselbe Buchung (Respekt −8, Vertrauen −20)',
-      db.memoryOf(G, U, klein.id, 1)[0]?.art === 'diss'
-      && db.memoryOf(G, U, klein.id, 1)[0].d_respekt === data.ACHSEN_HAEME.respekt
-      && db.memoryOf(G, U, klein.id, 1)[0].d_vertrauen === data.ACHSEN_HAEME.vertrauen,
-      JSON.stringify(db.memoryOf(G, U, klein.id, 1)));
+      haemeZeile.d_respekt === data.ACHSEN_HAEME.respekt
+      && haemeZeile.d_vertrauen === data.ACHSEN_HAEME.vertrauen,
+      JSON.stringify(haemeZeile));
+    check('…und der gerenderte Satz sagt „nach hinten los", nicht „hat getroffen"',
+      cdataH.MEMORY_TEXTE[haemeZeile.art].includes('nach hinten los')
+      && !cdataH.MEMORY_TEXTE[haemeZeile.art].includes('hat getroffen')
+      && cdataH.MEMORY_TEXTE[haemeZeile.art] !== cdataH.MEMORY_TEXTE.diss,
+      cdataH.MEMORY_TEXTE[haemeZeile.art]);
   }
 
   console.log('--- Ein gescheiterter Disstrack lässt den Beef unberührt ---');

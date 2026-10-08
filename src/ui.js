@@ -2676,6 +2676,10 @@ async function buildMusicDealView({ guildId, userId }) {
   }
 
   if (!s.offer) {
+    // Das echte Tor der Label-Einführung, aus der Tabelle gelesen statt
+    // getippt – damit der Satz darunter nicht wieder von der Zahl abdriftet.
+    const LABEL_VERTRAUEN = require('./data/angebote').ARTEN
+      .find((a) => a.id === 'label').minVertrauen;
     const embed = new EmbedBuilder()
       .setTitle('📜 Verträge')
       .setColor(0x95a5a6)
@@ -2687,13 +2691,22 @@ async function buildMusicDealView({ guildId, userId }) {
           : 'In deinem Land gibt es kein Idol-System. Solche Verträge werden nur in '
             + 'Japan und Südkorea angeboten.',
         // 5c: Seit der zweiten Vertragsart ist der Idol-Weg nicht mehr der
-        // einzige – ein Partner führt einen bei SEINEM Label ein, in jedem Land
-        // und mit oder ohne Gesicht. Für einen deutschen Rapper stand hier
-        // vorher „geht nicht", obwohl es geht; und für beide Märkte gilt es.
-        // „beim eigenen Label" – Subjekt des Satzes ist der Partner, also ist
+        // einzige – ein Kontakt, der dir traut, führt einen bei SEINEM Label
+        // ein, in jedem Land und mit oder ohne Gesicht. Für einen deutschen
+        // Rapper stand hier vorher „geht nicht", obwohl es geht; und für beide
+        // Märkte gilt es.
+        // „beim eigenen Label" – Subjekt des Satzes ist der Kontakt, also ist
         // das Label seins, ohne ein Pronomen über eine Person, deren
         // Geschlecht der Katalog nicht kennt.
-        '📝 Ein fester Partner kann dich außerdem beim eigenen Label einführen – ab '
+        //
+        // NICHT „ein fester Partner": Das Angebot `label` verlangt allein
+        // `minVertrauen` (siehe data/angebote.js), nicht die Partnerregel
+        // (Respekt ≥ 50 UND Vertrauen ≥ 50). Der alte Satz behauptete eine
+        // strengere Bedingung als der Code – wer Respekt 0 / Vertrauen 50
+        // hat, bekommt die Einführung und las hier, dass er sie nicht
+        // bekommt. Die Zahl kommt aus derselben Tabelle, die das Tor prüft.
+        `📝 Wer dir vertraut (Vertrauen ab **${LABEL_VERTRAUEN}**), kann dich außerdem `
+        + 'beim eigenen Label einführen – ab '
         + `**${music.LABEL.minListeners.toLocaleString('de-DE')}** Hörern, in jedem Land. `
         + 'Solche Einführungen stehen unter 📬 **Angebote**.',
       ].join('\n\n'));

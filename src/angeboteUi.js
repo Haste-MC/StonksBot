@@ -226,10 +226,25 @@ async function buildAngeboteView({ guildId, userId }) {
   }
 
   embed.setDescription(bloecke.join('\n\n'));
+  /*
+   * Die Vorschau nennt DIESELBEN zwei Achsen, die `absageNote` und
+   * `angebotNote` danach als gebuchte Bewegung melden.
+   *
+   * Vorher stand hier der abgeleitete Draht („Absagen kostet 5 Draht,
+   * Liegenlassen 8"), während die Meldungen genau deswegen auf Respekt und
+   * Vertrauen umgestellt wurden – Vorschau und Quittung sprachen zwei
+   * Sprachen. Dazu kam eine Falle: `DRAHT_AB`/`DRAHT_VERFALL` sind seit 6a
+   * `mittel(paar)`, und eine ungerade Paarsumme schriebe hier „5.5" mit
+   * PUNKT statt Komma. Beide Paarsummen sind heute gerade, aber die
+   * Achsenwerte selbst sind per Konstruktion ganzzahlig – damit ist das
+   * Dezimaltrennzeichen hier keine Frage mehr.
+   */
   embed.setFooter({
     text: anfragen.length
-      ? `Absagen kostet ${Math.abs(data.DRAHT_AB)} Draht, Liegenlassen `
-        + `${Math.abs(data.DRAHT_VERFALL)}.`
+      ? `Absagen kostet ${Math.abs(data.ACHSEN_AB.respekt)} Respekt und `
+        + `${Math.abs(data.ACHSEN_AB.vertrauen)} Vertrauen, Liegenlassen `
+        + `${Math.abs(data.ACHSEN_VERFALL.respekt)} und `
+        + `${Math.abs(data.ACHSEN_VERFALL.vertrauen)}.`
       : 'Die Stunden sind weg, wenn die Frist reißt.',
   });
 

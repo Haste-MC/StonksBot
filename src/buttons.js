@@ -704,12 +704,29 @@ function releaseProblem(res, now = Date.now()) {
   return '❌ Das ging nicht.';
 }
 
+/**
+ * Ein Hörer-Ausschlag mit Vorzeichen: „+1.204", „−63.631", „±0".
+ *
+ * `${delta.toLocaleString('de-DE')}` schrieb den ASCII-Bindestrich einer rohen
+ * JS-Zahl – und seit 6a hängt an DIESELBE Meldung die Drahtzeile mit dem
+ * typografischen Minus (U+2212):
+ *
+ *     Hörer: **4.936.369** (-63.631)
+ *     🤝 **Lil Pfand** · Draht ▬▬▱▱▱ **−26** (−14) · Respekt −8 · Vertrauen −20
+ *
+ * Zwei Minuszeichen in einer Meldung sind ein Fehler, kein Stil. `±0` ist die
+ * Hausschreibweise aus `ui.achsenZeile`; der Betrag geht weiter durch die
+ * deutsche Tausendertrennung, die eine Hörerzahl ohnehin braucht.
+ */
+const vzHoerer = (n) => (n === 0 ? '±0'
+  : `${n > 0 ? '+' : '−'}${Math.abs(n).toLocaleString('de-DE')}`);
+
 function releaseNote(res) {
   const delta = res.listeners - res.listenersBefore;
   let note = `${res.release.emoji} **${res.release.name}** ist draußen.\n`
     + `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · `
     + `Hörer: **${res.listeners.toLocaleString('de-DE')}** `
-    + `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+    + `(${vzHoerer(delta)})`;
   // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
   // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
   const schub = schubGewirkt(res.kontakt);
@@ -732,10 +749,12 @@ function releaseNote(res) {
     note += `\n🔥 **${res.angezaehlt.contact.name}** zählt dich an.`;
     if (res.angezaehlt.text) note += `\n_${res.angezaehlt.text}_`;
     // Was das Anzählen gebucht hat: ein stummer Knopfdruck verschluckt es sonst.
-    // Die Zeile steht ungeschützt da wie an den vier anderen Aufrufstellen –
-    // `beef.anzaehlen` liefert `draht` immer, eine Wache hätte nur eine
-    // Test-Attrappe ohne `draht` gedeckt.
-    note += `\n${beefDraht(res.angezaehlt.draht)}`;
+    // Geprüft wie an den vier anderen Aufrufstellen: `beefDraht` gibt bei einer
+    // Bewegung ohne Achsen `null` zurück, und ein Template schriebe daraus das
+    // WORT „null" in den Spielertext. Produktiv liefert `beef.anzaehlen` seinen
+    // `draht` immer – aber die Ausnahme von sechs war der Fehler.
+    const anDraht = beefDraht(res.angezaehlt.draht);
+    if (anDraht) note += `\n${anDraht}`;
   }
   note += incidentNote(res.incident);
   note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
@@ -913,7 +932,10 @@ function dissNote(res, now = Date.now()) {
   }
   // Der Diss bucht in beiden Zweigen – aber nicht dasselbe: Der gelandete hebt
   // den Respekt, die Häme senkt ihn (ACHSEN_DISS gegen ACHSEN_HAEME).
-  return `${note}\n${beefDraht(b.draht)}`;
+  // Geprüft wie an den vier anderen Aufrufstellen: ein `null` aus `beefDraht`
+  // schriebe im Template das Wort „null" in den Spielertext.
+  const dz = beefDraht(b.draht);
+  return dz ? `${note}\n${dz}` : note;
 }
 
 /**

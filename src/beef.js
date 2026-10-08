@@ -335,9 +335,14 @@ function diss(guildId, userId, contactId, now = Date.now(), random = Math.random
   // ERNSTER (+10 Respekt), die Häme ist das Gegenteil davon – sie hat ihm die
   // Runde gegeben und dich Hype und Hörer gekostet, und genau das bucht sie
   // auch. Ein gemeinsames Paar für beide Zweige wäre eine falsche Aussage.
+  //
+  // Und dieselbe Spaltung in der ERZÄHLUNG: `MEMORY_TEXTE.diss` ist „Dein
+  // Disstrack hat getroffen" – über die Häme war das eine Lüge gegen die
+  // Meldung desselben Klicks („😬 Das ging nach hinten los"). Die Häme hat
+  // ihre eigene Vorlage. Wer das Paar hier ändert, ändert die Art mit.
   const draht = contacts.move(guildId, userId, contactId, {
     ...(haeme ? data.ACHSEN_HAEME : data.ACHSEN_DISS),
-    merken: { art: 'diss', detail: '' },
+    merken: { art: haeme ? 'haeme' : 'diss', detail: '' },
   }, now);
 
   return {

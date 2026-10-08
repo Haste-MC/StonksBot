@@ -24,15 +24,23 @@ const data = require('./data/angebote');
 const clamp = (lo, hi, v) => Math.max(lo, Math.min(hi, v));
 
 /**
- * Wer meldet sich? Partner viermal so oft wie Bekannte, und wer sprachlich
- * und im Genre zu dir passt, eher – dieselbe Passung, die in 5a die
- * Antwortchance trägt.
+ * Wer meldet sich? Wer eng dran ist, viermal so oft wie ein Bekannter – und
+ * wer sprachlich und im Genre zu dir passt, eher; dieselbe Passung, die in 5a
+ * die Antwortchance trägt.
+ *
+ * „Eng dran" heißt hier DRAHT ab `GEWICHT_SCHWELLE`, nicht Partnerstatus: Die
+ * Partnerregel steht allein in `contacts.istPartner` und verlangt beide
+ * Achsen oben. Respekt 100 / Vertrauen 0 ist Draht 50 und bekommt hier das
+ * vierfache Gewicht, ohne in der Ansicht Partner zu sein. Das ist gewollt –
+ * eine Gegenanfrage hängt am Draht –, und die Konstanten heißen seit dem
+ * Merge-Review danach.
  */
 function gewichtOf({ draht, passung }) {
-  if (draht < 20) return 0;
+  if (draht < data.GEWICHT_MIN_DRAHT) return 0;
   // `Math.max(0, …)` wie in `honorarOf`: Ein negatives Gewicht würde die Summe
   // beim gewichteten Ziehen verfälschen und könnte sie sogar auf 0 drücken.
-  return (draht < 50 ? data.GEWICHT_BEKANNT : data.GEWICHT_PARTNER) * Math.max(0, passung);
+  return (draht < data.GEWICHT_SCHWELLE ? data.GEWICHT_BEKANNT : data.GEWICHT_ENG)
+    * Math.max(0, passung);
 }
 
 /**
