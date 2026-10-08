@@ -2038,13 +2038,13 @@ Vorteils.
    echte Antworten ergaben früher Draht 100, jetzt 80 (Respekt sättigt bei 100,
    Vertrauen steht bei 60).
 
-**Der Kollabo-Befund aus 5c war falsch formuliert.** Dort steht „das
-Kollabo-Album ist nicht spielbar". Gemessen: **Jedes** der 215 verfallenen
-Kollabos hatte die 18 von 18 Stunden **voll** und durchschnittlich 0,2 bis 0,3
-Titel von sechs geforderten. Die zwei Spielweisen, die Titel **horten**, schaffen
-72 von 72. Richtig ist: Das Kollabo ist **unverträglich mit dem täglichen
-Single-Release**, und das Spiel sagt es nicht – man zahlt erst 18 Stunden und
-erfährt den Grund (`no_songs`) danach. Spielregel aus 5c, in 6a nicht angefasst.
+**Der Kollabo-Befund aus 5c ist auf einem unabhängigen Würfelsatz bestätigt** –
+und er brauchte keine Korrektur: Der Abschnitt weiter oben nennt die
+Einschränkung („in der gemessenen Spielweise"), die Ursache (sechs Titel gegen
+tägliche Singles) und das Horten-Kontrollpaar bereits. Der 6a-Lauf setzt die
+Zahl je Projekt daneben: **Jedes** der 215 verfallenen Kollabos hatte die 18 von
+18 Stunden **voll** und durchschnittlich **0,2 bis 0,3** Titel von sechs. Die
+zwei Spielweisen, die horten, schaffen **72 von 72**. In 6a nicht angefasst.
 
 ### Eine Bremse, nicht zwei
 
