@@ -1972,6 +1972,132 @@ unter 5.000** – genau die Würfe, die vorher ins Leere fielen: **0,50 je Jahr*
 über fünf Jahre also 2,5. Die +6 des Tests ist mehr als das Doppelte davon, und
 genau daran sieht man, dass sie Rauschen ist und keine Rate.
 
+### Beziehungen: zwei Achsen statt einer Zahl (seit Stück 6a, 2026-10-08)
+
+Der Draht zu einem Kontakt ist nicht mehr gespeichert, sondern **abgeleitet**:
+`Math.round((respekt + vertrauen) / 2)`. Gespeichert sind **Respekt** (wie ernst
+er dich nimmt) und **Vertrauen** (ob er sich auf dich verlässt). Respekt öffnet
+die Antwort eines Großen, Vertrauen die mehrtägigen Formate.
+
+**Gemessen (`docs/messungen/2026-10-08-beziehungen.txt`, 30 Läufe à 365 Tage,
+Median, gegen `main` bei 03aaf92):** Kontaktpflege liefert **−0,9 %**
+(Musik+Creator), **−0,6 %** (nur Creator) und **−2,8 %** (nur Musik). Der
+Auslöser von +25 % ist nicht ausgelöst, und die größte Abweichung geht nach
+unten. Dieses Stück ist eine Umverteilung des **Zugangs**, keine Geldquelle:
+`staerkeOf` und `boostOf` sind unangetastet, die Höhe eines Schubs hängt weiter
+am rohen Größenabstand.
+
+**Die Gegenprobe, die den Vergleich trägt:** Ein Messlauf **ohne** Kontakte ist
+zwischen `main` und dem Zweig ziffernidentisch (493.618 / 557.305 / 108.493 pro
+Tag). Das Stück fasst nur Kontakte an, ein Lauf ohne sie *muss* gleich bleiben –
+und ohne diese Zeile wäre der Rest Behauptung. Ein erster Auswertungsversuch war
+daran gescheitert: 38 verglichene Zeilen, alle +0,0 %, weil es die
+Release-Strategietabelle war und nicht die Kontaktvarianten.
+
+**Der Riegel gegen das Dauer-Beefen hält erst seit dem Dämpfer.** Der additive
+`VERTRAUEN_MALUS` sättigt bei −0,25, während der Respekt-Term bis 0,45 läuft:
+Acht gelandete Disse (Respekt 68, Vertrauen −100) kamen auf **12,5 %**
+Antwortchance gegen 6,9 % beim Fremden, zwölf auf 21,5 %. Und `stufeVon` wog die
+Zusage am Respekt, ohne Vertrauen zu lesen – das Zusage-Gewicht stieg dauerhaft
+auf 1,68 und mit ihm der Schub je Antwort, also der **Ertrag**. Seit
+`respektWirkt(respekt, vertrauen) = max(0, respekt) × (1 + min(0, vertrauen/100))`
+landet derselbe Spieler auf `CHANCE_MIN`; bei Vertrauen ≥ 0 ist der Faktor 1 und
+keiner der zehn Chance-Sollwerte ändert sich. Der Rivale behält 80 % seines
+Vorteils.
+
+**Der Dämpfer greift aber nur bei Kontakten ohne Boden, und das ist gemessen.**
+`contacts.move` zieht das Vertrauen auf den Boden hoch, wenn die Bewegung selbst
+den Boden hebt — und `BODEN_AN` ist 3, also hebt ihn **jede** angenommene kleine
+Gegenanfrage. Mit der echten `move` und der echten `chanceOf` gerechnet, im
+**selben Bezugsfall** wie die 6,9 % oben (10k gegen 10 Mio, `feature`, gleiche
+Sprache, gleiches Genre, anderes Land, `launisch`):
+
+| vor | nach **einem** angenommenen `tausch` | Vertrauen | Chance |
+|---|---|---|---|
+| R100 / V−60 / Boden 0 | R100 / V3 / Boden 3 | **+63** (das Paar sagt +12) | 9,9 % → **51,9 %** |
+| R100 / V−60 / Boden 27 | R100 / V30 / Boden 30 | **+90** | 9,9 % → **51,9 %** |
+
+**51,9 % ist genau der Wert bei R100 / V100**, also bei vollem Vertrauen: Weil
+der Faktor ab Vertrauen 0 auf 1 steht, stellt ein einziger angenommener Tausch
+die Respekt-Wirkung **vollständig** wieder her, nicht anteilig. Beide Zeilen
+haben dieselbe Chance, weil `chanceOf` den Boden nicht liest — er wirkt nur über
+das Vertrauen, das er hochzieht.
+
+Der Zyklus ist stabil: dissen (Respekt +10, Vertrauen −36, der Draht bleibt bei
+47 und damit über der Zustellschwelle 20), die nächste kleine Gegenanfrage
+annehmen, wiederholen. **Das ist kein §3-Verstoß im Wortlaut** — der
+Ertragsdeckel bleibt (`respektWirkt ∈ [0, 100]`, genau der Bereich, den vorher
+`draht` hatte, gemessen ≤ +8 % auf den erwarteten Stufenfaktor), und ein Tor
+öffnet es nicht, weil der Boden bei 30 endet und alle großen Formate 50
+verlangen. Aber **der Zugang ist dort nicht gedeckelt**, und wer das nutzt,
+bezahlt es mit Album, Tour, Label und dem Partnerstatus. Zwei Wege wären
+möglich, wenn das stört: den Hochzug auf den Betrag begrenzen, den die Bewegung
+selbst am Boden hebt, oder `respektWirkt` gegen `vertrauen − boden` rechnen.
+Beides ist eine Design-Entscheidung.
+
+**Ehrliche Grenzen:**
+
+1. **Das Tor für Album, Tour und Label bleibt bei Vertrauen 50 – als bewusste
+   Übersteuerung der ersten Hälfte des eigenen Auslösers.** Wer auf einen
+   Partner zielt, erreicht es mit 100 %; bei freiem Spiel mit 20 bis 43 % gegen
+   50 bis 70 % für „Draht ≥ 50" im selben Lauf. **Zwei Vorbehalte, die zu dieser
+   Zahl gehören:** Die 100 % kommen aus der Variante mit Partner-Vorrang, und
+   deren Zielfunktion hat dieser Zweig auf `min(respekt, vertrauen)` umgestellt
+   — ein Orakel, das genau die getorte Größe maximiert, und bei 100/100
+   gesättigt. Und „Draht ≥ 50" ist **kein** exakter `main`-Wert, sondern ein
+   Ersatz, der systematisch **zu hoch** liegt (siehe unten) — der wirkliche
+   Abstand ist also kleiner als berichtet, was die Entscheidung zusätzlich
+   stützt. Die zweite, härtere
+   Hälfte besteht deutlich: **234 Touren und 72 Alben** sind im Messjahr fertig
+   geworden. Die Senkung bei freiem Spiel ist die beabsichtigte Umverteilung –
+   mehrtägige Formate verlangen jetzt Absicht statt Zufall.
+2. **Eine der zehn Beziehungsarten ist Dekoration.** `band` („gemeinsame
+   Vergangenheit") kommt in **keinem** der beiden Läufe ein einziges Mal vor,
+   obwohl **306** Mal ein Boden von 10 gesetzt wurde — `fertig()` bucht
+   `BODEN_FERTIG` für Kollabo **und** Tour, also 72 + 234 —, dazu `BODEN_AN` je
+   angenommener kleiner Gegenanfrage.
+
+   **Die Ursache ist `schuetzling`, nicht `partner`.** Nachgerechnet über alle
+   201 × 201 Achsenpaare bei Boden 10: Bei **gleicher** Größe sind **48,3 %**
+   der Fläche `band`, und schlagen können es nur `beef`, `rivale`, `verstimmt`
+   und `partner` — `bekannt` **nie**, denn `band` steht darüber. Der gemessene
+   Spieler ist aber riesig und die Kontakte sind klein, und dann greift
+   `schuetzling`: Er steht **über** `band` und verlangt bei zehnfacher Größe nur
+   Vertrauen ≥ 40, was ein fertiges Projekt mit seinen +18 mühelos liefert.
+   Gemessen frisst er 12.030 der 40.401 Zellen, und `band` fällt auf 24,9 % —
+   genau das Feld, in dem es stehen würde. Das Messfile zählt entsprechend 25
+   bis 29 Konten mit `schuetzling`.
+
+   `rivale` kommt vor und ist keine Dekoration; `mentor` ist dünn (1 von 30
+   Konten).
+3. **Im Band Vertrauen 0 bis +36 hebt ein gelandeter Diss den Zugang noch** um
+   bis zu 4,5 Punkte, weil positives Vertrauen für die Chance wertlos ist –
+   genau die Regel wird dort zum Schlupfloch. Durchgerechnet über alle
+   201 × 201 **Achsenpaare**; Obergrenze +0,045 Chance je 36 wieder aufgebauter
+   Vertrauenspunkte. Ein echter Tausch: Wer so fährt, hält das Vertrauen bei
+   Null und verliert Kollabo, Tour, Label und den Partnerstatus (alle ab 50).
+   **„Erschöpfend" stand hier zu Unrecht:** Der Zustand hat **drei**
+   gespeicherte Achsen, und der Boden war in dieser Rechnung nicht enthalten.
+   Genau dort sitzt der größere Rest — Punkt 1 oben.
+4. **Der Dämpfer verdoppelt die Strafe legitimer Rückschläge.** Beim
+   Weltstar-Partner kostet **eine** verfallene Gegenanfrage 10,0 Chancenpunkte
+   statt 4,8. Gemessen trifft es gute Beziehungen selten: In fünf von sechs
+   Varianten null Tage mit einem eingebrochenen Partner, in einer 1 von 30
+   Konten mit 42 Tagen. Selbstheilend, 3 Punkte je Woche.
+5. **Der Paritätstest beweist die Buchführung, nicht das Spielverhalten.** Bei
+   gleichmäßiger Spaltung ist die neue Kette ziffernidentisch zur alten – aber
+   mit den echten Paaren laufen sie auseinander, und das ist Absicht: Zwanzig
+   echte Antworten ergaben früher Draht 100, jetzt 80 (Respekt sättigt bei 100,
+   Vertrauen steht bei 60).
+
+**Der Kollabo-Befund aus 5c ist auf einem unabhängigen Würfelsatz bestätigt** –
+und er brauchte keine Korrektur: Der Abschnitt weiter oben nennt die
+Einschränkung („in der gemessenen Spielweise"), die Ursache (sechs Titel gegen
+tägliche Singles) und das Horten-Kontrollpaar bereits. Der 6a-Lauf setzt die
+Zahl je Projekt daneben: **Jedes** der 215 verfallenen Kollabos hatte die 18 von
+18 Stunden **voll** und durchschnittlich **0,2 bis 0,3** Titel von sechs. Die
+zwei Spielweisen, die horten, schaffen **72 von 72**. In 6a nicht angefasst.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,

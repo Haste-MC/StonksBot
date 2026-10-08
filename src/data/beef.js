@@ -140,20 +140,44 @@ const ANZAEHL_CHANCE = 0.35;
 /** Solange es brennt, macht seine Szene dicht – bei voller Hitze 15 Punkte. */
 const SZENE_MALUS = 0.15;
 
-// --- Draht -----------------------------------------------------------------
+// --- Achsen ----------------------------------------------------------------
 
-/** Was ein Beef am Draht kostet – der eigene Diss am meisten. */
-const DRAHT_ANSTACHELN = -15;
-const DRAHT_BLAMAGE = -5;
-const DRAHT_DISS = -20;
-const DRAHT_KONTER = -10;
-const DRAHT_ANGEZAEHLT = -10;
+/**
+ * Was ein Beef an den zwei Achsen kostet.
+ *
+ * Der gelandete Disstrack ist der Fall, der die Spaltung überhaupt
+ * rechtfertigt: Er nimmt dich danach ERNSTER als vorher (+10 Respekt) und
+ * lässt sich auf kein mehrtägiges Format mehr ein (−36 Vertrauen). Mit einer
+ * Zahl war dieser Zustand nicht darstellbar – gemittelt sah er aus wie
+ * zweimal lauwarm.
+ *
+ * Anstacheln bringt keinen Respekt: Eine Provokation ist noch kein Treffer.
+ * Sich zu blamieren kostet Respekt, nicht Vertrauen – er hat ja nichts
+ * zugesagt, du hast dich nur vorgeführt. Und der ausgelachte Diss (`ACHSEN_HAEME`)
+ * ist das Gegenteil des gelandeten, nicht dieselbe Buchung: Er senkt den
+ * Respekt, statt ihn zu heben.
+ */
+const ACHSEN_ANSTACHELN = { respekt: 0, vertrauen: -24 };    // Mittel −12 (vorher −15)
+const ACHSEN_BLAMAGE = { respekt: -10, vertrauen: -4 };      // Mittel  −7 (vorher  −5)
+const ACHSEN_DISS = { respekt: 10, vertrauen: -36 };         // Mittel −13 (vorher −20)
+/**
+ * Nach unten geschlagen und sich dabei vorgeführt. Anders als beim gelandeten
+ * Diss nimmt er dich danach WENIGER ernst – er hat die Runde, du hast Hype und
+ * Hörer verloren, und die Szene hat gesehen, auf wen du gezielt hast.
+ */
+const ACHSEN_HAEME = { respekt: -8, vertrauen: -20 };        // Mittel −14
+const ACHSEN_KONTER = { respekt: -6, vertrauen: -14 };       // Mittel −10 (wie vorher)
+const ACHSEN_ANGEZAEHLT = { respekt: -4, vertrauen: -16 };   // Mittel −10 (wie vorher)
+
 /** Steigt er nicht ein, kostet die Blamage einmalig ein Zwanzigstel Hype. */
 const BLAMAGE_HYPE = 0.95;
 
 // --- Frieden ---------------------------------------------------------------
 
-/** Versöhnung hebt den Draht deutlich … */
+/**
+ * Versöhnung hebt das VERTRAUEN deutlich … (nicht den Respekt: Was du
+ * getroffen hast, respektiert er weiterhin – er arbeitet nur wieder mit dir.)
+ */
 const FRIEDEN_PLUS = 30;
 /** … aber nie ins Plus: Beef anfangen ist keine Abkürzung zum Partner. */
 const FRIEDEN_DECKEL = -10;
@@ -332,7 +356,8 @@ module.exports = {
   DISS_AUFMERK, HAEME_MAX, HAEME_AUDIENCE, HAEME_HYPE, HAEME_HOERER,
   KONTER_HYPE, KONTER_HOERER, KONTER_LAECHERLICH, KONTER_MIN_TAGE, KONTER_MAX_TAGE,
   ANZAEHL_CHANCE, SZENE_MALUS,
-  DRAHT_ANSTACHELN, DRAHT_BLAMAGE, DRAHT_DISS, DRAHT_KONTER, DRAHT_ANGEZAEHLT,
+  ACHSEN_ANSTACHELN, ACHSEN_BLAMAGE, ACHSEN_DISS, ACHSEN_HAEME, ACHSEN_KONTER,
+  ACHSEN_ANGEZAEHLT,
   BLAMAGE_HYPE, FRIEDEN_PLUS, FRIEDEN_DECKEL,
   BONUS_TAGE, BONUS_SIEG, BONUS_NIEDERLAGE,
 };

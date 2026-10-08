@@ -1,0 +1,232 @@
+BEZIEHUNGEN 6a — MESSUNG
+========================
+Zweig feature/beziehungen, gemessen am 2026-10-08 gegen main (03aaf92).
+Instrument: scripts/messung-geldquellen.js, je 30 Laeufe a 365 Tage, fester
+Wuerfel rng(1000+i), ausgewertet wird der MEDIAN — bei dieser Verteilung zieht
+ein einzelner Ausreisser jeden Mittelwert beliebig weit (Begruendung im Kopf des
+Messskripts seit 5a).
+
+Drei Laeufe:
+  Zweig  --nur=kontakte    (274 Zeilen)
+  Zweig  --nur=angebote    (676 Zeilen, dort entstehen Projekte)
+  main   --nur=kontakte    (162 Zeilen, altes Skript ohne die neuen Zaehler)
+
+
+0. DIE GEGENPROBE ZUERST — traegt der Vergleich ueberhaupt?
+----------------------------------------------------------
+Dieses Stueck fasst ausschliesslich Kontakte an. Ein Messlauf OHNE Kontakte muss
+darum zwischen main und Zweig ziffernidentisch sein. Er ist es:
+
+  Archetyp           main          Zweig
+  Musik+Creator      493.618/Tag   493.618/Tag   IDENTISCH
+  nur Creator        557.305/Tag   557.305/Tag   IDENTISCH
+  nur Musik          108.493/Tag   108.493/Tag   IDENTISCH
+
+Damit ist belegt, dass Wuerfel, Strategiewahl und Auswertung in beiden Laeufen
+dieselben sind und jede Abweichung weiter unten vom Stueck kommt und nicht vom
+Aufbau. Ohne diese Zeile waere der Rest Behauptung.
+
+Ein erster Auswertungsversuch hat genau daran gescheitert: Ich hatte die
+Release-Strategietabelle verglichen (38 Zeilen, alle +0,0 %) und beinahe
+"nichts veraendert" gemeldet. Die Tabelle hat mit Kontakten gar nichts zu tun;
+38 ziffernidentische Werte waren kein Ergebnis, sondern das Warnsignal, dass ich
+die falschen Zeilen lese.
+
+
+1. DAS GELD — AUSLOESER PARAGRAPH 8.3 (+25 %)
+---------------------------------------------
+  Archetyp, mit Kontaktpflege    main          Zweig         Delta
+  Musik+Creator                  438.247/Tag   434.314/Tag   -0,9 %
+  nur Creator                    490.374/Tag   487.558/Tag   -0,6 %
+  nur Musik                      115.914/Tag   112.665/Tag   -2,8 %
+
+AUSLOESER NICHT AUSGELOEST. Groesste Abweichung 2,8 %, und sie geht nach unten.
+"Umverteilung, keine neue Geldquelle" haelt gemessen; RESPEKT_W_SPAN und
+RESPEKT_W_MIN bleiben, wie sie sind.
+
+Was Kontaktpflege im Zweig kostet (mit gegen ohne, im selben Lauf):
+  Musik+Creator   493.618 -> 434.314   -12,0 %
+  nur Creator     557.305 -> 487.558   -12,5 %
+  nur Musik       108.493 -> 112.665    +3,8 %
+
+Diese drei Zahlen sind NICHT mit den 5a-Werten (-8,3 % / -4,8 % / +12,9 %)
+vergleichbar: Seither sind 5b, 5c und die Vorfaelle dazugekommen, die Basis hat
+sich also verschoben. Der gueltige Vergleich fuer 6a ist der gegen main darueber.
+
+
+2. DIE BLOCKIERENDE VORBEDINGUNG (Spec Paragraph 5.1)
+-----------------------------------------------------
+Frage: Ist Vertrauen 50 schwerer zu erreichen als Draht 50 vorher?
+
+Der Vergleichswert kommt aus DEMSELBEN Lauf, und er ist ein ERSATZ, kein
+main-Wert. Ein Querlauf ist nicht moeglich (das alte Skript hat die Zaehler
+nicht, das neue laeuft gegen main-Code nicht).
+
+Ich hatte hier zuerst begruendet, "Draht >= 50" SEI der main-Wert, weil die
+fuenf Antwort-Paare identische Mittelwerte haben (+12 / +6 / +2 / -1 / -5) und
+der Draht per Konstruktion derselbe sei. Diese Begruendung ist falsch und ich
+streiche sie. Drei Dinge brechen sie:
+
+  * Geklammert wird JE ACHSE, nicht am Mittel. 20 Mal `echt` (+9/+3) ergibt
+    Respekt 100 (geklammert) und Vertrauen 60, Draht 80 — main kommt auf 100.
+    Genau diese Abweichung steht in Paragraph 8.1 dieses Files, ich habe sie
+    beim Begruenden nur nicht gegen meine eigene Behauptung gelesen.
+  * Der Verfall ist asymmetrisch (Respekt 1, Vertrauen 3 pro Woche), die Achsen
+    laufen also auch ohne Klammer auseinander.
+  * Der Lauf ist nicht beef-frei. Paragraph 4 dieses Files zaehlt Beef auf
+    30 Konten.
+
+Gemessen ueber 20.000 gesaeter Ereignisfolgen weichen Draht und main-Wert in
+3,8 % der Faelle ab, und IMMER NACH OBEN: der Ersatz ist systematisch ZU HOCH.
+Der wirkliche Abstand zwischen den beiden Spalten ist also KLEINER als die
+Tabelle zeigt. Das stuetzt die Entscheidung in Paragraph 5.1 zusaetzlich — nur
+die Begruendung war unzulaessig, nicht das Ergebnis.
+
+  Spielweise                           Vertrauen >= 50   Draht >= 50
+  mit Partner-Vorrang (vier Varianten)     100,0 %         100,0 %
+  freie Wahl A                              43,3 %          70,0 %
+  freie Wahl B                              20,0 %          50,0 %
+
+Zweite Haelfte: Kommen Projekte ueberhaupt zustande? (--nur=angebote)
+
+  Variante                       kollabo fertig/verfallen   tour fertig/verfallen
+  vier mit Single-Politik                  0 / 215                234 / 0
+  zwei mit Titel-Horten                   72 / 0                    -
+                                         -------                 -------
+  Summe                                   72 fertig               234 fertig
+
+ENTSCHEIDUNG: DAS TOR BLEIBT BEI minVertrauen = 50.
+
+Das ist eine bewusste Uebersteuerung der ersten Haelfte meines eigenen
+Ausloesers, und zwar aus drei Gruenden:
+
+  (a) Der Deadlock, gegen den Paragraph 5.1 geschrieben wurde, tritt nicht ein.
+      Wer auf einen Partner zielt, erreicht Vertrauen 50 mit 100 Prozent — so
+      sicher wie frueher Draht 50. Und 306 Projekte sind im Messjahr fertig
+      geworden. Die zweite, haertere Haelfte der Vorbedingung ("null ist ein
+      Fehlschlag") besteht damit deutlich.
+  (b) Die Senkung bei freiem Spiel IST die beabsichtigte Umverteilung. Album,
+      Tour und Label sollen Absicht verlangen statt Zufall; genau das steht in
+      der Spec als Zweck des Tors.
+  (c) Eine Senkung wuerde das Design zurueckdrehen, ohne ein Problem zu loesen.
+
+Wer das spaeter anders sieht, hat mit diesen Zahlen die Grundlage dafuer.
+
+
+3. DER KOLLABO-BEFUND — und er bestaetigt meine 5c-Schlussfolgerung
+-------------------------------------------------------------------
+JEDES der 215 verfallenen Kollabos hatte die 18 von 18 Stunden VOLL und
+durchschnittlich 0,2 bis 0,3 Titel von sechs geforderten:
+
+  "Verfallene Kollabos 77: Stunden voll (18) bei 77, davon mit weniger als
+   6 Titeln beim Verfall 77 - Titel beim Verfall: Oe 0,2 (Soll 6)"
+  "Verfallene Kollabos 85: ... alle 85 ... Oe 0,3 (Soll 6)"
+
+Die zwei Varianten, die Titel HORTEN statt sie als Singles zu veroeffentlichen,
+schaffen 72 von 72 (31 von 32 und 41 von 41).
+
+DAS BESTAETIGT 5c, ES KORRIGIERT NICHTS. Ich hatte hier zuerst notiert, 5c habe
+"nicht spielbar" geschlossen und sei falsch formuliert. Nachgelesen stimmt das
+nicht: ARCHITEKTUR.md Paragraph 15 sagt "in der gemessenen Spielweise ein
+Totalverlust", nennt die Ursache (sechs Titel gegen taegliche Singles), sagt
+ausdruecklich "wer ein Kollabo annimmt, muss seine Titel horten, und das sagt
+ihm nur die no_songs-Meldung", und hat das Horten-Kontrollpaar bereits gemessen
+(-5,3 bis +3,8 Prozent, "vier Zahlen, die um null streuen"). Die 5c-Patchnote
+sagt dasselbe.
+
+Was dieser Lauf BEITRAEGT, ist die Zahl je Projekt auf einem unabhaengigen
+Wuerfelsatz: 18 von 18 Stunden voll und 0,2 bis 0,3 Titel bei JEDEM der 215
+Verfaelle, und 72 von 72 bei den Horten-Varianten. Spielregel aus 5c, in 6a
+nicht angefasst.
+
+
+4. DIE ZEHN BEZIEHUNGSARTEN — kommt jede vor?
+---------------------------------------------
+  Art             Kontakte-Lauf              Angebote-Lauf
+  beef            30 Konten, 1303 Paare      kommt vor
+  fremd           30 Konten, 2700 Paare      kommt vor
+  bekannt         30 Konten,   85 Paare      kommt vor
+  partner         30 Konten,   34 Paare      kommt vor
+  verstimmt       18 Konten,   26 Paare      kommt vor
+  geschaeftlich    6 Konten,    6 Paare      kommt vor
+  rivale           0                         bis 5 Konten
+  mentor           0                         1 Konto
+  schuetzling      0                         25-29 Konten, bis 45 Paare
+  band             0                         0 IN ALLEN ACHT VARIANTEN
+
+BEFUND: `band` ("gemeinsame Vergangenheit") kommt in KEINEM Lauf ein einziges
+Mal vor, obwohl der Angebote-Lauf 306 Mal einen Boden von 10 gesetzt hat —
+72 Kollabos plus 234 Touren, denn angebote.fertig() bucht BODEN_FERTIG fuer
+BEIDE Formate. (Ich hatte hier zuerst 72 notiert und dabei die Tourenspalte
+meiner eigenen Tabelle in Paragraph 2 uebersehen.) Dazu kommt BODEN_AN je
+angenommener kleiner Gegenanfrage.
+
+URSACHE IST `schuetzling`, NICHT `partner`. Die erste Fassung dieses Absatzes
+hat auf `partner` oder `bekannt` gezeigt. `bekannt` kann `band` nie schlagen —
+`band` steht DARUEBER. Nachgerechnet ueber alle 201 x 201 Achsenpaare bei
+Boden 10:
+
+  Spielergroesse        Anteil `band` an der Flaeche   wer frisst das Feld
+  gleich gross                   48,3 %                (nichts)
+  Spieler 10x groesser           24,9 %                `schuetzling`: 12.030
+                                                       von 40.401 Zellen
+
+`schuetzling` steht UEBER `band` und verlangt bei zehnfacher Groesse nur
+Vertrauen >= 40. Ein fertiges Projekt liefert +18 und hebt den Boden auf 10 —
+das reicht zusammen mit den Zusagen muehelos. Der gemessene Spieler ist riesig,
+die Kontakte sind klein, also landet genau die Beziehung, die `band` werden
+sollte, bei `schuetzling`. Die Tabelle oben zeigt es: 25 bis 29 Konten mit
+`schuetzling`, null mit `band`.
+
+Die Art ist erreichbar (bei einem kleinen Spieler mit grossen Kontakten greift
+`schuetzling` nicht), aber nicht im Messhorizont dieser Laeufe. Zwei Wege waeren
+moeglich, wenn das stoert: `band` ueber `schuetzling` stellen, oder
+`schuetzling` einen Boden von 0 verlangen lassen. Beides ist eine
+Design-Entscheidung und nicht gemessen.
+
+`rivale` dagegen kommt vor und ist keine Dekoration. `mentor` ist duenn
+(1 Konto) — er verlangt einen Kontakt, der zehnmal groesser ist, UND Respekt
+>= 50 UND Vertrauen >= 40.
+
+
+5. DER EINBRUCH GUTER BEZIEHUNGEN (Plan Schritt 5b b)
+-----------------------------------------------------
+Der Daempfer (respektWirkt) verdoppelt die Strafe der legitimen
+vertrauenslastigen Ereignisse. Gezaehlt wurde darum: Tage mit einem Kontakt
+unter Vertrauen 0, DER SCHON EINMAL Vertrauen >= 50 HATTE.
+
+  Fuenf von sechs Varianten:  Median 0, groesster 0, 0 von 30 Konten betroffen
+  eine Variante:              Median 0, Mittel 1,4, groesster 42,
+                              1 von 30 Konten betroffen
+
+Der Daempfer trifft gute Beziehungen also messbar selten. Die rohe Zahl "Tage
+mit irgendeinem Kontakt unter Vertrauen 0" saettigt dagegen mit Beef (im
+Probelauf 327 von 365) und sagt nichts — deshalb die engere Zaehlung.
+
+
+6. GRENZEN DIESER MESSUNG
+-------------------------
+* Gesampelt wird einmal am Tagesende. Das tiefste Vertrauen gilt nur fuer
+  Kontakte, die eine Datenbankzeile haben.
+* Die Zielfunktion des Partner-Vorrangs hat sich geaendert (vorher d.draht,
+  jetzt min(respekt, vertrauen), weil der Partnerstatus an der SCHWAECHEREN
+  Achse haengt). Laeufe mit kontaktVorrang='partner' sind darum nicht direkt
+  mit Vorgaenger-Messungen vergleichbar.
+* Die Titelzahl beim Kollabo-Verfall steht am Tag, an dem der Verfall bemerkt
+  wird (faule Abrechnung), nicht an der Frist selbst.
+* DER SCHNITT BEEF x ANGEBOTE IST NICHT GEMESSEN. Keine Variante disst einen
+  Kontakt und nimmt danach dessen kleine Gegenanfrage an. Genau dort liegt der
+  Rest-Befund zum Deckel: Weil BODEN_AN den Boden hebt, zieht contacts.move das
+  Vertrauen auf den Boden hoch, und EIN angenommener Tausch hebt es von -60 auf
+  +3 (+63, wo das Paar +12 sagt) und die Chance von 9,9 % auf 51,9 %. Der
+  Ertragsdeckel haelt und ein Tor oeffnet es nicht (Boden <= 30 < 50), der
+  ZUGANG ist dort aber nicht gedeckelt. Siehe ARCHITEKTUR.md Paragraph 15.
+* Der Respekt-Hebel wirkt nur, wo ueberhaupt Kontakte angeschrieben werden.
+  Varianten ohne strat.kontakte sind von diesem Stueck unberuehrt und sagen
+  ueber seinen Deckel nichts.
+* Der main-Lauf benutzt das ALTE Messskript (ohne die neuen Zaehler). Verglichen
+  werden darum nur die Geldzahlen, nicht die Beziehungszaehler.
+* Der main-Lauf ist zweimal ohne Fehlermeldung gestorben, bei exakt 162 Zeilen,
+  wenn er mit nohup oder setsid aus einem Werkzeugaufruf gestartet wurde. Erst
+  der Hintergrundmechanismus des Werkzeugs selbst hat ihn durchlaufen lassen.
+  Die hier verwendeten Zahlen kommen aus dem vollstaendigen Lauf.

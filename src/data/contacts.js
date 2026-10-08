@@ -70,41 +70,206 @@ const SPERRE_TAGE = 3;
 /** Wer ignoriert wurde, darf erst nach einer Woche wieder nerven. */
 const SPERRE_IGNORIERT_TAGE = 7;
 
-/** Was eine Antwort am Draht bewegt. */
-const DRAHT_ZUSAGE = 12;
-const DRAHT_ECHT = 6;
-const DRAHT_FLUECHTIG = 2;
-const DRAHT_IGNORIERT = -1;
-const DRAHT_VERSTIMMT = -5;
-
-/** Ohne Kontakt kühlt die Beziehung ab: zwei Punkte je Woche Richtung 0. */
+/**
+ * Ohne Kontakt kühlt die Beziehung ab: zwei Punkte je Woche Richtung 0.
+ * Bleibt als REFERENZ des Paritätstests stehen (test/beziehungen.test.js) und
+ * wird von contacts.decay noch gelesen – die übrigen DRAHT_* sind mit dem
+ * Umbau auf die Achsen weggefallen, diese Zahl bleibt.
+ */
 const DRAHT_DECAY_PRO_WOCHE = 2;
 
 /** Schwellen der Beziehungsstufen. */
 const STUFE_BEKANNT = 20;
 const STUFE_PARTNER = 50;
 const STUFE_VERSTIMMT = -20;
-const STUFE_BEEF = -50;
-
-/** So viele Zusagen machen jemanden zum festen Partner. */
-const PARTNER_YES = 3;
 
 /** Die Antwortchance bleibt immer zwischen diesen Grenzen. */
 const CHANCE_MIN = 0.02;
 const CHANCE_MAX = 0.95;
 
+// --- Respekt und Vertrauen (Stück 6a) --------------------------------------
+
+/**
+ * Was eine Antwort an den zwei Achsen bewegt.
+ *
+ * Der Mittelwert ist bei allen fünf Zeilen identisch zum alten Draht-Delta
+ * (+12 / +6 / +2 / −1 / −5) – die Spaltung ist die einzige Änderung, und der
+ * Paritätstest in test/beziehungen.test.js hängt daran. Ein 🔥 zurück und ein
+ * echter Satz bringen fast nur Respekt; eine Zusage bringt beides.
+ */
+const ACHSEN = {
+  zusage:    { respekt: 12, vertrauen: 12 },   // Mittel +12
+  echt:      { respekt:  9, vertrauen:  3 },   // Mittel  +6
+  fluechtig: { respekt:  3, vertrauen:  1 },   // Mittel  +2
+  ignoriert: { respekt: -2, vertrauen:  0 },   // Mittel  −1
+  verstimmt: { respekt: -8, vertrauen: -2 },   // Mittel  −5
+};
+
+/**
+ * Ohne Kontakt kühlt die Beziehung ab. Respekt bleibt länger als Vertrauen:
+ * Wer dich einmal ernst genommen hat, tut das auch in einem halben Jahr noch –
+ * verlassen tut er sich nur auf jemanden, von dem er zuletzt etwas gehört hat.
+ * (1 + 3) / 2 = 2, also kühlt der Draht mit genau den alten zwei Punkten ab –
+ * aber nur unter ZWEI Voraussetzungen:
+ *
+ *   • Keine Achse erreicht ihr Ziel im Zeitraum (Respekt die 0, Vertrauen
+ *     seinen Boden). Läuft eine auf, kühlt der Draht langsamer: Respekt 40 /
+ *     Vertrauen 2, eine Woche – alt 21 → 19, neu 19,5 → 20.
+ *   • Beide Achsen haben dasselbe Vorzeichen. Bei gemischtem Vorzeichen kühlt
+ *     der Draht gar nicht ab, er driftet um einen Punkt je Woche VON der Null
+ *     weg: Respekt 50 / Vertrauen −50 ist Draht 0 und steht nach einer Woche
+ *     auf +1 (49 / −47), nach zehn auf +10. Umgekehrt −50 / 50 auf −1. Das ist
+ *     gewollt – eine vernachlässigte Beziehung wird von selbst zu „er kennt
+ *     dich, verlässt sich aber nicht mehr auf dich" – und steht als
+ *     Zusicherung im Abschnitt „Die gewollte Abweichung" in
+ *     test/beziehungen.test.js.
+ */
+const RESPEKT_DECAY_PRO_WOCHE = 1;
+const VERTRAUEN_DECAY_PRO_WOCHE = 3;
+
+/**
+ * Der Boden, unter den Vertrauen nicht fällt. Nur DURCHGEZOGENES setzt ihn
+ * (die Werte stehen in data/angebote.js), Zusagen und freundliche Antworten
+ * nicht. Bei 30 Boden und Respekt 0 liegt der Draht bei 15 – unter „bekannt"
+ * und unter der Schwelle, ab der Gegenanfragen überhaupt kommen: Die Beziehung
+ * bleibt warm und öffnet nichts von allein.
+ */
+const BODEN_MAX = 30;
+
+/** Respekt und Vertrauen liegen je zwischen diesen zwei Grenzen. */
+const ACHSE_MIN = -100;
+const ACHSE_MAX = 100;
+
+/**
+ * Das Gewicht des Respekts in der Antwortchance – es WÄCHST mit dem Abstand.
+ *
+ *   gleich groß oder kleiner  0,12   (heute 0,25)
+ *   10×                       0,23
+ *   100×                      0,34
+ *   1000× und mehr            0,45
+ *
+ * Die Grenze liegt bei Faktor 15,2: Darunter kostet die Umverteilung, darüber
+ * zahlt sie. Multiplikativ ginge das nicht – die Wurzel in der Basis staucht
+ * jeden Faktor so stark, dass der Weltstar SCHWERER erreichbar würde
+ * (100k gegen 10 Mio bei voller Beziehung 19,0 % statt 31,0 %).
+ */
+const RESPEKT_W_MIN = 0.12;
+const RESPEKT_W_SPAN = 0.33;
+const RESPEKT_W_DEKADEN = 3;
+
+/**
+ * Negatives Vertrauen zieht die Antwortchance – positives hebt sie NICHT, das
+ * ist Respekts Aufgabe.
+ *
+ * Dieser Summand allein ist KEIN Riegel: Er sättigt bei −0,25, während der
+ * Respekt-Term bis 0,45 läuft. Die Masche ist der wiederholte DISSTRACK (nicht
+ * das Anstacheln – das bringt 0 Respekt): Jeder gelandete Diss legt +10 Respekt
+ * nach, das Vertrauen liegt längst auf −100, und ab acht Treffern stünde der
+ * Dauer-Beefer besser da als ein Fremder. Den Riegel macht erst
+ * `contacts.respektWirkt`, das den Respekt-Term bei Vertrauen −100 auf null
+ * dämpft – erst zusammen landet die Masche auf CHANCE_MIN.
+ */
+const VERTRAUEN_MALUS = 0.25;
+
+/** Fester Partner: beide Achsen oben. Die EINZIGE Regel dafür. */
+const PARTNER_RESPEKT = 50;
+const PARTNER_VERTRAUEN = 50;
+
+/** Schwellen der Beziehungsarten (Reihenfolge in contacts.artOf). */
+const ART_RIVALE_RESPEKT = 30;
+const ART_RIVALE_VERTRAUEN = -20;
+const ART_ABSTAND = 10;              // ab Faktor 10 ist einer „viel größer"
+const ART_MENTOR_RESPEKT = 50;
+const ART_MENTOR_VERTRAUEN = 40;
+const ART_SCHUETZLING_VERTRAUEN = 40;
+const ART_BAND_BODEN = 10;
+const ART_GESCHAEFTLICH_RESPEKT = 40;
+
+/** Das Gedächtnis: so viele Zeilen je Kontakt, so viele in der Ansicht. */
+const MEMORY_MAX = 12;
+const MEMORY_ZEIGEN = 3;
+
+/**
+ * Was eine Gedächtniszeile erzählt. `{detail}` wird ersetzt.
+ *
+ * Bewusst NICHT eingetragen werden `fluechtig`, `echt`, `ignoriert` und
+ * `angebot_ab`: Sie sind häufig und klein, und zwanzig Zeilen „ignoriert"
+ * machen die Liste wertlos. Was man nur gewollt hat, erzählt stattdessen die
+ * Zusammenfassung aus `tries − yes`.
+ *
+ * JEDE Vorlage beschreibt das Ereignis, das sie wirklich bucht – nicht das
+ * benachbarte. Beim Beef war das dreimal auseinandergelaufen, weil die
+ * BUCHUNG in 6a gespalten wurde und die ERZÄHLUNG nicht mitkam: Die Häme
+ * schrieb `diss` („hat getroffen", während die Meldung desselben Klicks
+ * „ging nach hinten los" sagte), die Blamage erzählte von einem Disstrack,
+ * den es an der Stelle gar nicht gibt, und `verstimmt` behauptete eine
+ * Wiederholung, die ihre Bedingung nicht verlangt. Wer hier eine Vorlage
+ * anfasst, liest zuerst die Stelle, die ihr `merken: { art }` schreibt.
+ */
+const MEMORY_TEXTE = {
+  // Die zwei Anfrage-Vorlagen setzen `{detail}` in Anführung, weil es dort der
+  // VOLLE Satz der Anfrageart ist (`detail: r.name` in `contacts.request`):
+  // „Du hast Dich erwähnen zu oft gefragt" las sich als Aussage über den
+  // Spieler, nicht über die Bitte. Mit Anführung trägt der ganze Satz:
+  // „Hat die Bitte um „Gemeinsam auf die Bühne" übel genommen".
+  zusage:            'Zusage für „{detail}"',
+  // NICHT „Zu oft um … gebeten": `contacts.request` bucht `verstimmt` ohne
+  // jede Zählerbedingung – ein Empfindlicher (arrogant oder kühl), der nicht
+  // antwortet, nimmt es in VERSTIMMT_CHANCE der Fälle übel, und das kann die
+  // allererste Anfrage überhaupt sein (`tries` 0 → 1). Der alte Satz erzählte
+  // dann von einer Wiederholung, die es nicht gab; gebucht ist allein, dass
+  // DIESE Bitte übel genommen wurde.
+  verstimmt:         'Hat die Bitte um „{detail}" übel genommen',
+  angebot_an:        '{detail} angenommen',
+  angebot_verfallen: '{detail} verfallen lassen',
+  // Kein „zu zweit" in der Vorlage: Projekte gibt es nur für `kollabo` und
+  // `tour`, und `tour` heißt „Tour zu zweit" – das ergab „Tour zu zweit zu
+  // zweit fertig gemacht". Dass es zu zweit war, sagt der Kontakt daneben.
+  projekt_fertig:    '{detail} durchgezogen',
+  projekt_verfallen: '{detail} verrotten lassen',
+  beef_start:        'Beef angefangen',
+  // Die Blamage ist der Else-Zweig von `beef.anstacheln`: Es ist KEIN
+  // Disstrack veröffentlicht, der Kontakt ist bloß nicht auf den Streit
+  // eingestiegen und die Zeile steht allein da. Der Satz, der hier stand
+  // („Dein Disstrack ging nach hinten los"), gehört zur Häme – und sitzt
+  // jetzt dort.
+  blamage:           'Nicht auf deinen Streit eingestiegen',
+  // Zwei Ausgänge, zwei Vorlagen – genau wie ACHSEN_DISS und ACHSEN_HAEME
+  // zwei Buchungen sind: `diss` NUR für den gelandeten Disstrack (+10
+  // Respekt), `haeme` für den, der eine Nummer zu klein getroffen hat und
+  // nach hinten losging (−8 Respekt, −20 Vertrauen). Eine gemeinsame Vorlage
+  // wäre dieselbe falsche Aussage, die die gemeinsame Buchung war.
+  diss:              'Dein Disstrack hat getroffen',
+  haeme:             'Dein Disstrack ging nach hinten los – eine Nummer zu klein',
+  konter:            'Konter kassiert',
+  // Subjektlos wie jede andere ereignisbezogene Vorlage: Der Katalog
+  // hat KEIN Geschlechtsfeld, und `beef.anzaehlen` wählt aus allen
+  // Nicht-Partnern – darunter Nina Chuba, Loredana, Rosalía, Anitta, Angèle,
+  // Pomme, Sezen Aksu, Ado, Aimer, Peggy Gou, Pamela Reif, Vanessa Wagner und
+  // Bands. „Er hat dich angezählt" war über „Nina Chuba zählt dich an"
+  // schlicht falsch, und geschlechtsneutral ist Vorgabe, wo die Person
+  // datenseitig unbekannt ist. („Dein Disstrack …" bleibt: das ist der
+  // SPIELER, und der ist „du".)
+  angezaehlt:        'Hat dich angezählt',
+  frieden:           'Frieden gemacht',
+};
+
 // --- Anfragearten ----------------------------------------------------------
+
+/** Eine gemeinsame Bühne ist eine Verpflichtung – sie hängt am Vertrauen. */
+const KONZERT_VERTRAUEN = 20;
 
 /**
  * Vier Dinge, um die man bitten kann. `schwierigkeit` ist der Aufschlag auf
  * die Antwortchance – eine Reaktion kostet niemanden etwas, eine gemeinsame
- * Bühne schon. `minDraht` verlangt eine bestehende Beziehung.
+ * Bühne schon. `minDraht` verlangt eine bestehende Beziehung, `minVertrauen`
+ * dass er sich auf dich verlässt – höchstens EINES der beiden Tore je Art.
  */
 const REQUESTS = [
-  { id: 'reaktion', name: 'Auf deinen Post reagieren', emoji: '💬', time: KONTAKT_TIME, schwierigkeit: 0.15, minDraht: null },
-  { id: 'shoutout', name: 'Dich erwähnen', emoji: '📣', time: KONTAKT_TIME, schwierigkeit: 0, minDraht: null },
-  { id: 'feature', name: 'Gemeinsame Sache', emoji: '🎤', time: KONTAKT_TIME, schwierigkeit: -0.10, minDraht: null },
-  { id: 'konzert', name: 'Gemeinsam auf die Bühne', emoji: '🎪', time: KONTAKT_TIME, schwierigkeit: -0.20, minDraht: STUFE_BEKANNT },
+  { id: 'reaktion', name: 'Auf deinen Post reagieren', emoji: '💬', time: KONTAKT_TIME, schwierigkeit: 0.15, minDraht: null, minVertrauen: null },
+  { id: 'shoutout', name: 'Dich erwähnen', emoji: '📣', time: KONTAKT_TIME, schwierigkeit: 0, minDraht: null, minVertrauen: null },
+  { id: 'feature', name: 'Gemeinsame Sache', emoji: '🎤', time: KONTAKT_TIME, schwierigkeit: -0.10, minDraht: null, minVertrauen: null },
+  { id: 'konzert', name: 'Gemeinsam auf die Bühne', emoji: '🎪', time: KONTAKT_TIME, schwierigkeit: -0.20, minDraht: null, minVertrauen: KONZERT_VERTRAUEN },
 ];
 
 // --- Charakterzüge ---------------------------------------------------------
@@ -573,8 +738,15 @@ const byId = (id) => CONTACTS.find((c) => c.id === id) || null;
 module.exports = {
   CONTACTS, REQUESTS, TRAIT_BONUS, LINES, RELATED_GENRES, byId,
   KONTAKT_TIME, SPERRE_TAGE, SPERRE_IGNORIERT_TAGE,
-  DRAHT_ZUSAGE, DRAHT_ECHT, DRAHT_FLUECHTIG, DRAHT_IGNORIERT, DRAHT_VERSTIMMT,
   DRAHT_DECAY_PRO_WOCHE,
-  STUFE_BEKANNT, STUFE_PARTNER, STUFE_VERSTIMMT, STUFE_BEEF,
-  PARTNER_YES, CHANCE_MIN, CHANCE_MAX,
+  KONZERT_VERTRAUEN,
+  STUFE_BEKANNT, STUFE_PARTNER, STUFE_VERSTIMMT,
+  CHANCE_MIN, CHANCE_MAX,
+  ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX,
+  ACHSE_MIN, ACHSE_MAX,
+  RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS,
+  PARTNER_RESPEKT, PARTNER_VERTRAUEN,
+  ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT,
+  ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN,
+  ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE,
 };

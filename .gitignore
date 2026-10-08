@@ -12,3 +12,10 @@ node_modules/
 /data/
 .superpowers/
 .testdata/
+.testdata-wanderung/
+.testdata-koordinator/
+.testdata-review/
+.testdata-fix/
+.testdata-impl/
+.testdata-mess/
+.testdata-merge/

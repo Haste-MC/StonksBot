@@ -1122,7 +1122,48 @@ db.exec(`
     pause_bis       INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (guild_id, user_id)
   );
+
+  -- 6a: Was zwischen euch war. Eine gekappte Erzählung, KEINE Rechengrundlage:
+  -- d_respekt/d_vertrauen stehen nur hier, damit die Ansicht "+18 Vertrauen"
+  -- schreiben kann. Die Achsen auf contacts sind die einzige Wahrheit –
+  -- deshalb darf diese Liste gekappt werden, ohne dass eine Zahl driftet.
+  CREATE TABLE IF NOT EXISTS contact_memory (
+    guild_id    TEXT    NOT NULL,
+    user_id     TEXT    NOT NULL,
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    contact_id  TEXT    NOT NULL,
+    at          INTEGER NOT NULL,
+    art         TEXT    NOT NULL,
+    detail      TEXT    NOT NULL DEFAULT '',
+    d_respekt   INTEGER NOT NULL DEFAULT 0,
+    d_vertrauen INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE INDEX IF NOT EXISTS idx_contact_memory
+    ON contact_memory (guild_id, user_id, contact_id, id DESC);
 `);
+
+// 6a: Respekt und Vertrauen sind die Wahrheit, `draht` nur noch ihr Mittelwert.
+// Die Wanderung setzt beide auf den heutigen Draht – (d+d)/2 = d ohne Rundung,
+// am Wanderungstag ist also jeder Draht unverändert. Sie hängt an den gerade
+// angelegten Spalten und läuft darum genau einmal.
+// Nicht atomar: ADD COLUMN und UPDATE sind zwei Anweisungen. Bricht der Prozess
+// genau dazwischen ab, ist `respekt` beim nächsten Start schon da, die Wanderung
+// entfällt, und alle Achsen bleiben dauerhaft auf 0. Das Fenster ist winzig und
+// folgt dem Muster des Projekts (Spalten nachziehen, dann füllen) – bewusst
+// hingenommen, kein Code dafür.
+{
+  const have = new Set(db.prepare('PRAGMA table_info(contacts)').all().map((c) => c.name));
+  const spalten = {
+    respekt: 'INTEGER NOT NULL DEFAULT 0',
+    vertrauen: 'INTEGER NOT NULL DEFAULT 0',
+    boden: 'INTEGER NOT NULL DEFAULT 0',
+  };
+  const fehlten = Object.keys(spalten).filter((c) => !have.has(c));
+  for (const c of fehlten) db.exec(`ALTER TABLE contacts ADD COLUMN ${c} ${spalten[c]}`);
+  if (fehlten.includes('respekt')) {
+    db.exec('UPDATE contacts SET respekt = draht, vertrauen = draht');
+  }
+}
 
 // --------------------------------------------------------------- HEISTS
 // Ein Ding ist ein Projekt mit Crew: Der Plan gehört dem Anführer, die
@@ -2305,15 +2346,39 @@ const stmt = {
   getContact: db.prepare(
     'SELECT * FROM contacts WHERE guild_id = ? AND user_id = ? AND contact_id = ?'),
   contactsOf: db.prepare('SELECT * FROM contacts WHERE guild_id = ? AND user_id = ?'),
-  // Eine Anfrage = EINE Anweisung (§7).
+  // Eine Anfrage = EINE Anweisung (§7). `draht` ist abgeleitet und wird
+  // ausschließlich hier geschrieben – eine Quelle, kein zweites Buch.
   saveContact: db.prepare(
-    `INSERT INTO contacts (guild_id, user_id, contact_id, draht, tries, yes,
-                           last_try, last_move, ignored_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `INSERT INTO contacts (guild_id, user_id, contact_id, draht, respekt, vertrauen,
+                           boden, tries, yes, last_try, last_move, ignored_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (guild_id, user_id, contact_id) DO UPDATE SET
-       draht = excluded.draht, tries = excluded.tries, yes = excluded.yes,
+       draht = excluded.draht, respekt = excluded.respekt,
+       vertrauen = excluded.vertrauen, boden = excluded.boden,
+       tries = excluded.tries, yes = excluded.yes,
        last_try = excluded.last_try, last_move = excluded.last_move,
        ignored_at = excluded.ignored_at`),
+
+  memoryOf: db.prepare(
+    `SELECT * FROM contact_memory
+      WHERE guild_id = ? AND user_id = ? AND contact_id = ?
+      ORDER BY id DESC LIMIT ?`),
+  memoryCount: db.prepare(
+    `SELECT COUNT(*) AS n FROM contact_memory
+      WHERE guild_id = ? AND user_id = ? AND contact_id = ?`),
+  insertMemory: db.prepare(
+    `INSERT INTO contact_memory (guild_id, user_id, contact_id, at, art, detail,
+                                 d_respekt, d_vertrauen)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
+  // Gekappt wird nach `id DESC` – AUTOINCREMENT, also Einfügereihenfolge.
+  pruneMemory: db.prepare(
+    `DELETE FROM contact_memory
+      WHERE guild_id = ? AND user_id = ? AND contact_id = ?
+        AND id NOT IN (SELECT id FROM contact_memory
+                        WHERE guild_id = ? AND user_id = ? AND contact_id = ?
+                        ORDER BY id DESC LIMIT ?)`),
+  clearMemoryOf: db.prepare(
+    'DELETE FROM contact_memory WHERE guild_id = ? AND user_id = ?'),
   clearContactsOf: db.prepare('DELETE FROM contacts WHERE guild_id = ? AND user_id = ?'),
 
   // --- Beefs ---
@@ -3829,12 +3894,39 @@ function contactsOf(guildId, userId) {
   return stmt.contactsOf.all(guildId, String(userId));
 }
 
-/** Schreibt den Draht in EINER Anweisung fort – legt die Zeile bei Bedarf an. */
+/**
+ * Schreibt die Achsen in EINER Anweisung fort – legt die Zeile bei Bedarf an.
+ * Der Draht wird hier und nur hier abgeleitet.
+ */
 function saveContact(guildId, userId, contactId, c) {
+  const respekt = Math.round(c.respekt ?? 0);
+  const vertrauen = Math.round(c.vertrauen ?? 0);
   stmt.saveContact.run(
     guildId, String(userId), String(contactId),
-    Math.round(c.draht ?? 0), c.tries ?? 0, c.yes ?? 0,
+    Math.round((respekt + vertrauen) / 2),
+    respekt, vertrauen, Math.round(c.boden ?? 0),
+    c.tries ?? 0, c.yes ?? 0,
     c.last_try ?? 0, c.last_move ?? 0, c.ignored_at ?? 0);
+}
+
+/** Ein Gedächtniseintrag, danach auf `max` gekappt. */
+function addMemory(guildId, userId, contactId, m, max) {
+  const uid = String(userId);
+  const cid = String(contactId);
+  stmt.insertMemory.run(guildId, uid, cid, m.at, String(m.art),
+    String(m.detail ?? ''),
+    Math.round(m.dRespekt ?? 0), Math.round(m.dVertrauen ?? 0));
+  stmt.pruneMemory.run(guildId, uid, cid, guildId, uid, cid, max);
+}
+
+/** Die neuesten Gedächtniszeilen zu einem Kontakt – neueste zuerst. */
+function memoryOf(guildId, userId, contactId, limit) {
+  return stmt.memoryOf.all(guildId, String(userId), String(contactId), limit);
+}
+
+/** Wie viele Zeilen überhaupt gespeichert sind (für „… und N weitere"). */
+function memoryCount(guildId, userId, contactId) {
+  return stmt.memoryCount.get(guildId, String(userId), String(contactId))?.n ?? 0;
 }
 
 /** Alle Beefs eines Spielers – offene wie abgerechnete. */
@@ -3981,11 +4073,12 @@ function deleteBoost(guildId, userId, kind) {
   stmt.deleteBoost.run(guildId, String(userId), String(kind));
 }
 
-/** Löscht Drähte, Schübe und Beefs eines Spielers (Tests, Admin). */
+/** Löscht Drähte, Schübe, Beefs und das Gedächtnis eines Spielers (Tests, Admin). */
 function clearContacts(guildId, userId) {
   stmt.clearContactsOf.run(guildId, String(userId));
   stmt.clearBoosts.run(guildId, String(userId));
   stmt.clearBeefsOf.run(guildId, String(userId));
+  stmt.clearMemoryOf.run(guildId, String(userId));
 }
 
 // ------------------------------------------------------- Creator-Netzwerk
@@ -4682,7 +4775,8 @@ module.exports = {
   getArtist, hasArtist, saveArtist, topArtists, clearArtist,
   insertContract, getContract, openContract, activeContract, setContractStatus,
   contractHistory,
-  getContact, contactsOf, saveContact, getBoost, setBoost, deleteBoost, clearContacts,
+  getContact, contactsOf, saveContact, addMemory, memoryOf, memoryCount,
+  getBoost, setBoost, deleteBoost, clearContacts,
   beefsOf, beefRow, saveBeef,
   angeboteOf, angebotRow, insertAngebot, saveAngebot,
   projekteOf, projektRow, insertProjekt, saveProjekt,

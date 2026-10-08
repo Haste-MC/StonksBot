@@ -2676,6 +2676,10 @@ async function buildMusicDealView({ guildId, userId }) {
   }
 
   if (!s.offer) {
+    // Das echte Tor der Label-Einführung, aus der Tabelle gelesen statt
+    // getippt – damit der Satz darunter nicht wieder von der Zahl abdriftet.
+    const LABEL_VERTRAUEN = require('./data/angebote').ARTEN
+      .find((a) => a.id === 'label').minVertrauen;
     const embed = new EmbedBuilder()
       .setTitle('📜 Verträge')
       .setColor(0x95a5a6)
@@ -2687,10 +2691,22 @@ async function buildMusicDealView({ guildId, userId }) {
           : 'In deinem Land gibt es kein Idol-System. Solche Verträge werden nur in '
             + 'Japan und Südkorea angeboten.',
         // 5c: Seit der zweiten Vertragsart ist der Idol-Weg nicht mehr der
-        // einzige – ein Partner führt einen bei SEINEM Label ein, in jedem Land
-        // und mit oder ohne Gesicht. Für einen deutschen Rapper stand hier
-        // vorher „geht nicht", obwohl es geht; und für beide Märkte gilt es.
-        '📝 Ein fester Partner kann dich außerdem bei seinem Label einführen – ab '
+        // einzige – ein Kontakt, der dir traut, führt einen bei SEINEM Label
+        // ein, in jedem Land und mit oder ohne Gesicht. Für einen deutschen
+        // Rapper stand hier vorher „geht nicht", obwohl es geht; und für beide
+        // Märkte gilt es.
+        // „beim eigenen Label" – Subjekt des Satzes ist der Kontakt, also ist
+        // das Label seins, ohne ein Pronomen über eine Person, deren
+        // Geschlecht der Katalog nicht kennt.
+        //
+        // NICHT „ein fester Partner": Das Angebot `label` verlangt allein
+        // `minVertrauen` (siehe data/angebote.js), nicht die Partnerregel
+        // (Respekt ≥ 50 UND Vertrauen ≥ 50). Der alte Satz behauptete eine
+        // strengere Bedingung als der Code – wer Respekt 0 / Vertrauen 50
+        // hat, bekommt die Einführung und las hier, dass er sie nicht
+        // bekommt. Die Zahl kommt aus derselben Tabelle, die das Tor prüft.
+        `📝 Wer dir vertraut (Vertrauen ab **${LABEL_VERTRAUEN}**), kann dich außerdem `
+        + 'beim eigenen Label einführen – ab '
         + `**${music.LABEL.minListeners.toLocaleString('de-DE')}** Hörern, in jedem Land. `
         + 'Solche Einführungen stehen unter 📬 **Angebote**.',
       ].join('\n\n'));
@@ -2757,10 +2773,56 @@ const KONTAKT_FILTER = [
   { id: 'international', label: 'International', knopf: 'Nur International' },
 ];
 
-/** Beziehungsstufen, wie sie in der Anzeige heißen. */
-const DRAHT_STUFEN = {
-  beef: 'Beef', verstimmt: 'verstimmt', neutral: 'neutral',
-  bekannt: 'bekannt', partner: 'Partner',
+/** Die zehn Beziehungsarten – contacts.artOf liefert die Schlüssel. */
+const ARTEN_NAMEN = {
+  // `band` heißt NICHT „alte Band": Mit BODEN_AN = 3 reichen vier angenommene
+  // kleine Gegenanfragen für Boden 12 ≥ ART_BAND_BODEN, also trüge jemand den
+  // Namen ohne ein einziges gemeinsames Album. Über die Schwelle lässt sich das
+  // nicht lösen – ART_BAND_BODEN müsste über 12 steigen und verlöre dann den
+  // Ein-Album-Weg bei BODEN_FERTIG = 10. Der Name deckt darum beide Wege.
+  beef: '🔥 Beef',
+  rivale: '⚔️ Rivale',
+  verstimmt: '🙄 verstimmt',
+  mentor: '🎓 Mentor',
+  schuetzling: '🐣 Schützling',
+  partner: '🤝 fester Partner',
+  band: '💿 gemeinsame Vergangenheit',
+  geschaeftlich: '💼 geschäftlich',
+  bekannt: '👋 bekannt',
+  fremd: '· fremd',
+};
+
+/**
+ * Dieselben zehn Arten ohne ihr Zeichen – nur für die LISTE.
+ *
+ * Dort stehen vor dem Namen schon das Emoji des Kontakts und seine Flagge;
+ * ein drittes Zeichen in derselben Zeile ist Lärm. In der Detailansicht, wo
+ * die Art eine eigene Zeile trägt, bleibt es stehen.
+ *
+ * Ausgeschrieben und nicht gerechnet: Ein `replace(/^\S+\s+/, '')` schnitt das
+ * erste WORT ab, nicht das erste Zeichen. Mit den heutigen zehn Namen ist das
+ * harmlos, weil alle ein führendes Emoji tragen – aber „alte Band" war in
+ * diesem Stück schon einmal ein Kandidat, und daraus wäre still „Band"
+ * geworden. Zwei Spalten können auseinanderlaufen; dagegen prüft die
+ * Tabellenprobe, dass jeder lange Name auf seinem kurzen endet.
+ *
+ * Kein `??`-Rückfall, hier und an den zwei Ansichtsstellen: Mit den richtigen
+ * Schlüsseln ist er unerreichbar, und bei einem Tippfehler verwandelte er den
+ * Bruch in eine stille Lüge – ein Mentor stünde als „fremd" da, und keine
+ * `undefined`-Wache griffe. Die Tabellenprobe in test/fluxer-render.test.js
+ * hält beide Tabellen gegen `contacts.artOf`.
+ */
+const ARTEN_KURZ = {
+  beef: 'Beef',
+  rivale: 'Rivale',
+  verstimmt: 'verstimmt',
+  mentor: 'Mentor',
+  schuetzling: 'Schützling',
+  partner: 'fester Partner',
+  band: 'gemeinsame Vergangenheit',
+  geschaeftlich: 'geschäftlich',
+  bekannt: 'bekannt',
+  fremd: 'fremd',
 };
 
 /** Kurze Namen der vier Anfragearten – die vollen passen auf keinen Knopf. */
@@ -2785,10 +2847,93 @@ const SCHUB_ZIEL_DEIN = {
 /** Ein Faktor mit zwei Nachkommastellen: „1,00", „0,60", „0,15". */
 const zweistellig = (n) => Number(n).toFixed(2).replace('.', ',');
 
-/** Der Draht als Balken: fünf Felder von 0 bis 100, negativ bleibt leer. */
-function drahtBar(draht) {
-  const n = Math.max(0, Math.min(5, Math.ceil(draht / 20)));
-  return `${'▰'.repeat(n)}${'▱'.repeat(5 - n)}`;
+/**
+ * Der Draht als Balken: fünf Felder je 20 Punkte – und zwar in BEIDE
+ * Richtungen.
+ *
+ * Vorher klemmte die negative Hälfte auf `Math.max(0, …)`: Respekt −100 und
+ * Respekt 0 sahen identisch aus (`▱▱▱▱▱`). Beim EINEN Draht-Balken war das
+ * hinnehmbar; seit der Kopf der Kontaktansicht ZWEI Achsenbalken zeigt, deren
+ * ganzer Zweck die Unterscheidung ist, verlor die halbe Skala ihre Anzeige.
+ *
+ * Die negative Seite füllt darum mit einem eigenen Zeichen, von links wie die
+ * positive. Die positive Seite ist Zeichen für Zeichen unverändert (0 bleibt
+ * `▱▱▱▱▱`, 48 bleibt `▰▰▰▱▱`), damit die bestehenden Aufrufer – die Hitze in
+ * `beefZeile` und in `anstachelnNote`, beide nie negativ – gleich bleiben.
+ */
+const BAR_VOLL = '▰';
+const BAR_LEER = '▱';
+const BAR_MINUS = '▬';
+
+function drahtBar(wert) {
+  const n = Math.min(5, Math.ceil(Math.abs(wert) / 20));
+  const voll = wert < 0 ? BAR_MINUS : BAR_VOLL;
+  return `${voll.repeat(n)}${BAR_LEER.repeat(5 - n)}`;
+}
+
+/**
+ * Eine Zahl mit Vorzeichen: „+8", „−8", „±0".
+ *
+ * Typografisches Minus (U+2212), nicht der ASCII-Bindestrich einer rohen
+ * JS-Zahl – und `±0` ist die Hausschreibweise (so schreibt auch das
+ * Messskript). Ein Ausschlag von 0 steht ausdrücklich da: Eine Meldung
+ * berichtet eine BUCHUNG, und „diese Achse hat sich nicht bewegt" ist Teil
+ * davon. (Die Gedächtniszeile macht es umgekehrt und lässt eine Null ganz
+ * weg – sie erzählt eine GESCHICHTE, und dort ist nur das Bemerkenswerte
+ * eine Zeile wert. Der Unterschied ist Absicht, kein Versehen.)
+ */
+const vzZahl = (n) => (n === 0 ? '±0' : `${n > 0 ? '+' : '\u2212'}${Math.abs(n)}`);
+
+/**
+ * Ein STAND ohne Vorzeichen, aber mit demselben Minus: „48", „−25".
+ *
+ * `${wert}` roh schrieb den ASCII-Bindestrich – und zwar in derselben Zeile
+ * und in derselben Beschreibung, in der daneben schon U+2212 stand. Jede
+ * Stelle, die eine Achse oder einen Draht als Zahl zeigt, geht hier durch.
+ */
+const zahl = (n) => (n < 0 ? `\u2212${Math.abs(n)}` : `${n}`);
+
+/**
+ * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
+ *
+ * `kontaktNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
+ * und jedem verfallenen Projekt) zeigen dasselbe aus verschieden geformten
+ * Ergebnissen; die Zeile selbst gibt es nur hier.
+ *
+ * Der Name steht VORN, wo das Auge landet: Eine Diss-Meldung kann gleichzeitig
+ * ein Anzählen auslösen, und dann stünden hier zwei Zeilen für zwei
+ * verschiedene Kontakte untereinander. Ohne Namen wäre die Reihenfolge die
+ * einzige Zuordnung, die der Spieler hat. Kommt kein Kontakt mit, fällt der
+ * Namensteil weg – die Zeile muss auch dort tragen.
+ *
+ * Sie trägt strikt mehr als die alte Achsen-Zeile in buttons.js, die sie
+ * ersetzt (Draht, Balken, Ausschlag UND beide Achsen-Deltas): Zwei Zeilen
+ * übereinander, von denen die obere eine Teilmenge der unteren ist, sind keine
+ * Information, sondern Lärm.
+ */
+function achsenZeile(draht, delta, achsenVor, achsen, name = null) {
+  return `🤝 ${name ? `**${name}** · ` : ''}Draht ${drahtBar(draht)} `
+    + `**${zahl(draht)}** (${vzZahl(delta)})`
+    + ` · Respekt ${vzZahl(achsen.respekt - achsenVor.respekt)}`
+    + ` · Vertrauen ${vzZahl(achsen.vertrauen - achsenVor.vertrauen)}`;
+}
+
+/**
+ * Das ALTER eines Ereignisses, grob: „2 Tagen", „5 Stunden", „20 Minuten".
+ *
+ * `frist` ist für RESTZEIT gebaut und rundet Tage mit `Math.ceil` auf – richtig
+ * für „frei in 3 Tagen", falsch für ein Alter: Ein Ereignis von zwei Tagen und
+ * einer Sekunde stand als „vor 3 Tagen" da. Ab einem Tag wird darum
+ * abgeschnitten; darunter sind die Stunden- und Minuten-Zweige von `frist`
+ * richtig und werden nicht gedoppelt. `frist` selbst bleibt unangetastet, es
+ * hat sieben Aufrufer mit Restzeit-Bedeutung.
+ */
+function alter(ms) {
+  if (ms >= 24 * 3600e3) {
+    const tage = Math.floor(ms / (24 * 3600e3));
+    return `${tage} ${tage === 1 ? 'Tag' : 'Tagen'}`;
+  }
+  return frist(ms);
 }
 
 /** Restzeit einer Sperre, grob: „3 Tagen", „5 Stunden", „20 Minuten". */
@@ -2830,7 +2975,10 @@ function beefZeile(b, now = Date.now()) {
   const hitze = Math.round(b.hitze);
   let rest;
   if (b.konter_at > 0) {
-    rest = `sein Konter kommt in ${restZeit(Math.max(0, b.konter_at - now))}`;
+    // „der Konter", nicht „sein Konter": Die Zeile steht bei jedem der 89
+    // Kontakte, und der Katalog hat kein Geschlechtsfeld. Welcher Konter
+    // gemeint ist, ist ohnehin eindeutig – es gibt nur einen offenen.
+    rest = `der Konter kommt in ${restZeit(Math.max(0, b.konter_at - now))}`;
   } else {
     const tage = Math.max(1, Math.round(hitze / bdata.HITZE_COOL_PRO_TAG));
     rest = `kühlt ab, noch ${tage} ${tage === 1 ? 'Tag' : 'Tage'}`;
@@ -3010,7 +3158,7 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
       : z.gesperrtBis > now ? ` · 🔒 frei in ${frist(z.gesperrtBis - now)}` : '';
     return `**${i + 1}.** ${z.contact.emoji} **${z.contact.name}** ${land?.flag ?? '🌍'} `
       + `${kontaktSparte(z.contact, z.seite)} · ${short(reach)} · `
-      + `Draht ${drahtBar(z.draht)} ${z.draht} (${DRAHT_STUFEN[z.stufe]}) · `
+      + `Draht ${drahtBar(z.draht)} ${zahl(z.draht)} (${ARTEN_KURZ[z.art]}) · `
       // Die Chance der Liste ist die EINE Anfrageart, mit der contacts.listFor
       // rechnet (`LIST_REQUEST`, die neutrale Erwähnung). Ohne den Namen stünde
       // hier eine Zahl, die einen Klick später in keinem der vier Knöpfe
@@ -3070,6 +3218,65 @@ async function buildKontakteView({ guildId, userId, page = 1, filter = 'alle' })
 }
 
 /**
+ * „Was zwischen euch war" – die neuesten MEMORY_ZEIGEN Zeilen.
+ *
+ * Die Länge ist durch MEMORY_ZEIGEN gedeckelt und braucht darum keinen
+ * Kürzungshelfer: Drei Zeilen à höchstens rund 70 Zeichen können die
+ * Beschreibung nicht sprengen. (`buttons.notizAus` passt hier NICHT – sein
+ * Überlauftext verweist auf die Vorfall-Ansicht.)
+ *
+ * Die letzte Zeile deckt „was du nur gewollt hast" ab: Sie kommt aus
+ * `tries − yes` und braucht keine Gedächtniszeilen – zwanzig Zeilen
+ * „ignoriert" machten die Liste wertlos.
+ *
+ * Ein Ausschlag von 0 fällt hier ganz weg, anders als in `achsenZeile`, die
+ * `±0` schreibt: Diese Zeilen erzählen eine GESCHICHTE, und nur das
+ * Bemerkenswerte ist eine Erwähnung wert. Eine Meldung dagegen berichtet eine
+ * BUCHUNG, und dort gehört auch die unbewegte Achse dazu. Absicht, kein
+ * Versehen.
+ */
+function gedaechtnisBlock(guildId, userId, contactId, tries, yes, now) {
+  const cdata = require('./data/contacts');
+  const zeilen = db.memoryOf(guildId, userId, contactId, cdata.MEMORY_ZEIGEN);
+  /*
+   * „Versuche ohne Zusage", NICHT „Mal kam nichts zurück".
+   *
+   * `tries − yes` bedeutet nicht, dass nichts zurückkam: `yes` steigt nur bei
+   * einer ZUSAGE, `tries` dagegen (a) bei jeder Anfrage – auch bei `echt` und
+   * `fluechtig`, wo sehr wohl etwas zurückkam – und (b) in `contacts.move` bei
+   * jedem `{ sperre: true }`, also auch bei `beef.anstacheln` und
+   * `beef.frieden`, die überhaupt keine Anfragen sind. Der alte Satz zählte
+   * damit Ereignisse, die zwei Zeilen darüber namentlich dastehen, als „nichts
+   * zurückgekommen". Der neue ist per Konstruktion wahr und nennt dieselbe
+   * Zahl, die der Kopf schon „Versuche" nennt. Nicht wieder verschärfen.
+   */
+  const ohneZusage = Math.max(0, tries - yes);
+  if (!zeilen.length && !ohneZusage) return null;
+
+  const out = [''];
+  // Die Überschrift nur, wenn auch Zeilen darunter stehen – sonst stand sie
+  // leer da und der Schwanz war ihr einziger Inhalt.
+  if (zeilen.length) out.push('📖 **Was zwischen euch war**');
+  for (const m of zeilen) {
+    const text = (cdata.MEMORY_TEXTE[m.art] ?? m.art).replace('{detail}', m.detail);
+    const d = [
+      m.d_respekt ? `${vzZahl(m.d_respekt)} Respekt` : null,
+      m.d_vertrauen ? `${vzZahl(m.d_vertrauen)} Vertrauen` : null,
+    ].filter(Boolean).join(', ');
+    // `alter` und nicht `frist`: Letzteres rundet Tage auf (Restzeit-Bedeutung)
+    // und meldete ein zwei Tage altes Ereignis als „vor 3 Tagen".
+    out.push(`• vor ${alter(now - m.at)} · ${text}${d ? ` _(${d})_` : ''}`);
+  }
+  const gesamt = db.memoryCount(guildId, userId, contactId);
+  const schwanz = [
+    gesamt > zeilen.length ? `… und ${gesamt - zeilen.length} weitere` : null,
+    ohneZusage ? `${ohneZusage} ${ohneZusage === 1 ? 'Versuch' : 'Versuche'} ohne Zusage` : null,
+  ].filter(Boolean);
+  if (schwanz.length) out.push(`_${schwanz.join(' · ')}_`);
+  return out;
+}
+
+/**
  * Ein einzelner Kontakt: wer er ist, wie ihr steht, was du fragen kannst.
  *
  * Die vier Knöpfe tragen die Chance im Namen – man soll sehen, was ein
@@ -3107,9 +3314,19 @@ async function buildKontaktView({ guildId, userId, contactId }) {
     '',
     `🌍 ${land?.flag ?? '🌍'} ${c.language} · ${kontaktSparte(c, seite)} · `
       + `Reichweite ${short(d.seineReichweite)}`,
-    `🤝 Draht ${drahtBar(d.draht)} ${d.draht} (${DRAHT_STUFEN[d.stufe]}) · `
+    // `art` ist schon „🤝 fester Partner", wenn beide Achsen hoch stehen – der
+    // Stern daneben wäre dann dasselbe zweimal.
+    `${ARTEN_NAMEN[d.art]}`
+      + (d.partner && d.art !== 'partner' ? ' · ⭐ fester Partner' : ''),
+    // `zahl` und nicht `${d.draht}`: Eine rohe JS-Zahl schriebe den
+    // ASCII-Bindestrich, und drei Zeilen weiter unten steht im Gedächtnisblock
+    // U+2212 in derselben Beschreibung.
+    `   Draht ${drahtBar(d.draht)} ${zahl(d.draht)} · `
       + `${d.tries} ${d.tries === 1 ? 'Versuch' : 'Versuche'}, `
       + `${d.yes} ${d.yes === 1 ? 'Zusage' : 'Zusagen'}`,
+    `   Respekt ${drahtBar(d.respekt)} ${zahl(d.respekt)} · `
+      + `Vertrauen ${drahtBar(d.vertrauen)} ${zahl(d.vertrauen)}`
+      + (d.boden > 0 ? ` _(Boden ${d.boden})_` : ''),
     `🎯 Passung ${pct(d.passung)} _(Sprache ×${zweistellig(d.sprachfaktor)} · `
       + `${seite === 'creator' ? 'Plattform' : 'Genre'} ×${zweistellig(d.genrefaktor)})_`,
   ];
@@ -3120,9 +3337,11 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   } else {
     kopf.push('❌ Dafür fehlt dir die passende Karriere.');
   }
-  if (d.partner) kopf.push('⭐ Fester Partner – das öffnet Türen im Umfeld.');
   if (d.tuerOeffner > 0) {
-    kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in seinem Umfeld.`);
+    // „in diesem Umfeld": Die Zeile steht in derselben Beschreibung wie der
+    // dreizeilige Kopf darüber und gilt für jeden Kontakt – ein „seinem" wäre
+    // der einzige gegenderte Satz der ganzen Ansicht.
+    kopf.push(`🚪 Türöffner: **+${pct(d.tuerOeffner)}** über deine Drähte in diesem Umfeld.`);
   }
   if (gesperrt) kopf.push(`⏳ Gesperrt – frei in **${frist(d.gesperrtBis - now)}**.`);
 
@@ -3142,9 +3361,23 @@ async function buildKontaktView({ guildId, userId, contactId }) {
   if (b) kopf.push(beefZeile(b, now));
   else if (nachbeben) kopf.push(beefEndeZeile(nachbeben, now));
 
+  // Das Gedächtnis zuletzt, NACH der Beef-Zeile: Der Block beginnt mit einer
+  // Leerzeile, und davor eingehängt klebte die Beef-Zeile ohne Abstand an
+  // seinem kursiven Schwanz.
+  const erinnerung = gedaechtnisBlock(guildId, userId, contactId, d.tries, d.yes, now);
+  if (erinnerung) kopf.push(...erinnerung);
+
   const grundText = (r) => ({
     seite: '🔒 passende Karriere fehlt',
+    // 6a: Datenseitig derzeit unerreichbar – alle REQUESTS tragen
+    // `minDraht: null`. Der Schlüssel bleibt als Gegenstück zu `minVertrauen`
+    // stehen, damit eine künftige Anfrageart mit Draht-Tor nicht auf eine
+    // Chance zurückfällt, die niemand bekommen kann (`contacts.detail` erzeugt
+    // den Grund weiter). Die halbe Löschung wäre schlechter als keine.
     draht: `🔒 Draht ${r.minDraht} nötig`,
+    // 6a: Ohne diesen Schlüssel bewürbe ein gesperrter Knopf eine Chance, die
+    // gerade niemand bekommen kann (derselbe Rückfall wie bei `beef`).
+    vertrauen: `🔒 Vertrauen ${r.minVertrauen} nötig`,
     gesperrt: '🔒 gesperrt',
     // 5b: Ohne diesen Eintrag stünde auf einem gesperrten Knopf weiter eine
     // Chance, die gerade niemand bekommen kann.
@@ -5685,7 +5918,8 @@ module.exports = {
   buildAuctionView, buildCollectionView, buildGaragesView, buildTopView,
   buildDetailView,
   buildKontakteView, buildKontaktView,
-  drahtBar, frist, restZeit, DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
+  drahtBar, achsenZeile, frist, alter, restZeit, ARTEN_NAMEN, ARTEN_KURZ,
+  SCHUB_ZIEL_DEIN, schubGewirkt, angeboteZeile,
   navigationRow, actionsRow, homeButton, garageLabel, ID, money, faktor, buildConfirmView,
   zeitEnergieZeile,
 };

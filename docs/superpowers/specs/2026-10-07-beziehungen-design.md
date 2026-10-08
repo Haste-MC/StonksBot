@@ -212,6 +212,24 @@ Vertrauensverlust im Spiel.
 
 Der gelandete Disstrack ist der Fall, der die Spaltung rechtfertigt: Er nimmt
 dich **ernster** als vorher und lässt sich auf kein mehrtägiges Format mehr ein.
+
+**Gemessen, und es korrigiert eine Behauptung dieser Spec:** Ein einzelner
+Schlagwechsel macht aus einem Fremden **keinen** Rivalen. Anstacheln (0),
+ein Diss (+10) und ein Konter (−6) ergeben netto **+4** Respekt — bei
+Vertrauen −74 ist das Draht −35 und damit die Art `verstimmt`, nicht `rivale`
+(der verlangt Respekt ≥ 30). Der Rivale entsteht auf genau zwei Wegen:
+
+| Weg | |
+|---|---|
+| **Du hattest schon Standing.** Respekt ≥ 26 vor dem Beef — drei echte Antworten (je +9) reichen. | der Regelfall |
+| **Ein langer Krieg.** Fünf gelandete Disse gegen zwei Konter: Respekt 38. | selten |
+
+Das ist **besser als das, was hier ursprünglich stand**, und bleibt so: Ein
+Niemand, der einen Weltstar einmal anpiekst und einen Konter kassiert, ist
+dessen Rivale nicht — er ist jemand, über den der Star sich geärgert hat. Wer
+ein Rivale werden will, muss vorher etwas bedeuten. Die Messung (§8.3) berichtet,
+wie oft `rivale` im Messjahr tatsächlich vorkommt, damit die Art nicht
+stillschweigend Dekoration bleibt.
 Anstacheln bringt keinen Respekt — eine Provokation ist noch kein Treffer. Sich
 zu blamieren kostet Respekt, nicht Vertrauen.
 
@@ -274,12 +292,41 @@ zahlt sie. Gerechnet, nicht geschätzt:
 | 10k → 10 Mio | 1,9 / 14,4 / 26,9 % | 1,9 / **24,4** / **46,9** % |
 
 **Positives Vertrauen hebt die Antwortchance nicht** — das ist Respekts Aufgabe.
-**Negatives Vertrauen senkt sie**, mit derselben Stärke, die der heutige
-Draht-Term auf der negativen Seite hatte. Das ist kein Beiwerk, sondern der
-Riegel gegen die naheliegende Masche: Wer denselben Kontakt wiederholt anstachelt,
-sammelt Respekt (+10 je gelandetem Diss) bei Vertrauen auf −100. Gerechnet, bei
-100× Abstand: 6,0 % + 6,8 % − 25,0 % = **−12,2 %**, also `CHANCE_MIN` von 2 %.
-Ohne den Malus wäre es 12,8 % — mehr als das Doppelte des Fremden.
+**Negatives Vertrauen senkt sie** doppelt, und das zweite ist nötig:
+
+```js
+respektWirkt = Math.max(0, respekt) * (1 + Math.min(0, vertrauen / 100))
+… + (respektWirkt / 100) * respektGewicht(meine, seine)
+  + Math.min(0, vertrauen / 100) * VERTRAUEN_MALUS
+```
+
+Bei Vertrauen ≥ 0 ist der Faktor **1** und nichts ändert sich — alle Zahlen der
+Tabelle oben gelten unverändert. Bei Vertrauen −100 ist der Respekt-Term **ganz
+weg**.
+
+**Warum der additive Malus allein nicht reicht — gemessen, und er widerlegt eine
+frühere Fassung dieser Spec.** `VERTRAUEN_MALUS` sättigt bei −0,25, während der
+Respekt-Term bis `1,0 × 0,45` läuft. Ein Spieler, der denselben Kontakt
+wiederholt **disst** (nicht anstachelt — Anstacheln bringt 0 Respekt), sammelt
++10 Respekt je Treffer bei Vertrauen längst auf −100:
+
+| Zustand (10k gegen 10 Mio) | R | V | nur additiv | **mit Dämpfer** |
+|---|---|---|---|---|
+| fremd | 0 | 0 | 6,9 % | 6,9 % |
+| Rivale | 30 | −20 | 15,4 % | 12,7 % |
+| 8 gelandete Disse | 68 | −100 | **12,5 %** | **2,0 %** |
+| 12 gelandete Disse | 88 | −100 | **21,5 %** | **2,0 %** |
+| echte Beziehung | 60 | 60 | 33,9 % | 33,9 % |
+
+Ohne den Dämpfer ist der Dauer-Beefer ab acht Treffern **besser dran als ein
+Fremder** — und schlimmer: `stufeVon` wiegt die Zusage mit `(1 + respekt/100)`
+und liest **kein** Vertrauen, das Zusage-Gewicht stieg also dauerhaft auf 1,68
+und mit ihm der Schub je Antwort. Damit hätte der Beef den **Ertrag** verändert
+und nicht nur den Zugang, und das verletzt §3.
+
+Deshalb liest **auch `stufeVon`** den gedämpften Respekt, nicht den rohen. Der
+Rivale behält dabei 80 % seines Vorteils (12,7 % gegen 6,9 % beim Fremden) — er
+bleibt ein echter, bevorteilter Zustand, nur kein Wachstumsweg.
 
 ### 4.3 Die Verbindlichkeit
 
@@ -343,7 +390,26 @@ Stunden ab).
 
 **Blockierende Vorbedingung vor dem Merge.** Gemessen wird mit demselben Aufbau
 wie 5c der Anteil der Konten, die binnen eines Jahres Vertrauen 50 erreichen,
-gegen den heutigen Anteil, der Draht 50 erreicht. Liegt er darunter, geht
+gegen den Anteil, der Draht 50 erreicht — **beides im selben Lauf**.
+
+**Warum kein Lauf gegen `main` nötig ist, und warum einer gar nicht geht:** Das
+alte Skript auf `main` hat diese Zähler nicht, und das neue läuft gegen
+`main`-Code nicht (dort liefert `contacts.detail` kein `respekt`/`vertrauen`).
+„Draht ≥ 50" aus demselben Lauf ist darum ein **Ersatz** für den `main`-Wert,
+und zwar in **jeder** Variante.
+
+> **Nachtrag aus der Messung:** Hier stand zuerst, für eine Variante ohne Beef
+> und ohne Projekte sei der Draht „per Konstruktion derselbe" wie der von
+> `main`, weil die fünf Antwort-Paare identische Mittelwerte haben
+> (+12 / +6 / +2 / −1 / −5). **Das ist falsch, und die Begründung ist
+> gestrichen.** Geklammert wird je Achse und nicht am Mittel (20 × `echt`
+> ergibt Respekt 100 / Vertrauen 60, Draht 80, wo `main` auf 100 kommt — die
+> Abweichung steht in §8.1 unten), der Verfall ist asymmetrisch, und der
+> gemessene Lauf ist nicht beef-frei. Gemessen über 20.000 gesäte
+> Ereignisfolgen weicht der Ersatz in 3,8 % der Fälle ab, **immer nach oben**.
+> Er liegt also systematisch zu hoch, der wirkliche Abstand ist kleiner als die
+> berichtete Tabelle — die Entscheidung unten wird davon gestützt, nicht
+> beschädigt. Siehe `docs/messungen/2026-10-08-beziehungen.txt` §2. Liegt er darunter, geht
 `minVertrauen` für die drei großen Formate in Stufen herunter — **50 → 45 → 40
 → 35** — bis die Anteile übereinstimmen. Zusätzlich wird gezählt, wie viele
 `kollabo`- und `tour`-Projekte im Messjahr überhaupt zustande kommen; **null ist
@@ -432,9 +498,9 @@ wahr ist. Die Ansicht zeigt dann beides — die Art als Zeile, das ⭐ daneben.
 Die heutige Draht-Zeile wird zu drei:
 
 ```
-🤝 Mentor · ⭐ fester Partner
-   Draht ▓▓▓░░ 63 · 17 Versuche, 4 Zusagen
-   Respekt ▓▓▓▓░ 72 · Vertrauen ▓▓▓░░ 54 (Boden 10)
+🎓 Mentor · ⭐ fester Partner
+   Draht ▰▰▰▱▱ 63 · 17 Versuche, 4 Zusagen
+   Respekt ▰▰▰▰▱ 72 · Vertrauen ▰▰▰▱▱ 54 _(Boden 10)_
 ```
 
 Darunter das Gedächtnis, die neuesten `MEMORY_ZEIGEN = 3`:
@@ -447,8 +513,9 @@ Darunter das Gedächtnis, die neuesten `MEMORY_ZEIGEN = 3`:
 _… und 6 weitere · 13 Mal kam nichts zurück_
 ```
 
-Die letzte Zeile deckt „was du nur gewollt hast" ab — sie kommt aus
-`tries − yes` und braucht keine Gedächtniszeilen. Ohne das wären es zwanzig
+Die letzte Zeile heißt **„N Versuche ohne Zusage"**, nicht „N Mal kam nichts
+zurück": `tries` zählt auch Beef-Aktionen mit (jedes `move` mit `sperre`), und
+`echt` wie `fluechtig` sind Antworten. Sie kommt aus `tries − yes` und braucht keine Gedächtniszeilen. Ohne das wären es zwanzig
 Zeilen „ignoriert" und die Liste wäre wertlos.
 
 Die Länge ist durch `MEMORY_ZEIGEN` gedeckelt und braucht keinen
@@ -474,9 +541,26 @@ abgeleitete Draht **exakt** dem entsprechen, was die heutige Kette aus `decay`
 und den heutigen Deltas liefert. Die alte Funktion `decay(draht, tage)` bleibt
 dafür erhalten und ist das Referenzmodell im Test.
 
-Das ist die Nullhypothese: Es beweist, dass die Mechanik selbst nichts
-verschiebt und jede gemessene Änderung aus den **ungleichen** Spaltungen, dem
-Respekt-Gewicht und den Toren kommt — nicht aus einem Buchhaltungsfehler.
+Was dieser Test beweist und was nicht — der Unterschied ist wichtig, weil der
+Name mehr verspricht, als die Sache hält:
+
+- **Er beweist:** Die Buchführung ist neutral. `decayAchse` mit Boden 0
+  verhält sich wie `decay`, und `drahtVon(d, d)` ist `d`. Eine gemessene
+  Änderung kommt also nicht aus einem Rechenfehler in der Umstellung.
+- **Er beweist NICHT, dass das Spiel sich gleich verhält.** Mit den echten,
+  ungleichen Paaren laufen die Ketten auseinander, und das ist Absicht.
+  Gerechnet: Zwanzig echte Antworten ergaben früher Draht **100** (20 × +6,
+  geklemmt); jetzt sättigt Respekt bei 100, während Vertrauen auf 60 steht,
+  und der Draht bleibt bei **80**. Ebenso driftet eine Beziehung mit Respekt
+  50 und Vertrauen −50 — heute Draht 0 — beim Abkühlen auf +1 nach einer
+  Woche und +10 nach zehn, weil Vertrauen dreimal schneller gegen die Null
+  läuft als Respekt.
+
+Beides gehört **als eigene Zusicherung** in den Test, mit genau diesen Zahlen.
+Sonst liest ein späterer Leser „Parität bestanden" und hält die gelieferten
+Zahlen für neutral. Die Entartung des Paritätstests — beide Achsen tragen in
+jedem Schritt dasselbe, die Rundung wird nie berührt — muss im Kommentar
+dort stehen, wo der Test steht.
 
 ### 8.2 Weitere Zusicherungen
 
@@ -511,6 +595,13 @@ Alle Tests ohne Netz (§12), gesäte Würfel.
 | nur Musiker | leicht hoch (Weltstars erreichbarer) |
 | nur Creator | ± wenige Prozent |
 | Partner-Anteil der Kontakte | **runter** (die Verschärfung aus §6.1) |
+| Verteilung der zehn Arten | jede muss vorkommen |
+
+**Zusätzlich zu zählen:** Wie oft jede der zehn Beziehungsarten im Messjahr
+auftritt. Eine Art mit **null** Vorkommen ist Dekoration, und zwei stehen unter
+Verdacht: `rivale` (braucht Respekt ≥ 30, also vorheriges Standing oder einen
+langen Krieg) und `schuetzling` (braucht, dass der Spieler zehnmal größer ist als
+der Kontakt).
 
 **Auslöser:** Steigt die Jahressumme eines Archetyps um mehr als **25 %** über
 `main`, wird `RESPEKT_W_SPAN` gesenkt, bis es darunter liegt — und die Messung

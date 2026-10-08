@@ -23,7 +23,7 @@ const {
   buildFirmaView, buildFirmenView, buildFirmaFoundView, buildFirmaStaffView, buildFirmaAusbauView, buildFirmaLagerView, buildFirmaHandelView, ID, homeButton,
   buildFirmaAnteileView, buildAnteileMarktView, buildMeineAnteileView,
   buildKontakteView, buildKontaktView, frist, restZeit, drahtBar,
-  DRAHT_STUFEN, SCHUB_ZIEL_DEIN, schubGewirkt,
+  achsenZeile, SCHUB_ZIEL_DEIN, schubGewirkt,
 } = require('./ui');
 const { buildMainMenu, buildGroupView, buildEntryView } = require('./menu');
 const { getSymbol } = require('./currency');
@@ -624,6 +624,12 @@ function kontaktNote(res, now = Date.now()) {
     if (res.reason === 'draht') {
       return `🤝 Dafür kennt ihr euch noch nicht gut genug (Draht ${res.need} nötig).`;
     }
+    if (res.reason === 'vertrauen') {
+      // Ohne Pronomen: Der Satz gilt für JEDEN der 89 Kontakte, und der Katalog
+      // hat kein Geschlechtsfeld. „verlässt er sich" war über die Hälfte von
+      // ihnen falsch. Derselbe Ton, dieselbe Aussage, dieselbe Zahl.
+      return `🤝 So viel Vertrauen ist noch nicht da (Vertrauen ${res.need} nötig).`;
+    }
     if (res.reason === 'seite') return '❌ Dafür fehlt dir die passende Karriere.';
     if (res.reason === 'exhausted') return require('./energy').blockText(res, now);
     // `no_time` heißt nicht erschöpft, sondern: der Tag ist voll. Genau so
@@ -655,8 +661,12 @@ function kontaktNote(res, now = Date.now()) {
       + `×${res.boost.factor.toFixed(1).replace('.', ',')}, noch ${restZeit(res.boost.restMs)}`);
   }
 
-  zeilen.push(`🤝 Draht ${drahtBar(res.draht)} **${res.draht}** `
-    + `(${res.delta >= 0 ? '+' : ''}${res.delta}, ${DRAHT_STUFEN[res.stufe]})`);
+  // Mit Namen, obwohl die Meldung ihn in der ersten Zeile schon nennt: Über
+  // dieser Zeile kann eine ANDERE benannte stehen – `beef.settle` rechnet einen
+  // fälligen Konter eines anderen Kontakts ab, und `mitBeef` setzt dessen Zeile
+  // davor. Namenlos wäre das die halbe Fassung des Falls, den der Name löst.
+  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen,
+    res.contact?.name ?? null));
   if (res.partnerNeu) zeilen.push('⭐ Ihr seid ab jetzt feste Partner.');
   zeilen.push(`⏳ Wieder erreichbar in ${frist(res.gesperrtBis - now)} `
     + `· ⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
@@ -694,12 +704,29 @@ function releaseProblem(res, now = Date.now()) {
   return '❌ Das ging nicht.';
 }
 
+/**
+ * Ein Hörer-Ausschlag mit Vorzeichen: „+1.204", „−63.631", „±0".
+ *
+ * `${delta.toLocaleString('de-DE')}` schrieb den ASCII-Bindestrich einer rohen
+ * JS-Zahl – und seit 6a hängt an DIESELBE Meldung die Drahtzeile mit dem
+ * typografischen Minus (U+2212):
+ *
+ *     Hörer: **4.936.369** (-63.631)
+ *     🤝 **Lil Pfand** · Draht ▬▬▱▱▱ **−26** (−14) · Respekt −8 · Vertrauen −20
+ *
+ * Zwei Minuszeichen in einer Meldung sind ein Fehler, kein Stil. `±0` ist die
+ * Hausschreibweise aus `ui.achsenZeile`; der Betrag geht weiter durch die
+ * deutsche Tausendertrennung, die eine Hörerzahl ohnehin braucht.
+ */
+const vzHoerer = (n) => (n === 0 ? '±0'
+  : `${n > 0 ? '+' : '−'}${Math.abs(n).toLocaleString('de-DE')}`);
+
 function releaseNote(res) {
   const delta = res.listeners - res.listenersBefore;
   let note = `${res.release.emoji} **${res.release.name}** ist draußen.\n`
     + `👂 **${res.audience.toLocaleString('de-DE')}** haben reingehört · `
     + `Hörer: **${res.listeners.toLocaleString('de-DE')}** `
-    + `(${delta >= 0 ? '+' : ''}${delta.toLocaleString('de-DE')})`;
+    + `(${vzHoerer(delta)})`;
   // Kontakte (5a): Ein verbrauchter Schub steht im Ergebnis – sonst
   // verschwindet er beim Verbrauch stumm aus der Musik-Ansicht.
   const schub = schubGewirkt(res.kontakt);
@@ -721,6 +748,13 @@ function releaseNote(res) {
   if (res.angezaehlt?.contact) {
     note += `\n🔥 **${res.angezaehlt.contact.name}** zählt dich an.`;
     if (res.angezaehlt.text) note += `\n_${res.angezaehlt.text}_`;
+    // Was das Anzählen gebucht hat: ein stummer Knopfdruck verschluckt es sonst.
+    // Geprüft wie an den vier anderen Aufrufstellen: `beefDraht` gibt bei einer
+    // Bewegung ohne Achsen `null` zurück, und ein Template schriebe daraus das
+    // WORT „null" in den Spielertext. Produktiv liefert `beef.anzaehlen` seinen
+    // `draht` immer – aber die Ausnahme von sechs war der Fehler.
+    const anDraht = beefDraht(res.angezaehlt.draht);
+    if (anDraht) note += `\n${anDraht}`;
   }
   note += incidentNote(res.incident);
   note += '\n_Die Tantiemen kommen laufend, nicht sofort._';
@@ -745,28 +779,46 @@ function beefNote(events) {
   const bdata = require('./data/beef');
   const zeilen = [];
   for (const e of events ?? []) {
-    const name = e.contact?.name ?? 'ihm';
+    /*
+     * Der Rückfall ohne Kontakt stand als „ihm" da und rendert damit „🔥 **ihm**
+     * hat zurückgeschlagen." – gegendert UND grammatisch kaputt, „ihm hat" geht
+     * in keinem Fall.
+     *
+     * Zwei Formen, weil der Name in zwei Fällen steht: Nominativ beim Konter
+     * („**Jemand** hat zurückgeschlagen"), Dativ nach „mit" am Ende („Der Beef
+     * mit **jemandem** ist durch"). Ein echter Name trägt beide unverändert –
+     * nur der Rückfall muss sich beugen.
+     */
+    const name = e.contact?.name ?? 'Jemand';
+    const demName = e.contact?.name ?? 'jemandem';
     if (e.art === 'konter') {
       zeilen.push(`🔥 **${name}** hat zurückgeschlagen.`);
       if (e.text) zeilen.push(`_${e.text}_`);
       zeilen.push(`📉 Hype −${Math.round(bdata.KONTER_HYPE * e.wucht * 100)} %, `
         + `${(e.treffer?.verloren ?? 0).toLocaleString('de-DE')} Hörer weg.`);
+      zeilen.push(beefDraht(e.draht));
     } else if (e.art === 'ende') {
       const stand = `**${e.rundenIch}:${e.rundenEr}**`;
       // Die Dauer kommt aus BONUS_TAGE, damit der Text nicht wieder von der
       // Konstante abdriftet (siehe deren Änderung von 7 auf 1 im Balancing).
       const tage = bdata.BONUS_TAGE;
       const dauer = tage === 1 ? 'einen Tag' : `${tage} Tage`;
+      // „gegen dich" statt „für ihn": Das Gegenstück zu „für dich" eine Zeile
+      // höher, ohne Pronomen – der Katalog hat kein Geschlechtsfeld, und der
+      // Satz gilt für jeden Kontakt. Der Stich bleibt derselbe.
       const schluss = e.status === 'sieg'
         ? `${stand} für dich. Die Straße redet – ${dauer} lang.`
         : e.status === 'niederlage'
-          ? `${stand} für ihn. Das sitzt ${dauer}.`
+          ? `${stand} gegen dich. Das sitzt ${dauer}.`
           : `${stand}. Keiner hat gewonnen.`;
-      zeilen.push(`🔥 Der Beef mit **${name}** ist durch: ${schluss}`);
+      zeilen.push(`🔥 Der Beef mit **${demName}** ist durch: ${schluss}`);
       if (e.text) zeilen.push(`_${e.text}_`);
     }
   }
-  return zeilen.join('\n');
+  // Wie bei den vier anderen Renderern: `beefDraht` gibt bei einer Bewegung
+  // ohne Achsen `null` zurück, und `join` machte daraus eine LEERE Zeile
+  // mitten in der Meldung.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /** Die fälligen Beef-Ereignisse VOR die eigentliche Meldung setzen. */
@@ -790,12 +842,24 @@ function settleBeef(guildId, userId, now = Date.now()) {
   return beefNote(require('./beef').settle(guildId, userId, now)) || null;
 }
 
-/** Die Drahtbewegung, wie `contacts.moveDraht` sie meldet. */
+/**
+ * Die Achsenbewegung, wie `contacts.move` sie meldet.
+ *
+ * Eine dünne Hülle über `ui.achsenZeile` – der EINE Formatierer. Diese eine
+ * Stelle versorgt zehn Aufrufstellen in neun Funktionen; erst dadurch erfährt
+ * der Spieler, dass ein gelandeter Disstrack den Respekt HEBT, während er das
+ * Vertrauen zerstört. Den Namen trägt `contacts.move` seit 6a mit, damit die
+ * Zeile ihn hier ohne zwölf durchgereichte Argumente nennen kann.
+ */
 function beefDraht(d) {
-  if (!d) return null;
-  const delta = d.nachher - d.vorher;
-  return `🤝 Draht ${drahtBar(d.nachher)} **${d.nachher}** `
-    + `(${delta >= 0 ? '+' : ''}${delta}, ${DRAHT_STUFEN[d.stufe]})`;
+  // Die Achsen mit abgefragt, nicht nur `d`: Die gelöschte lokale
+  // `achsenZeile` degradierte bei einem Ergebnis ohne Achsen zu `null`,
+  // `ui.achsenZeile` würfe dort einen TypeError und riss die ganze Meldung ab.
+  // Produktiv kommt jedes Objekt aus `contacts.move` und trägt sie – aber eine
+  // Attrappe oder ein künftiger Rückgabeweg muss die Meldung nicht sprengen.
+  if (!d?.achsen || !d?.achsenVor) return null;
+  return achsenZeile(d.nachher, d.nachher - d.vorher, d.achsenVor, d.achsen,
+    d.contact?.name ?? null);
 }
 
 /**
@@ -805,14 +869,18 @@ function beefDraht(d) {
  */
 function beefProblem(res, now = Date.now()) {
   const bdata = require('./data/beef');
-  if (res.reason === 'laeuft_schon') return '🔥 Mit ihm läuft schon einer.';
+  // Ohne Pronomen, und ohne an Kürze zu verlieren: Beide Sätze stehen immer
+  // bei EINEM Kontakt, dessen Namen der Spieler gerade angeklickt hat – wer
+  // gemeint ist, sagt der Zusammenhang, nicht ein „ihm", das für über die
+  // Hälfte des Katalogs falsch ist.
+  if (res.reason === 'laeuft_schon') return '🔥 Da läuft schon einer.';
   if (res.reason === 'zu_viele') return '🔥 Zwei Beefs sind genug.';
   if (res.reason === 'zu_heiss') {
     return `🔥 Dafür ist es noch zu heiß (Hitze ${Math.round(res.hitze)}, `
       + `nötig unter ${bdata.HITZE_FRIEDEN_MAX}).`;
   }
   if (res.reason === 'zu_frisch') {
-    return '🔥 Die Straße redet noch über die letzte Runde mit ihm – '
+    return '🔥 Die Straße redet noch über die letzte Runde – '
       + `wieder möglich in ${frist(Math.max(0, res.bis - now))}.`;
   }
   if (res.reason === 'gesperrt') return `⏳ Melde dich in ${frist(res.remainingMs)} wieder.`;
@@ -862,16 +930,31 @@ function dissNote(res, now = Date.now()) {
       + `×${b.aufmerksamkeit.toFixed(1).replace('.', ',')} · `
       + `Runden ${b.rundenIch}:${b.rundenEr}`;
   }
-  return note;
+  // Der Diss bucht in beiden Zweigen – aber nicht dasselbe: Der gelandete hebt
+  // den Respekt, die Häme senkt ihn (ACHSEN_DISS gegen ACHSEN_HAEME).
+  // Geprüft wie an den vier anderen Aufrufstellen: ein `null` aus `beefDraht`
+  // schriebe im Template das Wort „null" in den Spielertext.
+  const dz = beefDraht(b.draht);
+  return dz ? `${note}\n${dz}` : note;
 }
 
-/** Frieden: der Draht springt dabei nie ins Plus (FRIEDEN_DECKEL). */
+/**
+ * Frieden: Gedeckelt ist das VERTRAUEN (FRIEDEN_DECKEL), nicht der Draht – der
+ * kann dabei sehr wohl ins Plus springen, wenn der Respekt oben steht
+ * (Respekt 68 / Vertrauen −74 ist Draht −3; `friedenZiel(−74)` = −44 hebt ihn
+ * auf +12).
+ */
 function friedenNote(res, now = Date.now()) {
   if (!res.ok) return beefProblem(res, now);
-  const zeilen = [`🕊️ Ihr habt Frieden geschlossen. Draht **${res.draht.nachher}**.`];
+  // Die Drahtzeile tritt an die Stelle der alten „Draht **N**"-Angabe.
+  const zeilen = ['🕊️ Ihr habt Frieden geschlossen.', beefDraht(res.draht)];
   if (res.text) zeilen.push(`_${res.text}_`);
   zeilen.push(`⏱️ heute übrig: **${res.zeit?.left ?? 0}** Stunden`);
-  return zeilen.join('\n');
+  // `filter(Boolean)` wie bei den vier anderen Renderern: `beefDraht` gibt bei
+  // einer Bewegung ohne Achsen `null` zurück, und `join` machte daraus eine
+  // LEERE Zeile mitten in der Meldung. Produktiv unerreichbar – aber das ist
+  // die Kehrseite der Wache: vorher hätte es geworfen, jetzt klaffte eine Lücke.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /**
@@ -892,19 +975,40 @@ function friedenNote(res, now = Date.now()) {
  * Genau dieser Fehler ist in 5b zweimal passiert.
  */
 
-/** Ein Draht-Ausschlag im Text: „−8", „+8" – mit echtem Minus, nicht Bindestrich. */
-const drahtDelta = (n) => (n < 0 ? `−${Math.abs(n)}` : `+${n}`);
+/**
+ * Was ein durchgezogenes Projekt an der Beziehung gebucht hat: die Achsen, der
+ * Draht und – das Dauerhafte – der Boden. Der Satz zum Boden nennt seine
+ * Grenze genau: Er bremst das Abkühlen, nicht die eigenen Fehler.
+ */
+function durchgezogenNote(d) {
+  if (!d) return '';
+  const boden = d.achsen?.boden ?? 0;
+  const dBoden = boden - (d.achsenVor?.boden ?? 0);
+  return [
+    // Die Achsen stehen in `beefDraht` mit: Eine eigene Zeile „Vertrauen +18,
+    // Respekt +6" darüber wäre eine Teilmenge der Zeile darunter – kein
+    // Zugewinn, nur Lärm. Der BODEN bleibt eine eigene Zeile, er steht in
+    // keiner anderen.
+    beefDraht(d),
+    boden > 0 && `🛡️ Boden **${boden}**${dBoden > 0 ? ` (+${dBoden})` : ''} – `
+      + 'so tief kühlt Funkstille das Vertrauen nicht ab.',
+  ].filter(Boolean).join('\n');
+}
 
 function angebotNote(ereignisse) {
-  const adata = require('./data/angebote');
   const zeilen = [];
   for (const e of ereignisse ?? []) {
     const name = e.contact?.name ?? 'Jemand';
     if (e.art === 'neu') {
       zeilen.push(`📬 **${name}** meldet sich: _${e.text}_`);
     } else if (e.art === 'verfallen') {
-      zeilen.push(`⌛ Die Anfrage von **${name}** ist verstrichen. `
-        + `Draht **${drahtDelta(adata.DRAHT_VERFALL)}**.`);
+      zeilen.push(`⌛ Die Anfrage von **${name}** ist verstrichen.`);
+      // Die GEBUCHTE Bewegung, nicht `DRAHT_VERFALL`: An der Klemme widersprach
+      // die Konstante der Zeile darunter („Draht −8" über einem Draht, der sich
+      // um 0 bewegt hat). Das Ereignis trägt in `angebote.settle` ein volles
+      // `draht`-Objekt – es war die letzte Stelle der Familie, an der der
+      // Spieler eine Draht-Zahl aus der alten Welt sah und die zwei Achsen nie.
+      if (e.draht) zeilen.push(beefDraht(e.draht));
     } else if (e.art === 'projekt_verfallen') {
       // Die investierten Stunden sind weg (§ „ein Projekt zwingt zu nichts") –
       // das ist der Preis, und er gehört gesagt, nicht verschwiegen.
@@ -915,9 +1019,16 @@ function angebotNote(ereignisse) {
         // „0 investierte Stunden sind weg" wäre keine Nachricht, sondern Lärm.
         + (ist > 0
           ? ` Die **${ist.toLocaleString('de-DE')}** investierten Stunden sind weg.` : ''));
+      // Das ist der eigentliche Preis: Die Stunden sind weg, aber das
+      // Vertrauen ist es, was ein Partner dir nachträgt. Die Zeile nennt beide
+      // Achsen selbst – vorher stand der Ausschlag zweimal da, einmal mit
+      // typografischem Minus und einmal mit dem Bindestrich einer JS-Zahl.
+      if (e.draht) zeilen.push(beefDraht(e.draht));
     }
   }
-  return zeilen.join('\n');
+  // Wie oben: eine Bewegung ohne Achsen lässt die Zeile weg, nicht eine leere
+  // Lücke zwischen zwei Ereignissen.
+  return zeilen.filter(Boolean).join('\n');
 }
 
 /** Die fälligen Angebots-Ereignisse VOR die eigentliche Meldung setzen. */
@@ -1084,11 +1195,17 @@ function annahmeNote(res, symbol, now = Date.now()) {
   return zeilen.filter(Boolean).join('\n');
 }
 
-/** Eine Absage: kostet nur Draht – weniger als Liegenlassen. */
+/**
+ * Eine Absage: kostet nur Draht – weniger als Liegenlassen.
+ *
+ * Die Zahl stand hier als `DRAHT_AB`, also als KONSTANTE, über einer
+ * Achsenzeile mit der echten Buchung. An der Klemme widersprachen sich die
+ * zwei Zeilen (behauptet −5, gebucht −4 oder ±0). Eine Wahrheit je Meldung:
+ * Die Achsenzeile sagt dasselbe wahrheitsgemäß und mehr.
+ */
 function absageNote(res, now = Date.now()) {
   if (!res.ok) return angebotProblem(res, now);
-  const adata = require('./data/angebote');
-  const zeilen = [`🚪 Du hast abgesagt. Draht **${drahtDelta(adata.DRAHT_AB)}**.`];
+  const zeilen = ['🚪 Du hast abgesagt.'];
   if (res.text) zeilen.push(`_${res.text}_`);
   zeilen.push(beefDraht(res.draht));
   return zeilen.filter(Boolean).join('\n');
@@ -1141,7 +1258,8 @@ function arbeitNote(res, symbol, now = Date.now()) {
     // `mpub`.
     return mitBeef(res.platte?.beefVorher,
       `${releaseNote(res.platte)}\n`
-      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`);
+      + `💿 Das gemeinsame Album mit **${name}** ist draußen.`
+      + (res.draht ? `\n${durchgezogenNote(res.draht)}` : ''));
   }
 
   if (res.art === 'tour') {
@@ -1177,6 +1295,7 @@ function arbeitNote(res, symbol, now = Date.now()) {
       }
     });
     zeilen.push(`🎵 Die Tour mit **${name}** ist durch.`);
+    if (res.draht) zeilen.push(durchgezogenNote(res.draht));
     // Die Abende würfeln nicht mehr selbst: Einen Vorfall legt allein der
     // Tageswurf `tick` an, und der läuft in `settleMusic`, nicht hier. `incident`
     // der Abende ist deshalb leer, und diese Zeile bleibt als Netz für den Fall,

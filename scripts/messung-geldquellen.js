@@ -557,8 +557,15 @@ function musiktag(G, U, now, rand, konzertZuerst = false, horten = false, beefTa
 /** Zähler des laufenden Kontaktlaufs – `null`, solange nicht gemessen wird. */
 let kz = null;
 
-function neuerZaehler() {
+function neuerZaehler({ beziehung = false } = {}) {
   return {
+    /*
+     * Die Beziehungszähler (Task 7): nur dort, wo ein Aufrufer sie ausdrücklich
+     * bestellt (`kontaktvariante`, `angebotvariante`). Sie lesen jeden Tag die
+     * ganze Kontaktliste und kosten Zeit, die die übrigen Abschnitte nicht
+     * brauchen. `null` heißt: nicht gemessen – kein Ergebnis, keine Null.
+     */
+    beziehung: beziehung ? neuerBeziehungsZaehler() : null,
     versuche: 0,
     antworten: { zusage: 0, echt: 0, fluechtig: 0, ignoriert: 0 },
     abgelehnt: {},                  // Grund -> Anzahl (keine Zeit, Wand, …)
@@ -576,6 +583,159 @@ function neuerZaehler() {
     proAnfrage: {},                 // "seite/anfrage" -> { versuche, zusage, echt, fluechtig, ignoriert }
     publishes: 0, shows: 0, akte: 0,
   };
+}
+
+/** Die zehn Beziehungsarten, in der Reihenfolge von `contacts.artOf` (die erste passende gewinnt). */
+const BEZIEHUNGSARTEN = ['beef', 'rivale', 'verstimmt', 'mentor', 'schuetzling', 'partner',
+  'band', 'geschaeftlich', 'bekannt', 'fremd'];
+
+/**
+ * Die Beziehungszähler eines Messlaufs – eine Zeile je Konto, nicht je Tag.
+ *
+ *  • `arten`: je Art, in wie vielen Konten sie im Messjahr bei MINDESTENS EINEM
+ *    Kontakt auftrat (`konten`), bei wie vielen (Konto, Kontakt)-Paaren überhaupt
+ *    je (`paare`) und wie viele Kontakte sie am Laufende hatten (`ende`).
+ *    Eine Art mit null Vorkommen ist ein Befund, keine Randnotiz.
+ *  • Vertrauen: je Konto der höchste und der tiefste Stand über alle Kontakte
+ *    mit Datenbankzeile (wer nie angeschrieben wurde, steht bei 0 und zählt
+ *    nicht als „tiefster") und die Tage mit mindestens einem Kontakt unter 0.
+ *  • `tageEinbruch`: Tage, an denen ein Kontakt unter Vertrauen 0 liegt, der
+ *    schon einmal Vertrauen >= 50 hatte - der Rückschlag einer GUTEN Beziehung
+ *    (Brief 5b). Die rohe Zahl `tageUnterNull` sättigt, sobald Beef läuft, und
+ *    steht nur zur Einordnung daneben.
+ *  • `drahtMax` steht daneben, damit der Vergleich mit dem Draht der alten Welt
+ *    (Anteil mit Draht ≥ 50) aus demselben Lauf kommt.
+ *  • Projekte: aus `db.projekteOf` am Laufende, nur `kollabo` und `tour`.
+ *
+ * Gesampelt wird einmal am Tagesende. Ein Stand, der innerhalb eines Tages
+ * steigt und wieder fällt, bliebe unsichtbar – bei Wochen-Abkühlung und einer
+ * Bewegung je Kontakt und Tag kommt das praktisch nicht vor, ist aber die
+ * Grenze der Zahl.
+ */
+function neuerBeziehungsZaehler() {
+  return {
+    konten: 0,
+    arten: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, { konten: 0, paare: 0, ende: 0 }])),
+    vertrauenMax: [], vertrauenMin: [], tageUnterNull: [], tageEinbruch: [], drahtMax: [],
+    partnerJemals: 0,            // Konten, die an irgendeinem Tag einen Partner hatten
+    ohneKontakt: 0,              // Konten ohne eine einzige Kontaktzeile (kein Max/Min)
+    projekte: {
+      kollabo: { fertig: 0, verfallen: 0, offen: 0 },
+      tour: { fertig: 0, verfallen: 0, offen: 0 },
+    },
+  };
+}
+
+/** Der Tageszustand EINES Kontos, solange der Lauf geht. */
+function neuerBeziehungsStand() {
+  return {
+    max: -Infinity, min: Infinity, drahtMax: -Infinity, tageUnterNull: 0, partner: false,
+    war50: new Set(),          // Kontakte, die irgendwann Vertrauen >= 50 hatten
+    tageEinbruch: 0,           // Tage mit einem solchen Kontakt unter Vertrauen 0
+    jemals: Object.fromEntries(BEZIEHUNGSARTEN.map((a) => [a, new Set()])),
+    ende: null,
+  };
+}
+
+/**
+ * Ein Tag Beziehungsbefund. Liest nur: `contacts.listFor` ist dieselbe Funktion
+ * wie die Ansicht des Spielers, `achsenJetzt` rechnet das Abkühlen beim Lesen.
+ * Es wird nichts geschrieben und nichts gewürfelt.
+ */
+function beziehungsTag(st, G, U, now) {
+  const liste = contacts.listFor(G, U, { now });
+  const heute = {};
+  for (const e of liste) {
+    heute[e.art] = (heute[e.art] ?? 0) + 1;
+    st.jemals[e.art]?.add(e.contact.id);
+    if (e.partner) st.partner = true;
+  }
+  st.ende = heute;
+  // Vertrauen und Draht nur über Kontakte, die es in der Datenbank wirklich gibt.
+  let unterNull = false;
+  let einbruch = false;
+  for (const z of db.contactsOf(G, U)) {
+    const a = contacts.achsenJetzt(z, now);
+    if (a.vertrauen >= 50) st.war50.add(z.contact_id);
+    if (a.vertrauen < 0 && st.war50.has(z.contact_id)) einbruch = true;
+    if (a.vertrauen > st.max) st.max = a.vertrauen;
+    if (a.vertrauen < st.min) st.min = a.vertrauen;
+    if (a.draht > st.drahtMax) st.drahtMax = a.draht;
+    if (a.vertrauen < 0) unterNull = true;
+  }
+  if (unterNull) st.tageUnterNull++;
+  if (einbruch) st.tageEinbruch++;
+}
+
+/** Am Laufende: den Tagesstand des Kontos und die Projekte in den Zähler übernehmen. */
+function beziehungsEnde(bz2, st, G, U) {
+  bz2.konten++;
+  for (const a of BEZIEHUNGSARTEN) {
+    bz2.arten[a].konten += st.jemals[a].size > 0 ? 1 : 0;
+    bz2.arten[a].paare += st.jemals[a].size;
+    bz2.arten[a].ende += st.ende?.[a] ?? 0;
+  }
+  if (st.max === -Infinity) bz2.ohneKontakt++;
+  else {
+    bz2.vertrauenMax.push(st.max);
+    bz2.vertrauenMin.push(st.min);
+    bz2.drahtMax.push(st.drahtMax);
+  }
+  bz2.tageUnterNull.push(st.tageUnterNull);
+  bz2.tageEinbruch.push(st.tageEinbruch);
+  if (st.partner) bz2.partnerJemals++;
+  for (const p of db.projekteOf(G, U)) {
+    const z = bz2.projekte[p.art];
+    if (!z) continue;
+    if (p.status === 'fertig') z.fertig++;
+    else if (p.status === 'verfallen') z.verfallen++;
+    else z.offen++;
+  }
+}
+
+/** Die Ausgabezeilen der Beziehungszähler – vollständig, auch die Nullen. */
+function beziehungsZeilen(bz2, { projekteMoeglich = true } = {}) {
+  const out = [];
+  const n = bz2.konten;
+  const anteil = (k) => (n ? `${komma((k / n) * 100, 1)} %` : '–');
+  const liste = (a) => [...a].sort((x, y) => x - y).join(' ');
+  const med = (a) => (a.length ? komma(median(a), 1) : '–');
+  const vm = bz2.vertrauenMax;
+  const ab50 = vm.filter((v) => v >= 50).length;
+  const draht50 = bz2.drahtMax.filter((v) => v >= 50).length;
+  out.push(`Beziehungsarten im Messjahr (${n} Konten; Konten mit Art bei mindestens einem Kontakt · ` +
+    `(Konto, Kontakt)-Paare insgesamt · Kontakte am Laufende):`);
+  for (const a of BEZIEHUNGSARTEN) {
+    const z = bz2.arten[a];
+    out.push(`    ${a.padEnd(14)} ${String(z.konten).padStart(4)} Konten · ${String(z.paare).padStart(6)} Paare · ` +
+      `${String(z.ende).padStart(6)} am Ende${z.paare === 0 ? '   ← NULL VORKOMMEN (Befund)' : ''}`);
+  }
+  out.push(`Vertrauen: Anteil der Konten mit mindestens einem Kontakt ≥ 50: ${anteil(ab50)} ` +
+    `(${ab50} von ${n}${bz2.ohneKontakt ? `, ${bz2.ohneKontakt} Konten ohne eine einzige Kontaktzeile` : ''})`);
+  out.push(`           (zum Vergleich im selben Lauf, Draht ≥ 50 bei mindestens einem Kontakt: ` +
+    `${anteil(draht50)}; mit Partnerstatus an irgendeinem Tag: ${anteil(bz2.partnerJemals)})`);
+  out.push(`           höchstes Vertrauen je Konto: Median ${med(vm)} · sortiert: ${liste(vm) || '–'}`);
+  out.push(`           tiefstes Vertrauen je Konto: Median ${med(bz2.vertrauenMin)} · sortiert: ${liste(bz2.vertrauenMin) || '–'}`);
+  out.push(`           Tage mit mindestens einem Kontakt unter Vertrauen 0: Median ${med(bz2.tageUnterNull)}, ` +
+    `Mittel ${komma(mittel(bz2.tageUnterNull), 1)}, größter ${bz2.tageUnterNull.length ? Math.max(...bz2.tageUnterNull) : '–'} · ` +
+    `Konten mit mindestens einem solchen Tag: ${bz2.tageUnterNull.filter((t) => t > 0).length} von ${n} · ` +
+    `sortiert: ${liste(bz2.tageUnterNull) || '–'}`);
+  const eb = bz2.tageEinbruch;
+  out.push(`           Tage mit einem Kontakt unter Vertrauen 0, der schon einmal Vertrauen ≥ 50 hatte (der Einbruch ` +
+    `einer guten Beziehung, Brief 5b): Median ${med(eb)}, Mittel ${komma(mittel(eb), 1)}, ` +
+    `größter ${eb.length ? Math.max(...eb) : '–'} · Konten mit mindestens einem solchen Tag: ` +
+    `${eb.filter((t) => t > 0).length} von ${n} · sortiert: ${liste(eb) || '–'}`);
+  const pk = bz2.projekte.kollabo;
+  const pt = bz2.projekte.tour;
+  const fertig = pk.fertig + pt.fertig;
+  const verfallen = pk.verfallen + pt.verfallen;
+  out.push(`Projekte:  ${fertig} abgeschlossen, ${verfallen} verfallen (kollabo ${pk.fertig}/${pk.verfallen}, ` +
+    `tour ${pt.fertig}/${pt.verfallen}; am Laufende noch offen ${pk.offen + pt.offen})` +
+    (projekteMoeglich
+      ? (fertig === 0 ? '   ← NULL ABGESCHLOSSEN = FEHLSCHLAG, kein Ergebnis' : '')
+      : '   (hier entstehen keine Projekte – es laufen keine Gegenanfragen, oder die Spielweise nimmt keine ' +
+        'an –, 0 ist erwartet und kein Fehlschlag)'));
+  return out;
 }
 
 /*
@@ -646,7 +806,7 @@ function nutzenOf(requestId, staerke, seine, meine, seite) {
  * Wie die zweite Würfelrunde (`contacts.stufeVon`) im Mittel ausfällt.
  *
  * Die Stufe ist nicht frei wählbar: Wer antwortet, antwortet meistens flüchtig.
- * Wie oft es eine Zusage wird, hängt am Größenverhältnis und am Draht – und
+ * Wie oft es eine Zusage wird, hängt am Größenverhältnis und am Respekt – und
  * genau daran hing der Denkfehler der ersten Fassung dieser Messung, die für
  * JEDEN Kandidaten mit der Stärke einer Zusage gerechnet hat. Das überschätzt
  * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe um rund das
@@ -657,13 +817,19 @@ function nutzenOf(requestId, staerke, seine, meine, seite) {
  * hier ein zweites Mal. Dass beide übereinstimmen, wird nicht geglaubt,
  * sondern geprüft: `node scripts/messung-geldquellen.js stufenprobe` würfelt
  * `stufeVon` selbst millionenfach und vergleicht.
+ *
+ * Gewogen wird der RESPEKT, nicht der Draht (das war bis Task 5 ein stiller
+ * Unterschied zur Produktion), und gedämpft mit dem Vertrauen – dieselbe
+ * Rechnung wie `contacts.respektWirkt`, hier bewusst ausgeschrieben: Ein
+ * Nachbau, der die geprüfte Funktion aufruft, prüft nichts mehr.
  */
-function stufenVerteilung({ ratio, draht = 0 }) {
+function stufenVerteilung({ ratio, respekt = 0, vertrauen = 0 }) {
   const naehe = Math.min(1, ratio);
+  const wirkt = Math.max(0, respekt) * (1 + Math.min(0, vertrauen / 100));
   const gewichte = {
     fluechtig: 6 * (ratio < 0.05 ? 2 : 1),
     echt: 3,
-    zusage: 1 * (1 + 2 * naehe) * (1 + draht / 100),
+    zusage: 1 * (1 + 2 * naehe) * (1 + wirkt / 100),
   };
   const summe = gewichte.fluechtig + gewichte.echt + gewichte.zusage;
   return {
@@ -699,7 +865,7 @@ const seite2seine = (seite, contact) => (seite === 'creator' ? contact.reachCrea
  * dieser Messung hat für jeden Kandidaten mit der Stärke einer ZUSAGE
  * gerechnet – das ist eine Wette, die es so nicht gibt, und sie überschätzt
  * den fernen Weltstar gegenüber dem Kontakt auf Augenhöhe systematisch (bei
- * einem Verhältnis von 0,005 und Draht 15 ist der erwartete Stufenfaktor
+ * einem Verhältnis von 0,005 und Respekt 15 ist der erwartete Stufenfaktor
  * 0,350, auf Augenhöhe 0,500). Gemittelt wird über `nutzenOf` selbst, nicht
  * über die Stärke, damit die Decken der Schübe richtig greifen.
  *
@@ -722,7 +888,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
   };
 
   /** Stärke und erwarteter Nutzen dieser Anfrage – auf der Seite, über die sie liefe. */
-  const bewerte = (contact, requestId, draht = 0) => {
+  const bewerte = (contact, requestId, respekt = 0, vertrauen = 0) => {
     const seite = contacts.seiteFuer(contact, ich, requestId);
     if (!seite) return null;
     const meine = Math.max(100, (seite === 'creator' ? ich.total : ich.listeners) || 0);
@@ -740,12 +906,12 @@ function kontakttag(G, U, now, rand, vorrang = null) {
       seineReichweite: seine, meineReichweite: meine, passung: p.passung, stufe: 'zusage' });
     // Genau das Verhältnis, mit dem `contacts.request` gleich `stufeVon` ruft.
     const ratio = meine / Math.max(1, seine);
-    const verteilung = stufenVerteilung({ ratio, draht });
+    const verteilung = stufenVerteilung({ ratio, respekt, vertrauen });
     const nutzen = Object.entries(verteilung).reduce((s, [stufe, w]) =>
       s + w * nutzenOf(requestId, staerke * contacts.STUFEN_FAKTOR[stufe], seine, meine, seite), 0);
     return {
       seite, staerke, nutzen,
-      stufenFaktor: erwarteterStufenFaktor({ ratio, draht }),
+      stufenFaktor: erwarteterStufenFaktor({ ratio, respekt, vertrauen }),
     };
   };
 
@@ -753,7 +919,7 @@ function kontakttag(G, U, now, rand, vorrang = null) {
   const liste = contacts.listFor(G, U, { now })
     .filter((z) => z.gesperrtBis <= now)
     .map((z) => {
-      const b = bewerte(z.contact, 'shoutout', z.draht);
+      const b = bewerte(z.contact, 'shoutout', z.respekt, z.vertrauen);
       // Beim Partner-Vorrang zählt die Musikseite auch schon in der
       // Vorauswahl: Sonst verdrängen die acht größten Creator des Katalogs
       // jeden Musiker, und die Auswahl unten fände nichts mehr vor.
@@ -773,9 +939,10 @@ function kontakttag(G, U, now, rand, vorrang = null) {
    * Vorrang ist also kein besseres Spiel, sondern das Messwerkzeug für genau
    * diesen Schub.
    *
-   * `vorrang = 'partner'`: NUR die Musikseite, und dort der Kontakt mit dem
-   * HÖCHSTEN Draht zuerst – das Messwerkzeug des Angebotslaufs (Stück 5c), aus
-   * demselben Grund wie der Konzert-Vorrang und mit demselben Vorbehalt: Es ist
+   * `vorrang = 'partner'`: NUR die Musikseite, und dort der Kontakt, der dem
+   * Partnerstatus am nächsten ist (die schwächere Achse, `min(Respekt,
+   * Vertrauen)`, am höchsten), zuerst – das Messwerkzeug des Angebotslaufs
+   * (Stück 5c), aus demselben Grund wie der Konzert-Vorrang und mit demselben Vorbehalt: Es ist
    * eine Spielweise, keine Empfehlung. Zwei Dinge aus dem Code erzwingen ihn:
    *
    *  • Eine Gegenanfrage kommt ausschließlich von einem Kontakt mit MUSIK-
@@ -804,20 +971,26 @@ function kontakttag(G, U, now, rand, vorrang = null) {
     if (!d) continue;
     for (const r of d.requests) {
       if (!r.moeglich) continue;
-      const b = bewerte(z.contact, r.id, d.draht);
+      const b = bewerte(z.contact, r.id, d.respekt, d.vertrauen);
       if (!b) continue;
       if (nurMusik && b.seite !== 'musik') continue;
       const score = r.chance * b.nutzen;
       const konzert = vorrang === 'konzert' && r.id === 'konzert';
-      // Beim Partner-Vorrang schlägt der höhere Draht jeden Score: Dieselbe
-      // Person weiter füttern, bis sie Partner ist. Innerhalb eines Kontakts
+      // Beim Partner-Vorrang schlägt die schwächere Achse jeden Score: Dieselbe
+      // Person weiter füttern, bis sie Partner ist. Partner ist `respekt >= 50 &&
+      // vertrauen >= 50` und hängt damit an der SCHWÄCHEREN Achse – nicht am
+      // Draht, dem Mittelwert: Eine echte Antwort hebt den Respekt dreimal
+      // schneller (9 gegen 3), der Draht als Ziel wählte darum den
+      // respektlastigen Kontakt (80/20, Draht 50) vor dem, der eine Zusage vom
+      // Partner entfernt ist (50/48, Draht 49). Innerhalb eines Kontakts
       // entscheidet danach wieder Chance × Nutzen wie überall.
+      const naehe = Math.min(d.respekt, d.vertrauen);
       const besser = nurMusik
-        ? (!wahl || d.draht > wahl.draht || (d.draht === wahl.draht && score > wahl.score))
+        ? (!wahl || naehe > wahl.naehe || (naehe === wahl.naehe && score > wahl.score))
         : (!wahl || (konzert && !wahl.konzert) || (konzert === wahl.konzert && score > wahl.score));
       if (besser) {
         wahl = { score, konzert, contactId: z.contact.id, requestId: r.id, seite: b.seite,
-          chance: r.chance, draht: d.draht };
+          chance: r.chance, draht: d.draht, naehe, respekt: d.respekt, vertrauen: d.vertrauen };
       }
     }
   }
@@ -830,7 +1003,8 @@ function kontakttag(G, U, now, rand, vorrang = null) {
    * gegen data/contacts.js nachgerechnet).
    */
   if (TRACE === 'kontakte') {
-    const b = bewerte(contactsData.byId(wahl.contactId), wahl.requestId, wahl.draht) ?? {};
+    const b = bewerte(contactsData.byId(wahl.contactId), wahl.requestId,
+      wahl.respekt, wahl.vertrauen) ?? {};
     console.error(JSON.stringify({
       datum: new Date(now).toISOString().slice(0, 10),
       kontakt: wahl.contactId, anfrage: wahl.requestId, seite: wahl.seite,
@@ -884,6 +1058,8 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
    * Würfel statt der Kontakte.
    */
   const kontaktRand = rng(seed + 500_000);
+  // Beziehungsbefund (Task 7) – nur, wenn der Aufrufer ihn bestellt hat.
+  const bzStand = kz?.beziehung ? neuerBeziehungsStand() : null;
   /*
    * DRITTER Würfel für den Beef (Stück 5b), aus demselben Grund wie der
    * Kontaktwürfel: Anstacheln, Disstrack und das Angezähltwerden dürfen den
@@ -1082,8 +1258,10 @@ async function karriere(G, U, { musik, strat }, tage, seed, marken = null) {
         };
       }
     }
+    if (bzStand) beziehungsTag(bzStand, G, U, now + 21.1e6);
     now += DAY;
   }
+  if (bzStand) beziehungsEnde(kz.beziehung, bzStand, G, U);
 
   /*
    * Die Hörerzahl MIT Zeitstempel lesen.
@@ -1922,7 +2100,7 @@ async function verlauf(laeufe, tage) {
 
 /** Eine Variante (mit/ohne Kontaktpflege) über alle Seeds; die Zähler kommen mit. */
 async function kontaktvariante(kennungBasis, musik, strat, laeufe, tage) {
-  kz = neuerZaehler();
+  kz = neuerZaehler({ beziehung: true });
   const geld = [];
   const hoerer = [];
   const follower = [];
@@ -1999,16 +2177,23 @@ function kontaktZeilen(z, tage, laeufe) {
  * Mal ab (die Funktion gibt ihre Verteilung nicht heraus). Abgeschriebenes
  * glaubt man nicht, man prüft es: Hier wird die echte `contacts.stufeVon`
  * millionenfach gewürfelt und der gewürfelte Mittelwert gegen den gerechneten
- * gehalten. Weicht er um mehr als 0,002 ab, steht das als ✗ in der Ausgabe.
+ * gehalten. Weicht er um mehr als 0,002 ab, steht das als ✗ in der Ausgabe –
+ * und `allesGut` ist false, damit der Aufrufer daraus einen Abbruch machen
+ * kann. Ein Wächter, der grün durchläuft, ist keiner: Genau so konnte der
+ * Draht-statt-Respekt-Bruch seit Stück 3 unbemerkt leben.
  */
 function stufenprobe(wuerfe = 1_000_000) {
   const faelle = [
-    { name: 'Taylor Swift (Verhältnis 0,0047, Draht 15)', ratio: 562552 / 120_000_000, draht: 15 },
-    { name: 'Kontakt auf Augenhöhe (Verhältnis 1, Draht 0)', ratio: 1, draht: 0 },
-    { name: 'knapp unter der 0,05-Schwelle', ratio: 0.049, draht: 0 },
-    { name: 'knapp über der 0,05-Schwelle', ratio: 0.051, draht: 0 },
-    { name: 'kleinerer Kontakt (0,2), Draht 30', ratio: 0.2, draht: 30 },
-    { name: 'Weltstar ohne Draht', ratio: 0.001, draht: 0 },
+    { name: 'Taylor Swift (Verhältnis 0,0047, Respekt 15)', ratio: 562552 / 120_000_000, respekt: 15 },
+    { name: 'Kontakt auf Augenhöhe (Verhältnis 1, Respekt 0)', ratio: 1, respekt: 0 },
+    { name: 'knapp unter der 0,05-Schwelle', ratio: 0.049, respekt: 0 },
+    { name: 'knapp über der 0,05-Schwelle', ratio: 0.051, respekt: 0 },
+    { name: 'kleinerer Kontakt (0,2), Respekt 30', ratio: 0.2, respekt: 30 },
+    { name: 'Weltstar ohne Respekt', ratio: 0.001, respekt: 0 },
+    // Der Dämpfer: derselbe Respekt, einmal mit halbem und einmal ohne
+    // Vertrauen. Ohne ihn liefen Nachbau und Produktion hier auseinander.
+    { name: 'Rivale (Respekt 68, Vertrauen −50)', ratio: 0.2, respekt: 68, vertrauen: -50 },
+    { name: 'Dauer-Beefer (Respekt 68, Vertrauen −100)', ratio: 0.2, respekt: 68, vertrauen: -100 },
   ];
   const out = [];
   let allesGut = true;
@@ -2017,13 +2202,15 @@ function stufenprobe(wuerfe = 1_000_000) {
     let summe = 0;
     const zahl = { fluechtig: 0, echt: 0, zusage: 0 };
     for (let i = 0; i < wuerfe; i++) {
-      const s = contacts.stufeVon(r, { ratio: fall.ratio, draht: fall.draht });
+      const s = contacts.stufeVon(r,
+        { ratio: fall.ratio, respekt: fall.respekt, vertrauen: fall.vertrauen ?? 0 });
       zahl[s]++;
       summe += contacts.STUFEN_FAKTOR[s];
     }
     const gewuerfelt = summe / wuerfe;
-    const gerechnet = erwarteterStufenFaktor({ ratio: fall.ratio, draht: fall.draht });
-    const p = stufenVerteilung({ ratio: fall.ratio, draht: fall.draht });
+    const arg = { ratio: fall.ratio, respekt: fall.respekt, vertrauen: fall.vertrauen ?? 0 };
+    const gerechnet = erwarteterStufenFaktor(arg);
+    const p = stufenVerteilung(arg);
     const ok = Math.abs(gewuerfelt - gerechnet) < 0.002;
     if (!ok) allesGut = false;
     out.push(`  ${fall.name.padEnd(46)} gerechnet ${gerechnet.toFixed(5)} · gewürfelt ${gewuerfelt.toFixed(5)} ` +
@@ -2031,7 +2218,7 @@ function stufenprobe(wuerfe = 1_000_000) {
     out.push(`    Zusagen gerechnet ${(p.zusage * 100).toFixed(3)} % · gewürfelt ${((zahl.zusage / wuerfe) * 100).toFixed(3)} %`);
   }
   out.push(`  ${allesGut ? 'Alle Fälle stimmen überein ✔' : 'MINDESTENS EIN FALL WEICHT AB ✗'}`);
-  return out;
+  return { zeilen: out, allesGut };
 }
 
 /**
@@ -2062,7 +2249,7 @@ function passungsblock() {
     const gleichesLand = c.country === ich.country;
     const arg = {
       meineReichweite: MEINE, seineReichweite: c.reach, gleichesLand, sprache, genre,
-      draht: 0, tuerOeffner: 0, hype: 1, trait: c.trait, partner: false,
+      respekt: 0, vertrauen: 0, tuerOeffner: 0, hype: 1, trait: c.trait, partner: false,
     };
     const staerke = contacts.staerkeOf({
       seineReichweite: c.reach, meineReichweite: MEINE, passung: p.passung, stufe: 'zusage' });
@@ -2075,6 +2262,7 @@ function passungsblock() {
     const basis = Math.min(contactsData.CHANCE_MAX, 0.6 * Math.sqrt(MEINE / c.reach));
     const teile = [
       `Basis ${komma(basis, 3)} (Größe)`,
+      `Respekt-Gewicht ${komma(contacts.respektGewicht(MEINE, c.reach), 3)} (×Respekt/100)`,
       `Land ${gleichesLand ? '+0,050' : '±0,000'}`,
       `Sprache ${sprache === 'gleich' ? '+0,100' : sprache === 'englisch' ? '±0,000' : '−0,150'}`,
       `Genre ${genre === 'gleich' ? '+0,050' : genre === 'verwandt' ? '±0,000' : '−0,050'}`,
@@ -2087,7 +2275,7 @@ function passungsblock() {
   };
 
   out.push(`  Spieler: ${ich.country} / ${ich.language} / ${ich.genre}, ${de(MEINE)} Hörer, ` +
-    `Draht 0, Hype 1, kein Türöffner, kein Partner.`);
+    `Respekt 0, Vertrauen 0, Hype 1, kein Türöffner, kein Partner.`);
   out.push('');
   out.push('  (a) NUR die Passung verschoben: derselbe Kontakt (3,2 Mio, kollegial, Land de = gleiches Land),');
   out.push('      nur Sprache und Genre getauscht.');
@@ -2186,6 +2374,7 @@ async function kontaktlauf(laeufe, tage) {
       ` → mit ${komma(lm.akte)} · ${komma(lm.publishes)} · ${komma(lm.shows)}` +
       ` (${prozent(lm.akte / Math.max(1e-9, lo.akte) - 1)} Kanalaktionen)`);
     for (const l of kontaktZeilen(mit.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    for (const l of beziehungsZeilen(mit.zaehler.beziehung, { projekteMoeglich: false })) console.log(`      ${l}`);
     if (ohne.zaehler.versuche || ohne.zaehler.gesetzt) {
       console.log(`      KONTROLLE ohne Kontakte: Versuche ${ohne.zaehler.versuche}, Schübe ${ohne.zaehler.gesetzt} – muss 0 sein!`);
     } else {
@@ -2196,6 +2385,7 @@ async function kontaktlauf(laeufe, tage) {
     console.log(zeile('mit Konzert-Vorrang', kon));
     console.log(diffzeile(kon));
     for (const l of kontaktZeilen(kon.zaehler, tage, laeufe)) console.log(`      ${l}`);
+    for (const l of beziehungsZeilen(kon.zaehler.beziehung, { projekteMoeglich: false })) console.log(`      ${l}`);
     console.log();
   }
 }
@@ -3268,6 +3458,16 @@ const ANGEBOT_ANNAHME = {
 /** `--zerlegung`: die vier „alles-an ohne X"-Varianten mitfahren. */
 const ZERLEGUNG = process.argv.includes('--zerlegung');
 
+/**
+ * Nimmt die Spielweise überhaupt `kollabo` oder `tour` an? Nur dann ist „null
+ * abgeschlossene Projekte" ein Fehlschlag; bei `alles-ab`, `nur-geld` und
+ * `nur-label` ist die Null Absicht und darf nicht wie ein Alarm aussehen.
+ */
+const nimmtProjekteAn = (spielweise) => {
+  const an = ANGEBOT_ANNAHME[spielweise];
+  return Boolean(an && (an.has('kollabo') || an.has('tour')));
+};
+
 /** Die Spielweisen, die einen Angebotstag bekommen – „aus" steht NICHT darin. */
 const ANGEBOT_SPIELWEISEN = new Set(Object.entries(ANGEBOT_ANNAHME)
   .filter(([, v]) => v !== null).map(([k]) => k));
@@ -3293,6 +3493,7 @@ function neuerAngebotZaehler(spielweise) {
     // Projekte
     projekteAuf: {}, projekteFertig: {}, projekteVerfallen: {},
     verfalleneStunden: [],          // Stunden, die mit einem Projekt verfallen sind
+    kollaboVerfall: [],             // je verfallenem Kollabo { ist, soll, titel }
     druecke: 0, arbeitAb: {},
     kollaboFaktoren: [], kollaboAudience: [], kollaboPlatz: [], kollaboGewonnen: [],
     tourAbende: 0, tourKonzerte: [], tourAbgesagt: 0, tourBrutto: [], tourNetto: 0,
@@ -3300,7 +3501,7 @@ function neuerAngebotZaehler(spielweise) {
     // Vertrag
     vertragAngebote: 0, vertragArten: {}, unterschrieben: 0, vorschuesse: [],
     vorschussNetto: 0, signAb: {}, vertragEnden: 0,
-    // Draht am Ende jedes Laufs – der Beweis, dass es Partner gab
+    // Beziehung am Ende jedes Laufs – der Beweis, dass es Partner gab (Respekt UND Vertrauen)
     partnerAmEnde: [], bekanntAmEnde: [], partnerReach: [],
   };
 }
@@ -3322,7 +3523,7 @@ music.settleContracts = (...a) => {
  * aus dem `vorher` JEDES Knopfdrucks. Doppelt zählt dabei nichts: `settle`
  * meldet ein Ereignis genau einmal, weil es es beim Melden auch schreibt.
  */
-function zaehleAngebotEreignisse(ereignisse) {
+function zaehleAngebotEreignisse(ereignisse, kontext = null) {
   if (!ag) return;
   for (const e of ereignisse ?? []) {
     if (e.art === 'neu') {
@@ -3336,6 +3537,20 @@ function zaehleAngebotEreignisse(ereignisse) {
       const id = e.projekt?.art ?? '?';
       ag.projekteVerfallen[id] = (ag.projekteVerfallen[id] ?? 0) + 1;
       ag.verfalleneStunden.push(e.projekt?.stunden_ist ?? 0);
+      /*
+       * Warum ein Kollabo verfällt (Task 7): Stunden gegen Soll UND die Titel, die
+       * beim Verfall im Katalog lagen. Ein Konto mit vollen Stunden und zu wenigen
+       * Titeln hängt an `no_songs` (`angebote.arbeiten`, `KOLLABO_TITEL`); eines mit
+       * zu wenigen Stunden hat die Zeit nicht investiert. Die Titel stehen am
+       * `now` der Abrechnung, also am Tag, an dem der Verfall bemerkt wird (nach der
+       * Frist), nicht an der Frist selbst.
+       */
+      if (e.projekt?.art === 'kollabo') {
+        ag.kollaboVerfall.push({
+          ist: e.projekt.stunden_ist ?? 0, soll: e.projekt.stunden_soll ?? 0,
+          titel: kontext ? music.status(kontext.G, kontext.U, kontext.now).songs : null,
+        });
+      }
     }
   }
 }
@@ -3449,7 +3664,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
   // 1. Zustellung und Fristen. Die Pause wird an der Uhr abgelesen, nicht
   //    nachgerechnet: `settle` meldet sie nicht als Ereignis.
   const uhrVor = db.angebotUhr(G, U);
-  zaehleAngebotEreignisse(angebote.settle(G, U, now, rand));
+  zaehleAngebotEreignisse(angebote.settle(G, U, now, rand), { G, U, now });
   const uhrNach = db.angebotUhr(G, U);
   if (uhrNach.pause_bis > uhrVor.pause_bis && uhrNach.pause_bis > now) ag.pausen++;
 
@@ -3468,7 +3683,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
     }
     if (annahme.has(a.art)) {
       const r = await angebote.annehmen(G, U, a.id, now, rand);
-      zaehleAngebotEreignisse(r.vorher);
+      zaehleAngebotEreignisse(r.vorher, { G, U, now });
       zaehleAnnahme(a.art, a.contact, r);
       if (TRACE === 'angebote' && r.ok) {
         console.error(JSON.stringify({
@@ -3483,7 +3698,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
       }
     } else {
       const r = angebote.ablehnen(G, U, a.id, now, rand);
-      zaehleAngebotEreignisse(r.vorher);
+      zaehleAngebotEreignisse(r.vorher, { G, U, now });
       if (r.ok) ag.abgelehnt[a.art] = (ag.abgelehnt[a.art] ?? 0) + 1;
       else ag.annahmeAb[`${a.art}/ab-${r.reason}`] = (ag.annahmeAb[`${a.art}/ab-${r.reason}`] ?? 0) + 1;
     }
@@ -3509,7 +3724,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
       }));
     }
     const r = await angebote.arbeiten(G, U, offen[0].id, now + i * 1000, rand);
-    zaehleAngebotEreignisse(r.vorher);
+    zaehleAngebotEreignisse(r.vorher, { G, U, now: now + i * 1000 });
     if (!r.ok) {
       ag.arbeitAb[`${offen[0].art}/${r.reason}`] = (ag.arbeitAb[`${offen[0].art}/${r.reason}`] ?? 0) + 1;
       break;                       // derselbe Grund gilt auch für den zweiten Druck
@@ -3544,7 +3759,7 @@ async function angebotetag(G, U, now, rand, spielweise) {
 
 /** Eine Variante des Angebotslaufs über alle Seeds; beide Zähler kommen mit. */
 async function angebotvariante(kennungBasis, musik, strat, laeufe, tage, spielweise) {
-  kz = neuerZaehler();                 // Kanalaktionen, Veröffentlichungen, Konzerte
+  kz = neuerZaehler({ beziehung: true });                 // Kanalaktionen, Veröffentlichungen, Konzerte
   ag = neuerAngebotZaehler(spielweise);
   const geld = [];
   const hoerer = [];
@@ -3570,10 +3785,13 @@ async function angebotvariante(kennungBasis, musik, strat, laeufe, tage, spielwe
        */
       const ende = new Date(new Date().setHours(6, 0, 0, 0)).getTime() + tage * DAY;
       const zeilen = db.contactsOf(G, U)
-        .map((z) => ({ c: contactsData.byId(z.contact_id), draht: contacts.drahtJetzt(z, ende) }))
+        .map((z) => ({ c: contactsData.byId(z.contact_id), draht: contacts.drahtJetzt(z, ende),
+          partner: contacts.istPartnerRow(z, ende) }))
         .filter((z) => (z.c?.reach ?? 0) > 0);
       ag.bekanntAmEnde.push(zeilen.filter((z) => z.draht >= contactsData.STUFE_BEKANNT).length);
-      const partner = zeilen.filter((z) => z.draht >= contactsData.STUFE_PARTNER);
+      // Partner nach der EINEN Regel (`istPartner`: Respekt UND Vertrauen >= 50),
+      // nicht nach dem Draht – Respekt 100 / Vertrauen 0 ist Draht 50 und kein Partner.
+      const partner = zeilen.filter((z) => z.partner);
       ag.partnerAmEnde.push(partner.length);
       for (const z of partner) ag.partnerReach.push(z.c.reach);
     }
@@ -3625,6 +3843,17 @@ function angebotZeilen(z, tage, laeufe) {
     `Ø Reichweite des Partners ${f(z.gageSeine)}`);
   out.push(`Projekte aufgemacht: ${liste(z.projekteAuf)} · fertig: ${liste(z.projekteFertig)} · ` +
     `verfallen: ${liste(z.projekteVerfallen)} (dabei verfallene Stunden ${f(z.verfalleneStunden, 1)})`);
+  const kv = z.kollaboVerfall;
+  if (kv.length) {
+    const voll = kv.filter((k) => k.ist >= k.soll);
+    const titel = kv.map((k) => k.titel).filter((t) => t !== null);
+    out.push(`Verfallene Kollabos ${kv.length}: Stunden voll (${kv[0].soll}) bei ${voll.length}, ` +
+      `davon mit weniger als ${angeboteData.KOLLABO_TITEL} Titeln beim Verfall ` +
+      `${voll.filter((k) => (k.titel ?? Infinity) < angeboteData.KOLLABO_TITEL).length} · ` +
+      `Titel beim Verfall: Ø ${titel.length ? komma(mittel(titel), 1) : '–'} ` +
+      `(Soll ${angeboteData.KOLLABO_TITEL}) · je Projekt Stunden/Titel: ` +
+      `${kv.map((k) => `${k.ist}/${k.soll} h, ${k.titel ?? '?'} T`).join('; ')}`);
+  }
   out.push(`Drücke auf „daran arbeiten" ${de(z.druecke)} (${komma(z.druecke / n, 3)}/Tag, je Druck ` +
     `${angeboteData.ARBEIT_STUNDEN} h = ${de(z.druecke * angeboteData.ARBEIT_STUNDEN)} Stunden) · ` +
     `abgewiesen: ${liste(z.arbeitAb)}`);
@@ -3639,8 +3868,9 @@ function angebotZeilen(z, tage, laeufe) {
     `unterschrieben ${de(z.unterschrieben)} · ausgelaufen ${de(z.vertragEnden)} · ` +
     `Vorschuss ${f(z.vorschuesse)}, Σ ${de(z.vorschussNetto)} (${de(z.vorschussNetto / n)}/Tag) · ` +
     `nicht unterschrieben: ${liste(z.signAb)}`);
-  out.push(`Draht am Laufende (nur Kontakte mit Musik-Reichweite): Partner (≥ ` +
-    `${contactsData.STUFE_PARTNER}) ${f(z.partnerAmEnde, 1)} · bekannt (≥ ${contactsData.STUFE_BEKANNT}) ` +
+  out.push(`Beziehung am Laufende (nur Kontakte mit Musik-Reichweite): Partner (Respekt ≥ ` +
+    `${contactsData.PARTNER_RESPEKT} und Vertrauen ≥ ${contactsData.PARTNER_VERTRAUEN}) ${f(z.partnerAmEnde, 1)} · ` +
+    `bekannt (Draht ≥ ${contactsData.STUFE_BEKANNT}) ` +
     `${f(z.bekanntAmEnde, 1)} · Reichweite dieser Partner ${f(z.partnerReach)}`);
   return out;
 }
@@ -3714,23 +3944,27 @@ function angebotDecken() {
    */
   const ich = { language: 'deutsch', genre: 'pop' };
   /** Dieselben Summanden, mit denen `contacts.detail` die Chance auf den Knopf schreibt. */
-  const chance = (c, meine, draht) => contacts.chanceOf({
+  const chance = (c, meine, respekt = 0, vertrauen = 0) => contacts.chanceOf({
     meineReichweite: meine, seineReichweite: c.reach, request: 'shoutout',
     gleichesLand: c.country === 'de',
     sprache: c.language === ich.language ? 'gleich' : (c.language === 'englisch' ? 'englisch' : 'fremd'),
     genre: c.genre === ich.genre ? 'gleich'
       : (contactsData.RELATED_GENRES.some(([x, y]) => (x === ich.genre && y === c.genre)
         || (y === ich.genre && x === c.genre)) ? 'verwandt' : 'fremd'),
-    draht, hype: 1, trait: c.trait, partner: draht >= contactsData.STUFE_PARTNER,
+    respekt, vertrauen, hype: 1, trait: c.trait, partner: contacts.istPartner(respekt, vertrauen),
   });
   for (const meine of [100_000, 1_000_000]) {
     const zeilen = contactsData.CONTACTS.filter((c) => c.reach > 0)
       .sort((a, b) => b.reach - a.reach).slice(0, 3)
-      .map((c) => `${c.name} (${de(c.reach)}) ${komma(chance(c, meine, 0) * 100, 1)} %`);
+      .map((c) => `${c.name} (${de(c.reach)}) ${komma(chance(c, meine, 0, 0) * 100, 1)} %`);
     out.push(`  Antwortchance eines deutschen Pop-Künstlers mit ${de(meine)} Hörern bei den drei größten ` +
-      `Kontakten (chanceOf mit „Erwähnung", Draht 0, Hype 1,0): ${zeilen.join(' · ')} – ` +
+      `Kontakten (chanceOf mit „Erwähnung", Respekt 0, Vertrauen 0, Hype 1,0): ${zeilen.join(' · ')} – ` +
       `${komma(contactsData.CHANCE_MIN * 100, 1)} % ist die Untergrenze CHANCE_MIN, und sie ändert sich ` +
-      `mit dem Draht nur um ${komma(0.25 * 100, 0)} Punkte × Draht/100`);
+      `mit dem RESPEKT (nicht dem Draht) um ${komma(contactsData.RESPEKT_W_MIN * 100, 0)} bis ` +
+      `${komma((contactsData.RESPEKT_W_MIN + contactsData.RESPEKT_W_SPAN) * 100, 0)} Punkte × Respekt/100 – ` +
+      `je größer der Abstand, desto mehr, das volle Gewicht ab ${contactsData.RESPEKT_W_DEKADEN} Dekaden; ` +
+      `ein Vertrauen unter 0 dämpft den Respekt-Term und senkt die Chance zusätzlich, ` +
+      `positives Vertrauen hebt sie nicht`);
   }
   return out;
 }
@@ -3844,6 +4078,7 @@ async function angebotelauf(laeufe, tage) {
     for (const name of ['aus', 'alles-ab', 'alles-an', 'nur-geld', 'nur-projekte', 'nur-label']) {
       console.log(`    ${name}:`);
       for (const z of angebotZeilen(v[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+      for (const z of beziehungsZeilen(v[name].zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
     }
 
     /*
@@ -3958,6 +4193,7 @@ async function angebotelauf(laeufe, tage) {
     for (const [name, r] of [['horten-aus', hAus], ['horten-kollabo', hKol]]) {
       console.log(`    ${name}:`);
       for (const z of angebotZeilen(r.angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+      for (const z of beziehungsZeilen(r.zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
     }
     const zh = hAus.angebotZaehler;
     console.log(`      KONTROLLE „horten-aus": ${leer(zh)
@@ -4010,6 +4246,7 @@ async function angebotelauf(laeufe, tage) {
       for (const name of ['ohne-geld', 'ohne-projekte', 'ohne-label', 'ohne-tausch']) {
         console.log(`    ${name}:`);
         for (const z of angebotZeilen(w[name].angebotZaehler, tage, laeufe)) console.log(`      ${z}`);
+        for (const z of beziehungsZeilen(w[name].zaehler.beziehung, { projekteMoeglich: nimmtProjekteAn(name) })) console.log(`      ${z}`);
       }
       // Kontrolle: Jede Variante MUSS bei ihrer ausgelassenen Gruppe auf null stehen.
       const sum2 = (o) => Object.values(o).reduce((x, y) => x + y, 0);
@@ -4896,15 +5133,20 @@ async function main() {
 
   if (process.argv[2] === 'stufenprobe') {
     console.log(`\n--- Gegenprobe: erwarteter Stufenfaktor gegen gewürfelte \`stufeVon\` ---\n`);
-    for (const l of stufenprobe(Number(process.argv[3] || 1_000_000))) console.log(l);
+    const probe = stufenprobe(Number(process.argv[3] || 1_000_000));
+    for (const l of probe.zeilen) console.log(l);
     console.log();
+    // Als Wächter in `npm test`: Weicht ein Fall ab, bricht der Lauf ab. Der
+    // Nachbau `stufenVerteilung` ist die einzige Stelle des Projekts, die eine
+    // Formel aus src/ abschreibt – und keine Testdatei prüft sie.
+    if (!probe.allesGut) process.exitCode = 1;
     return;
   }
 
   if (NUR === 'kontakte') {
     console.log(`\n--- Kontakte (Stück 5a: mit und ohne Kontaktpflege, ${LAEUFE} Läufe à ${TAGE} Tage) ---\n`);
     console.log('  Gegenprobe zur Wahl des Spielers: erwarteter Stufenfaktor gegen gewürfelte `stufeVon`');
-    for (const l of stufenprobe(200_000)) console.log(l);
+    for (const l of stufenprobe(200_000).zeilen) console.log(l);
     console.log();
     console.log('  Passung (mit contacts.passungOf / chanceOf / staerkeOf / boostOf gerechnet):');
     for (const l of passungsblock()) console.log(l);

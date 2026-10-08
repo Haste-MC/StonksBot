@@ -22,6 +22,8 @@
 - **Eine Partner-Regel:** `respekt >= 50 && vertrauen >= 50`, gültig für ⭐, Antwortchance, Türöffner und `beef.js`. Kein zweiter Weg.
 - **Alle Zahlenkonstanten stehen in `src/data/*.js`**, nie im Rechencode. Beef-Werte in `data/beef.js`, Angebots-Werte in `data/angebote.js`, alles übrige in `data/contacts.js`.
 - **Sprache:** Benutzertexte deutsch, geschlechtsneutral, wo die Person unbekannt ist. Dezimaltrennzeichen Komma in jedem Text, den ein Spieler liest.
+- **`test/fluxer-render.test.js` gehört in die Pflicht-Testliste jeder Aufgabe, die `contacts.detail` oder `contacts.listFor` anfasst** — Task 4, 5 und 6 tun das alle drei. Empirisch belegt: Ein `TypeError` auf dem `detail`-Pfad ist für `beziehungen`, `contacts`, `beef`, `angebote` und `db` **unsichtbar**; nur `fluxer-render` stürzt, weil nur es `buildKontaktView` rendert. Genau dort ist in Task 3 ein Fixer hineingelaufen.
+- **Zeilennummern in diesem Plan sind Wegweiser, keine Adressen.** Sie stammen vom Tag, an dem der Plan geschrieben wurde, und verschieben sich mit jeder vorangehenden Aufgabe — Task 2 hat allein in `src/contacts.js` 26 Zeilen eingefügt. **Verbindlich ist immer der Name** der Funktion, der Konstante oder des Textbausteins; such ihn mit `grep -n`, statt einer Nummer zu folgen. Steht an der genannten Nummer etwas anderes als beschrieben, ist die Nummer veraltet und nicht der Code falsch.
 
 ## Dateien
 
@@ -39,7 +41,8 @@
 | `scripts/messung-geldquellen.js` | die zwei Nachbauten nachziehen, Messung fahren | 7 |
 | `test/beziehungen.test.js` | **neu** — Arithmetik, Paritätstest, Arten, Partner-Regel, Gedächtnis | 1–5 |
 | `test/contacts.test.js` | `drahtStufe`-Fälle auf `artOf` umstellen | 3 |
-| `test/beef.test.js`, `test/angebote.test.js`, `test/fluxer-render.test.js` | `moveDraht` → `move` nachziehen | 4, 5, 6 |
+| `test/beef.test.js`, `test/angebote.test.js` | Achsen-Erwartungen nachziehen | 4, 5 |
+| `test/fluxer-render.test.js` | die sechs `moveDraht`-Aufbauhelfer, dann `moveDraht` löschen | 6 |
 | `ARCHITEKTUR.md`, `src/data/patchnotes.js` | §15-Eintrag, Patchnote | 7 |
 
 ---
@@ -89,7 +92,7 @@ In denselben `db.exec`-Block, in dem `contacts` und `contact_boosts` stehen, hin
 ```sql
   -- 6a: Was zwischen euch war. Eine gekappte Erzählung, KEINE Rechengrundlage:
   -- d_respekt/d_vertrauen stehen nur hier, damit die Ansicht "+18 Vertrauen"
-  -- schreiben kann. Die Achsen auf `contacts` sind die einzige Wahrheit –
+  -- schreiben kann. Die Achsen auf contacts sind die einzige Wahrheit –
   -- deshalb darf diese Liste gekappt werden, ohne dass eine Zahl driftet.
   CREATE TABLE IF NOT EXISTS contact_memory (
     guild_id    TEXT    NOT NULL,
@@ -191,6 +194,20 @@ In `clearContacts` (die Funktion, die `clearContactsOf` und `clearBoosts` fährt
 
 `module.exports` (Zeile 4685) um `addMemory, memoryOf, memoryCount` ergänzen.
 
+- [ ] **Step 4b: Die drei Aufrufer gleichmäßig spalten, damit der Zweig grün bleibt**
+
+Drei Stellen übergeben `saveContact` heute noch ein `draht:`, das die neue Fassung ignoriert — ohne diesen Schritt sind `test/contacts.test.js`, `test/beef.test.js` und `test/angebote.test.js` bis Task 3 rot, und der nächste Reviewer kann neue Brüche nicht von geerbten unterscheiden.
+
+Setze an allen drei Stellen **beide Achsen auf genau den bisherigen Draht-Wert**:
+
+- `src/contacts.js:383` (in `moveDraht`): `respekt: nachher, vertrauen: nachher, boden: row?.boden ?? 0`
+- `src/contacts.js:458` (in `request`): `respekt: neu, vertrauen: neu, boden: row?.boden ?? 0`
+- `test/angebote.test.js:249` (der `draht`-Helfer): beide Achsen auf `wert`
+
+Das ist kein Pflaster, sondern die **gleichmäßige Spaltung**: Bei `respekt === vertrauen === d` ergibt `Math.round((d + d) / 2)` genau `d`, ohne Rundung — verhaltensidentisch zum heutigen Einzelwert, und genau die Nullhypothese, die der Paritätstest in Task 2 festschreibt. Task 3 ersetzt die beiden `contacts.js`-Stellen durch die echten, ungleichen Paare aus `data.ACHSEN`.
+
+Über jede der beiden `contacts.js`-Stellen einen Kommentar, der sagt, dass das ein Zwischenzustand ist — ohne ihn sieht die gleichmäßige Spaltung später wie eine Absicht aus.
+
 - [ ] **Step 5: Den Test schreiben**
 
 Neue Datei `test/beziehungen.test.js`:
@@ -278,7 +295,7 @@ Die Wanderung kann der Test oben nicht prüfen, weil eine frische Datenbank die 
 ```bash
 rm -rf .testdata && mkdir -p .testdata && DATA_DIR=.testdata node -e "
 const { DatabaseSync } = require('node:sqlite');
-const d = new DatabaseSync('.testdata/bot.db');
+const d = new DatabaseSync('.testdata/shop.db');
 d.exec(\`CREATE TABLE contacts (guild_id TEXT NOT NULL, user_id TEXT NOT NULL,
   contact_id TEXT NOT NULL, draht INTEGER NOT NULL DEFAULT 0,
   tries INTEGER NOT NULL DEFAULT 0, yes INTEGER NOT NULL DEFAULT 0,
@@ -300,10 +317,26 @@ console.log(a.respekt === 44 && a.vertrauen === 44 && a.boden === 0
 
 Erwartet: `drake 44 44 44 0`, `anitta -30 -30 -30 0`, `WANDERUNG OK`.
 
-- [ ] **Step 8: Commit**
+- [ ] **Step 8: Die neue Testdatei in `npm test` eintragen**
+
+`package.json` → `scripts.test` fährt `rm -rf .testdata`, setzt `DATA_DIR` und listet dann ~51 Testdateien einzeln auf. Eine Datei, die dort nicht steht, läuft in der Gesamtsuite **nie** — und niemand merkt es, weil die Suite grün bleibt. `test/beziehungen.test.js` kommt direkt **hinter `node test/angebote.test.js`**, wo die Kontakt-Familie steht.
+
+**Daraus folgt eine Anforderung an die Datei selbst:** `npm test` löscht `.testdata` nur **einmal** am Anfang und fährt danach alles gegen **dieselbe** Datenbank. `test/beziehungen.test.js` läuft dort nach `contacts`, `beef` und `angebote`, die alle in die Tabelle `contacts` schreiben. Die Datei darf deshalb keinen leeren Ausgangszustand voraussetzen:
+
+- **Eigene Schlüssel**, nicht `g1`/`u1`: Präfix `b6a-` (`b6a-g1`, `b6a-g2`, `b6a-u1`, `b6a-u2`). Mit `grep -rn "b6a-" test/` prüfen, dass sie sonst nirgends vorkommen.
+- **Vorher aufräumen**: Am Anfang jedes Abschnitts, der leere Tabellen braucht, `db.clearContacts(gilde, nutzer)` für jede benutzte Kombination — das löscht seit Step 4 auch das Gedächtnis mit.
+
+Zwei Zusicherungen dafür, und die zweite ist die eigentliche:
 
 ```bash
-git add src/db.js test/beziehungen.test.js
+rm -rf .testdata && DATA_DIR=.testdata node test/beziehungen.test.js   # grün
+DATA_DIR=.testdata node test/beziehungen.test.js                       # ohne rm, ebenfalls grün
+```
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add src/db.js test/beziehungen.test.js package.json
 git commit -m "beziehungen: zwei achsen, die wanderung und die gedaechtnistabelle"
 ```
 
@@ -322,8 +355,6 @@ git commit -m "beziehungen: zwei achsen, die wanderung und die gedaechtnistabell
   - `contacts.drahtVon(respekt, vertrauen) -> number`
   - `contacts.decayAchse(wert, punkte, boden = 0) -> number`
   - `contacts.respektGewicht(meine, seine) -> number`
-  - `contacts.istPartner(respekt, vertrauen) -> boolean`
-  - `contacts.artOf({ respekt, vertrauen, boden, meine, seine, trait, beefOffen }) -> string` — eine von `beef rivale verstimmt mentor schuetzling partner band geschaeftlich bekannt fremd`
   - `contacts.decay(draht, tage)` bleibt **unverändert** erhalten und ist das Referenzmodell des Paritätstests
   - `data.ACHSEN`, `data.RESPEKT_DECAY_PRO_WOCHE`, `data.VERTRAUEN_DECAY_PRO_WOCHE`, `data.BODEN_MAX`, `data.RESPEKT_W_MIN`, `data.RESPEKT_W_SPAN`, `data.RESPEKT_W_DEKADEN`, `data.VERTRAUEN_MALUS`, `data.PARTNER_RESPEKT`, `data.PARTNER_VERTRAUEN`, `data.ART_*`, `data.MEMORY_MAX`, `data.MEMORY_ZEIGEN`, `data.MEMORY_TEXTE`
 
@@ -437,13 +468,13 @@ const MEMORY_TEXTE = {
 };
 ```
 
-`STUFE_BEEF` und `PARTNER_YES` **löschen** — beide werden nach Task 3 von nichts mehr gelesen (geprüft: `grep -rn 'STUFE_BEEF\|PARTNER_YES' src/ test/ scripts/` nennt nur `src/contacts.js` und `src/data/contacts.js`).
+> **Diese Aufgabe ist rein additiv und löscht NICHTS.** Die fünf alten `DRAHT_*`-Konstanten, `STUFE_BEEF`, `PARTNER_YES` und `drahtStufe` bleiben vollständig stehen und exportiert, obwohl sie am Ende verschwinden sollen. Grund, nachgemessen: die `delta`-Zuweisung in `request` liest die fünf Deltas, die alte `istPartner` liest `PARTNER_YES`, `drahtStufe` liest `STUFE_BEEF`, und `listFor`/`detail`/`request` rufen `drahtStufe`. Löschte diese Aufgabe sie, setzte `request` `delta = undefined` und schriebe `NaN` in den Draht — die Suite wäre bis Task 3 rot, und der nächste Reviewer könnte neue Brüche nicht von geerbten unterscheiden. **Task 3 löscht sie, in derselben Änderung, die ihre Leser ersetzt.**
 
-`module.exports` entsprechend: `DRAHT_ZUSAGE, DRAHT_ECHT, DRAHT_FLUECHTIG, DRAHT_IGNORIERT, DRAHT_VERSTIMMT, STUFE_BEEF, PARTNER_YES` heraus; `ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX, RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS, PARTNER_RESPEKT, PARTNER_VERTRAUEN, ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT, ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN, ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE` hinein. `DRAHT_DECAY_PRO_WOCHE` bleibt exportiert.
+`module.exports` wird nur **ergänzt**: `ACHSEN, RESPEKT_DECAY_PRO_WOCHE, VERTRAUEN_DECAY_PRO_WOCHE, BODEN_MAX, RESPEKT_W_MIN, RESPEKT_W_SPAN, RESPEKT_W_DEKADEN, VERTRAUEN_MALUS, PARTNER_RESPEKT, PARTNER_VERTRAUEN, ART_RIVALE_RESPEKT, ART_RIVALE_VERTRAUEN, ART_ABSTAND, ART_MENTOR_RESPEKT, ART_MENTOR_VERTRAUEN, ART_SCHUETZLING_VERTRAUEN, ART_BAND_BODEN, ART_GESCHAEFTLICH_RESPEKT, MEMORY_MAX, MEMORY_ZEIGEN, MEMORY_TEXTE`. Nichts kommt heraus.
 
 - [ ] **Step 2: Die Arithmetik in `src/contacts.js`**
 
-`drahtStufe` (Zeile 96) **löschen**. `decay` (Zeile 110) **unverändert stehen lassen**. Dahinter einfügen:
+`drahtStufe` (Zeile 96) **bleibt stehen** — ihre drei Aufrufer in `listFor`, `detail` und `request` verschwinden erst in Task 3. `decay` (Zeile 110) bleibt ebenfalls unverändert; sie ist das Referenzmodell des Paritätstests. Hinter `decay` einfügen:
 
 ```js
 /** Der Draht ist abgeleitet – hier gerechnet, geschrieben nur in db.saveContact. */
@@ -469,9 +500,9 @@ function respektGewicht(meine, seine) {
 }
 ```
 
-`module.exports`: `drahtStufe` heraus, `drahtVon, decayAchse, respektGewicht` hinein. `decay` bleibt exportiert.
+`module.exports` wird nur **ergänzt**: `drahtVon, decayAchse, respektGewicht` hinein. `drahtStufe` und `decay` bleiben exportiert.
 
-> **Warum `istPartner` und `artOf` hier NICHT stehen:** `src/contacts.js:223` trägt heute eine `function istPartner(row, draht)` mit fünf Aufrufern (Zeilen 282, 308, 422, 505, 506). Ein zusätzliches `const istPartner` im selben Gültigkeitsbereich ist ein `SyntaxError: Identifier 'istPartner' has already been declared` — die Datei ließe sich nicht einmal laden. Beide Funktionen kommen deshalb in Task 3, wo die alte Fassung und ihre fünf Aufrufer in derselben Änderung verschwinden.
+> **Warum `istPartner` und `artOf` hier NICHT stehen:** `src/contacts.js` trägt heute eine `function istPartner(row, draht)` mit fünf Aufrufern (in `listFor`, `detail`, `request` und zweimal in dessen Rückgabe). Ein zusätzliches `const istPartner` im selben Gültigkeitsbereich ist ein `SyntaxError: Identifier 'istPartner' has already been declared` — die Datei ließe sich nicht einmal laden. Beide Funktionen kommen deshalb in Task 3, wo die alte Fassung und ihre fünf Aufrufer in derselben Änderung verschwinden.
 
 - [ ] **Step 3: Den Paritätstest schreiben**
 
@@ -606,12 +637,12 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
 ## Task 3: `src/contacts.js` vollständig auf die Achsen
 
 **Files:**
-- Modify: `src/contacts.js` (`chanceOf` 46–66, `stufeVon` 69–83, `drahtJetzt` 207, `istPartner` 223, `tuerOeffnerFor` 232, `chanceFor` 245, `listFor` 273, `detail` 300, `moveDraht` 395, `request` 425)
+- Modify: `src/contacts.js` (`chanceOf` ab Zeile 45, `stufeVon` ab Zeile 63, `drahtJetzt` Zeile 233, `istPartner` Zeile 248, `tuerOeffnerFor` Zeile 257, `chanceFor` Zeile 271, `listFor` Zeile 294, `detail` Zeile 325, `moveDraht` Zeile 403, `request` Zeile 429)
 - Modify: `test/contacts.test.js` (die `drahtStufe`-Fälle)
 - Test: `test/beziehungen.test.js`, `test/contacts.test.js`
 
 **Interfaces:**
-- Consumes: aus Task 1 `db.saveContact`, `db.addMemory`; aus Task 2 `drahtVon`, `decayAchse`, `respektGewicht`, `istPartner`, `artOf`, `data.ACHSEN`, `data.MEMORY_MAX`, `data.VERTRAUEN_MALUS`.
+- Consumes: aus Task 1 `db.saveContact`, `db.addMemory`; aus Task 2 `drahtVon`, `decayAchse`, `respektGewicht`, `data.ACHSEN`, `data.MEMORY_MAX`, `data.VERTRAUEN_MALUS`.
 - Produces:
   - `contacts.achsenJetzt(row, now) -> { respekt, vertrauen, boden, draht }` — faul gerechnet, schreibt nie (§4)
   - `contacts.drahtJetzt(row, now) -> number` — bleibt als dünne Hülle (`angebote.js`, `beef.js` und die Messung rufen sie)
@@ -619,12 +650,26 @@ git commit -m "beziehungen: die reine arithmetik, die arten und der paritaetstes
   - `contacts.move(guildId, userId, contactId, { respekt, vertrauen, boden, setzeVertrauen, merken }, now, { sperre }) -> { vorher, nachher, achsenVor, achsen }` — **ersetzt `moveDraht` vollständig**; `vorher`/`nachher` sind weiterhin Draht-**Zahlen**, damit `buttons.beefDraht` weiterläuft
   - `contacts.chanceOf({ …, respekt, vertrauen, … })` — `draht` ist **weg**
   - `contacts.stufeVon(random, { ratio, respekt })` — `draht` ist **weg**
-  - `contacts.detail(...)` liefert zusätzlich `respekt`, `vertrauen`, `boden`, `art`; `stufe` ist **weg**
-  - `contacts.request(...)` liefert zusätzlich `achsen`, `achsenVor`, `art`; `stufe` ist **weg**
+  - `contacts.detail(...)` liefert zusätzlich `respekt`, `vertrauen`, `boden`, `art` — `stufe` bleibt bis Task 6 daneben stehen
+  - `contacts.request(...)` liefert zusätzlich `achsen`, `achsenVor`, `art` — `stufe` ebenso
+
+> **Diese Aufgabe traegt alle Löschungen des Stücks.** Task 2 war rein additiv, damit die Suite nicht über zwei Aufgaben rot steht. Was hier verschwindet, und zwar jeweils in derselben Änderung, die seine Leser ersetzt:
+>
+> | zu löschen | Leser, die hier ersetzt werden |
+> |---|---|
+> | `data.DRAHT_ZUSAGE`, `DRAHT_ECHT`, `DRAHT_FLUECHTIG`, `DRAHT_IGNORIERT`, `DRAHT_VERSTIMMT` | die `delta`-Zuweisung in `request` (Step 5, ersetzt durch `data.ACHSEN`) |
+> | `data.PARTNER_YES` | die alte `istPartner` (Step 6) |
+>
+> **Nicht hier, sondern erst in Task 6** verschwinden `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten. Nachgemessen hängen **vier** Zeichenketten daran, nicht zwei: `src/ui.js:3013` (aus `listFor`), `src/ui.js:3110` (aus `detail`), `src/buttons.js:662` (in `kontaktNote`, aus `request`) und `src/buttons.js:805` (`beefDraht`, aus `moveDraht`) lesen alle `DRAHT_STUFEN[…stufe]`, und **kein Test prüft diese Ausgabe** — gelöscht hier, stünde dort still das Wort `undefined` in jeder Beef- und Anfragemeldung, ohne dass die Suite auch nur blinkt. `listFor`, `detail` und `request` liefern ab dieser Aufgabe `art` **zusätzlich** zu `stufe`; Task 6 stellt die Ansicht um und nimmt `stufe` dann mit.
+> | `contacts.moveDraht` | die neun externen Aufrufer kommen in Task 4 und 5; hier wird `move` daneben gebaut und `moveDraht` bleibt bis dahin **stehen** |
+>
+> `data.DRAHT_DECAY_PRO_WOCHE` und `contacts.decay` bleiben: Sie sind das Referenzmodell des Paritätstests.
+>
+> Am Ende dieser Aufgabe müssen `test/contacts.test.js`, `test/beef.test.js`, `test/angebote.test.js`, `test/beziehungen.test.js` und `test/db.test.js` alle auf `0 fehlgeschlagen` stehen.
 
 - [ ] **Step 1: `achsenJetzt` und `drahtJetzt`**
 
-`drahtJetzt` (Zeile 207) **ersetzen**:
+`drahtJetzt` (Zeile 233) **ersetzen**:
 
 ```js
 /**
@@ -656,7 +701,21 @@ function istPartnerRow(row, now) {
 
 - [ ] **Step 2: `move` statt `moveDraht`**
 
-`istPartner` (Zeile 223, die alte Fassung mit `yes >= PARTNER_YES`) **löschen** und `moveDraht` (Zeile 395) **ersetzen**:
+`moveDraht` (Zeile 403) **bleibt vorerst stehen** — `src/beef.js` und `src/angebote.js` rufen es an neun Stellen, und die kommen erst in Task 4 und 5 dran. `move` wird **daneben** gebaut, und `moveDraht` ruft es intern, damit es nur eine Schreibmechanik gibt:
+
+```js
+/** Alt-Einstieg, bis Task 4 und 5 ihre Aufrufer umgestellt haben. Gleichmäßige
+ *  Spaltung – Mittelwert unverändert, siehe Paritätstest. */
+function moveDraht(guildId, userId, contactId, delta, now = Date.now(), opts = {}) {
+  const erg = move(guildId, userId, contactId,
+    { respekt: delta, vertrauen: delta }, now, opts);
+  // `stufe` muss mitkommen: buttons.js:798 (beefDraht) liest es, und kein Test
+  // prüft diese Zeichenkette – ohne das Feld stünde dort still „undefined".
+  return { ...erg, stufe: drahtStufe(erg.nachher) };
+}
+```
+
+Die alte `istPartner` (Zeile 223) wird in Step 6 gelöscht. `move` selbst:
 
 ```js
 /**
@@ -711,7 +770,7 @@ function move(guildId, userId, contactId, bewegung, now = Date.now(), { sperre =
 
 - [ ] **Step 3: Die Antwortchance und die Verbindlichkeit**
 
-`chanceOf` (Zeile 46) — `draht` durch `respekt`/`vertrauen` ersetzen:
+`chanceOf` (Zeile 45) — `draht` durch `respekt`/`vertrauen` ersetzen:
 
 ```js
 /** Antwortchance (Wurf 1) – alle Summanden aus der Spec. */
@@ -739,7 +798,7 @@ function chanceOf({ meineReichweite, seineReichweite, request, gleichesLand, spr
 }
 ```
 
-`stufeVon` (Zeile 69) — nur das Gewicht der Zusage hängt um:
+`stufeVon` (Zeile 63) — nur das Gewicht der Zusage hängt um:
 
 ```js
 /**
@@ -769,11 +828,11 @@ function stufeVon(random, { ratio, respekt = 0 }) {
 
 - [ ] **Step 4: Die vier Aufrufer durchziehen**
 
-`tuerOeffnerFor` (Zeile 232): `if (nah && drahtJetzt(row, now) >= data.STUFE_PARTNER) anzahl++;` wird zu `if (nah && istPartnerRow(row, now)) anzahl++;`.
+`tuerOeffnerFor` (Zeile 257): `if (nah && drahtJetzt(row, now) >= data.STUFE_PARTNER) anzahl++;` wird zu `if (nah && istPartnerRow(row, now)) anzahl++;`.
 
-`chanceFor` (Zeile 245): Parameter `draht` wird zu `respekt, vertrauen` und beide werden an `chanceOf` durchgereicht.
+`chanceFor` (Zeile 271): Parameter `draht` wird zu `respekt, vertrauen` und beide werden an `chanceOf` durchgereicht.
 
-`listFor` (Zeile 273) und `detail` (Zeile 300): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und statt `stufe: drahtStufe(draht)` ein
+`listFor` (Zeile 294) und `detail` (Zeile 325): statt `const draht = drahtJetzt(row, now)` nun `const a = achsenJetzt(row, now)`; `partner` kommt aus `istPartner(a.respekt, a.vertrauen)`; die Rückgabe trägt `respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden, draht: a.draht` und — **zusätzlich** zu `stufe: drahtStufe(a.draht)`, das wie in der Löschungstabelle oben stehen bleibt — ein
 
 ```js
       art: artOf({ respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden,
@@ -802,7 +861,7 @@ Die Draht-Tore bleiben am Draht: `r.minDraht !== null && a.draht < r.minDraht`. 
 
 - [ ] **Step 5: `request` auf die Achsen**
 
-In `request` (Zeile 425): `const draht = drahtJetzt(row, now)` wird zu `const a = achsenJetzt(row, now)`; `partner` aus `istPartner(a.respekt, a.vertrauen)`. Die Draht-Prüfung bleibt (`r.minDraht`), die Vertrauens-Prüfung kommt dazu:
+In `request` (Zeile 429): `const draht = drahtJetzt(row, now)` wird zu `const a = achsenJetzt(row, now)`; `partner` aus `istPartner(a.respekt, a.vertrauen)`. Die Draht-Prüfung bleibt (`r.minDraht`), die Vertrauens-Prüfung kommt dazu:
 
 ```js
   if (r.minDraht != null && a.draht < r.minDraht) {
@@ -848,18 +907,18 @@ Der Wurf und der Schreibvorgang:
   }
 ```
 
-Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
+Die Rückgabe: `draht: drahtVon(respektNeu, vertrauenNeu)`, `drahtVor: a.draht`, `delta: drahtVon(respektNeu, vertrauenNeu) - a.draht`, das bisherige `stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))` (es bleibt bis Task 6, weil `buttons.kontaktNote` es liest), dazu `achsen: { respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden }`, `achsenVor: { respekt: a.respekt, vertrauen: a.vertrauen, boden: a.boden }`, `partner: istPartner(respektNeu, vertrauenNeu)`, `partnerNeu: !partner && istPartner(respektNeu, vertrauenNeu)` und
 
 ```js
     art: artOf({ respekt: respektNeu, vertrauen: vertrauenNeu, boden: a.boden,
       meine: k.meine, seine: k.seine, trait: contact.trait, beefOffen: false }),
 ```
 
-`stufe` fällt überall weg. `module.exports`: `moveDraht` heraus; `move, achsenJetzt, istPartnerRow` hinein (`drahtJetzt` und `istPartner` bleiben).
+`module.exports`: `move, achsenJetzt, istPartnerRow` hinein. `moveDraht` bleibt bis **Task 6** exportiert — dort fallen die sechs Teststellen und die Funktion selbst. `drahtJetzt` bleibt dauerhaft.
 
 - [ ] **Step 6: `istPartner` und `artOf` — die alte Fassung verschwindet in derselben Änderung**
 
-Die bestehende `function istPartner(row, draht)` (Zeile 223) **löschen** und in der reinen Hälfte, hinter `respektGewicht`, einsetzen:
+Die bestehende `function istPartner(row, draht)` (Zeile 248) **löschen** und in der reinen Hälfte, hinter `respektGewicht`, einsetzen:
 
 ```js
 /**
@@ -912,7 +971,7 @@ function artOf({ respekt, vertrauen, boden = 0, meine = 0, seine = 0,
 }
 ```
 
-Die fünf Aufrufer (Zeilen 282, 308, 422, 505, 506) rufen danach `istPartner(a.respekt, a.vertrauen)` beziehungsweise `istPartner(respektNeu, vertrauenNeu)` — sie werden in Step 4 und Step 5 ohnehin angefasst. `module.exports`: `istPartner, artOf` hinein.
+Die fünf Aufrufer (in `listFor`, `detail`, `request` und zweimal in dessen Rückgabe) rufen danach `istPartner(a.respekt, a.vertrauen)` beziehungsweise `istPartner(respektNeu, vertrauenNeu)` — sie werden in Step 4 und Step 5 ohnehin angefasst. `module.exports`: `istPartner, artOf` hinein.
 
 - [ ] **Step 7: `istPartner` und `artOf` testen**
 
@@ -1108,7 +1167,18 @@ An `test/beziehungen.test.js` anfügen:
   }
 ```
 
-- [ ] **Step 9: `test/contacts.test.js` nachziehen**
+- [ ] **Step 9: Die Kette durch die ECHTE Schreibmechanik führen**
+
+Der Paritätstest aus Task 2 baut die Wochenzählung (`Math.floor(tage / 7) * rate`) und die ±100-Klemme im **Test** nach. Damit deckt er die Produktivlogik nicht: Ein falsch verdrahtetes `move` oder `achsenJetzt` fiele dort nicht auf.
+
+Ergänze in `test/beziehungen.test.js` eine Zusicherung, die dieselbe Ereignisfolge durch `contacts.move` und `contacts.achsenJetzt` schickt — mit echten Zeitstempeln, über eine echte Zeile in der Datenbank — und mit dem von Hand gerechneten Ergebnis vergleicht. Zwei Fälle genügen, beide mit den **echten** Paaren aus `data.ACHSEN`:
+
+- **Zwanzig echte Antworten** (`ACHSEN.echt`, je `respekt +9 / vertrauen +3`), alle am selben Tag: Respekt sättigt bei 100, Vertrauen steht bei 60, der Draht ist **80**. Die alte Kette ergab hier 100 — die Abweichung ist das Design und wird hier festgehalten, nicht versteckt.
+- **Respekt 50, Vertrauen −50** (Draht 0), dann vier Wochen nichts: Respekt 46, Vertrauen −38, Draht **4**. Nach zehn Wochen: Respekt 40, Vertrauen −20, Draht **10**. Die alte Kette blieb beide Male bei 0, weil ein Draht von 0 nicht abkühlt.
+
+Diese zwei Zusicherungen sind die einzigen, die die Wochenzählung und die Klemme der **Produktivlogik** prüfen.
+
+- [ ] **Step 10: `test/contacts.test.js` nachziehen**
 
 Die Fälle, die `contacts.drahtStufe` aufrufen, auf `contacts.artOf` umstellen. Die alten Erwartungen übersetzen:
 
@@ -1120,11 +1190,24 @@ Die Fälle, die `contacts.drahtStufe` aufrufen, auf `contacts.artOf` umstellen. 
 | `drahtStufe(-20) === 'verstimmt'` | `artOf({ respekt: 0, vertrauen: -40 }) === 'verstimmt'` |
 | `drahtStufe(-50) === 'beef'` | **entfällt** — `beef` heißt jetzt „offener Beef", nicht „Draht ≤ −50". Ein Draht von −50 ohne Beef ist `verstimmt` oder `rivale`. |
 
-Fälle, die `contacts.chanceOf({ …, draht: N })` aufrufen, auf `respekt: N, vertrauen: N` umstellen — **und die Erwartung neu rechnen**, nicht blind übernehmen: Das Gewicht ist bei gleicher Größe 0,12 statt 0,25. Wo der alte Test eine Zahl hart kodiert hat, wird sie mit `contacts.respektGewicht` ausgedrückt, damit sie nicht wieder einfriert.
+Die vier Fälle, die `contacts.chanceOf({ …, draht: N })` aufrufen, auf `respekt: N, vertrauen: N` umstellen (gleichmäßige Spaltung). **Die Erwartungen sind vorgerechnet** — der `arg()`-Helfer dort steht auf 1.000 gegen 1.000 Hörer, also gleiche Größe, Gewicht 0,12:
+
+| Zusicherung heute | neu |
+|---|---|
+| `'Draht 50 hebt um 0,125'` | **`'Respekt 50 hebt um 0,06'`** — `(50/100) × 0,12 = 0,06`. Das ist die Umverteilung: Auf Augenhöhe wiegt die Beziehung weniger als früher. |
+| `'Draht −100 senkt um 0,25'` | **`'Vertrauen −100 senkt um 0,25'`** — unverändert. Der Respekt-Term ist bei negativem Respekt 0 (`Math.max(0, respekt)`), der Vertrauens-Malus liefert `min(0, −1) × 0,25`. |
+| `'Partner gibt +0,10'` | unverändert |
+| `'Obergrenze 0,95'` (mit `draht: 100`) | unverändert, mit `respekt: 100, vertrauen: 100` |
+
+Drück die 0,06 im Test über `contacts.respektGewicht(1_000, 1_000)` aus statt als Literal, damit sie nicht einfriert, wenn `RESPEKT_W_MIN` sich bewegt — die Zusicherung soll die **Formel** prüfen, nicht eine Zahl.
+
+Die drei Fälle mit `contacts.stufeVon(r, { ratio, draht })` auf `{ ratio, respekt }` umstellen.
+
+**`test/beef.test.js` ist nachgeprüft nicht betroffen:** Seine zwei `chanceOf`-Aufrufe übergeben gar keinen Draht, sie messen nur die Differenz des Szene-Malus. Lass die Datei in Ruhe.
 
 Fälle mit `contacts.stufeVon(r, { ratio, draht })` auf `{ ratio, respekt }` umstellen.
 
-- [ ] **Step 10: Beide Tests laufen lassen**
+- [ ] **Step 11: Beide Tests laufen lassen**
 
 ```bash
 rm -rf .testdata && DATA_DIR=.testdata node test/beziehungen.test.js
@@ -1133,7 +1216,7 @@ rm -rf .testdata && DATA_DIR=.testdata node test/contacts.test.js
 
 Erwartet: beide `0 fehlgeschlagen`.
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
 git add src/contacts.js test/contacts.test.js test/beziehungen.test.js
@@ -1221,7 +1304,39 @@ Die anderen drei `REQUESTS` bekommen `minVertrauen: null`. `KONZERT_VERTRAUEN` e
 
 > **Reihenfolge, damit kein Loch entsteht:** Task 3 hat die Prüfung `r.minVertrauen != null` schon gebaut und liest bis hierhin `undefined`, also nichts. `konzert` behielt dort `minDraht: 20` und war durchgehend bewacht. Erst dieser Schritt hängt es um — kein Zeitfenster, in dem das Tor offen steht.
 
-`module.exports` in `data/angebote.js`: `DRAHT_AN, DRAHT_AB, DRAHT_VERFALL` heraus; `ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH, BODEN_AN, BODEN_FERTIG` hinein.
+> **Diese Aufgabe macht den Zweig lebendig und muss ihn darum vollständig bedienen — Tests UND beide Leser.** Task 3 hat `r.minVertrauen` gebaut, aber kein Eintrag trug das Feld, also war er die einzige unbewachte Verzweigung des Stücks. Fehlt hier etwas, entsteht für zwei Aufgaben ein **spielbarer, stiller** Fehler:
+>
+> 1. **Zusicherungen:** `konzert` wird bei Vertrauen 19 mit `grund: 'vertrauen'` abgewiesen und geht bei 20 durch; dasselbe für `kollabo`/`tour`/`label` bei 49 gegen 50.
+> 2. **`src/ui.js`, `grundText`** braucht den Schlüssel `vertrauen: '🔒 Vertrauen ' + r.minVertrauen + ' nötig'`. Ohne ihn fällt die Zeile auf `?? Chance **${pct(r.chance)}**` zurück — **ein gesperrter Knopf bewirbt dann eine Chance, die niemand bekommen kann.**
+> 3. **`src/buttons.js`, `kontaktNote`** behandelt bei Zeile 624 nur `res.reason === 'draht'`. Ohne einen `'vertrauen'`-Zweig endet ein abgewiesener Klick bei „❌ Das ging nicht." und sagt dem Spieler nicht, was fehlt.
+>
+> Dieselbe stille Falle wie das `undefined` beim Stufennamen, nur in anderer Form: Der Spieler sieht etwas Falsches, und kein Test blinkt. (Diese zwei Leser standen vorher in Task 6 — zwei Aufgaben zu spät.)
+
+**`DRAHT_AN`, `DRAHT_AB` und `DRAHT_VERFALL` werden NICHT gelöscht, sondern aus den Paaren abgeleitet:**
+
+```js
+/**
+ * Die alten Draht-Deltas, jetzt abgeleitet statt doppelt gepflegt.
+ *
+ * Fünf Stellen lesen sie weiter, und zwei davon sind Spielermeldungen:
+ * `buttons.js` („Draht −8"), `angeboteUi.js` („Absagen kostet 5 Draht,
+ * Liegenlassen 8"), dazu sieben Zusicherungen in test/angebote.test.js und drei
+ * in test/fluxer-render.test.js. Gelöscht stünde in den Meldungen `NaN`.
+ *
+ * Die Ableitung ist dabei mehr als Bequemlichkeit: Sie erzwingt im CODE, was
+ * sonst nur ein Test behauptet – dass der Mittelwert jedes Paares das alte
+ * Draht-Delta ist. Wer ein Paar so ändert, dass der Mittelwert wandert, sieht
+ * es sofort in der Spielermeldung.
+ */
+const mittel = (paar) => (paar.respekt + paar.vertrauen) / 2;
+const DRAHT_AN = mittel(ACHSEN_AN);            // +8
+const DRAHT_AB = mittel(ACHSEN_AB);            // −5
+const DRAHT_VERFALL = mittel(ACHSEN_VERFALL);  // −8
+```
+
+Gegengerechnet: Die drei Mittelwerte **sind** 8, −5 und −8, also genau die bisherigen Literale. Damit überleben alle fünf Leser unverändert, und die zehn bestehenden Zusicherungen in `test/angebote.test.js` und `test/fluxer-render.test.js` werden zu **kostenlosen Paritätsproben** dieser Aufgabe: `getContact(…).draht === 30 + DRAHT_AN` muss nach der Umstellung weiter stimmen, weil `(30+4 + 30+12) / 2 = 38` ist.
+
+`module.exports` in `data/angebote.js`: `DRAHT_AN, DRAHT_AB, DRAHT_VERFALL` **bleiben** (jetzt abgeleitet); `ACHSEN_AN, ACHSEN_AB, ACHSEN_VERFALL, ACHSEN_FERTIG, ACHSEN_PFUSCH, BODEN_AN, BODEN_FERTIG` kommen hinzu.
 
 - [ ] **Step 2: `artenFuer` nimmt beide Achsen**
 
@@ -1251,6 +1366,10 @@ Jede weitere Stelle, die `artenFuer` aufruft, mitziehen: `grep -n 'artenFuer' sr
 - [ ] **Step 3: Die fünf Schreibstellen**
 
 Alle `contacts.moveDraht(..., data.DRAHT_*, now)` zu `contacts.move(..., { ...paar, boden, merken }, now)`:
+
+> **Eine Zusicherung auf die gerenderte Zeile gehört hierher.** Gemessen in Task 4: Entfernt man `stufe` aus `contacts.move`, bleiben `test/beef.test.js` (398) **und** `test/fluxer-render.test.js` (408) beide grün — **keine** ihrer Zusicherungen prüft die Stufenzeile einer Beef-Drahtmeldung. Die Quelle ist seit Task 4 bewacht, ihre Weiterverwendung in `beefDraht` nicht. Ergänze in `test/beef.test.js` eine Zeile, die `buttons.beefDraht(ergebnis.draht)` rendert und verlangt, dass darin ein **echter** Stufenname aus `DRAHT_STUFEN` steht und nicht `undefined`.
+>
+> **`buttons.beefDraht` liest `d.stufe` aus allen sechs dieser Ergebnisse.** `contacts.move` liefert das Feld seit Task 4 selbst — prüf das zuerst mit `grep -n "stufe" src/contacts.js` an der Rückgabe von `move`. Fehlt es dort, **ergänze es dort** (`stufe: drahtStufe(drahtVon(respektNeu, vertrauenNeu))`) und nicht an den sechs Aufrufstellen: Sonst steht in jeder Beef-Meldung still das Wort `undefined`, und **kein Test prüft diese Zeichenketten**.
 
 `settle` Schritt 1, verfallene Anfrage (Zeile 291):
 
@@ -1400,7 +1519,7 @@ git commit -m "beziehungen: angebote auf die achsen, das durchziehen zaehlt endl
 
 **Interfaces:**
 - Consumes: `contacts.move`, `contacts.istPartnerRow` aus Task 3.
-- Produces: keine neuen Signaturen nach außen.
+- Produces: `beef.friedenZiel(vertrauen) -> number` — reine Funktion, damit der Deckel prüfbar ist, ohne die Formel im Test zu wiederholen.
 
 - [ ] **Step 1: Die Konstanten**
 
@@ -1429,7 +1548,33 @@ const ACHSEN_KONTER = { respekt: -6, vertrauen: -14 };       // Mittel −10 (wi
 const ACHSEN_ANGEZAEHLT = { respekt: -4, vertrauen: -16 };   // Mittel −10 (wie vorher)
 ```
 
-Die fünf `DRAHT_*` löschen. `FRIEDEN_PLUS` (30) und `FRIEDEN_DECKEL` (−10) bleiben unverändert — sie wirken jetzt auf Vertrauen. Den Kommentar dort nachziehen:
+**Die fünf `DRAHT_*` werden hier wirklich gelöscht** — anders als bei den Angeboten, wo die Mittelwerte unverändert blieben und die Konstanten darum abgeleitet weiterleben. Gegengerechnet:
+
+| | Mittel neu | alt | |
+|---|---|---|---|
+| `ANSTACHELN` | −12 | −15 | **weicht ab** |
+| `BLAMAGE` | −7 | −5 | **weicht ab** |
+| `DISS` | −13 | −20 | **weicht ab** |
+| `KONTER` | −10 | −10 | gleich |
+| `ANGEZAEHLT` | −10 | −10 | gleich |
+
+Drei der fünf verschieben sich **absichtlich** — eine Ableitung wäre hier also eine Lüge.
+
+**Fünf** Zusicherungen in `test/beef.test.js` lesen die alten Konstanten und müssen nachgezogen werden, **keine** davon gelöscht:
+
+| Zeile | liest | Mittel neu | alt |
+|---|---|---|---|
+| `:238` | `DRAHT_BLAMAGE` | **−7** | −5 |
+| `:256` „Einstieg kostet Draht −15" | `DRAHT_ANSTACHELN` | **−12** | −15 |
+| `:295` | `DRAHT_KONTER` | −10 | −10 |
+| `:728` | `DRAHT_DISS` | **−13** | −20 |
+| `:914` „Draht −10" | `DRAHT_ANGEZAEHLT` | −10 | −10 |
+
+**Rechne jede Erwartung aus dem tatsächlichen Ausgangszustand ihres Falls neu**, nicht aus der Tabelle: Manche dieser Zusicherungen prüfen einen Draht, der schon eine vorangehende Bewegung enthält (ein Diss folgt auf ein Anstacheln). Die Tabelle nennt den Beitrag **eines** Ereignisses, nicht den Endstand. Und zieh die zwei Beschriftungen mit, die eine Zahl im Namen tragen („−15" wird „−12").
+
+Leite die neuen Werte im Test aus den `ACHSEN_*`-Paaren ab (`(respekt + vertrauen) / 2`), statt sie hart zu kodieren — dann wandert die Zusicherung mit, wenn ein Paar später balanciert wird.
+
+`FRIEDEN_PLUS` (30) und `FRIEDEN_DECKEL` (−10) bleiben unverändert — sie wirken jetzt auf Vertrauen. Den Kommentar dort nachziehen:
 
 ```js
 // --- Frieden ---------------------------------------------------------------
@@ -1501,11 +1646,20 @@ Zeile 598 ersetzen. Die Deckel-Logik bleibt wortgleich, sie wirkt nur auf die an
   // Respekt bleibt unberührt: Was du getroffen hast, respektiert er weiter.
   const vorherAchsen = contacts.achsenJetzt(
     db.getContact(guildId, userId, contactId), now);
-  const zielV = Math.max(vorherAchsen.vertrauen,
-    Math.min(data.FRIEDEN_DECKEL, vorherAchsen.vertrauen + data.FRIEDEN_PLUS));
   const draht = contacts.move(guildId, userId, contactId, {
-    setzeVertrauen: zielV, merken: { art: 'frieden', detail: '' },
+    setzeVertrauen: friedenZiel(vorherAchsen.vertrauen),
+    merken: { art: 'frieden', detail: '' },
   }, now, { sperre: true });
+```
+
+Die Formel bekommt dabei einen **Namen** und steht in der reinen Hälfte von `src/beef.js`, exportiert — sonst kann sie nur geprüft werden, indem ein Test sie nachrechnet und damit sich selbst bestätigt:
+
+```js
+/** Wohin die Versöhnung das Vertrauen hebt – gedeckelt, nie nach unten. */
+function friedenZiel(vertrauen) {
+  return Math.max(vertrauen,
+    Math.min(data.FRIEDEN_DECKEL, vertrauen + data.FRIEDEN_PLUS));
+}
 ```
 
 - [ ] **Step 4: Die Partner-Regel in der Anzählrunde**
@@ -1560,10 +1714,14 @@ An `test/beziehungen.test.js` anfügen:
         meine: 100_000, seine: 100_000 }));
 
     // Der Frieden hebt Vertrauen bis zum Deckel und rührt den Respekt nicht an.
-    check('der Frieden deckelt bei −10',
-      Math.max(-70, Math.min(bdata.FRIEDEN_DECKEL, -70 + bdata.FRIEDEN_PLUS)) === -40);
-    check('…und zieht einen hohen Wert nicht herunter',
-      Math.max(20, Math.min(bdata.FRIEDEN_DECKEL, 20 + bdata.FRIEDEN_PLUS)) === 20);
+    // Geprüft wird die PRODUKTIONSFUNKTION, nicht eine Kopie ihrer Formel.
+    const beef = require('../src/beef');
+    check('der Frieden hebt −70 auf den Deckel −10', beef.friedenZiel(-70) === -40,
+      String(beef.friedenZiel(-70)));
+    check('…und −20 nur bis −10', beef.friedenZiel(-20) === -10,
+      String(beef.friedenZiel(-20)));
+    check('…und zieht einen hohen Wert nicht herunter', beef.friedenZiel(20) === 20,
+      String(beef.friedenZiel(20)));
   }
 ```
 
@@ -1591,7 +1749,7 @@ git commit -m "beziehungen: beef auf die achsen, der diss hebt den respekt"
 
 **Files:**
 - Modify: `src/ui.js` (`DRAHT_STUFEN` 2761, `buildKontakteView` 2969, `buildKontaktView` 3078, `module.exports` 5688)
-- Modify: `src/buttons.js` (`anfrageNote` ~658, `beefDraht` ~793)
+- Modify: `src/buttons.js` (`kontaktNote` ab 621, `beefDraht` ab 801)
 - Test: `test/fluxer-render.test.js`
 
 **Interfaces:**
@@ -1605,13 +1763,18 @@ git commit -m "beziehungen: beef auf die achsen, der diss hebt den respekt"
 ```js
 /** Die zehn Beziehungsarten – contacts.artOf liefert die Schlüssel. */
 const ARTEN_NAMEN = {
+  // `band` heißt NICHT „alte Band": Mit BODEN_AN = 3 reichen vier angenommene
+  // kleine Gegenanfragen für Boden 12 ≥ ART_BAND_BODEN, also trüge jemand den
+  // Namen ohne ein einziges gemeinsames Album. Über die Schwelle lässt sich das
+  // nicht lösen – ART_BAND_BODEN müsste über 12 steigen und verlöre dann den
+  // Ein-Album-Weg bei BODEN_FERTIG = 10. Der Name deckt darum beide Wege.
   beef: '🔥 Beef',
   rivale: '⚔️ Rivale',
   verstimmt: '🙄 verstimmt',
   mentor: '🎓 Mentor',
   schuetzling: '🐣 Schützling',
   partner: '🤝 fester Partner',
-  band: '💿 alte Band',
+  band: '💿 gemeinsame Vergangenheit',
   geschaeftlich: '💼 geschäftlich',
   bekannt: '👋 bekannt',
   fremd: '· fremd',
@@ -1619,6 +1782,27 @@ const ARTEN_NAMEN = {
 ```
 
 `module.exports`: `DRAHT_STUFEN` heraus, `ARTEN_NAMEN` hinein. Beide Fundstellen in `src/buttons.js` mitziehen.
+
+**Die zwei „toten Reste" aus Task 4 bleiben stehen — diese Anweisung ist zurückgenommen.** Der Schlüssel `draht` in `grundText` (`src/ui.js`) und der Zweig `res.reason === 'draht'` in `kontaktNote` (`src/buttons.js`) sind datenseitig unerreichbar, weil alle `REQUESTS` `minDraht: null` tragen — **aber `src/contacts.js` erzeugt den Grund in `detail` und `request` weiter**, und die Felder lassen sich nicht wegnehmen: Zwei Zusicherungen machen die strukturelle Aussage „jede Anfrageart trägt höchstens **ein** Tor" daran fest.
+
+Entfernte man nur die **Leser**, fiele ein solcher Grund auf `Chance **x %**` auf einem gesperrten Knopf zurück — genau die stille Falle, die dieser Zweig viermal hatte. Die halbe Löschung ist schlechter als keine, und Erzeuger, Feld und Leser sind ein funktionierendes, symmetrisches Gegenstück zu `minVertrauen`.
+
+**Stattdessen eine Zeile Kommentar** an `grundText`: Der Schlüssel `draht` ist derzeit datenseitig unerreichbar und bleibt als Gegenstück zu `minVertrauen` stehen, damit eine künftige Anfrageart mit Draht-Tor nicht auf eine Chance zurückfällt, die niemand bekommen kann.
+
+**Diese Aufgabe löscht außerdem `contacts.moveDraht`** — und sie ist die erste, die es darf. Nach Task 4 und 5 ruft kein Produktivcode es mehr, aber **sechs Teststellen** benutzen es noch als Aufbauhelfer („setze den Draht auf diesen Wert"):
+
+| Stelle | |
+|---|---|
+| `test/beef.test.js:373` | `moveDraht(G, U, klein.id, -60, t0)` |
+| `test/beef.test.js:382` | `-20` |
+| `test/beef.test.js:408` | `+75` |
+| `test/beef.test.js:423` | `-40` |
+| `test/beef.test.js:920` | `cdata.STUFE_PARTNER` |
+| `test/fluxer-render.test.js:1626` | `-40` |
+
+Alle sechs auf `contacts.move(…, { respekt: d, vertrauen: d }, …)` umstellen — die gleichmäßige Spaltung, deren Mittelwert genau der alte Draht ist. Erst danach `moveDraht` löschen und mit `grep -rn "moveDraht" src/ test/ scripts/` gegenprüfen, dass nur noch die zwei erklärenden Kommentare in `src/beef.js:133` und `src/angebote.js:113` übrig sind — **die beiden Kommentartexte mitziehen**, sie nennen `moveDraht` als „eine Stelle, ein Abklingen, eine Sperre", und das ist ab dann `move`.
+
+**Diese Aufgabe trägt zudem die letzten drei Löschungen des Stücks**, weil erst hier ihre Leser verschwinden: `contacts.drahtStufe`, `data.STUFE_BEEF` und das Feld `stufe` in den Rückgabewerten von `contacts.move`, `contacts.moveDraht`, `contacts.listFor`, `contacts.detail` und `contacts.request`. Lösche sie erst, nachdem Step 5 `kontaktNote` und `beefDraht` auf `achsenZeile` umgestellt hat, und prüfe mit `grep -rn 'drahtStufe\|STUFE_BEEF\|DRAHT_STUFEN\|\.stufe' src/ test/ scripts/`, dass niemand mehr daran hängt — **kein Test prüft die betroffenen Zeichenketten**, ein übersehener Leser rendert also still `undefined`.
 
 - [ ] **Step 2: Der dreizeilige Kopf**
 
@@ -1688,38 +1872,75 @@ In `buildKontaktView` hinter dem Kopf einhängen:
   if (erinnerung) kopf.push(...erinnerung);
 ```
 
-- [ ] **Step 4: Der neue Ablehnungsgrund**
+- [ ] **Step 4: Der Ablehnungsgrund steht schon**
 
-In `grundText` (Zeile 3148) ergänzen — `r.minVertrauen` statt `r.minDraht`:
-
-```js
-    vertrauen: `🔒 Vertrauen ${r.minVertrauen} nötig`,
-```
+`grundText` in `src/ui.js` und der `'vertrauen'`-Zweig in `buttons.kontaktNote` sind in **Task 4** entstanden, zusammen mit dem Tor, das sie bedient. Prüfe hier nur mit `grep -n "vertrauen" src/ui.js src/buttons.js`, dass beide noch da sind und zur neuen Ansicht passen — anzulegen ist nichts.
 
 - [ ] **Step 5: Die Meldungen in `src/buttons.js`**
 
-`anfrageNote` (Zeile 658) — statt des Stufennamens die zwei Achsen-Deltas, die mehr sagen:
+**Hier liegt der größte Hebel der Aufgabe.** `buttons.beefDraht` hat inzwischen **zehn** Aufrufstellen in neun Funktionen — gemessen mit `grep -n "beefDraht(" src/buttons.js`:
+
+| Funktion | Ereignis |
+|---|---|
+| `releaseNote` | Angezählt |
+| `beefNote` | Konter |
+| `anstachelnNote` (zweimal) | Einstieg, Blamage |
+| `dissNote` | Disstrack |
+| `friedenNote` | Versöhnung |
+| `durchgezogenNote` | Projekt abgeschlossen |
+| `angebotNote` | Projekt verfallen |
+| `annahmeNote` | Gegenanfrage angenommen |
+| `absageNote` | Gegenanfrage abgesagt |
+
+Alle zehn bekommen ihr Objekt aus `contacts.move` und tragen damit `achsenVor` und `achsen`. **Du änderst darum keine zehn Stellen, sondern eine:** `beefDraht` wird zur dünnen Hülle über `achsenZeile`, und alle zehn Meldungen zeigen von da an die zwei Achsen-Deltas. Erst damit erfährt der Spieler, dass ein gelandeter Disstrack den **Respekt hebt**, während er das Vertrauen zerstört — die Aussage, für die dieses ganze Stück gebaut ist.
+
+Die **elfte** Stelle ist die Ausnahme: `kontaktNote` baut die Zeile heute inline zusammen, statt `beefDraht` zu rufen. Sie wird einzeln umgestellt.
+
+> **`achsenZeile` ist in `src/buttons.js` schon belegt.** Task 4 hat dort eine lokale `achsenZeile(d)` angelegt, die nur die zwei Deltas rendert („Vertrauen **+18**, Respekt **+6**"), mit zwei Aufrufstellen in `durchgezogenNote` und im `projekt_verfallen`-Zweig. **Lösch sie ganz** und nimm den Namen für den neuen Erzeuger: Die neue Zeile trägt strikt mehr — Draht, Balken, Ausschlag **und** beide Deltas —, und zwei Zeilen übereinander, von denen die obere eine Teilmenge der unteren ist, sind Lärm. Die drei Zusicherungen, die den alten Wortlaut pinnen (`test/fluxer-render.test.js` bei 2149, 2337, 2421), zieh auf den neuen nach und rechne ihre Erwartungen aus dem Ausgangszustand neu. **Nicht** verschwinden darf dabei die Boden-Zeile samt der getrennten Prüfung von Absolutwert und Ausschlag — daran hing ein eigener Review-Befund.
+>
+> **`contacts.move` gibt zusätzlich `contact: data.byId(contactId)` zurück**, damit `achsenZeile` den Namen tragen kann. Reines Lesen, §4 unberührt, keine Zahl bewegt sich — und der Hebel bleibt: eine Stelle statt zwölf. Der Name steht **vorn**, und ohne Kontakt im Objekt fällt er weg:
+>
+> ```
+> 🤝 **Rammstein** · Draht ▱▱▱▱▱ **−12** (−12) · Respekt −12 · Vertrauen −12
+> ```
+>
+> Er löst den offenen Befund aus Task 5: Eine Diss-Meldung, die gleichzeitig ein Anzählen auslöst, trug zwei **namenlose** Drahtzeilen für zwei verschiedene Kontakte.
+
+Beide Erzeuger zeigen dasselbe: den neuen Draht, seine Bewegung und die zwei Achsen-Deltas. Sie bekommen **einen** Erzeuger in `src/ui.js`, direkt hinter `drahtBar` — sonst steht derselbe dreiteilige String zweimal im Code und läuft beim nächsten Mal auseinander:
 
 ```js
-  const dR = res.achsen.respekt - res.achsenVor.respekt;
-  const dV = res.achsen.vertrauen - res.achsenVor.vertrauen;
-  zeilen.push(`🤝 Draht ${drahtBar(res.draht)} **${res.draht}** `
-    + `(${res.delta >= 0 ? '+' : ''}${res.delta})`
-    + ` · Respekt ${dR >= 0 ? '+' : ''}${dR} · Vertrauen ${dV >= 0 ? '+' : ''}${dV}`);
+/**
+ * Die Achsenbewegung in einer Zeile – der EINE Erzeuger für alle Meldungen.
+ *
+ * `kontaktNote` (nach einer Anfrage) und `beefDraht` (nach jedem Beef-Schritt
+ * und jedem verfallenen Projekt) zeigen dasselbe aus verschieden geformten
+ * Ergebnissen; die Zeile selbst gibt es nur hier.
+ */
+function achsenZeile(draht, delta, achsenVor, achsen) {
+  // Typografisches Minus, nicht der ASCII-Bindestrich einer JS-Zahl: Der Rest
+  // der Meldungen schreibt „−13", `beefDraht` schrieb bisher „-13" in derselben
+  // Zeile. Ein bestehender Test in test/fluxer-render.test.js nagelt den
+  // Bindestrich fest und wird dabei mitgezogen.
+  const vz = (n) => `${n >= 0 ? '+' : '\u2212'}${Math.abs(n)}`;
+  return `🤝 Draht ${drahtBar(draht)} **${draht}** (${vz(delta)})`
+    + ` · Respekt ${vz(achsen.respekt - achsenVor.respekt)}`
+    + ` · Vertrauen ${vz(achsen.vertrauen - achsenVor.vertrauen)}`;
+}
 ```
 
-`beefDraht` (Zeile 793) ebenso — `d.stufe` gibt es nicht mehr:
+`achsenZeile` exportieren. `kontaktNote` (ab Zeile 621 — dieselbe Funktion, der Task 4 den `'vertrauen'`-Zweig gegeben hat) ruft sie:
+
+```js
+  zeilen.push(achsenZeile(res.draht, res.delta, res.achsenVor, res.achsen));
+```
+
+`beefDraht` (ab Zeile 801) ebenso — `d.stufe` gibt es nicht mehr:
 
 ```js
 /** Die Achsenbewegung, wie `contacts.move` sie meldet. */
 function beefDraht(d) {
   if (!d) return null;
-  const delta = d.nachher - d.vorher;
-  const dR = d.achsen.respekt - d.achsenVor.respekt;
-  const dV = d.achsen.vertrauen - d.achsenVor.vertrauen;
-  return `🤝 Draht ${drahtBar(d.nachher)} **${d.nachher}** `
-    + `(${delta >= 0 ? '+' : ''}${delta})`
-    + ` · Respekt ${dR >= 0 ? '+' : ''}${dR} · Vertrauen ${dV >= 0 ? '+' : ''}${dV}`;
+  return achsenZeile(d.nachher, d.nachher - d.vorher, d.achsenVor, d.achsen);
 }
 ```
 
@@ -1811,6 +2032,7 @@ Erwartet: Der gerechnete erwartete Stufenfaktor und der millionenfach gewürfelt
 
 Der Kontaktbericht braucht zwei Zahlen, die es heute nicht gibt. In die Kontaktvariante (`kontaktvariante`, der Aufbau ab Zeile 2156) je Lauf mitschreiben:
 
+- `arten`: wie oft jede der **zehn** Beziehungsarten im Messjahr auftritt. **Eine Art mit null Vorkommen ist Dekoration und gehört ins Messfile als Befund.** Zwei stehen unter Verdacht: `rivale` verlangt Respekt ≥ 30 und entsteht deshalb nur bei vorherigem Standing (Respekt ≥ 26, also drei echte Antworten) oder nach fünf gelandeten Dissen; `schuetzling` verlangt, dass der Spieler **zehnmal größer** ist als der Kontakt, was im Katalog nur gegen die kleinsten Einträge geht.
 - `vertrauenMax` je Konto: das höchste Vertrauen, das irgendein Kontakt im Messjahr erreicht hat
 - `projekteFertig`: wie viele `kollabo`- und `tour`-Projekte im Messjahr **abgeschlossen** wurden (`db.projekteOf(...).filter((p) => p.status === 'fertig').length`)
 
@@ -1838,7 +2060,9 @@ Gewertet wird der **Median** über die 30 Läufe, nicht der Mittelwert — die V
 
 - [ ] **Step 5: Die blockierende Entscheidung aus §5.1 treffen**
 
-Liegt der Anteil der Konten, die Vertrauen 50 erreichen, **unter** dem heutigen Anteil, der Draht 50 erreicht, geht `minVertrauen` der drei großen Formate in `src/data/angebote.js` eine Stufe herunter, und Schritt 4 wird wiederholt:
+**Beide Anteile kommen aus demselben Lauf** — ein Querlauf gegen `main` ist nicht möglich (das alte Skript hat die Zähler nicht, das neue läuft gegen `main`-Code nicht) und auch nicht nötig: In einer Variante ohne Beef und ohne Projekte **ist** „Draht ≥ 50" der `main`-Wert, weil die fünf Antwort-Paare identische Mittelwerte haben (§8.1).
+
+Liegt der Anteil der Konten, die Vertrauen 50 erreichen, **unter** dem Anteil, der Draht 50 erreicht, geht `minVertrauen` der drei großen Formate in `src/data/angebote.js` eine Stufe herunter, und Schritt 4 wird wiederholt:
 
 ```
 50  →  45  →  40  →  35
@@ -1847,6 +2071,14 @@ Liegt der Anteil der Konten, die Vertrauen 50 erreichen, **unter** dem heutigen 
 Abgebrochen wird, sobald die Anteile übereinstimmen. **Sind im Messjahr null `kollabo`- oder `tour`-Projekte zustande gekommen, ist das ein Fehlschlag und kein Ergebnis** — dann weiter herunter, auch unter 35, und der Grund gehört ins Messfile.
 
 Die Abkühl-Asymmetrie (Respekt 1, Vertrauen 3) wird dabei **nicht** angefasst. Sie trägt die Aussage des Stücks und hält den Draht-Verfall bei den alten zwei Punkten.
+
+- [ ] **Step 5b: Drei Befunde aus Task 5, die hierher gehören**
+
+**a) Die Zielfunktion der Messung jagt noch den Draht.** `scripts/messung-geldquellen.js`, der Partner-Vorrang: `d.draht > wahl.draht`, mit dem Kommentar „Dieselbe Person weiter füttern, bis sie Partner ist". Partner ist seit Task 5 `respekt >= 50 && vertrauen >= 50`, und `ACHSEN.echt` (9/3) lässt den Respekt dreimal schneller steigen — der Draht als Ziel wählt also systematisch den **respektlastigen** Kontakt. Konkret: A mit Respekt 80 / Vertrauen 20 (Draht 50) schlägt B mit 50/48 (Draht 49), obwohl B **eine Zusage** vom Partner entfernt ist und A dreißig Vertrauenspunkte. Das verzerrt ausgerechnet die Zahl, die §8.3 berichten soll („Partner-Anteil — runter"): Die Messung **unterschätzt**, was erreichbar wäre. Richtige Zielgröße: `Math.min(d.respekt, d.vertrauen)`.
+
+**b) Den Vertrauens-Einbruch mitzählen, nicht nur `vertrauenMax`.** Der Dämpfer (`respektWirkt`) verdoppelt die Strafe der **legitimen** vertrauenslastigen Ereignisse, weil er multiplikativ auf den Respekt greift, während der Malus additiv dazukommt — beide aus derselben Zahl. Gerechnet, Weltstar-Partner bei Respekt 100: **eine** verfallene Gegenanfrage kostet jetzt 10,0 Chancenpunkte statt 4,8; **drei** kosten 28,7 statt 14,4. Es trifft die **besten** Beziehungen am härtesten und über einen Weg, der nichts mit dem Beef zu tun hat. Selbstheilend (Vertrauen klettert 3 Punkte je Woche zur Null, −36 ist nach zwölf Wochen weg, der Respekt verliert dabei nur 12) und eine Dämpfung, keine Sperre — aber **unvermessen**: Die Spec-Tabelle und die Fix-Tabelle prüfen beide nur Vertrauen ≥ 0 und die zwei Beef-Zustände. Zähle je Konto den tiefsten Vertrauensstand und die Zahl der Tage mit Vertrauen < 0.
+
+**c) Ein Rest von §3, gemessen und als Tausch eingeordnet.** Im Band Vertrauen 0 … +36 hebt ein gelandeter Diss den Zugang noch, weil **positives Vertrauen für die Chance wertlos ist** — genau die Regel wird dort zum Schlupfloch. Erschöpfend durchgerechnet über alle 201 × 201 Achsenpaare × sechs Beef-Ereignisse × vier Größenabstände; der größte Rest ist Respekt 72 / Vertrauen 48 → ein Diss → 82/12: Chance **54,3 % → 58,8 %** (+4,5 Punkte), Zusage-Gewicht +0,10. Obergrenze über alle Zustände: +0,045 Chance, einmal je 36 wieder aufgebauter Vertrauenspunkte (drei Zusagen oder zwölf echte Antworten). Das ist ein **echter Tausch**: Wer so fährt, hält das Vertrauen bei Null und verliert damit Kollabo, Tour, Label und den Partnerstatus (alle ab Vertrauen 50). **Zu messen, nicht zu patchen** — und falls die Messung zeigt, dass es sich doch lohnt, gibt es zwei Wege: positives Vertrauen etwas wert machen, oder `ACHSEN_DISS.respekt` vom Vertrauensstand abhängig machen.
 
 - [ ] **Step 6: Den Auslöser aus §8.3 prüfen**
 

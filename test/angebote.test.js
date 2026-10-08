@@ -24,10 +24,34 @@ const nah = (a, b, eps = 1e-6) => Math.abs(a - b) < eps;
 console.log('--- Gewichtung ---');
 check('unter Draht 20 meldet sich niemand', ang.gewichtOf({ draht: 19, passung: 1 }) === 0);
 check('Bekannter wiegt 1', nah(ang.gewichtOf({ draht: 20, passung: 1 }), 1));
-check('Partner wiegt 4', nah(ang.gewichtOf({ draht: 50, passung: 1 }), 4));
+check('ab Draht 50 wiegt es vierfach', nah(ang.gewichtOf({ draht: 50, passung: 1 }), 4));
 check('die Passung geht voll ein', nah(ang.gewichtOf({ draht: 50, passung: 0.3 }), 1.2));
-check('ohne Passung meldet sich auch ein Partner nicht',
+check('ohne Passung meldet sich auch der engste Draht nicht',
   ang.gewichtOf({ draht: 100, passung: 0 }) === 0);
+/*
+ * Die vierte Partner-Fassung, die hier lebte.
+ *
+ * Die Konstante hieß `GEWICHT_PARTNER` („der Wert des Partner-Status aus 5a")
+ * und teilte bei Draht 50 – aber Partner ist seit 6a ausschließlich, was
+ * `contacts.istPartner` sagt: Respekt ≥ 50 UND Vertrauen ≥ 50. Respekt 100 /
+ * Vertrauen 0 ist Draht 50, bekommt hier das vierfache Gewicht und wird von
+ * der Ansicht NICHT als Partner geführt. Die Mechanik bleibt (die Spec
+ * erlaubt den Draht an dieser Stelle ausdrücklich), der Name nicht – und die
+ * zwei Schwellen stehen jetzt als Konstanten in src/data/angebote.js statt
+ * als Literale in der Funktion.
+ */
+const contacts = require('../src/contacts');
+check('die Schwelle ist eine DRAHT-Schwelle, nicht der Partnerstatus',
+  !('GEWICHT_PARTNER' in data)
+  && data.GEWICHT_MIN_DRAHT === 20 && data.GEWICHT_SCHWELLE === 50
+  && data.GEWICHT_BEKANNT === 1 && data.GEWICHT_ENG === 4
+  // Respekt 100 / Vertrauen 0: viermal so viele Gegenanfragen, trotzdem kein
+  // Partner. Genau diese Aussage log der alte Name.
+  && contacts.drahtVon(100, 0) === data.GEWICHT_SCHWELLE
+  && contacts.istPartner(100, 0) === false
+  && nah(ang.gewichtOf({ draht: contacts.drahtVon(100, 0), passung: 1 }), data.GEWICHT_ENG),
+  JSON.stringify({ min: data.GEWICHT_MIN_DRAHT, schwelle: data.GEWICHT_SCHWELLE,
+    eng: data.GEWICHT_ENG, alt: 'GEWICHT_PARTNER' in data }));
 
 console.log('--- Honorar ---');
 /**
@@ -111,14 +135,17 @@ check('innerhalb eines Tages wird nicht gewürfelt',
 check('eine Uhr aus der Zukunft würfelt nicht rückwärts',
   ang.rollTage(1000 * TAG, 999 * TAG) === 0);
 
+const VOLL = { draht: 100, vertrauen: 100 };
+
 console.log('--- Die sechs Arten ---');
 check('es gibt sechs Arten', data.ARTEN.length === 6);
 check('die Ids stehen so in der Spec',
   data.ARTEN.map((a) => a.id).join(',') === 'tausch,gastpart,vorgruppe,kollabo,tour,label');
-check('jede Art hat Name, Emoji, Zeit und Draht-Schwelle',
-  data.ARTEN.every((a) => a.name && a.emoji && typeof a.time === 'number' && typeof a.minDraht === 'number'));
-check('die drei großen Formate kommen nur von Partnern',
-  data.ARTEN.filter((a) => a.minDraht === 50).map((a) => a.id).join(',') === 'kollabo,tour,label');
+check('jede Art hat Name, Emoji, Zeit und genau EIN Tor (Draht oder Vertrauen)',
+  data.ARTEN.every((a) => a.name && a.emoji && typeof a.time === 'number'
+    && (typeof a.minDraht === 'number') !== (typeof a.minVertrauen === 'number')));
+check('die drei großen Formate verlangen Vertrauen 50',
+  data.ARTEN.filter((a) => a.minVertrauen === 50).map((a) => a.id).join(',') === 'kollabo,tour,label');
 check('die drei kleinen Anfragen kommen ab Bekanntschaft',
   data.ARTEN.filter((a) => a.minDraht === 20).map((a) => a.id).join(',') === 'tausch,gastpart,vorgruppe');
 check('Kollabo und Tour kosten bei der Annahme keine Zeit',
@@ -245,9 +272,22 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     return { G, U };
   };
 
-  /** Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). */
-  const draht = (G, U, contactId, wert, t = T0) => db.saveContact(G, U, contactId,
-    { draht: wert, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
+  /**
+   * Draht auf einen Wert setzen, ohne Abklingen (last_move = jetzt). Mit
+   * `boden` steht der Kontakt von vornherein auf einem dauerhaften Boden – die
+   * Verlustwege müssen den unberührt lassen, und das ist nur messbar, wenn er
+   * vorher nicht ohnehin 0 ist (`0 === 0` wäre jede Zusicherung wahr).
+   */
+  const draht = (G, U, contactId, wert, t = T0, boden = 0) => db.saveContact(G, U, contactId,
+    { respekt: wert, vertrauen: wert, boden, tries: 0, yes: 0, last_try: 0, last_move: t, ignored_at: 0 });
+
+  /** Die drei Achsen eines Kontakts, wie sie zur Zeit `t` stehen. */
+  const achsen = (G, U, contactId, t = T0) =>
+    contacts.achsenJetzt(db.getContact(G, U, contactId), t);
+
+  /** Die Gedächtniszeile dieser Art zu einem Kontakt (oder undefined). */
+  const gedaechtnis = (G, U, contactId, art) =>
+    db.memoryOf(G, U, contactId, 20).find((m) => m.art === art);
 
   /** Eine Anfrage, die genau jetzt eingegangen ist. */
   const anfrage = (G, U, art, contactId, t = T0) => db.insertAngebot({
@@ -342,7 +382,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   console.log('--- Verfallen ---');
   {
     const { G, U } = await welt();
-    draht(G, U, LILPFAND.id, 60);
+    draht(G, U, LILPFAND.id, 60, T0, 10);
     const row = anfrage(G, U, 'tausch', LILPFAND.id);
     const spaet = T0 + 4 * TAG;
     const zeitVor = creator.budget(G, U, spaet).left;
@@ -357,6 +397,15 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       db.getContact(G, U, LILPFAND.id).draht === 60 + data.DRAHT_VERFALL,
       String(db.getContact(G, U, LILPFAND.id).draht));
     check('und zählt als nicht angenommen', db.angebotUhr(G, U).abgelehnt_folge === 1);
+    // 6a: Der Mittelwert ist blind für vertauschte Achsen (−4/−12 und −12/−4
+    // geben beide −8) – darum die Achsen einzeln.
+    const av = achsen(G, U, LILPFAND.id, spaet);
+    check('Verfallen: Respekt −4, Vertrauen −12, ein vorhandener Boden von 10 bleibt stehen',
+      av.respekt === 60 - 4 && av.vertrauen === 60 - 12 && av.boden === 10, JSON.stringify(av));
+    const mv = gedaechtnis(G, U, LILPFAND.id, 'angebot_verfallen');
+    check('und es kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mv && mv.d_respekt === -4 && mv.d_vertrauen === -12 && mv.detail === 'Gegenseitige Erwähnung',
+      JSON.stringify(mv));
     check('das Verfallen steht in `vorher` genau dieses Klicks',
       (r.vorher ?? []).some((e) => e.art === 'verfallen' && e.angebot.id === row.id),
       JSON.stringify(r.vorher));
@@ -364,6 +413,52 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('ein zweiter Klick darauf meldet nur noch "weg"',
       nochmal.ok === false && nochmal.reason === 'weg' && nochmal.vorher.length === 0,
       JSON.stringify(nochmal));
+  }
+
+  console.log('--- Die Grenze des Bodens ---');
+  {
+    /**
+     * DER BODEN IST EINE UNTERGRENZE GEGEN DAS ABKÜHLEN – NICHT GEGEN EIGENE
+     * FEHLER. Das ist beschlossen (Task 3: „der Boden bremst den Fall, er heilt
+     * keinen Beef") und muss so bleiben: Wäre er eine harte Untergrenze, finge
+     * er auch einen Disstrack auf, und der schlüge bei einem Partner mit Boden
+     * nicht mehr durch. Diese Zusicherung steht hier, damit sie niemand später
+     * als Fehler „repariert".
+     *
+     * Der Ablauf, wie ihn der Review gemessen hat: Kollabo durchgezogen (Boden
+     * 10), ein halbes Jahr Funkstille (Vertrauen liegt auf dem Boden), dann
+     * EINE liegengelassene Anfrage – sie schiebt das Vertrauen darunter.
+     */
+    const { G, U } = await welt();
+    draht(G, U, RAF.id, 60);
+    contacts.move(G, U, RAF.id, { ...data.ACHSEN_FERTIG, boden: data.BODEN_FERTIG }, T0);
+    const still = T0 + 26 * 7 * TAG;
+    const aufBoden = achsen(G, U, RAF.id, still);
+    check('Funkstille: das Vertrauen kühlt bis auf den Boden, nicht darunter',
+      aufBoden.boden === data.BODEN_FERTIG && aufBoden.vertrauen === data.BODEN_FERTIG,
+      JSON.stringify(aufBoden));
+
+    // Erstellt vor vier Tagen, Frist drei Tage: zum Zeitpunkt `still` verstrichen.
+    anfrage(G, U, 'tausch', RAF.id, still - 4 * TAG);
+    ang.settle(G, U, still, nie);
+    const drunter = achsen(G, U, RAF.id, still);
+    check('eine verfallene Anfrage schiebt das Vertrauen UNTER den Boden (−2 bei Boden 10)',
+      drunter.vertrauen === data.BODEN_FERTIG + data.ACHSEN_VERFALL.vertrauen
+      && drunter.vertrauen < drunter.boden && drunter.boden === data.BODEN_FERTIG,
+      JSON.stringify(drunter));
+
+    // Es erholt sich nur bis 0 – der Boden zieht es nicht wieder hoch.
+    const jahr = achsen(G, U, RAF.id, still + 52 * 7 * TAG);
+    check('es erholt sich nur bis 0, nicht bis zum Boden',
+      jahr.vertrauen === 0 && jahr.boden === data.BODEN_FERTIG, JSON.stringify(jahr));
+
+    // Erst eine POSITIVE Bewegung, die den Boden hebt, holt es wieder hinauf.
+    const spaeter = still + 52 * 7 * TAG;
+    contacts.move(G, U, RAF.id, { ...data.ACHSEN_AN, boden: data.BODEN_AN }, spaeter);
+    const wieder = achsen(G, U, RAF.id, spaeter);
+    check('erst eine Annahme (positiv, hebt den Boden) hebt es wieder auf den Boden',
+      wieder.boden === data.BODEN_FERTIG + data.BODEN_AN
+      && wieder.vertrauen >= wieder.boden, JSON.stringify(wieder));
   }
 
   console.log('--- Annehmen und Ablehnen ---');
@@ -379,6 +474,15 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('Status "an"', db.angebotRow(G, row.id).status === 'an');
     check('Draht +8', db.getContact(G, U, LILPFAND.id).draht === 30 + data.DRAHT_AN,
       String(db.getContact(G, U, LILPFAND.id).draht));
+    // Nicht nur der Mittelwert: +4/+12, nicht +12/+4 – und der Boden kommt mit
+    // der Annahme, weil `tausch` damit erledigt ist.
+    const at = achsen(G, U, LILPFAND.id);
+    check('Annehmen: Respekt +4, Vertrauen +12, Boden +3',
+      at.respekt === 34 && at.vertrauen === 42 && at.boden === data.BODEN_AN, JSON.stringify(at));
+    const ma = gedaechtnis(G, U, LILPFAND.id, 'angebot_an');
+    check('die Annahme kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      ma && ma.d_respekt === 4 && ma.d_vertrauen === 12 && ma.detail === 'Gegenseitige Erwähnung',
+      JSON.stringify(ma));
     check('abgelehnt_folge zurück auf 0', db.angebotUhr(G, U).abgelehnt_folge === 0);
     check('zwei Stunden gebucht', creator.budget(G, U, T0).left === zeitVor - 2,
       String(creator.budget(G, U, T0).left));
@@ -393,7 +497,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   }
   {
     const { G, U } = await welt();
-    draht(G, U, LILPFAND.id, 30);
+    draht(G, U, LILPFAND.id, 30, T0, 10);
     const row = anfrage(G, U, 'tausch', LILPFAND.id);
     const zeitVor = creator.budget(G, U, T0).left;
     const r = ang.ablehnen(G, U, row.id, T0, nie);
@@ -401,6 +505,11 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       r.ok === true && r.text.includes(LILPFAND.name), JSON.stringify(r));
     check('Draht −5', db.getContact(G, U, LILPFAND.id).draht === 30 + data.DRAHT_AB,
       String(db.getContact(G, U, LILPFAND.id).draht));
+    const ab = achsen(G, U, LILPFAND.id);
+    check('Absagen: Respekt −2, Vertrauen −8, ein vorhandener Boden von 10 bleibt stehen',
+      ab.respekt === 28 && ab.vertrauen === 22 && ab.boden === 10, JSON.stringify(ab));
+    check('eine saubere Absage ist keine Geschichte: kein Gedächtniseintrag',
+      db.memoryOf(G, U, LILPFAND.id, 20).length === 0, JSON.stringify(db.memoryOf(G, U, LILPFAND.id, 20)));
     check('Ablehnen kostet keine Zeit', creator.budget(G, U, T0).left === zeitVor);
     check('Status "ab", und es zählt als nicht angenommen',
       db.angebotRow(G, row.id).status === 'ab' && db.angebotUhr(G, U).abgelehnt_folge === 1);
@@ -416,6 +525,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     // 3 × 8.400^0,6 = 679; der Deckel (30 × ~949/Tag = 28.468) greift nicht.
     check('gastpart zahlt das Honorar von 679',
       r.ok === true && r.honorar === 679 && r.geld?.amount === 679, JSON.stringify(r.geld));
+    check('gastpart ist mit der Annahme erledigt: der Boden steigt sofort um 3',
+      achsen(G, U, LILPFAND.id).boden === data.BODEN_AN, JSON.stringify(achsen(G, U, LILPFAND.id)));
     check('genau eine Buchung, mit `kind: music` – daran hängt die Erfahrung',
       gebucht.length === kasseVor + 1 && gebucht.at(-1).amount === 679
       && gebucht.at(-1).opts.kind === 'music', JSON.stringify(gebucht.at(-1)));
@@ -434,6 +545,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     // 8 × (10.000 + min(10.000, 350.000 × 0,05))^0,7 = 8 × 20.000^0,7 = 8.200
     check('vorgruppe zahlt die Gage von 8.200',
       r.ok === true && r.gage === 8_200 && r.geld?.amount === 8_200, JSON.stringify(r.geld));
+    check('vorgruppe ist mit der Annahme erledigt: der Boden steigt sofort um 3',
+      achsen(G, U, OXMO.id).boden === data.BODEN_AN, JSON.stringify(achsen(G, U, OXMO.id)));
     /**
      * Sein Publikum ist auf die eigene Hörerschaft gedeckelt und steckt
      * ausschließlich in der GAGE (8.200 statt 5.195 allein – genau 2^0,7). Auf
@@ -502,11 +615,21 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
   console.log('--- Die drei Ausnahmen bei der Art (artenFuer) ---');
   {
     const { G, U } = await welt();
-    const ids = (d, t = T0) => ang.artenFuer(G, U, d, t).map((a) => a.id).join(',');
-    check('bei Draht 20 gibt es nur die drei kleinen Arten',
-      ids(20) === 'tausch,gastpart,vorgruppe', ids(20));
-    check('ein Partner bekommt alle sechs',
-      ids(50) === 'tausch,gastpart,vorgruppe,kollabo,tour,label', ids(50));
+    const ids = (d, v, t = T0) => ang.artenFuer(G, U, { draht: d, vertrauen: v }, t)
+      .map((a) => a.id).join(',');
+    check('bei Draht 20 / Vertrauen 20 gibt es nur die drei kleinen Arten',
+      ids(20, 20) === 'tausch,gastpart,vorgruppe', ids(20, 20));
+    check('Vertrauen 50 öffnet alle sechs',
+      ids(50, 50) === 'tausch,gastpart,vorgruppe,kollabo,tour,label', ids(50, 50));
+    // 6a: Die drei großen hängen am VERTRAUEN, nicht am Mittelwert. Draht 100
+    // reicht nicht, wenn er sich nicht auf dich verlässt – und umgekehrt
+    // schaltet Vertrauen allein die kleinen nicht frei, die am Draht hängen.
+    check('Draht 100, aber Vertrauen 49: nur die drei kleinen',
+      ids(100, 49) === 'tausch,gastpart,vorgruppe', ids(100, 49));
+    check('Vertrauen 50 bei Draht 50 ist die Grenze (49 nicht, 50 ja)',
+      !ids(50, 49).includes('kollabo') && ids(50, 50).includes('kollabo'));
+    check('Vertrauen 100, aber Draht 19: nur die drei großen – die kleinen hängen am Draht',
+      ids(19, 100) === 'kollabo,tour,label', ids(19, 100));
   }
   {
     // 1. Ausnahme: `label` fällt weg, solange ein ANGEBOT offen ist.
@@ -514,19 +637,19 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const c = db.insertContract({ guildId: G, userId: U, kind: 'idol', agency: 'A',
       country: 'jp', createdAt: T0, expiresAt: T0 + 2 * TAG });
     check('ein offenes Vertragsangebot nimmt `label` aus der Auswahl',
-      !ang.artenFuer(G, U, 100, T0).some((a) => a.id === 'label'),
-      ang.artenFuer(G, U, 100, T0).map((a) => a.id).join(','));
+      !ang.artenFuer(G, U, VOLL, T0).some((a) => a.id === 'label'),
+      ang.artenFuer(G, U, VOLL, T0).map((a) => a.id).join(','));
     check('die anderen fünf bleiben',
-      ang.artenFuer(G, U, 100, T0).length === 5);
+      ang.artenFuer(G, U, VOLL, T0).length === 5);
     check('nach Ablauf des Angebots ist `label` wieder dabei',
-      ang.artenFuer(G, U, 100, T0 + 3 * TAG).some((a) => a.id === 'label'));
+      ang.artenFuer(G, U, VOLL, T0 + 3 * TAG).some((a) => a.id === 'label'));
     // 2. Ausnahme: und erst recht, solange ein Vertrag LÄUFT. Das ist die, auf
     //    die es ankommt: Ein zweites `label` wäre ein zweiter Zehn-Tage-
     //    Vorschuss auf denselben Künstler (§3).
     db.setContractStatus(G, c.id, 'active', { signedAt: T0, endsAt: T0 + 365 * TAG });
     check('ein laufender Vertrag nimmt `label` ebenfalls heraus – kein zweiter Vorschuss',
-      !ang.artenFuer(G, U, 100, T0 + 3 * TAG).some((a) => a.id === 'label'),
-      ang.artenFuer(G, U, 100, T0 + 3 * TAG).map((a) => a.id).join(','));
+      !ang.artenFuer(G, U, VOLL, T0 + 3 * TAG).some((a) => a.id === 'label'),
+      ang.artenFuer(G, U, VOLL, T0 + 3 * TAG).map((a) => a.id).join(','));
   }
   {
     // 3. Ausnahme: `kollabo` und `tour` fallen weg, solange ein Projekt offen
@@ -534,12 +657,12 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const { G, U } = await welt();
     const pr = db.insertProjekt({ guildId: G, userId: U, art: 'kollabo',
       contactId: RAF.id, stundenSoll: 18, frist: T0 + 14 * TAG });
-    const offen = ang.artenFuer(G, U, 100, T0).map((a) => a.id);
+    const offen = ang.artenFuer(G, U, VOLL, T0).map((a) => a.id);
     check('ein offenes Projekt nimmt `kollabo` und `tour` heraus',
       offen.join(',') === 'tausch,gastpart,vorgruppe,label', offen.join(','));
     db.saveProjekt(G, pr.id, { status: 'fertig' });
     check('ist es fertig, sind beide wieder da',
-      ang.artenFuer(G, U, 100, T0).length === 6);
+      ang.artenFuer(G, U, VOLL, T0).length === 6);
   }
   {
     // Und das Ganze bis in die Zustellung: `folge(0, 0)` erzwingt einen Treffer
@@ -566,6 +689,36 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       arten.join(',') === 'vorgruppe', arten.join(','));
     check('kein zugestelltes Angebot ist `label`, `kollabo` oder `tour`',
       !arten.some((a) => ['label', 'kollabo', 'tour'].includes(a)), arten.join(','));
+  }
+
+  {
+    /**
+     * 6a: Das Tor gilt auch auf dem echten Zustellweg, nicht nur in
+     * `artenFuer`. Respekt 100 / Vertrauen 49 ist Draht 75 – der Mittelwert
+     * ließe alle sechs durch –, aber er verlässt sich noch nicht auf dich.
+     * `folge(0, 0.9999)` zieht den ersten Kontakt und die LETZTE erlaubte Art:
+     * bei Vertrauen 49 die `vorgruppe`, bei 50 das `label`.
+     */
+    const zustellung = async (vertrauen) => {
+      const { G, U } = await welt();
+      db.saveContact(G, U, LILPFAND.id, { respekt: 100, vertrauen, boden: 0,
+        tries: 0, yes: 0, last_try: 0, last_move: T0, ignored_at: 0 });
+      db.saveAngebotUhr(G, U, { last_roll: T0 - TAG, abgelehnt_folge: 0, pause_bis: 0 });
+      return ang.settle(G, U, T0, folge(0, 0.9999))
+        .filter((e) => e.art === 'neu').map((e) => e.angebot.art).join(',');
+    };
+    const knapp = await zustellung(49);
+    const genug = await zustellung(50);
+    check('Draht 75, aber Vertrauen 49: die Zustellung bleibt bei den kleinen (letzte: vorgruppe)',
+      knapp === 'vorgruppe', knapp);
+    check('Vertrauen 50: dieselbe Ziehung landet beim label',
+      genug === 'label', genug);
+    // Das GEWICHT bleibt am Draht: Respekt 100 / Vertrauen −40 ist Draht 30,
+    // also meldet er sich (Gewicht 1) – nur eben mit den kleinen Formaten.
+    // Läse das Gewicht das Vertrauen, bliebe er unsichtbar.
+    const kalt = await zustellung(-40);
+    check('das Gewicht hängt am Draht: Draht 30 bei Vertrauen −40 meldet sich mit einem kleinen Format',
+      ['tausch', 'gastpart', 'vorgruppe'].includes(kalt), kalt);
   }
 
   console.log('--- Ein Blick schreibt nichts (§4) ---');
@@ -633,6 +786,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const r = await ang.annehmen(G, U, row.id, T0, nie);
     check('unter 25.000 Hörern antwortet `label` mit "zu_klein"',
       r.ok === false && r.reason === 'zu_klein' && r.need === 25_000, JSON.stringify(r));
+    check('eine abgewiesene Annahme hebt den Boden nicht',
+      achsen(G, U, LILPFAND.id).boden === 0, JSON.stringify(achsen(G, U, LILPFAND.id)));
     check('die Schwelle ist die des Labels, nicht die des Idols (25.000 < 100.000)',
       music.LABEL.minListeners === 25_000 && music.IDOL.minListeners === 100_000);
     /**
@@ -655,6 +810,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const kasseVor = gebucht.length;
     const r = await ang.annehmen(G, U, row.id, T0, nie);
     check('ab 25.000 Hörern öffnet der Partner die Tür', r.ok === true, JSON.stringify(r));
+    check('label ist mit der Annahme erledigt: der Boden steigt sofort um 3',
+      achsen(G, U, LILPFAND.id).boden === data.BODEN_AN, JSON.stringify(achsen(G, U, LILPFAND.id)));
     const offer = db.openContract(G, U, T0);
     check('es entsteht ein Vertragsangebot der Art `label`',
       Boolean(offer) && offer.kind === 'label' && offer.status === 'offer',
@@ -841,6 +998,11 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       db.angebotRow(G, row.id).status === 'an'
       && db.getContact(G, U, RAF.id).draht === 60 + data.DRAHT_AN
       && db.angebotUhr(G, U).abgelehnt_folge === 0);
+    // Der Boden kommt hier NICHT: kollabo ist mit der Annahme nicht erledigt,
+    // er kommt beim Abschluss (BODEN_FERTIG) – sonst zählte dasselbe zweimal.
+    const ak = achsen(G, U, RAF.id);
+    check('Annehmen eines Kollabos: Respekt +4, Vertrauen +12, aber Boden 0',
+      ak.respekt === 64 && ak.vertrauen === 72 && ak.boden === 0, JSON.stringify(ak));
     const offen = ang.offeneProjekte(G, U, T0);
     check('es steht in offeneProjekte, mit Kontakt und Restzeit',
       offen.length === 1 && offen[0].contact.id === RAF.id
@@ -965,6 +1127,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     // echte Studiosessions wären sechs Würfel in diesem Test.
     db.saveArtist(G, U, { ...db.getArtist(G, U, T0), songs: data.KOLLABO_TITEL });
     const zeitVor = creator.budget(G, U, T0).left;
+    const vor = achsen(G, U, RAF.id);
     const r = await ang.arbeiten(G, U, pr.id, T0, immer);
     check('mit den Titeln erscheint das Album',
       r.ok === true && r.fertig === true && r.platte?.ok === true,
@@ -980,6 +1143,24 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       db.projektRow(G, pr.id).status === 'fertig'
       && db.projektRow(G, pr.id).stunden_ist === data.KOLLABO_STUNDEN,
       JSON.stringify(db.projektRow(G, pr.id)));
+    // 6a: Vorher bewegte ein fertiges Album zu zweit NULL Punkte Draht.
+    const nach = achsen(G, U, RAF.id);
+    check('abgeschlossenes Projekt hebt Vertrauen um 18 und Respekt um 6, setzt den Boden auf 10',
+      nach.vertrauen - vor.vertrauen === 18 && nach.respekt - vor.respekt === 6
+      && nach.boden === 10,
+      `${vor.vertrauen} → ${nach.vertrauen}, Respekt ${vor.respekt} → ${nach.respekt}, Boden ${nach.boden}`);
+    const mf = gedaechtnis(G, U, RAF.id, 'projekt_fertig');
+    check('das Durchziehen kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mf && mf.d_respekt === 6 && mf.d_vertrauen === 18 && mf.detail === 'Gemeinsames Album',
+      JSON.stringify(mf));
+    check('und der Draht bewegt sich um +12 – vorher war es null',
+      nach.draht - vor.draht === 12, `${vor.draht} → ${nach.draht}`);
+    // Der Boden ist die einzige dauerhafte Zusicherung: Ein halbes Jahr
+    // Funkstille frisst das Vertrauen bis auf ihn, aber nicht darunter.
+    const jahr = achsen(G, U, RAF.id, T0 + 180 * TAG);
+    check('nach einem halben Jahr Funkstille ist das Album nicht nichts: Vertrauen steht auf dem Boden 10',
+      jahr.vertrauen === 10 && jahr.boden === 10 && jahr.respekt < nach.respekt,
+      JSON.stringify(jahr));
     check('es ist eine echte Veröffentlichung in Albumgröße: sechs Titel weg',
       music.status(G, U, T0).releases === 1 && music.status(G, U, T0).songs === 0);
     /**
@@ -992,7 +1173,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       creator.budget(G, U, T0).left === zeitVor - data.ARBEIT_STUNDEN,
       `${zeitVor} -> ${creator.budget(G, U, T0).left}`);
     check('danach sind kollabo und tour wieder frei',
-      ang.artenFuer(G, U, 100, T0).length === 6);
+      ang.artenFuer(G, U, VOLL, T0).length === 6);
   }
 
   console.log('--- Die Tour ---');
@@ -1005,9 +1186,15 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
       stundenIst: data.TOUR_STUNDEN - data.ARBEIT_STUNDEN, frist: T0 + 14 * TAG });
     const kasseVor = gebucht.length;
     const zeitVor = creator.budget(G, U, T0).left;
+    const vorTour = achsen(G, U, RAF.id);
     // `immer` trifft den ersten Eintrag jeder Liste: kein Ereignis (Gewicht
     // 110 von ~130) und die untere Kante der Güte (0,75).
     const r = await ang.arbeiten(G, U, pr.id, T0, immer);
+    // Beide Erfolgswege laufen durch denselben `fertig()`-Helfer.
+    const nachTour = achsen(G, U, RAF.id);
+    check('abgeschlossene Tour: Vertrauen +18, Respekt +6, Boden 10',
+      nachTour.vertrauen - vorTour.vertrauen === 18 && nachTour.respekt - vorTour.respekt === 6
+      && nachTour.boden === 10, JSON.stringify({ vorTour, nachTour }));
     check('die Tour spielt TOUR_KONZERTE Abende hintereinander',
       r.ok === true && r.fertig === true && r.abende?.length === data.TOUR_KONZERTE
       && r.abende.every((a) => a.ok === true),
@@ -1089,7 +1276,8 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
      * Konto ein Stundenspeicher ohne Risiko.
      */
     const { G, U } = await welt();
-    draht(G, U, RAF.id, 60);
+    // Mit einem Boden von 10: der Spieler hat mit RAF schon etwas durchgezogen.
+    draht(G, U, RAF.id, 60, T0, 10);
     db.saveAngebotUhr(G, U, { last_roll: T0, abgelehnt_folge: 0, pause_bis: 0 });
     const pr = db.insertProjekt({ guildId: G, userId: U, art: 'tour', contactId: RAF.id,
       stundenSoll: data.TOUR_STUNDEN,
@@ -1116,7 +1304,19 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     db.saveAngebotUhr(G, U, { last_roll: spaet, abgelehnt_folge: 0, pause_bis: 0 });
     const kasseVor = gebucht.length;
     const zeitVor = creator.budget(G, U, spaet).left;
+    const vorVerfall = achsen(G, U, RAF.id, spaet);
     const r = await ang.arbeiten(G, U, pr.id, spaet, nie);
+    // 6a: Vorher war der härteste Fehlgriff des Systems am Draht unsichtbar.
+    const nachVerfallAchsen = achsen(G, U, RAF.id, spaet);
+    check('verfallenes Projekt kostet Vertrauen −20 und Respekt −6, der Boden von 10 bleibt',
+      nachVerfallAchsen.vertrauen - vorVerfall.vertrauen === -20
+      && nachVerfallAchsen.respekt - vorVerfall.respekt === -6
+      && vorVerfall.boden === 10 && nachVerfallAchsen.boden === 10,
+      `${vorVerfall.vertrauen} → ${nachVerfallAchsen.vertrauen}, Respekt ${vorVerfall.respekt} → ${nachVerfallAchsen.respekt}`);
+    const mp = gedaechtnis(G, U, RAF.id, 'projekt_verfallen');
+    check('das Verrotten kommt ins Gedächtnis, mit beiden Deltas einzeln',
+      mp && mp.d_respekt === -6 && mp.d_vertrauen === -20 && mp.detail === 'Tour zu zweit',
+      JSON.stringify(mp));
     check('nach der Frist lässt sich nicht weiterarbeiten',
       r.ok === false && r.reason === 'weg', JSON.stringify(r.reason));
     check('Schritt 0 hat es auf "verfallen" gesetzt und meldet es unter `vorher`',
@@ -1142,7 +1342,7 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     check('und der abgewiesene Klick kostet keine weitere Stunde',
       creator.budget(G, U, spaet).left === zeitVor);
     check('danach ist der Weg für ein neues Projekt wieder frei',
-      ang.artenFuer(G, U, 100, spaet).some((a) => a.id === 'tour'));
+      ang.artenFuer(G, U, VOLL, spaet).some((a) => a.id === 'tour'));
   }
 
   console.log('--- Nur EIN Stundenkonto: beide Ebenen ---');
@@ -1156,15 +1356,15 @@ check('nach dem Einsetzen steht kein Platzhalter mehr drin',
     const { G, U } = await welt();
     draht(G, U, RAF.id, 60);
     const row = anfrage(G, U, 'kollabo', RAF.id);
-    const offen = ang.artenFuer(G, U, 100, T0).map((a) => a.id);
+    const offen = ang.artenFuer(G, U, VOLL, T0).map((a) => a.id);
     check('eine offene kollabo-Anfrage nimmt kollabo UND tour aus der Auswahl',
       offen.join(',') === 'tausch,gastpart,vorgruppe,label', offen.join(','));
     check('eine Anfrage, deren Frist durch ist, sperrt nicht mehr',
-      ang.artenFuer(G, U, 100, T0 + 4 * TAG).length === 6,
-      ang.artenFuer(G, U, 100, T0 + 4 * TAG).map((a) => a.id).join(','));
+      ang.artenFuer(G, U, VOLL, T0 + 4 * TAG).length === 6,
+      ang.artenFuer(G, U, VOLL, T0 + 4 * TAG).map((a) => a.id).join(','));
     db.saveAngebot(G, row.id, { status: 'ab' });
     check('ist sie abgelehnt, sind beide wieder da',
-      ang.artenFuer(G, U, 100, T0).length === 6);
+      ang.artenFuer(G, U, VOLL, T0).length === 6);
   }
   {
     /**
