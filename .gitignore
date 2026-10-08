@@ -18,3 +18,4 @@ node_modules/
 .testdata-fix/
 .testdata-impl/
 .testdata-mess/
+.testdata-merge/
