@@ -109,13 +109,19 @@ durchschnittlich 0,2 bis 0,3 Titel von sechs geforderten:
 Die zwei Varianten, die Titel HORTEN statt sie als Singles zu veroeffentlichen,
 schaffen 72 von 72 (31 von 32 und 41 von 41).
 
-5c hat daraus "das Kollabo-Album ist nicht spielbar" geschlossen. Das ist
-FALSCH formuliert. Richtig: Das Kollabo ist unvertraeglich mit dem taeglichen
-Single-Release, und das Spiel sagt es nicht — man bezahlt erst 18 Stunden und
-erfaehrt den Grund (no_songs) danach. Wer hortet, schafft es praktisch immer.
+DAS BESTAETIGT 5c, ES KORRIGIERT NICHTS. Ich hatte hier zuerst notiert, 5c habe
+"nicht spielbar" geschlossen und sei falsch formuliert. Nachgelesen stimmt das
+nicht: ARCHITEKTUR.md Paragraph 15 sagt "in der gemessenen Spielweise ein
+Totalverlust", nennt die Ursache (sechs Titel gegen taegliche Singles), sagt
+ausdruecklich "wer ein Kollabo annimmt, muss seine Titel horten, und das sagt
+ihm nur die no_songs-Meldung", und hat das Horten-Kontrollpaar bereits gemessen
+(-5,3 bis +3,8 Prozent, "vier Zahlen, die um null streuen"). Die 5c-Patchnote
+sagt dasselbe.
 
-Das ist eine Spielregel aus 5c und wird in 6a NICHT angefasst. Als Befund
-festgehalten, mit der Zahl daneben.
+Was dieser Lauf BEITRAEGT, ist die Zahl je Projekt auf einem unabhaengigen
+Wuerfelsatz: 18 von 18 Stunden voll und 0,2 bis 0,3 Titel bei JEDEM der 215
+Verfaelle, und 72 von 72 bei den Horten-Varianten. Spielregel aus 5c, in 6a
+nicht angefasst.
 
 
 4. DIE ZEHN BEZIEHUNGSARTEN — kommt jede vor?
