@@ -1,0 +1,189 @@
+BEZIEHUNGEN 6a — MESSUNG
+========================
+Zweig feature/beziehungen, gemessen am 2026-10-08 gegen main (03aaf92).
+Instrument: scripts/messung-geldquellen.js, je 30 Laeufe a 365 Tage, fester
+Wuerfel rng(1000+i), ausgewertet wird der MEDIAN — bei dieser Verteilung zieht
+ein einzelner Ausreisser jeden Mittelwert beliebig weit (Begruendung im Kopf des
+Messskripts seit 5a).
+
+Drei Laeufe:
+  Zweig  --nur=kontakte    (274 Zeilen)
+  Zweig  --nur=angebote    (676 Zeilen, dort entstehen Projekte)
+  main   --nur=kontakte    (162 Zeilen, altes Skript ohne die neuen Zaehler)
+
+
+0. DIE GEGENPROBE ZUERST — traegt der Vergleich ueberhaupt?
+----------------------------------------------------------
+Dieses Stueck fasst ausschliesslich Kontakte an. Ein Messlauf OHNE Kontakte muss
+darum zwischen main und Zweig ziffernidentisch sein. Er ist es:
+
+  Archetyp           main          Zweig
+  Musik+Creator      493.618/Tag   493.618/Tag   IDENTISCH
+  nur Creator        557.305/Tag   557.305/Tag   IDENTISCH
+  nur Musik          108.493/Tag   108.493/Tag   IDENTISCH
+
+Damit ist belegt, dass Wuerfel, Strategiewahl und Auswertung in beiden Laeufen
+dieselben sind und jede Abweichung weiter unten vom Stueck kommt und nicht vom
+Aufbau. Ohne diese Zeile waere der Rest Behauptung.
+
+Ein erster Auswertungsversuch hat genau daran gescheitert: Ich hatte die
+Release-Strategietabelle verglichen (38 Zeilen, alle +0,0 %) und beinahe
+"nichts veraendert" gemeldet. Die Tabelle hat mit Kontakten gar nichts zu tun;
+38 ziffernidentische Werte waren kein Ergebnis, sondern das Warnsignal, dass ich
+die falschen Zeilen lese.
+
+
+1. DAS GELD — AUSLOESER PARAGRAPH 8.3 (+25 %)
+---------------------------------------------
+  Archetyp, mit Kontaktpflege    main          Zweig         Delta
+  Musik+Creator                  438.247/Tag   434.314/Tag   -0,9 %
+  nur Creator                    490.374/Tag   487.558/Tag   -0,6 %
+  nur Musik                      115.914/Tag   112.665/Tag   -2,8 %
+
+AUSLOESER NICHT AUSGELOEST. Groesste Abweichung 2,8 %, und sie geht nach unten.
+"Umverteilung, keine neue Geldquelle" haelt gemessen; RESPEKT_W_SPAN und
+RESPEKT_W_MIN bleiben, wie sie sind.
+
+Was Kontaktpflege im Zweig kostet (mit gegen ohne, im selben Lauf):
+  Musik+Creator   493.618 -> 434.314   -12,0 %
+  nur Creator     557.305 -> 487.558   -12,5 %
+  nur Musik       108.493 -> 112.665    +3,8 %
+
+Diese drei Zahlen sind NICHT mit den 5a-Werten (-8,3 % / -4,8 % / +12,9 %)
+vergleichbar: Seither sind 5b, 5c und die Vorfaelle dazugekommen, die Basis hat
+sich also verschoben. Der gueltige Vergleich fuer 6a ist der gegen main darueber.
+
+
+2. DIE BLOCKIERENDE VORBEDINGUNG (Spec Paragraph 5.1)
+-----------------------------------------------------
+Frage: Ist Vertrauen 50 schwerer zu erreichen als Draht 50 vorher?
+
+Der Vergleichswert kommt aus DEMSELBEN Lauf. Begruendung: In einer Variante ohne
+Beef und ohne Projekte ist der Draht des Zweigs per Konstruktion derselbe wie der
+von main, weil die fuenf Antwort-Paare identische Mittelwerte haben
+(+12 / +6 / +2 / -1 / -5) — die Paritaetseigenschaft aus Paragraph 8.1.
+"Draht >= 50" IST dort der main-Wert. Ein Querlauf ist dafuer weder noetig noch
+moeglich (das alte Skript hat die Zaehler nicht, das neue laeuft gegen main-Code
+nicht).
+
+  Spielweise                           Vertrauen >= 50   Draht >= 50
+  mit Partner-Vorrang (vier Varianten)     100,0 %         100,0 %
+  freie Wahl A                              43,3 %          70,0 %
+  freie Wahl B                              20,0 %          50,0 %
+
+Zweite Haelfte: Kommen Projekte ueberhaupt zustande? (--nur=angebote)
+
+  Variante                       kollabo fertig/verfallen   tour fertig/verfallen
+  vier mit Single-Politik                  0 / 215                234 / 0
+  zwei mit Titel-Horten                   72 / 0                    -
+                                         -------                 -------
+  Summe                                   72 fertig               234 fertig
+
+ENTSCHEIDUNG: DAS TOR BLEIBT BEI minVertrauen = 50.
+
+Das ist eine bewusste Uebersteuerung der ersten Haelfte meines eigenen
+Ausloesers, und zwar aus drei Gruenden:
+
+  (a) Der Deadlock, gegen den Paragraph 5.1 geschrieben wurde, tritt nicht ein.
+      Wer auf einen Partner zielt, erreicht Vertrauen 50 mit 100 Prozent — so
+      sicher wie frueher Draht 50. Und 306 Projekte sind im Messjahr fertig
+      geworden. Die zweite, haertere Haelfte der Vorbedingung ("null ist ein
+      Fehlschlag") besteht damit deutlich.
+  (b) Die Senkung bei freiem Spiel IST die beabsichtigte Umverteilung. Album,
+      Tour und Label sollen Absicht verlangen statt Zufall; genau das steht in
+      der Spec als Zweck des Tors.
+  (c) Eine Senkung wuerde das Design zurueckdrehen, ohne ein Problem zu loesen.
+
+Wer das spaeter anders sieht, hat mit diesen Zahlen die Grundlage dafuer.
+
+
+3. DER KOLLABO-BEFUND — und er korrigiert meine 5c-Schlussfolgerung
+-------------------------------------------------------------------
+JEDES der 215 verfallenen Kollabos hatte die 18 von 18 Stunden VOLL und
+durchschnittlich 0,2 bis 0,3 Titel von sechs geforderten:
+
+  "Verfallene Kollabos 77: Stunden voll (18) bei 77, davon mit weniger als
+   6 Titeln beim Verfall 77 - Titel beim Verfall: Oe 0,2 (Soll 6)"
+  "Verfallene Kollabos 85: ... alle 85 ... Oe 0,3 (Soll 6)"
+
+Die zwei Varianten, die Titel HORTEN statt sie als Singles zu veroeffentlichen,
+schaffen 72 von 72 (31 von 32 und 41 von 41).
+
+5c hat daraus "das Kollabo-Album ist nicht spielbar" geschlossen. Das ist
+FALSCH formuliert. Richtig: Das Kollabo ist unvertraeglich mit dem taeglichen
+Single-Release, und das Spiel sagt es nicht — man bezahlt erst 18 Stunden und
+erfaehrt den Grund (no_songs) danach. Wer hortet, schafft es praktisch immer.
+
+Das ist eine Spielregel aus 5c und wird in 6a NICHT angefasst. Als Befund
+festgehalten, mit der Zahl daneben.
+
+
+4. DIE ZEHN BEZIEHUNGSARTEN — kommt jede vor?
+---------------------------------------------
+  Art             Kontakte-Lauf              Angebote-Lauf
+  beef            30 Konten, 1303 Paare      kommt vor
+  fremd           30 Konten, 2700 Paare      kommt vor
+  bekannt         30 Konten,   85 Paare      kommt vor
+  partner         30 Konten,   34 Paare      kommt vor
+  verstimmt       18 Konten,   26 Paare      kommt vor
+  geschaeftlich    6 Konten,    6 Paare      kommt vor
+  rivale           0                         bis 5 Konten
+  mentor           0                         1 Konto
+  schuetzling      0                         25-29 Konten, bis 45 Paare
+  band             0                         0 IN ALLEN ACHT VARIANTEN
+
+BEFUND: `band` ("gemeinsame Vergangenheit") kommt in KEINEM Lauf ein einziges
+Mal vor, obwohl der Angebote-Lauf 72 Mal einen Boden von 10 gesetzt hat.
+
+Ursache ist die Reihenfolge in contacts.artOf, und sie ist meine eigene Wahl:
+`band` steht UNTER den warmen Arten und bedeutet darum "ihr habt etwas
+zusammen durchgezogen, und seither ist es abgekuehlt". Nach einem fertigen Album
+steht die Beziehung bei Respekt +6 und Vertrauen +18 — sie ist warm, und
+`partner` oder `bekannt` gewinnt. Damit `band` erscheint, muesste die Beziehung
+nach dem Album MONATELANG vernachlaessigt werden, und das passiert in einem Jahr
+aktiven Spiels nicht.
+
+Die Art ist erreichbar, aber nicht im Messhorizont. Zwei Wege waeren moeglich,
+wenn das stoert: `band` ueber `bekannt` stellen (dann heisst sie "ihr habt
+etwas zusammen", ohne Abkuehlungs-Aussage), oder den Boden langsamer verfallen
+lassen. Beides ist eine Design-Entscheidung und nicht gemessen.
+
+`rivale` dagegen kommt vor und ist keine Dekoration. `mentor` ist duenn
+(1 Konto) — er verlangt einen Kontakt, der zehnmal groesser ist, UND Respekt
+>= 50 UND Vertrauen >= 40.
+
+
+5. DER EINBRUCH GUTER BEZIEHUNGEN (Plan Schritt 5b b)
+-----------------------------------------------------
+Der Daempfer (respektWirkt) verdoppelt die Strafe der legitimen
+vertrauenslastigen Ereignisse. Gezaehlt wurde darum: Tage mit einem Kontakt
+unter Vertrauen 0, DER SCHON EINMAL Vertrauen >= 50 HATTE.
+
+  Fuenf von sechs Varianten:  Median 0, groesster 0, 0 von 30 Konten betroffen
+  eine Variante:              Median 0, Mittel 1,4, groesster 42,
+                              1 von 30 Konten betroffen
+
+Der Daempfer trifft gute Beziehungen also messbar selten. Die rohe Zahl "Tage
+mit irgendeinem Kontakt unter Vertrauen 0" saettigt dagegen mit Beef (im
+Probelauf 327 von 365) und sagt nichts — deshalb die engere Zaehlung.
+
+
+6. GRENZEN DIESER MESSUNG
+-------------------------
+* Gesampelt wird einmal am Tagesende. Das tiefste Vertrauen gilt nur fuer
+  Kontakte, die eine Datenbankzeile haben.
+* Die Zielfunktion des Partner-Vorrangs hat sich geaendert (vorher d.draht,
+  jetzt min(respekt, vertrauen), weil der Partnerstatus an der SCHWAECHEREN
+  Achse haengt). Laeufe mit kontaktVorrang='partner' sind darum nicht direkt
+  mit Vorgaenger-Messungen vergleichbar.
+* Die Titelzahl beim Kollabo-Verfall steht am Tag, an dem der Verfall bemerkt
+  wird (faule Abrechnung), nicht an der Frist selbst.
+* Der Respekt-Hebel wirkt nur, wo ueberhaupt Kontakte angeschrieben werden.
+  Varianten ohne strat.kontakte sind von diesem Stueck unberuehrt und sagen
+  ueber seinen Deckel nichts.
+* Der main-Lauf benutzt das ALTE Messskript (ohne die neuen Zaehler). Verglichen
+  werden darum nur die Geldzahlen, nicht die Beziehungszaehler.
+* Der main-Lauf ist zweimal ohne Fehlermeldung gestorben, bei exakt 162 Zeilen,
+  wenn er mit nohup oder setsid aus einem Werkzeugaufruf gestartet wurde. Erst
+  der Hintergrundmechanismus des Werkzeugs selbst hat ihn durchlaufen lassen.
+  Die hier verwendeten Zahlen kommen aus dem vollstaendigen Lauf.
