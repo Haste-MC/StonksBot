@@ -2002,31 +2002,83 @@ Zusage am Respekt, ohne Vertrauen zu lesen – das Zusage-Gewicht stieg dauerhaf
 auf 1,68 und mit ihm der Schub je Antwort, also der **Ertrag**. Seit
 `respektWirkt(respekt, vertrauen) = max(0, respekt) × (1 + min(0, vertrauen/100))`
 landet derselbe Spieler auf `CHANCE_MIN`; bei Vertrauen ≥ 0 ist der Faktor 1 und
-keine der zehn Chance-Sollwerte ändert sich. Der Rivale behält 80 % seines
+keiner der zehn Chance-Sollwerte ändert sich. Der Rivale behält 80 % seines
 Vorteils.
+
+**Der Dämpfer greift aber nur bei Kontakten ohne Boden, und das ist gemessen.**
+`contacts.move` zieht das Vertrauen auf den Boden hoch, wenn die Bewegung selbst
+den Boden hebt — und `BODEN_AN` ist 3, also hebt ihn **jede** angenommene kleine
+Gegenanfrage. Mit der echten `move` und der echten `chanceOf` gerechnet, im
+**selben Bezugsfall** wie die 6,9 % oben (10k gegen 10 Mio, `feature`, gleiche
+Sprache, gleiches Genre, anderes Land, `launisch`):
+
+| vor | nach **einem** angenommenen `tausch` | Vertrauen | Chance |
+|---|---|---|---|
+| R100 / V−60 / Boden 0 | R100 / V3 / Boden 3 | **+63** (das Paar sagt +12) | 9,9 % → **51,9 %** |
+| R100 / V−60 / Boden 27 | R100 / V30 / Boden 30 | **+90** | 9,9 % → **51,9 %** |
+
+**51,9 % ist genau der Wert bei R100 / V100**, also bei vollem Vertrauen: Weil
+der Faktor ab Vertrauen 0 auf 1 steht, stellt ein einziger angenommener Tausch
+die Respekt-Wirkung **vollständig** wieder her, nicht anteilig. Beide Zeilen
+haben dieselbe Chance, weil `chanceOf` den Boden nicht liest — er wirkt nur über
+das Vertrauen, das er hochzieht.
+
+Der Zyklus ist stabil: dissen (Respekt +10, Vertrauen −36, der Draht bleibt bei
+47 und damit über der Zustellschwelle 20), die nächste kleine Gegenanfrage
+annehmen, wiederholen. **Das ist kein §3-Verstoß im Wortlaut** — der
+Ertragsdeckel bleibt (`respektWirkt ∈ [0, 100]`, genau der Bereich, den vorher
+`draht` hatte, gemessen ≤ +8 % auf den erwarteten Stufenfaktor), und ein Tor
+öffnet es nicht, weil der Boden bei 30 endet und alle großen Formate 50
+verlangen. Aber **der Zugang ist dort nicht gedeckelt**, und wer das nutzt,
+bezahlt es mit Album, Tour, Label und dem Partnerstatus. Zwei Wege wären
+möglich, wenn das stört: den Hochzug auf den Betrag begrenzen, den die Bewegung
+selbst am Boden hebt, oder `respektWirkt` gegen `vertrauen − boden` rechnen.
+Beides ist eine Design-Entscheidung.
 
 **Ehrliche Grenzen:**
 
 1. **Das Tor für Album, Tour und Label bleibt bei Vertrauen 50 – als bewusste
    Übersteuerung der ersten Hälfte des eigenen Auslösers.** Wer auf einen
-   Partner zielt, erreicht es mit 100 % (so sicher wie früher Draht 50); bei
-   freiem Spiel mit 20 bis 43 % gegen vorher 50 bis 70 %. Die zweite, härtere
+   Partner zielt, erreicht es mit 100 %; bei freiem Spiel mit 20 bis 43 % gegen
+   50 bis 70 % für „Draht ≥ 50" im selben Lauf. **Zwei Vorbehalte, die zu dieser
+   Zahl gehören:** Die 100 % kommen aus der Variante mit Partner-Vorrang, und
+   deren Zielfunktion hat dieser Zweig auf `min(respekt, vertrauen)` umgestellt
+   — ein Orakel, das genau die getorte Größe maximiert, und bei 100/100
+   gesättigt. Und „Draht ≥ 50" ist **kein** exakter `main`-Wert, sondern ein
+   Ersatz, der systematisch **zu hoch** liegt (siehe unten) — der wirkliche
+   Abstand ist also kleiner als berichtet, was die Entscheidung zusätzlich
+   stützt. Die zweite, härtere
    Hälfte besteht deutlich: **234 Touren und 72 Alben** sind im Messjahr fertig
    geworden. Die Senkung bei freiem Spiel ist die beabsichtigte Umverteilung –
    mehrtägige Formate verlangen jetzt Absicht statt Zufall.
 2. **Eine der zehn Beziehungsarten ist Dekoration.** `band` („gemeinsame
    Vergangenheit") kommt in **keinem** der beiden Läufe ein einziges Mal vor,
-   obwohl 72 Mal ein Boden von 10 gesetzt wurde. Ursache ist die Reihenfolge in
-   `contacts.artOf`: `band` steht **unter** den warmen Arten, nach einem
-   fertigen Album ist die Beziehung aber warm (Respekt +6, Vertrauen +18), also
-   gewinnt `partner`. Erreichbar, aber nicht im Messhorizont. `rivale` kommt vor
-   und ist keine Dekoration; `mentor` ist dünn (1 von 30 Konten).
+   obwohl **306** Mal ein Boden von 10 gesetzt wurde — `fertig()` bucht
+   `BODEN_FERTIG` für Kollabo **und** Tour, also 72 + 234 —, dazu `BODEN_AN` je
+   angenommener kleiner Gegenanfrage.
+
+   **Die Ursache ist `schuetzling`, nicht `partner`.** Nachgerechnet über alle
+   201 × 201 Achsenpaare bei Boden 10: Bei **gleicher** Größe sind **48,3 %**
+   der Fläche `band`, und schlagen können es nur `beef`, `rivale`, `verstimmt`
+   und `partner` — `bekannt` **nie**, denn `band` steht darüber. Der gemessene
+   Spieler ist aber riesig und die Kontakte sind klein, und dann greift
+   `schuetzling`: Er steht **über** `band` und verlangt bei zehnfacher Größe nur
+   Vertrauen ≥ 40, was ein fertiges Projekt mit seinen +18 mühelos liefert.
+   Gemessen frisst er 12.030 der 40.401 Zellen, und `band` fällt auf 24,9 % —
+   genau das Feld, in dem es stehen würde. Das Messfile zählt entsprechend 25
+   bis 29 Konten mit `schuetzling`.
+
+   `rivale` kommt vor und ist keine Dekoration; `mentor` ist dünn (1 von 30
+   Konten).
 3. **Im Band Vertrauen 0 bis +36 hebt ein gelandeter Diss den Zugang noch** um
    bis zu 4,5 Punkte, weil positives Vertrauen für die Chance wertlos ist –
-   genau die Regel wird dort zum Schlupfloch. Erschöpfend durchgerechnet über
-   alle 201 × 201 Achsenpaare; Obergrenze +0,045 Chance je 36 wieder aufgebauter
+   genau die Regel wird dort zum Schlupfloch. Durchgerechnet über alle
+   201 × 201 **Achsenpaare**; Obergrenze +0,045 Chance je 36 wieder aufgebauter
    Vertrauenspunkte. Ein echter Tausch: Wer so fährt, hält das Vertrauen bei
    Null und verliert Kollabo, Tour, Label und den Partnerstatus (alle ab 50).
+   **„Erschöpfend" stand hier zu Unrecht:** Der Zustand hat **drei**
+   gespeicherte Achsen, und der Boden war in dieser Rechnung nicht enthalten.
+   Genau dort sitzt der größere Rest — Punkt 1 oben.
 4. **Der Dämpfer verdoppelt die Strafe legitimer Rückschläge.** Beim
    Weltstar-Partner kostet **eine** verfallene Gegenanfrage 10,0 Chancenpunkte
    statt 4,8. Gemessen trifft es gute Beziehungen selten: In fünf von sechs
