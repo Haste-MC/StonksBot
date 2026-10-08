@@ -26,14 +26,18 @@ const U3 = 'b6a-u3';
 const U4 = 'b6a-u4';
 const U5 = 'b6a-u5';
 const U6 = 'b6a-u6';   // Anfragen: braucht einen Künstler und ein Zeitbudget
+const U7 = 'b6a-u7';   // Arten und Sperren über den echten detail-/listFor-Weg
 
 /** Alles aufräumen, was diese Datei anlegt – vorher UND nachher, nie ein Leerstand vorausgesetzt. */
 const aufraeumen = () => {
-  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4], [G, U5], [G, U6]]) db.clearContacts(g, u);
+  for (const [g, u] of [[G, U], [G, U2], [G2, U], [G, U3], [G, U4], [G, U5], [G, U6],
+    [G, U7]]) db.clearContacts(g, u);
   // `request` bucht Zeit und liest den Künstler – beides bliebe sonst für den
   // zweiten Lauf gegen dieselbe Datenbank stehen.
   db.clearArtist(G, U6);
   db.clearCreator(G, U6);
+  db.clearArtist(G, U7);
+  db.clearCreator(G, U7);
 };
 
 (async () => {
@@ -491,6 +495,27 @@ const aufraeumen = () => {
 
     check('offener Beef schlägt alles',
       art({ respekt: 90, vertrauen: 90, boden: 30, beefOffen: true }) === 'beef');
+    /*
+     * …und zwar auch die Art, die DIREKT unter ihm steht.
+     *
+     * Die Zusicherung darüber nimmt 90/90/Boden 30 – ohne Beef wäre das
+     * „partner", und `partner` steht sechs Regeln tiefer. Eine Mutation, die
+     * `beefOffen` nur EINEN Platz nach unten schiebt (unter `rivale`), bleibt
+     * damit grün. `beefOffen` ist aber die erste Regel und trägt die ganze
+     * Ansicht: Wer mitten im Beef steht, soll nicht als „Rivale" dastehen,
+     * während der Friedensknopf blinkt. Also mit Rivalen-Achsen geprüft –
+     * dieselben, die eine Zeile tiefer ohne Beef nachweislich „rivale"
+     * ergeben.
+     */
+    check('offener Beef schlägt auch den Rivalen, der direkt unter ihm steht',
+      art({ respekt: 30, vertrauen: -20, beefOffen: true }) === 'beef'
+      && art({ respekt: 30, vertrauen: -20 }) === 'rivale'
+      // Und dasselbe für die zweite Regel darunter, damit auch ein Sprung um
+      // zwei Plätze nicht durchkommt.
+      && art({ respekt: 0, vertrauen: -40, beefOffen: true }) === 'beef'
+      && art({ respekt: 0, vertrauen: -40 }) === 'verstimmt',
+      `${art({ respekt: 30, vertrauen: -20, beefOffen: true })} / `
+      + `${art({ respekt: 0, vertrauen: -40, beefOffen: true })}`);
     check('Rivale: Respekt 30, Vertrauen −20',
       art({ respekt: 30, vertrauen: -20 }) === 'rivale');
     check('Respekt 29 ist kein Rivale',
@@ -699,6 +724,27 @@ const aufraeumen = () => {
     check('…und der Rivale (R 30 / V −20) behält auch hier 80 %',
       near(gewicht(R, 30, -20), 1.24 * gewicht(R, 0), 1e-9),
       `${gewicht(R, 30, -20)} statt ${1.24 * gewicht(R, 0)}`);
+    /*
+     * Die UNTERE Grenze, und zwar durch die zwei echten Leser.
+     *
+     * Dass `respektWirkt(-50, 0)` 0 ist, steht oben als reine Rechnung. Die
+     * Verzweigung, die `Math.max(0, respekt)` wirklich bewacht, sitzt aber
+     * eine Ebene höher: `chanceOf` (der ZUGANG) und `stufeVon` (das
+     * Zusage-Gewicht, also der ERTRAG) lesen den Dämpfer, und ein negativer
+     * Respekt ist über `verstimmt` (−8 je Fall, Untergrenze ACHSE_MIN = −100)
+     * ganz regulär erreichbar. Ohne die Klemme wäre er ein ABZUG: ein
+     * Kontakt, der dich nicht ernst nimmt, stünde schlechter da als ein
+     * Fremder, und zwar in beiden Zahlen gleichzeitig. Gewollt ist, dass
+     * fehlender Respekt nichts BRINGT – nicht, dass er zusätzlich kostet.
+     */
+    check('chanceOf: negativer Respekt rechnet wie Respekt 0, nicht als Abzug',
+      near(c(-50, 0), c(0, 0)) && near(c(-100, 0), c(0, 0))
+      && near(c(-100, -40), c(0, -40)),
+      `${c(-50, 0)} / ${c(-100, 0)} gegen ${c(0, 0)}`);
+    check('stufeVon: negativer Respekt wiegt wie Respekt 0, nicht als Abzug',
+      near(gewicht(R, -50, 0), gewicht(R, 0), 1e-9)
+      && near(gewicht(R, -100, -40), gewicht(R, 0, -40), 1e-9),
+      `${gewicht(R, -50, 0)} statt ${gewicht(R, 0)}`);
   }
 
   console.log('--- Die Schreibwege ---');
@@ -1062,6 +1108,123 @@ const aufraeumen = () => {
   }
 
 
+
+  console.log('--- Die Arten über den ECHTEN Weg: detail und listFor ---');
+  {
+    /*
+     * `mentor`, `schuetzling` und `geschaeftlich` waren nur über direkte
+     * `artOf`-Aufrufe geprüft, in denen der Test die Reichweiten und den
+     * Charakterzug selbst hereingibt. Beide Produktiv-Aufrufstellen reichen
+     * sie sehr wohl durch – aber niemand hatte das je gesehen, und genau
+     * diese drei Arten sind in der Messung dünn oder leer. Hier laufen sie
+     * durch `contacts.detail` und `contacts.listFor`, die ihre Zahlen selbst
+     * aus `ichFor`/`kontextFor` holen.
+     *
+     * Eine Million eigene Hörer als Mitte: Rammstein (30 Mio.) liegt damit um
+     * Faktor 30 darüber, Lil Pfand (8.400) um Faktor 119 darunter – das
+     * Abstandstor ist 10. Igor Levit (400.000) liegt dazwischen und ist der
+     * einzige der drei mit dem Charakterzug `geschaeftlich`; Vanessa Wagner
+     * (45.000, kollegial) steht als Gegenprobe mit DENSELBEN Achsen daneben.
+     */
+    const contacts = require('../src/contacts');
+    const music = require('../src/music');
+    const T = 1_700_000_000_000;
+    const DAY = 86_400_000;
+    const cdata = require('../src/data/contacts');
+
+    music.setup(G, U7, 'hiphop', music.PERSONAS[0].id, T);
+    db.saveArtist(G, U7, { ...db.getArtist(G, U7, T), listeners: 1_000_000 });
+    const setzen = (id, respekt, vertrauen) => db.saveContact(G, U7, id, {
+      respekt, vertrauen, boden: 0, tries: 0, yes: 0,
+      last_try: 0, last_move: T, ignored_at: 0 });
+    setzen('rammstein', 50, 40);        // der 30× Größere nimmt dich ernst
+    setzen('lilpfand', 0, 40);          // der 119× Kleinere traut dir
+    setzen('igorlevit', 40, 0);         // Respekt ohne Vertrauen, geschäftlich
+    setzen('vanessawagner', 40, 0);     // dieselben Achsen, anderer Charakterzug
+
+    const dArt = (id) => contacts.detail(G, U7, id, T).art;
+    check('detail: der 30× Größere (R 50 / V 40) ist ein Mentor',
+      dArt('rammstein') === 'mentor', dArt('rammstein'));
+    check('detail: der 119× Kleinere, der dir traut (V 40), ist ein Schützling',
+      dArt('lilpfand') === 'schuetzling', dArt('lilpfand'));
+    check('detail: Respekt 40 beim Geschäftsmann ist „geschaeftlich"',
+      dArt('igorlevit') === 'geschaeftlich', dArt('igorlevit'));
+    // Der Beweis, dass `detail` den CHARAKTERZUG wirklich durchreicht und
+    // nicht den Standard `null` einsetzt: dieselben Achsen, anderer Zug.
+    check('…und dieselben Achsen ohne den Charakterzug sind nur „bekannt"',
+      dArt('vanessawagner') === 'bekannt', dArt('vanessawagner'));
+
+    /*
+     * Dasselbe über `listFor`, das seine Reichweiten pro Kontakt in der
+     * Schleife baut: Hier war der zweite blinde Fleck. Mentor und Schützling
+     * hängen an ENTGEGENGESETZTEN Reichweitenverhältnissen – stimmte eine der
+     * zwei Zahlen nicht, könnten nicht beide gleichzeitig dastehen.
+     */
+    const liste = new Map(contacts.listFor(G, U7, { now: T })
+      .map((e) => [e.contact.id, e]));
+    check('listFor: dieselben vier Arten über den Listenweg',
+      liste.get('rammstein').art === 'mentor'
+      && liste.get('lilpfand').art === 'schuetzling'
+      && liste.get('igorlevit').art === 'geschaeftlich'
+      && liste.get('vanessawagner').art === 'bekannt',
+      JSON.stringify(['rammstein', 'lilpfand', 'igorlevit', 'vanessawagner']
+        .map((id) => [id, liste.get(id).art])));
+    check('listFor: und die Achsen stehen in derselben Zeile wie die Art',
+      liste.get('rammstein').respekt === 50 && liste.get('rammstein').vertrauen === 40
+      && liste.get('lilpfand').respekt === 0 && liste.get('lilpfand').vertrauen === 40,
+      JSON.stringify([liste.get('rammstein'), liste.get('lilpfand')]
+        .map((e) => [e.respekt, e.vertrauen])));
+
+    /*
+     * Befund 13: Die SPERRE der Verstimmung.
+     *
+     * `request` setzt `ignored_at` an der `antwort` (dem Wurf), nicht am
+     * `schluessel` (der Gedächtnisart) – und das ist der Unterschied zwischen
+     * sieben und drei Tagen: Eine Verstimmung IST eine Nichtantwort, die der
+     * Kontakt zusätzlich übel genommen hat. Am `schluessel` festgemacht
+     * stünde `ignored_at` auf 0 und die Sperre käme nur aus `last_try`, also
+     * SPERRE_TAGE. Der Spieler dürfte den Verstimmten nach drei Tagen wieder
+     * anschreiben – genau den, der gerade keine Nachricht mehr will.
+     *
+     * Der Würfel: 0,999 lässt den Antwortwurf scheitern (CHANCE_MAX ist 0,95),
+     * 0,001 trifft die VERSTIMMT_CHANCE des Kühlen, der Rest ist die Zeile.
+     */
+    const folgeV = (...xs) => { let i = 0; return () => (i < xs.length ? xs[i++] : 0.5); };
+    const v = await contacts.request(G, U7, 'riverside', 'shoutout', T,
+      folgeV(0.999, 0.001, 0.5));
+    check('der Kühle antwortet nicht und nimmt die Bitte übel',
+      v.ok === true && v.antwort === 'ignoriert'
+      && db.memoryOf(G, U7, 'riverside', 1)[0]?.art === 'verstimmt'
+      && v.achsen.respekt === cdata.ACHSEN.verstimmt.respekt
+      && v.achsen.vertrauen === cdata.ACHSEN.verstimmt.vertrauen,
+      JSON.stringify({ ok: v.ok, reason: v.reason, antwort: v.antwort,
+        merk: db.memoryOf(G, U7, 'riverside', 1), achsen: v.achsen }));
+    check('die Verstimmung sperrt SPERRE_IGNORIERT_TAGE (7), nicht SPERRE_TAGE (3)',
+      db.getContact(G, U7, 'riverside').ignored_at === T
+      && v.gesperrtBis === T + cdata.SPERRE_IGNORIERT_TAGE * DAY
+      && v.gesperrtBis === T + 7 * DAY
+      && v.gesperrtBis !== T + cdata.SPERRE_TAGE * DAY,
+      `${(v.gesperrtBis - T) / DAY} Tage, ignored_at ${db.getContact(G, U7, 'riverside').ignored_at - T}`);
+    // Und dieselbe Sperre auf dem Leseweg, den die Ansicht benutzt. Das
+    // Konzert bleibt außen vor: Sein Vertrauens-Tor (20) greift VOR der
+    // Sperre, und das Vertrauen steht nach der Verstimmung auf −2.
+    const dV = contacts.detail(G, U7, 'riverside', T);
+    check('…und detail meldet dieselben sieben Tage',
+      dV.gesperrtBis === T + 7 * DAY
+      && dV.requests.filter((r) => r.id !== 'konzert')
+        .every((r) => r.moeglich === false && r.grund === 'gesperrt')
+      && dV.requests.find((r) => r.id === 'konzert').grund === 'vertrauen',
+      JSON.stringify({ tage: (dV.gesperrtBis - T) / DAY,
+        gruende: dV.requests.map((r) => [r.id, r.grund]) }));
+    // Drei Tage später wäre die reine `last_try`-Sperre durch – diese nicht.
+    check('nach vier Tagen ist der Verstimmte noch dicht, der Normalfall wäre frei',
+      contacts.detail(G, U7, 'riverside', T + 4 * DAY).gesperrtBis === T + 7 * DAY
+      && contacts.detail(G, U7, 'riverside', T + 4 * DAY).requests
+        .find((r) => r.id === 'shoutout').grund === 'gesperrt'
+      && cdata.SPERRE_TAGE < 4,
+      String(contacts.detail(G, U7, 'riverside', T + 4 * DAY).requests
+        .find((r) => r.id === 'shoutout').grund));
+  }
 
   console.log('--- Beef: Respekt rauf, Vertrauen runter ---');
   {
