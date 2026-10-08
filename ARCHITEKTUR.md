@@ -1972,6 +1972,80 @@ unter 5.000** – genau die Würfe, die vorher ins Leere fielen: **0,50 je Jahr*
 über fünf Jahre also 2,5. Die +6 des Tests ist mehr als das Doppelte davon, und
 genau daran sieht man, dass sie Rauschen ist und keine Rate.
 
+### Beziehungen: zwei Achsen statt einer Zahl (seit Stück 6a, 2026-10-08)
+
+Der Draht zu einem Kontakt ist nicht mehr gespeichert, sondern **abgeleitet**:
+`Math.round((respekt + vertrauen) / 2)`. Gespeichert sind **Respekt** (wie ernst
+er dich nimmt) und **Vertrauen** (ob er sich auf dich verlässt). Respekt öffnet
+die Antwort eines Großen, Vertrauen die mehrtägigen Formate.
+
+**Gemessen (`docs/messungen/2026-10-08-beziehungen.txt`, 30 Läufe à 365 Tage,
+Median, gegen `main` bei 03aaf92):** Kontaktpflege liefert **−0,9 %**
+(Musik+Creator), **−0,6 %** (nur Creator) und **−2,8 %** (nur Musik). Der
+Auslöser von +25 % ist nicht ausgelöst, und die größte Abweichung geht nach
+unten. Dieses Stück ist eine Umverteilung des **Zugangs**, keine Geldquelle:
+`staerkeOf` und `boostOf` sind unangetastet, die Höhe eines Schubs hängt weiter
+am rohen Größenabstand.
+
+**Die Gegenprobe, die den Vergleich trägt:** Ein Messlauf **ohne** Kontakte ist
+zwischen `main` und dem Zweig ziffernidentisch (493.618 / 557.305 / 108.493 pro
+Tag). Das Stück fasst nur Kontakte an, ein Lauf ohne sie *muss* gleich bleiben –
+und ohne diese Zeile wäre der Rest Behauptung. Ein erster Auswertungsversuch war
+daran gescheitert: 38 verglichene Zeilen, alle +0,0 %, weil es die
+Release-Strategietabelle war und nicht die Kontaktvarianten.
+
+**Der Riegel gegen das Dauer-Beefen hält erst seit dem Dämpfer.** Der additive
+`VERTRAUEN_MALUS` sättigt bei −0,25, während der Respekt-Term bis 0,45 läuft:
+Acht gelandete Disse (Respekt 68, Vertrauen −100) kamen auf **12,5 %**
+Antwortchance gegen 6,9 % beim Fremden, zwölf auf 21,5 %. Und `stufeVon` wog die
+Zusage am Respekt, ohne Vertrauen zu lesen – das Zusage-Gewicht stieg dauerhaft
+auf 1,68 und mit ihm der Schub je Antwort, also der **Ertrag**. Seit
+`respektWirkt(respekt, vertrauen) = max(0, respekt) × (1 + min(0, vertrauen/100))`
+landet derselbe Spieler auf `CHANCE_MIN`; bei Vertrauen ≥ 0 ist der Faktor 1 und
+keine der zehn Chance-Sollwerte ändert sich. Der Rivale behält 80 % seines
+Vorteils.
+
+**Ehrliche Grenzen:**
+
+1. **Das Tor für Album, Tour und Label bleibt bei Vertrauen 50 – als bewusste
+   Übersteuerung der ersten Hälfte des eigenen Auslösers.** Wer auf einen
+   Partner zielt, erreicht es mit 100 % (so sicher wie früher Draht 50); bei
+   freiem Spiel mit 20 bis 43 % gegen vorher 50 bis 70 %. Die zweite, härtere
+   Hälfte besteht deutlich: **234 Touren und 72 Alben** sind im Messjahr fertig
+   geworden. Die Senkung bei freiem Spiel ist die beabsichtigte Umverteilung –
+   mehrtägige Formate verlangen jetzt Absicht statt Zufall.
+2. **Eine der zehn Beziehungsarten ist Dekoration.** `band` („gemeinsame
+   Vergangenheit") kommt in **keinem** der beiden Läufe ein einziges Mal vor,
+   obwohl 72 Mal ein Boden von 10 gesetzt wurde. Ursache ist die Reihenfolge in
+   `contacts.artOf`: `band` steht **unter** den warmen Arten, nach einem
+   fertigen Album ist die Beziehung aber warm (Respekt +6, Vertrauen +18), also
+   gewinnt `partner`. Erreichbar, aber nicht im Messhorizont. `rivale` kommt vor
+   und ist keine Dekoration; `mentor` ist dünn (1 von 30 Konten).
+3. **Im Band Vertrauen 0 bis +36 hebt ein gelandeter Diss den Zugang noch** um
+   bis zu 4,5 Punkte, weil positives Vertrauen für die Chance wertlos ist –
+   genau die Regel wird dort zum Schlupfloch. Erschöpfend durchgerechnet über
+   alle 201 × 201 Achsenpaare; Obergrenze +0,045 Chance je 36 wieder aufgebauter
+   Vertrauenspunkte. Ein echter Tausch: Wer so fährt, hält das Vertrauen bei
+   Null und verliert Kollabo, Tour, Label und den Partnerstatus (alle ab 50).
+4. **Der Dämpfer verdoppelt die Strafe legitimer Rückschläge.** Beim
+   Weltstar-Partner kostet **eine** verfallene Gegenanfrage 10,0 Chancenpunkte
+   statt 4,8. Gemessen trifft es gute Beziehungen selten: In fünf von sechs
+   Varianten null Tage mit einem eingebrochenen Partner, in einer 1 von 30
+   Konten mit 42 Tagen. Selbstheilend, 3 Punkte je Woche.
+5. **Der Paritätstest beweist die Buchführung, nicht das Spielverhalten.** Bei
+   gleichmäßiger Spaltung ist die neue Kette ziffernidentisch zur alten – aber
+   mit den echten Paaren laufen sie auseinander, und das ist Absicht: Zwanzig
+   echte Antworten ergaben früher Draht 100, jetzt 80 (Respekt sättigt bei 100,
+   Vertrauen steht bei 60).
+
+**Der Kollabo-Befund aus 5c war falsch formuliert.** Dort steht „das
+Kollabo-Album ist nicht spielbar". Gemessen: **Jedes** der 215 verfallenen
+Kollabos hatte die 18 von 18 Stunden **voll** und durchschnittlich 0,2 bis 0,3
+Titel von sechs geforderten. Die zwei Spielweisen, die Titel **horten**, schaffen
+72 von 72. Richtig ist: Das Kollabo ist **unverträglich mit dem täglichen
+Single-Release**, und das Spiel sagt es nicht – man zahlt erst 18 Stunden und
+erfährt den Grund (`no_songs`) danach. Spielregel aus 5c, in 6a nicht angefasst.
+
 ### Eine Bremse, nicht zwei
 
 Jede Einnahme darf **eine** unterlineare Kurve haben – nicht zwei übereinander,
